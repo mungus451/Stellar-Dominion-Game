@@ -13,7 +13,7 @@ $page_title = 'Inspiration';
 $active_page = 'inspiration.php';
 
 if ($is_logged_in) {
-    require_once "lib/db_config.php";
+    require_once __DIR__ . '/../../config/config.php';
     $user_id = $_SESSION['id'];
 
     // --- DATA FETCHING ---
