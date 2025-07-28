@@ -59,7 +59,7 @@ mysqli_close($link);
 <body class="text-gray-400 antialiased">
 <div class="min-h-screen bg-cover bg-center bg-fixed" style="background-image: url('assets/img/background.jpg');">
     <div class="container mx-auto p-4 md:p-8">
-            <?php include_once '../includes/navigation.php'; ?>
+            <?php include_once __DIR__ . '/../includes/navigation.php'; ?>
         <main class="space-y-4">
              <?php if(isset($_SESSION['alliance_message'])): ?>
                 <div class="bg-cyan-900 border border-cyan-500/50 text-cyan-300 p-3 rounded-md text-center">
