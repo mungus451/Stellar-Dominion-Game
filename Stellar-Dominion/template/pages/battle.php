@@ -129,6 +129,7 @@ $current_tab = isset($_GET['tab']) && $_GET['tab'] === 'disband' ? 'disband' : '
 
                     <div id="train-tab-content" class="<?php if ($current_tab !== 'train') echo 'hidden'; ?>">
                         <form id="train-form" action="lib/train.php" method="POST" class="space-y-4" data-charisma-discount="<?php echo 1 - ($user_data['charisma_points'] * 0.01); ?>">
+                            <input type="hidden" name="action" value="train">
                             <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
                                 <?php foreach($unit_costs as $unit => $cost): ?>
                                 <div class="content-box rounded-lg p-3">
@@ -155,6 +156,7 @@ $current_tab = isset($_GET['tab']) && $_GET['tab'] === 'disband' ? 'disband' : '
                     
                     <div id="disband-tab-content" class="<?php if ($current_tab !== 'disband') echo 'hidden'; ?>">
                         <form id="disband-form" action="lib/untrain.php" method="POST" class="space-y-4">
+                             <input type="hidden" name="action" value="disband">
                              <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
                                 <?php foreach($unit_costs as $unit => $cost): ?>
                                 <div class="content-box rounded-lg p-3">
