@@ -1,27 +1,37 @@
 <?php
+/**
+ * src/Controllers/LevelUpController.php
+ *
+ * Handles the form submission from the levels.php page for spending proficiency points.
+ * Validates that the user has enough points and that no stat exceeds the defined cap.
+ */
 session_start();
 if(!isset($_SESSION["loggedin"]) || $_SESSION["loggedin"] !== true){ header("location: index.html"); exit; }
 
-require_once __DIR__ . '/../../config/config.php'; // Corrected Path
+// Correct path from src/Controllers/ to the root config/ folder
+require_once __DIR__ . '/../../config/config.php'; 
 
-
-// Get points to spend from POST data
+// --- INPUT PROCESSING ---
+// Sanitize all incoming POST data to ensure they are non-negative integers.
 $points_for_strength = isset($_POST['strength_points']) ? max(0, (int)$_POST['strength_points']) : 0;
 $points_for_constitution = isset($_POST['constitution_points']) ? max(0, (int)$_POST['constitution_points']) : 0;
 $points_for_wealth = isset($_POST['wealth_points']) ? max(0, (int)$_POST['wealth_points']) : 0;
 $points_for_dexterity = isset($_POST['dexterity_points']) ? max(0, (int)$_POST['dexterity_points']) : 0;
 $points_for_charisma = isset($_POST['charisma_points']) ? max(0, (int)$_POST['charisma_points']) : 0;
 
+// Calculate the total number of points the user is attempting to spend.
 $total_points_to_spend = $points_for_strength + $points_for_constitution + $points_for_wealth + $points_for_dexterity + $points_for_charisma;
 
+// If no points are being spent, there's nothing to do.
 if ($total_points_to_spend <= 0) {
     header("location: /levels.php");
     exit;
 }
 
+// --- TRANSACTIONAL DATABASE UPDATE ---
 mysqli_begin_transaction($link);
 try {
-    // Get user's current stats
+    // Get the user's current stats, locking the row to prevent race conditions.
     $sql_get = "SELECT level_up_points, strength_points, constitution_points, wealth_points, dexterity_points, charisma_points FROM users WHERE id = ? FOR UPDATE";
     $stmt = mysqli_prepare($link, $sql_get);
     mysqli_stmt_bind_param($stmt, "i", $_SESSION['id']);
@@ -29,11 +39,13 @@ try {
     $user = mysqli_fetch_assoc(mysqli_stmt_get_result($stmt));
     mysqli_stmt_close($stmt);
 
+    // --- VALIDATION ---
+    // 1. Check if the user has enough points to spend.
     if ($user['level_up_points'] < $total_points_to_spend) {
         throw new Exception("Not enough level up points.");
     }
 
-    // Check for 75% cap
+    // 2. Check if any stat would exceed the 75-point cap.
     $cap = 75;
     if (($user['strength_points'] + $points_for_strength) > $cap ||
         ($user['constitution_points'] + $points_for_constitution) > $cap ||
@@ -43,7 +55,8 @@ try {
         throw new Exception("Cannot allocate more than 75 points to a single stat.");
     }
 
-    // Update stats
+    // --- EXECUTE UPDATE ---
+    // If all checks pass, update the user's stats in the database.
     $sql_update = "UPDATE users SET
                     level_up_points = level_up_points - ?,
                     strength_points = strength_points + ?,
@@ -65,13 +78,18 @@ try {
     mysqli_stmt_execute($stmt);
     mysqli_stmt_close($stmt);
 
+    // Commit the transaction to make the changes permanent.
     mysqli_commit($link);
 
 } catch (Exception $e) {
+    // If any error occurred, roll back all database changes.
     mysqli_rollback($link);
+    // A more user-friendly error handling approach would be to use sessions.
+    // For now, we'll stop execution and show the error.
     die("Error: " . $e->getMessage());
 }
 
-header("location: levels.php");
+// Redirect back to the levels page.
+header("location: /levels.php");
 exit;
 ?>
