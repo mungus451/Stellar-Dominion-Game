@@ -1,0 +1,52 @@
+/* -----------------------------------------------------------------------------
+ * Stellar Dominion - Unified Stylesheet
+ * ----------------------------------------------------------------------------- */
+
+/* --- Base Styles & Fonts --- */
+body { 
+    font-family: 'Roboto', sans-serif; 
+    background-color: #0c1427; 
+}
+
+.font-title { 
+    font-family: 'Orbitron', sans-serif; 
+}
+
+/* --- Layout & Backgrounds --- */
+.main-bg { 
+    background-color: #111827; 
+}
+
+.content-box { 
+    background-color: #1f2937; 
+    border: 1px solid #374151; 
+}
+
+/* --- Navigation --- */
+.nav-link { 
+    border-bottom: 2px solid transparent; 
+}
+
+.nav-link.active, 
+.nav-link:hover { 
+    border-bottom-color: #06b6d4; 
+    color: #fff; 
+}
+
+/* --- Form Elements --- */
+input[type=number] { 
+    -moz-appearance: textfield; 
+}
+
+input[type=number]::-webkit-inner-spin-button, 
+input[type=number]::-webkit-outer-spin-button { 
+  -webkit-appearance: none; 
+  margin: 0; 
+}
+
+/* --- Battle Report Specific --- */
+.battle-log-bg {
+    background-image: url('https://images.unsplash.com/photo-1534796636912-3b95b3ab5986?auto=format&fit=crop&w=1200&q=80');
+    background-size: cover;
+    background-position: center;
+}
