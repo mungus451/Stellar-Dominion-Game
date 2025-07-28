@@ -15,7 +15,7 @@ if (!isset($_SESSION["loggedin"]) || $_SESSION["loggedin"] !== true) {
 }
 
 // Include necessary configuration and game data files.
-require_once __DIR__ . '/../../lib/db_config.php';
+require_once __DIR__ . '/../../config/config.php';
 require_once __DIR__ . '/../Game/GameData.php'; // Required for structure costs and definitions
 
 // Get the user ID from the session and the requested action from the POST data.
