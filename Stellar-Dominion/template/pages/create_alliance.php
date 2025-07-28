@@ -14,7 +14,7 @@ $active_page = 'alliance.php';
 <body class="text-gray-400 antialiased">
 <div class="min-h-screen bg-cover bg-center bg-fixed">
 <div class="container mx-auto p-4 md:p-8">
-    <?php include_once 'includes/navigation.php'; ?>
+            <?php include_once '../includes/navigation.php'; ?>
     <main class="content-box rounded-lg p-6 mt-4 max-w-2xl mx-auto">
         <h1 class="font-title text-3xl text-cyan-400 border-b border-gray-600 pb-2 mb-4">Found a New Alliance</h1>
         <?php if(isset($_SESSION['alliance_error'])): ?>
