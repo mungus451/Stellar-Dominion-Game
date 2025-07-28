@@ -1,7 +1,7 @@
 <?php
 session_start();
-// This path is correct. It goes UP from 'auth' and then DOWN into 'lib'.
-require_once __DIR__ . '/../lib/db_config.php';
+// Go up two directories to the project root, then into the config folder.
+require_once __DIR__ . '/../../config/config.php';
 
 $email = trim($_POST['email']);
 $password = trim($_POST['password']);
