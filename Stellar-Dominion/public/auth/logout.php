@@ -8,6 +8,6 @@ $_SESSION = array();
 session_destroy();
  
 // Redirect to login page
-header("location: /index.html"); // Or wherever your main page is
+header("location: /"); // Corrected to a route handled by the front controller
 exit;
 ?>
