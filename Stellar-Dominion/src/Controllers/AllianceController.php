@@ -108,6 +108,55 @@ try {
         $_SESSION['alliance_message'] = "Alliance created successfully!";
         $redirect_url = '/alliance.php';
 
+    } else if ($action === 'edit') {
+        // *** START FIX: ADDED EDIT LOGIC ***
+        $redirect_url = '/edit_alliance.php';
+        $alliance_id = (int)$_POST['alliance_id'];
+        $description = trim($_POST['description']);
+        $avatar_path = null;
+
+        // Permission Check: Ensure the user can edit this specific alliance profile
+        if (!($user_info['can_edit_profile'] ?? false) || $user_info['alliance_id'] != $alliance_id) {
+            throw new Exception("You do not have permission to edit this alliance profile.");
+        }
+
+        // Avatar Upload Logic (similar to ProfileController)
+        if (isset($_FILES['avatar']) && $_FILES['avatar']['error'] === UPLOAD_ERR_OK) {
+            $upload_dir = __DIR__ . '/../../public/uploads/avatars/';
+            if (!is_dir($upload_dir)) { mkdir($upload_dir, 0755, true); }
+
+            $allowed_ext = ['jpg', 'jpeg', 'png', 'gif'];
+            $file_ext = strtolower(pathinfo($_FILES['avatar']['name'], PATHINFO_EXTENSION));
+
+            if ($_FILES['avatar']['size'] > 10000000) { throw new Exception("File is too large (Max 10MB)."); }
+            if (!in_array($file_ext, $allowed_ext)) { throw new Exception("Invalid file type. Only JPG, PNG, GIF."); }
+
+            $new_file_name = 'alliance_avatar_' . $alliance_id . '_' . time() . '.' . $file_ext;
+            $destination = $upload_dir . $new_file_name;
+
+            if (move_uploaded_file($_FILES['avatar']['tmp_name'], $destination)) {
+                $avatar_path = '/uploads/avatars/' . $new_file_name;
+            } else {
+                throw new Exception("Could not move uploaded file.");
+            }
+        }
+
+        // Database Update
+        if ($avatar_path) {
+            $sql = "UPDATE alliances SET description = ?, avatar_path = ? WHERE id = ?";
+            $stmt = mysqli_prepare($link, $sql);
+            mysqli_stmt_bind_param($stmt, "ssi", $description, $avatar_path, $alliance_id);
+        } else {
+            $sql = "UPDATE alliances SET description = ? WHERE id = ?";
+            $stmt = mysqli_prepare($link, $sql);
+            mysqli_stmt_bind_param($stmt, "si", $description, $alliance_id);
+        }
+        mysqli_stmt_execute($stmt);
+        mysqli_stmt_close($stmt);
+
+        $_SESSION['alliance_message'] = "Alliance profile updated successfully!";
+        // *** END FIX ***
+        
     } else if ($action === 'apply_to_alliance') {
         if ($user_info['alliance_id']) {
             throw new Exception("You are already in an alliance.");
