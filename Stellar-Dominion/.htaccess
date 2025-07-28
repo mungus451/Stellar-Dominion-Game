@@ -2,8 +2,10 @@
 RewriteEngine On
 RewriteCond %{REQUEST_FILENAME} !-f
 RewriteCond %{REQUEST_FILENAME} !-d
-RewriteRule ^ index.php [QSA,L]
+# Corrected rule to point to the index.php inside the public directory
+RewriteRule ^ public/index.php [QSA,L]
 
-ErrorDocument 404 /404.php
-ErrorDocument 403 /403.php
-ErrorDocument 500 /500.php
+# Corrected paths to point to the error pages inside the public directory
+ErrorDocument 404 /public/404.php
+ErrorDocument 403 /public/403.php
+ErrorDocument 500 /public/500.php
