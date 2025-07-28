@@ -46,7 +46,7 @@
     <header class="fixed top-0 left-0 right-0 z-50 bg-dark-translucent backdrop-blur-md border-b border-cyan-400/20">
         <div class="container mx-auto px-6 py-4">
             <div class="flex justify-between items-center">
-                <a href="/index.html" class="text-3xl font-bold tracking-wider font-title text-cyan-400">STELLAR DOMINION</a>
+                <a href="/" class="text-3xl font-bold tracking-wider font-title text-cyan-400">STELLAR DOMINION</a>
                 <nav class="hidden md:flex space-x-8 text-lg">
                     <a href="/gameplay.php" class="nav-link-public <?php if($active_page === 'gameplay.php') echo 'active'; ?>">Gameplay</a>
                     <a href="/community.php" class="nav-link-public <?php if($active_page === 'community.php') echo 'active'; ?>">Community</a>
