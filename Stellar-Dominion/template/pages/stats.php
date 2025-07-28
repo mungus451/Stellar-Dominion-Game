@@ -63,6 +63,7 @@ mysqli_close($link);
 
 // Page Identification
 $active_page = 'stats.php';
+$page_title = 'Leaderboards'; // For the public header
 ?>
 <!DOCTYPE html>
 <html lang="en">
@@ -72,33 +73,24 @@ $active_page = 'stats.php';
     <title>Stellar Dominion - Leaderboards</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <script src="https://unpkg.com/lucide@latest"></script>
-    <link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@700&family=Roboto:wght@400;500;700&display=swap" rel="stylesheet">
+    <link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@700&family=Roboto:wght@400;500;700&display.swap" rel="stylesheet">
     <link rel="stylesheet" href="assets/css/style.css">
 </head>
 <body class="text-gray-400 antialiased">
     <div class="min-h-screen bg-cover bg-center bg-fixed" style="background-image: url('https://images.unsplash.com/photo-1446776811953-b23d57bd21aa?ixlib=rb-4.0.3&ixid=M3wxMjA3fDB8MHxwaG90by1wYWdlfHx8fGVufDB8fHx8fA%3D%3D&auto=format&fit=crop&w=1742&q=80');">
+        
+        <?php if ($is_logged_in): ?>
         <div class="container mx-auto p-4 md:p-8">
-
-            <?php if ($is_logged_in): ?>
             <?php include_once __DIR__ . '/../includes/navigation.php'; ?>
-            <?php else: ?>
-                <header class="bg-dark-translucent backdrop-blur-md border-b border-cyan-400/20 rounded-lg p-4 mb-4">
-                    <div class="flex justify-between items-center">
-                        <a href="index.html" class="text-3xl font-bold tracking-wider font-title text-cyan-400">STELLAR DOMINION</a>
-                        <nav class="hidden md:flex space-x-8 text-lg">
-                            <a href="index.html#features" class="hover:text-cyan-300 transition-colors">Features</a>
-                            <a href="index.html#gameplay" class="hover:text-cyan-300 transition-colors">Gameplay</a>
-                            <a href="community.php" class="hover:text-cyan-300 transition-colors">Community</a>
-                        </nav>
-                         <button id="mobile-menu-button" class="md:hidden focus:outline-none"><i data-lucide="menu" class="text-white"></i></button>
-                    </div>
-                </header>
-            <?php endif; ?>
+        <?php else: ?>
+            <?php include_once __DIR__ . '/../includes/public_header.php'; ?>
+            <div class="container mx-auto p-4 md:p-8">
+        <?php endif; ?>
 
-            <div class="grid grid-cols-1 <?php if ($is_logged_in) echo 'lg:grid-cols-4'; ?> gap-6">
+            <div class="grid grid-cols-1 <?php if ($is_logged_in) echo 'lg:grid-cols-4'; ?> gap-6 <?php if (!$is_logged_in) echo 'pt-20'; ?>">
                 <?php if ($is_logged_in && $user_stats): ?>
                 <aside class="lg:col-span-1 space-y-4">
-            <?php include_once __DIR__ . '/../includes/advisor.php'; ?>
+                    <?php include_once __DIR__ . '/../includes/advisor.php'; ?>
                      <div class="content-box rounded-lg p-4">
                         <h3 class="font-title text-cyan-400 border-b border-gray-600 pb-2 mb-3">Stats</h3>
                         <ul class="space-y-2 text-sm">
@@ -160,22 +152,14 @@ $active_page = 'stats.php';
                     <?php endforeach; ?>
                 </main>
             </div>
-            <?php if ($is_logged_in) echo '</div>'; ?>
         </div>
     </div>
-    <script src="assets/js/main.js" defer></script>
-     <script>
-        document.addEventListener('DOMContentLoaded', () => {
-            const mobileMenuButton = document.getElementById('mobile-menu-button');
-            const mobileMenu = document.getElementById('mobile-menu');
+    
+    <?php if ($is_logged_in): ?>
+        <script src="assets/js/main.js" defer></script>
+    <?php else: ?>
+        <?php include_once __DIR__ . '/../includes/public_footer.php'; ?>
+    <?php endif; ?>
 
-            if(mobileMenuButton) {
-                mobileMenuButton.addEventListener('click', () => {
-                    mobileMenu.classList.toggle('hidden');
-                });
-            }
-            lucide.createIcons();
-        });
-    </script>
 </body>
 </html>
