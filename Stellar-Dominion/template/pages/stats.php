@@ -80,7 +80,7 @@ $active_page = 'stats.php';
         <div class="container mx-auto p-4 md:p-8">
 
             <?php if ($is_logged_in): ?>
-            <?php include_once '../includes/navigation.php'; ?>
+            <?php include_once __DIR__ . '/../includes/navigation.php'; ?>
             <?php else: ?>
                 <header class="bg-dark-translucent backdrop-blur-md border-b border-cyan-400/20 rounded-lg p-4 mb-4">
                     <div class="flex justify-between items-center">
@@ -98,7 +98,7 @@ $active_page = 'stats.php';
             <div class="grid grid-cols-1 <?php if ($is_logged_in) echo 'lg:grid-cols-4'; ?> gap-6">
                 <?php if ($is_logged_in && $user_stats): ?>
                 <aside class="lg:col-span-1 space-y-4">
-                    <?php include 'includes/advisor.php'; ?>
+            <?php include_once __DIR__ . '/../includes/advisor.php'; ?>
                      <div class="content-box rounded-lg p-4">
                         <h3 class="font-title text-cyan-400 border-b border-gray-600 pb-2 mb-3">Stats</h3>
                         <ul class="space-y-2 text-sm">
