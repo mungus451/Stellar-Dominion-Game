@@ -1,0 +1,13 @@
+# .htaccess for Stellar-Dominion/public/
+
+RewriteEngine On
+
+# Redirect all requests to non-existent files/directories to index.php
+RewriteCond %{REQUEST_FILENAME} !-f
+RewriteCond %{REQUEST_FILENAME} !-d
+RewriteRule ^ index.php [QSA,L]
+
+# Set custom error pages
+ErrorDocument 404 /404.php
+ErrorDocument 403 /403.php
+ErrorDocument 500 /500.php
