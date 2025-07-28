@@ -1,6 +1,6 @@
 <?php
 /**
- * process_attack.php
+ * src/Controllers/AttackController.php
  *
  * Handles the server-side logic for initiating and resolving a PvP attack.
  * This includes validating the attack, calculating damage, determining the
@@ -16,7 +16,7 @@ if(!isset($_SESSION["loggedin"]) || $_SESSION["loggedin"] !== true){
     exit;
 }
 
-// Include necessary configuration and game data files.
+// --- FILE INCLUDES ---
 require_once __DIR__ . '/../../config/config.php';
 require_once __DIR__ . '/../Game/GameData.php'; // Contains upgrade definitions
 
@@ -31,7 +31,7 @@ $attack_turns = isset($_POST['attack_turns']) ? (int)$_POST['attack_turns'] : 0;
 // Validate that the defender ID and attack turns are within the legal range.
 // Redirect back to the attack page if the input is invalid.
 if ($defender_id <= 0 || $attack_turns < 1 || $attack_turns > 10) {
-    header("location: attack.php");
+    header("location: /attack.php");
     exit;
 }
 
@@ -131,7 +131,7 @@ try {
         $steal_percentage = min(0.1 * $attack_turns, 1.0);
         $credits_stolen = floor($defender['credits'] * $steal_percentage);
 
-        // --- NEW: Alliance Bank Tax ---
+        // --- Alliance Bank Tax ---
         // 10% of the stolen credits are redirected to the attacker's alliance bank.
         $alliance_tax = floor($credits_stolen * 0.10);
         $attacker_net_gain = $credits_stolen - $alliance_tax;
