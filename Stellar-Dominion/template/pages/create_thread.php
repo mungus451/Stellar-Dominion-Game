@@ -33,7 +33,7 @@ mysqli_close($link);
 <body class="text-gray-400 antialiased">
 <div class="min-h-screen bg-cover bg-center bg-fixed" style="background-image: url('assets/img/background.jpg');">
 <div class="container mx-auto p-4 md:p-8">
-    <?php include_once 'includes/navigation.php'; ?>
+            <?php include_once '../includes/navigation.php'; ?>
     <main class="content-box rounded-lg p-6 mt-4 max-w-4xl mx-auto">
         <h1 class="font-title text-3xl text-cyan-400 border-b border-gray-600 pb-2 mb-4">Create New Forum Thread</h1>
         
