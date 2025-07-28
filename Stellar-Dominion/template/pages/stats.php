@@ -80,7 +80,7 @@ $active_page = 'stats.php';
         <div class="container mx-auto p-4 md:p-8">
 
             <?php if ($is_logged_in): ?>
-                <?php include_once 'includes/navigation.php'; ?>
+            <?php include_once '../includes/navigation.php'; ?>
             <?php else: ?>
                 <header class="bg-dark-translucent backdrop-blur-md border-b border-cyan-400/20 rounded-lg p-4 mb-4">
                     <div class="flex justify-between items-center">
