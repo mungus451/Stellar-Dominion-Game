@@ -6,8 +6,8 @@
  */
 session_start();
 if (!isset($_SESSION["loggedin"]) || $_SESSION["loggedin"] !== true) { header("location: /index.html"); exit; }
-require_once "db_config.php";
-require_once "game_data.php"; // Include the new upgrade definitions
+require_once __DIR__ . '/../../config/config.php'; // Corrected Path
+require_once "GameData.php"; // Include the new upgrade definitions
 
 // --- INPUT VALIDATION ---
 $upgrade_type = isset($_POST['upgrade_type']) ? $_POST['upgrade_type'] : '';
