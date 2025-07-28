@@ -1,7 +1,7 @@
 <?php
 // --- SESSION AND DATABASE SETUP ---
 session_start();
-require_once "lib/db_config.php";
+require_once __DIR__ . '/../../config/config.php';
 date_default_timezone_set('UTC');
 
 $is_logged_in = isset($_SESSION["loggedin"]) && $_SESSION["loggedin"] === true;
