@@ -1,126 +1,209 @@
-# README: Stellar Dominion - A PHP Web Game
+# Stellar Dominion - A PHP & MySQL Web Game
 
-## 1. Project Overview
+Stellar Dominion is a persistent, turn-based, multiplayer strategy game built with PHP and MySQL. Inspired by classic browser-based empire-building games, it allows players to register, manage resources, train a military, and attack other players to plunder credits and gain experience. The game operates on a server-side cron job that processes "turns" every 10 minutes, ensuring that the game world evolves and players generate resources even while they are offline.
 
-Stellar Dominion is a persistent, turn-based, multiplayer strategy game built with PHP and MySQL. Inspired by classic browser-based empire-building games, it allows players to register, manage resources, train a military, and attack other players to plunder credits and gain experience.
-
-The game operates on a server-side cron job that processes "turns" every 10 minutes, ensuring that the game world evolves and players generate resources even while they are offline.
+This project features a comprehensive Alliance system, allowing players to form groups, manage roles and permissions, share resources, and engage in forum discussions.
 
 ---
 
-## 2. Core Game Mechanics
+## Core Game Mechanics
 
 ### The Turn System
-- The game progresses in **10-minute turns**.
-- Each turn, every player in the game receives:
-    - **2 Attack Turns**
-    - **1 Untrained Citizen**
-    - **Credits** (based on their income calculation)
+
+* The universe of Stellar Dominion is persistent and ever-evolving. Time progresses in automated **10-minute turns**.
+
+* Each turn, every commander in the galaxy is granted a baseline of resources to fuel their ambition: **2 Attack Turns** and **1 Untrained Citizen**.
+
+* Players also receive a foundational income of **Credits**.
 
 ### Economy & Income
-A player's income per turn is calculated with the following formula:
-`Income = floor((Base Income + Worker Income) * Wealth Bonus)`
--   **Base Income**: 5,000 credits per turn.
--   **Worker Income**: 50 credits per Worker unit.
--   **Wealth Bonus**: +1% to total income for every point in the "Wealth" stat.
+
+* A thriving economy is the bedrock of galactic conquest. Your income is calculated with the formula: `Income = floor((5000 + (Workers * 50)) * (1 + (Wealth Points * 0.01)))`.
+
+* **Base Income**: 5,000 credits per turn.
+
+* **Worker Income**: Each 'Worker' unit adds 50 credits to your income per turn.
+
+* **Wealth Proficiency**: Investing points into your 'Wealth' stat grants a cumulative 1% bonus to your total income for every point allocated.
 
 ### Unit Training
--   Players can train their "Untrained Citizens" into specialized units on the `battle.php` page.
--   Each unit has a base credit cost, which is reduced by the player's **Charisma** stat (`-1% cost per point`).
--   **Units:**
-    -   Worker: Generates income.
-    -   Soldier: Provides Offense Power.
-    -   Guard: Provides Defense Rating.
-    -   Sentry: Provides Fortification.
-    -   Spy: Provides Infiltration.
 
-### Combat System
--   Players attack each other from the `attack.php` page, spending 1-10 Attack Turns per attack.
--   **Offense Power**: `floor((Soldiers * 10) * (1 + Strength Bonus))`
--   **Defense Rating**: `floor((Guards * 10) * (1 + Constitution Bonus))`
--   **Outcome**: If the attacker's total damage (a randomized value based on Offense Power) is greater than the defender's, the attack is a victory.
--   **Plunder**: On a victory, the attacker steals a percentage of the defender's current credits, scaled by the number of turns used.
--   **Experience**: Both players gain XP based on the damage they dealt during the battle.
+* Your population begins as 'Untrained Citizens,' which can be transformed into specialized units on the `Training` page.
+
+* A high 'Charisma' stat reduces the credit cost of all units.
+
+* **Unit Types**:
+
+  * **Economic Units**: Workers generate a steady stream of credits.
+
+  * **Military Units**: Soldiers form your attack fleet, while Guards are essential for protecting your resources.
+
+### Combat & Plunder
+
+* From the `attack.php` page, you can launch assaults against other commanders.
+
+* Your 'Offense Power' is derived from your Soldiers and 'Strength' proficiency.
+
+* The 'Defense Rating' is calculated from Guards and 'Constitution' proficiency.
+
+* A successful attack allows you to steal a percentage of the defender's on-hand credits.
+
+* Every battle, win or lose, grants experience points (XP) to both commanders.
 
 ### Leveling System
--   Players gain XP from battles. When enough XP is accumulated, they level up.
--   Each level grants the player **1 Proficiency Point**.
--   Points can be spent on the `levels.php` page to increase one of five core stats, each providing a +1% bonus per point.
--   **Stats:**
-    -   **Strength**: Increases Offense Power.
-    -   **Constitution**: Increases Defense Rating.
-    -   **Wealth**: Increases credit income per turn.
-    -   **Dexterity**: (Reserved for future Sentry/Spy bonuses).
-    -   **Charisma**: Reduces the credit cost of training units.
--   **Cap**: A player cannot allocate more than 75 points to any single stat.
+
+* As you gain experience from combat, you will level up, granting you a **Proficiency Point**.
+
+* These points can be spent on the `levels.php` page to enhance your core stats, with each point providing a +1% bonus up to a maximum of 75.
+
+* **Stats**:
+
+  * **Strength**: Increases Offense Power.
+
+  * **Constitution**: Bolsters Defense Rating.
+
+  * **Wealth**: Increases credit income.
+
+  * **Charisma**: Reduces the credit cost for training units.
+
+### Alliances
+
+* Players can create or join alliances.
+
+* Creating an alliance costs **1,000,000 Credits**.
+
+* Alliances feature:
+
+  * **Role and Permission Management**: Leaders can create custom roles with specific permissions.
+
+  * **Resource Sharing**: Members can donate to an alliance bank and transfer credits or units to each other.
+
+  * **Alliance Structures**: Purchase structures that provide bonuses to all members.
+
+  * **Forums**: A private forum for alliance members to communicate.
 
 ---
 
-## 3. Local Deployment Guide
+## 🚀 Deployment Guide
 
 ### Requirements
-- A web server running Apache.
-- PHP version 7.4 or higher.
-- A MySQL or MariaDB database server.
+
+* An Apache web server.
+
+* PHP version 7.4 or higher with the `mysqli` extension enabled.
+
+* A MySQL or MariaDB database server.
 
 ### Step 1: Database Setup
-1.  Create a new, empty database in your MySQL server (e.g., `stellar_dominion`).
-2.  Create a database user and password with full permissions for that database.
-3.  Run the entire `database.sql` script. This will create and configure the necessary `users` and `battle_logs` tables.
+
+1. **Create a Database**: In your MySQL server, create a new, empty database. For example:
+
+   ```sql
+   CREATE DATABASE stellar_dominion;
+   ```
+
+2. **Create a User**: Create a dedicated database user and grant it full permissions to the new database.
+
+   ```sql
+   CREATE USER 'your_user'@'localhost' IDENTIFIED BY 'your_password';
+   GRANT ALL PRIVILEGES ON stellar_dominion.* TO 'your_user'@'localhost';
+   FLUSH PRIVILEGES;
+   ```
+
+3. **Import the Schema**: Run the `database.sql` script (not provided, but would contain table creation statements) in your new database. This will set up all the necessary tables (`users`, `alliances`, `battle_logs`, etc.).
+
+   *If `database.sql` is unavailable, you will need to manually create the tables based on the queries found throughout the PHP files. Key tables include `users`, `battle_logs`, `alliances`, `alliance_roles`, `alliance_applications`, `alliance_structures`, `alliance_bank_logs`, `forum_threads`, and `forum_posts`.*
 
 ### Step 2: File Configuration
-1.  Upload all the project's `.php` and `.html` files to your web server directory.
-2.  Open `lib/db_config.php` and fill in the `DB_SERVER`, `DB_USERNAME`, `DB_PASSWORD`, and `DB_NAME` constants with your database credentials.
 
-### Step 3: Cron Job Setup
-1.  Log into your server via SSH and open the crontab editor:
-    ```bash
-    crontab -e
-    ```
-2.  Add the following line to the file, making sure to replace the file path with the correct absolute path to your `cron_job.php` file:
-    ```
-    */10 * * * * /usr/bin/php /path/to/your/project/lib/cron_job.php
-    ```
-3.  Save and exit the editor. The game's turn processing will now run automatically every 10 minutes.
+1. **Upload Files**: Upload the entire `Stellar-Dominion-Game-main/Stellar-Dominion/` directory to your web server's document root (e.g., `/var/www/html/`).
+
+2. **Configure Database Connection**: Open the `config/config.php` file and update the database credentials with the ones you created in Step 1.
+
+   ```php
+   define('DB_SERVER', 'localhost');
+   define('DB_USERNAME', 'your_user'); // Replace with your username
+   define('DB_PASSWORD', 'your_password'); // Replace with your password
+   define('DB_NAME', 'stellar_dominion'); // Replace with your database name
+   ```
+
+3. **Set Server Permissions**: The application needs to be able to write to the `public/uploads/` directory to handle avatar uploads. Run the following commands from your project's root directory:
+
+   ```bash
+   mkdir -p public/uploads/avatars
+   sudo chown -R www-data:www-data public/uploads
+   sudo chmod -R 755 public/uploads
+   ```
+
+   *(Note: The user `www-data` is common for Debian/Ubuntu. It may be `apache` or another user on different systems.)*
+
+### Step 3: Web Server Configuration (`.htaccess`)
+
+Ensure your Apache server is configured to allow `.htaccess` overrides. The provided `public/.htaccess` file routes all requests through `index.php` and sets custom error pages.
+
+```apache
+# public/.htaccess
+RewriteEngine On
+
+RewriteCond %{REQUEST_FILENAME} !-f
+RewriteCond %{REQUEST_FILENAME} !-d
+RewriteRule ^ index.php [QSA,L]
+
+ErrorDocument 404 /404.php
+ErrorDocument 403 /403.php
+ErrorDocument 500 /500.php
+```
+
+### Step 4: Cron Job Setup
+
+The game's turn processing relies on a script that must be run automatically every 10 minutes.
+
+1. Log into your server via SSH and open the crontab editor:
+
+   ```bash
+   crontab -e
+   ```
+
+2. Add the following line, replacing the path with the absolute path to your `TurnProcessor.php` file:
+
+   ```
+   */10 * * * * /usr/bin/php /path/to/your/Stellar-Dominion/src/Game/TurnProcessor.php >> /path/to/your/Stellar-Dominion/src/Game/cron_log.txt 2>&1
+   ```
+
+   This command executes the turn processor script every 10 minutes and logs its output.
 
 ---
 
-## 4. File Structure & Purpose
+## 📂 File Structure & Purpose
 
-### User Management
--   **`index.html`**: The main landing page for new visitors, containing the login and registration forms in a modal.
--   **`auth/register.php`**: Handles new user creation. It validates input, hashes the password, and inserts the new player into the `users` table with starting resources.
--   **`auth/login.php`**: Authenticates existing users by comparing their submitted password with the stored hash. On success, it creates a PHP session.
--   **`auth/logout.php`**: Destroys the user's session and redirects to `index.html`.
+### Root Directories
 
-### Core Game Pages
--   **`dashboard.php`**: The main hub for logged-in players. Displays a full overview of resources, stats, and game time. It also processes any overdue turns for the player upon loading.
--   **`battle.php`**: The main training page where players can spend credits and untrained citizens to create specialized units.
--   **`attack.php`**: Displays a list of all other players, their current credit balance, and level. This is where players initiate attacks.
--   **`war_history.php`**: Shows the player's personal attack and defense logs, with links to detailed battle reports.
--   **`battle_report.php`**: Displays the detailed results of a single battle, including damage dealt, credits plundered, and XP gained.
--   **`levels.php`**: The interface where players can spend their earned proficiency points to upgrade their core stats.
--   **`structures.php`**: This page allows players to build and upgrade permanent structures that provide passive bonuses to their empire.
--   **`profile.php`**: Allows users to update their avatar and biography.
--   **`settings.php`**: Allows users to change their password, email, and activate vacation mode.
+* **`/config/`**: Contains the database connection configuration (`config.php`).
 
-### Server-Side Logic
--   **`lib/db_config.php`**: Contains the database credentials and establishes the connection to the MySQL server. It also sets the connection timezone to UTC.
--   **`lib/cron_job.php`**: The core server-side script that processes turns for all players. It calculates and awards resources based on game rules and is designed to be run automatically by the server's cron scheduler.
--   **`lib/train.php`**: Processes the form submission from `battle.php`, validates if the player has enough resources, and updates the database with the newly trained units.
--   **`lib/process_attack.php`**: The main battle logic script. It calculates damage, determines the outcome, transfers credits, awards XP, checks for level-ups, and creates a permanent record in the `battle_logs` table.
--   **`lib/levelup.php`**: Processes the form submission from `levels.php`, validates if the player has enough points, and updates the database with the new stat allocations.
--   **`lib/build_structure.php`**: This script handles the server-side logic for building a new structure.
--   **`lib/update_profile.php`**: Handles form submissions from profile.php for updating avatar and biography.
--   **`lib/update_settings.php`**: Handles various form submissions from the settings.php page.
+* **`/public/`**: The web server's document root. Contains the front controller (`index.php`), assets (CSS, JS, images), and user-facing error pages.
 
-### Includes
--   **`includes/navigation.php`**: A reusable component for generating the main and sub-navigation menus.
--   **`includes/advisor.php`**: Generates the A.I. advisor box content with tips relevant to the current page.
+* **`/src/`**: Contains the core application logic.
 
-### Assets
--   **`assets/css/style.css`**: Contains the unified stylesheet for the game.
--   **`assets/js/main.js`**: Contains shared JavaScript logic for timers, icons, and form helpers.
+  * **`/Controllers/`**: PHP scripts that handle server-side logic, such as processing forms for attacks, training, banking, and settings updates.
 
-### Database
--   **`database.sql`**: A consolidated SQL script containing all the necessary commands to create and configure the `users` and `battle_logs` tables from scratch.
+  * **`/Game/`**: Core game data files and the main turn processing script.
+
+* **`/template/`**: Contains all the HTML/PHP view files (pages and includes).
+
+  * **`/includes/`**: Reusable components like the navigation menu and AI advisor.
+
+  * **`/pages/`**: The individual pages of the game that the user sees.
+
+### Key Files
+
+* **`public/index.php`**: The **Front Controller** that routes all requests to the appropriate page or controller.
+
+* **`src/Game/TurnProcessor.php`**: The server-side script that processes turns for all players, run by the cron job.
+
+* **`src/Controllers/AttackController.php`**: Handles the entire battle logic from start to finish.
+
+* **`config/config.php`**: Contains the database credentials and establishes the MySQL connection.
+
+* **`template/includes/navigation.php`**: The reusable component for generating the main and sub-navigation menus.
+
+* **`.gitignore`**: Specifies files and directories to be ignored by version control, such as config files and user uploads.
