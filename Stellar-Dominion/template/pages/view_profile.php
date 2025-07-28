@@ -78,9 +78,9 @@ $active_page = 'attack.php'; // Keep the 'BATTLE' main nav active
         <div class="container mx-auto p-4 md:p-8">
 
             <?php if ($is_logged_in): ?>
-                <?php include_once 'includes/navigation.php'; ?>
+            <?php include_once '../includes/navigation.php'; ?>
             <?php else: ?>
-                <?php include_once 'includes/public_header.php'; ?>
+                <?php include_once '../includes/public_header.php'; ?>
             <?php endif; ?>
 
             <div class="grid grid-cols-1 <?php if ($is_logged_in) echo 'lg:grid-cols-4'; ?> gap-4 <?php if ($is_logged_in) echo 'p-4'; else echo 'pt-20'; ?>">
