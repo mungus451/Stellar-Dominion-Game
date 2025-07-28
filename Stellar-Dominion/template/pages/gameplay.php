@@ -72,5 +72,5 @@ include_once '../includes/public_header.php';
 </main>
 
 <?php
-include_once 'includes/public_footer.php';
+include_once '../includes/public_footer.php';
 ?>
