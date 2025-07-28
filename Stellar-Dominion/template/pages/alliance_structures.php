@@ -3,7 +3,7 @@ session_start();
 if (!isset($_SESSION["loggedin"]) || $_SESSION["loggedin"] !== true) { header("location: index.html"); exit; }
 
 require_once __DIR__ . '/../../config/config.php';
-require_once "lib/game_data.php"; // Contains structure definitions
+require_once __DIR__ . '/../../src/Game/GameData.php'; // Corrected path to GameData
 
 $user_id = $_SESSION['id'];
 $active_page = 'alliance.php'; // Keep main nav category as 'ALLIANCE'
