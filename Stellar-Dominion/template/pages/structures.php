@@ -10,7 +10,7 @@
 session_start();
 if(!isset($_SESSION["loggedin"]) || $_SESSION["loggedin"] !== true){ header("location: index.html"); exit; }
 require_once __DIR__ . '/../../config/config.php';
-require_once "lib/game_data.php"; // Include upgrade definitions
+require_once __DIR__ . '/../../src/Game/GameData.php'; // Corrected path to GameData
 date_default_timezone_set('UTC');
 
 $user_id = $_SESSION['id'];
