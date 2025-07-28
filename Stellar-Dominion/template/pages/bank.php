@@ -80,11 +80,11 @@ $active_page = 'bank.php';
     <div class="min-h-screen bg-cover bg-center bg-fixed" style="background-image: url('https://images.unsplash.com/photo-1446776811953-b23d57bd21aa?ixlib=rb-4.0.3&ixid=M3wxMjA3fDB8MHxwaG90by1wYWdlfHx8fGVufDB8fHx8fA%3D%3D&auto=format&fit=crop&w=1742&q=80');">
         <div class="container mx-auto p-4 md:p-8">
 
-            <?php include_once '../includes/navigation.php'; ?>
+            <?php include_once __DIR__ . '/../includes/navigation.php'; ?>
 
             <div class="grid grid-cols-1 lg:grid-cols-4 gap-4 p-4">
                 <aside class="lg:col-span-1 space-y-4">
-                    <?php include 'includes/advisor.php'; ?>
+            <?php include_once __DIR__ . '/../includes/advisor.php'; ?>
                     <div class="content-box rounded-lg p-4">
                         <h3 class="font-title text-cyan-400 border-b border-gray-600 pb-2 mb-3">Stats</h3>
                         <ul class="space-y-2 text-sm">
