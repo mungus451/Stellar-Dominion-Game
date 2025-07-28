@@ -1,7 +1,7 @@
 <?php
 session_start();
 if(!isset($_SESSION["loggedin"]) || $_SESSION["loggedin"] !== true){ header("location: index.html"); exit; }
-require_once "lib/db_config.php";
+require_once __DIR__ . '/../../config/config.php';
 
 $battle_id = isset($_GET['id']) ? (int)$_GET['id'] : 0;
 $log = null; // Initialize log as null
