@@ -1,8 +1,7 @@
 <?php
 session_start();
 if (!isset($_SESSION["loggedin"]) || $_SESSION["loggedin"] !== true) { header("location: index.html"); exit; }
-require_once "lib/db_config.php";
-
+require_once __DIR__ . '/../../config/config.php';
 $user_id = $_SESSION['id'];
 $active_page = 'alliance_forum.php';
 
