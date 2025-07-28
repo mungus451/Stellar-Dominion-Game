@@ -1,6 +1,6 @@
 <?php
 /**
- * lib/alliance_actions.php
+ * src/Controllers/AllianceController.php
  *
  * Handles all server-side logic for alliance management. This unified script
  * covers creation, applications, member and role management, structure purchasing,
@@ -14,8 +14,13 @@ if (!isset($_SESSION["loggedin"]) || $_SESSION["loggedin"] !== true) {
     exit;
 }
 
-// Include necessary configuration and game data files.
+// --- FILE INCLUDES ---
+// From this file's location (src/Controllers/), we go up two directories (../../) to the project root,
+// then into the 'config' directory.
 require_once __DIR__ . '/../../config/config.php';
+
+// From this file's location (src/Controllers/), we go up one directory (../) to the 'src' directory,
+// then into the 'Game' directory.
 require_once __DIR__ . '/../Game/GameData.php'; // Required for structure costs and definitions
 
 // Get the user ID from the session and the requested action from the POST data.
