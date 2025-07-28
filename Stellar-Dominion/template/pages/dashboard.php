@@ -6,7 +6,7 @@ if(!isset($_SESSION["loggedin"]) || $_SESSION["loggedin"] !== true){ header("loc
 
 // --- CORRECTED FILE PATHS ---
 require_once __DIR__ . '/../../config/config.php';
-require_once __DIR__ . '/../../src/Game/GameData.php'; // Corrected path to GameData
+require_once __DIR__ . '/../../src/Game/GameData.php'; Corrected path to GameData
 
 // --- CATCH-UP MECHANISM: PROCESS OVERDUE TURNS ---
 $user_id = $_SESSION["id"];
