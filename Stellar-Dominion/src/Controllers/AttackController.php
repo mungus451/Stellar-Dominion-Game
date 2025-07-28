@@ -17,7 +17,7 @@ if(!isset($_SESSION["loggedin"]) || $_SESSION["loggedin"] !== true){
 }
 
 // Include necessary configuration and game data files.
-require_once __DIR__ . '/../../lib/db_config.php';
+require_once __DIR__ . '/../../config/config.php';
 require_once __DIR__ . '/../Game/GameData.php'; // Contains upgrade definitions
 
 // Set the global timezone to UTC for consistency.
