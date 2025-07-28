@@ -1,3 +1,48 @@
+Of course. It looks like the previous fix worked, but now we've hit a server configuration issue. The error "Could not move uploaded file" is almost always caused by incorrect file permissions on the server, not a bug in the code's logic.
+
+### The Problem
+
+When you upload a file, the web server (running as a user like `www-data` or `apache`) needs permission to write that file to its destination directory. The controller is trying to save the new alliance avatar to the `public/uploads/avatars/` directory, but it's failing because it doesn't have the necessary permissions to create files there.
+
+### The Fix: Adjusting Server Permissions
+
+You will need to run a few commands in your server's terminal to create the directory and give the web server ownership of it.
+
+1.  **Navigate to your project's `public` directory:**
+
+    ```bash
+    cd /path/to/your/Stellar-Dominion/public/
+    ```
+
+2.  **Create the uploads directory:** This command will create `uploads` and `avatars` if they don't already exist.
+
+    ```bash
+    mkdir -p uploads/avatars
+    ```
+
+3.  **Change Ownership:** This command gives the web server user ownership of the `uploads` directory. (Note: `www-data:www-data` is common for Debian/Ubuntu. On CentOS/RHEL it might be `apache:apache`, and on macOS with native Apache it might be `_www:_www`).
+
+    ```bash
+    sudo chown -R www-data:www-data uploads
+    ```
+
+4.  **Set Permissions:** This ensures the owner can read, write, and execute within the directory.
+
+    ```bash
+    sudo chmod -R 755 uploads
+    ```
+
+After running these commands, the file upload should work correctly.
+
+-----
+
+### Proactive Code Improvement
+
+To make diagnosing these kinds of issues easier in the future, we can improve the error handling in `src/Controllers/AllianceController.php` to be more specific, just like it is in the `ProfileController`.
+
+Here is the updated code for the controller. It will now give you a more precise error if the directory is missing or not writable.
+
+```php
 <?php
 /**
  * src/Controllers/AllianceController.php
@@ -109,39 +154,49 @@ try {
         $redirect_url = '/alliance.php';
 
     } else if ($action === 'edit') {
-        // *** START FIX: ADDED EDIT LOGIC ***
         $redirect_url = '/edit_alliance.php';
         $alliance_id = (int)$_POST['alliance_id'];
         $description = trim($_POST['description']);
         $avatar_path = null;
+        $upload_error = null;
 
-        // Permission Check: Ensure the user can edit this specific alliance profile
         if (!($user_info['can_edit_profile'] ?? false) || $user_info['alliance_id'] != $alliance_id) {
             throw new Exception("You do not have permission to edit this alliance profile.");
         }
 
-        // Avatar Upload Logic (similar to ProfileController)
         if (isset($_FILES['avatar']) && $_FILES['avatar']['error'] === UPLOAD_ERR_OK) {
             $upload_dir = __DIR__ . '/../../public/uploads/avatars/';
-            if (!is_dir($upload_dir)) { mkdir($upload_dir, 0755, true); }
-
-            $allowed_ext = ['jpg', 'jpeg', 'png', 'gif'];
-            $file_ext = strtolower(pathinfo($_FILES['avatar']['name'], PATHINFO_EXTENSION));
-
-            if ($_FILES['avatar']['size'] > 10000000) { throw new Exception("File is too large (Max 10MB)."); }
-            if (!in_array($file_ext, $allowed_ext)) { throw new Exception("Invalid file type. Only JPG, PNG, GIF."); }
-
-            $new_file_name = 'alliance_avatar_' . $alliance_id . '_' . time() . '.' . $file_ext;
-            $destination = $upload_dir . $new_file_name;
-
-            if (move_uploaded_file($_FILES['avatar']['tmp_name'], $destination)) {
-                $avatar_path = '/uploads/avatars/' . $new_file_name;
-            } else {
-                throw new Exception("Could not move uploaded file.");
+            
+            if (!is_dir($upload_dir)) {
+                if (!mkdir($upload_dir, 0755, true)) {
+                    $upload_error = "Server Error: Could not create avatar directory.";
+                }
             }
+            if (!is_writable($upload_dir)) {
+                $upload_error = "Permission Error: The directory is not writable by the server.";
+            }
+
+            if ($upload_error === null) {
+                $allowed_ext = ['jpg', 'jpeg', 'png', 'gif'];
+                $file_ext = strtolower(pathinfo($_FILES['avatar']['name'], PATHINFO_EXTENSION));
+
+                if ($_FILES['avatar']['size'] > 10000000) { $upload_error = "File is too large (Max 10MB)."; }
+                if (!in_array($file_ext, $allowed_ext)) { $upload_error = "Invalid file type. Only JPG, PNG, GIF."; }
+                
+                if ($upload_error === null) {
+                    $new_file_name = 'alliance_avatar_' . $alliance_id . '_' . time() . '.' . $file_ext;
+                    $destination = $upload_dir . $new_file_name;
+
+                    if (move_uploaded_file($_FILES['avatar']['tmp_name'], $destination)) {
+                        $avatar_path = '/uploads/avatars/' . $new_file_name;
+                    } else {
+                        $upload_error = "Execution Error: Could not move uploaded file.";
+                    }
+                }
+            }
+            if ($upload_error) { throw new Exception($upload_error); }
         }
 
-        // Database Update
         if ($avatar_path) {
             $sql = "UPDATE alliances SET description = ?, avatar_path = ? WHERE id = ?";
             $stmt = mysqli_prepare($link, $sql);
@@ -155,7 +210,6 @@ try {
         mysqli_stmt_close($stmt);
 
         $_SESSION['alliance_message'] = "Alliance profile updated successfully!";
-        // *** END FIX ***
         
     } else if ($action === 'apply_to_alliance') {
         if ($user_info['alliance_id']) {
@@ -625,3 +679,4 @@ try {
 header("location: " . $redirect_url);
 exit;
 ?>
+```
