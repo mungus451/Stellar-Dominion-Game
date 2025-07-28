@@ -1,7 +1,7 @@
 <?php
 $page_title = 'Gameplay Overview';
 $active_page = 'gameplay.php';
-include_once 'includes/public_header.php';
+include_once '../includes/public_header.php';
 ?>
 
 <main class="container mx-auto px-6 pt-24">
