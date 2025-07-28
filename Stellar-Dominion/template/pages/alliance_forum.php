@@ -48,7 +48,7 @@ mysqli_close($link);
 <body class="text-gray-400 antialiased">
 <div class="min-h-screen bg-cover bg-center bg-fixed" style="background-image: url('assets/img/background.jpg');">
 <div class="container mx-auto p-4 md:p-8">
-    <?php include_once 'includes/navigation.php'; ?>
+            <?php include_once '../includes/navigation.php'; ?>
     <main class="space-y-4">
          <div class="content-box rounded-lg p-6">
              <div class="flex justify-between items-center mb-4">
