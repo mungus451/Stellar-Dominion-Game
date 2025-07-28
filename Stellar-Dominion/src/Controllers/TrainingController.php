@@ -106,19 +106,31 @@ try {
             $total_refund += floor($amount * $base_unit_costs[$unit] * $refund_rate);
         }
 
+        // *** START FIX ***
+        // Create variables to hold the values for binding.
+        $disband_workers = $units_to_disband['workers'] ?? 0;
+        $disband_soldiers = $units_to_disband['soldiers'] ?? 0;
+        $disband_guards = $units_to_disband['guards'] ?? 0;
+        $disband_sentries = $units_to_disband['sentries'] ?? 0;
+        $disband_spies = $units_to_disband['spies'] ?? 0;
+        // *** END FIX ***
+
         $sql_update = "UPDATE users SET 
                         untrained_citizens = untrained_citizens + ?, credits = credits + ?,
                         workers = workers - ?, soldiers = soldiers - ?, guards = guards - ?,
                         sentries = sentries - ?, spies = spies - ?
                        WHERE id = ?";
         $stmt_update = mysqli_prepare($link, $sql_update);
+        // *** START FIX ***
+        // Use the newly created variables in the bind_param call.
         mysqli_stmt_bind_param($stmt_update, "iiiiiiii", 
             $total_citizens_to_return, $total_refund,
-            $units_to_disband['workers'] ?? 0, $units_to_disband['soldiers'] ?? 0,
-            $units_to_disband['guards'] ?? 0, $units_to_disband['sentries'] ?? 0,
-            $units_to_disband['spies'] ?? 0,
+            $disband_workers, $disband_soldiers,
+            $disband_guards, $disband_sentries,
+            $disband_spies,
             $_SESSION["id"]
         );
+        // *** END FIX ***
         mysqli_stmt_execute($stmt_update);
         mysqli_stmt_close($stmt_update);
         $_SESSION['training_message'] = "Units successfully disbanded for " . number_format($total_refund) . " credits.";
