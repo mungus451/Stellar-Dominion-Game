@@ -1,6 +1,6 @@
 <?php
 /**
- * update_profile.php
+ * src/Controllers/ProfileController.php
  *
  * Handles form submissions from profile.php for updating avatar and biography.
  * Includes advanced error checking for file uploads.
@@ -8,7 +8,9 @@
 
 session_start();
 if (!isset($_SESSION["loggedin"]) || $_SESSION["loggedin"] !== true) { header("location: /index.html"); exit; }
-require_once __DIR__ . '/../../config/config.php'; // Corrected Path
+
+// Correct path from src/Controllers/ to the root config/ folder
+require_once __DIR__ . '/../../config/config.php'; 
 
 $user_id = $_SESSION['id'];
 $biography = isset($_POST['biography']) ? trim($_POST['biography']) : '';
@@ -16,7 +18,7 @@ $avatar_path = null;
 $upload_error_message = null; // Variable to hold our specific error message
 
 // --- Avatar Upload Logic with Advanced Error Checking ---
-// Check if a file was submitted for upload (catches cases where the form is submitted with no file selected)
+// Check if a file was submitted for upload
 if (isset($_FILES['avatar']) && $_FILES['avatar']['error'] !== UPLOAD_ERR_NO_FILE) {
 
     // First, check for built-in PHP upload errors
@@ -43,10 +45,12 @@ if (isset($_FILES['avatar']) && $_FILES['avatar']['error'] !== UPLOAD_ERR_NO_FIL
                 break;
         }
     } else {
-        // No PHP errors, proceed with our application-specific validation
-        $upload_dir = __DIR__ . '/../uploads/avatars/';
+        // --- CORRECTED PATH ---
+        // The upload directory should be inside the public folder to be web-accessible.
+        // From src/Controllers, we go up two levels to the project root, then down into public/uploads.
+        $upload_dir = __DIR__ . '/../../public/uploads/avatars/';
 
-        // Check and create directory
+        // Check and create directory if it doesn't exist
         if (!is_dir($upload_dir)) {
             if (!mkdir($upload_dir, 0755, true)) {
                 $upload_error_message = "Fatal Error: Could not create the avatar directory. Please check parent directory permissions.";
@@ -55,7 +59,7 @@ if (isset($_FILES['avatar']) && $_FILES['avatar']['error'] !== UPLOAD_ERR_NO_FIL
 
         // Check if the directory is writable
         if (!is_writable($upload_dir)) {
-            $upload_error_message = "Permission Error: The directory 'uploads/avatars/' is not writable by the server.";
+            $upload_error_message = "Permission Error: The directory 'public/uploads/avatars/' is not writable by the server.";
         }
 
         // If no directory errors, validate the file itself
@@ -73,7 +77,8 @@ if (isset($_FILES['avatar']) && $_FILES['avatar']['error'] !== UPLOAD_ERR_NO_FIL
                 $destination = $upload_dir . $new_file_name;
 
                 if (move_uploaded_file($_FILES['avatar']['tmp_name'], $destination)) {
-                    $avatar_path = '/uploads/avatars/' . $new_file_name; // Store root-relative path
+                    // Store the web-accessible, root-relative path for the database
+                    $avatar_path = '/uploads/avatars/' . $new_file_name; 
                 } else {
                     $upload_error_message = "Execution Error: Could not move the uploaded file. Please check server permissions for the target directory.";
                 }
