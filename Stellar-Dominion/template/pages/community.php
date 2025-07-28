@@ -57,7 +57,7 @@ if ($is_logged_in) {
             <?php if ($is_logged_in): ?>
             <?php include_once __DIR__ . '/../includes/navigation.php'; ?>
             <?php else: ?>
-            <?php include_once __DIR__ . '/includes/public_header.php'; ?>
+            <?php include_once __DIR__ . '/../includes/public_header.php'; ?>
             <?php endif; ?>
 
             <div class="grid grid-cols-1 <?php if ($is_logged_in) echo 'lg:grid-cols-4'; ?> gap-4 <?php if ($is_logged_in) echo 'p-4'; else echo 'pt-20'; ?>">
@@ -125,6 +125,6 @@ if ($is_logged_in) {
     <?php if ($is_logged_in): ?>
         <script src="assets/js/main.js" defer></script>
     <?php else: ?>
-            <?php include_once __DIR__ . '/includes/public_footer.php'; ?>
+            <?php include_once __DIR__ . '/../includes/public_footer.php'; ?>
     <?php endif; ?>
 </html>
