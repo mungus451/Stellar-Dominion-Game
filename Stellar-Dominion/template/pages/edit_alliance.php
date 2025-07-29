@@ -4,7 +4,7 @@ if (!isset($_SESSION["loggedin"]) || $_SESSION["loggedin"] !== true) { header("l
 require_once __DIR__ . '/../../config/config.php';
 
 $user_id = $_SESSION['id'];
-$active_page = 'edit_alliance.php'; // Corrected active page identifier
+$active_page = 'alliance.php'; // Corrected active page identifier
 $alliance = null;
 
 // Fetch the user's alliance ID first
