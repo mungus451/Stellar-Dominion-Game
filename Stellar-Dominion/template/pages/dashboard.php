@@ -73,7 +73,7 @@ if($stmt = mysqli_prepare($link, $sql)){
     mysqli_stmt_close($stmt);
 }
 
-// --- NEW: FETCH ARMORY DATA ---
+// --- FETCH ARMORY DATA ---
 $sql_armory = "SELECT item_key, quantity FROM user_armory WHERE user_id = ?";
 $stmt_armory = mysqli_prepare($link, $sql_armory);
 mysqli_stmt_bind_param($stmt_armory, "i", $user_id);
@@ -86,19 +86,14 @@ while($row = mysqli_fetch_assoc($armory_result)) {
 mysqli_stmt_close($stmt_armory);
 
 // --- NET WORTH RECALCULATION ---
-// Define base unit costs and refund rate for untrain value calculation
 $base_unit_costs = ['workers' => 100, 'soldiers' => 250, 'guards' => 250, 'sentries' => 500, 'spies' => 1000];
 $refund_rate = 0.75;
-
-// 1. Calculate the total untrain value of all units
 $total_unit_value = 0;
 foreach ($base_unit_costs as $unit => $cost) {
     if (isset($character_data[$unit])) {
         $total_unit_value += floor($character_data[$unit] * $cost * $refund_rate);
     }
 }
-
-// 2. Calculate the total cost of all purchased upgrades
 $total_upgrade_cost = 0;
 foreach ($upgrades as $category_key => $category) {
     $db_column = $category['db_column'];
@@ -107,22 +102,16 @@ foreach ($upgrades as $category_key => $category) {
         $total_upgrade_cost += $category['levels'][$i]['cost'] ?? 0;
     }
 }
-
-// 3. Calculate the new net worth (excluding banked credits)
 $new_net_worth = $total_unit_value + $total_upgrade_cost + $character_data['credits'];
-
-// 4. Update the database and the character data array
 if ($new_net_worth != $character_data['net_worth']) {
     $sql_update_networth = "UPDATE users SET net_worth = ? WHERE id = ?";
     if($stmt_nw = mysqli_prepare($link, $sql_update_networth)) {
         mysqli_stmt_bind_param($stmt_nw, "ii", $new_net_worth, $user_id);
         mysqli_stmt_execute($stmt_nw);
         mysqli_stmt_close($stmt_nw);
-        $character_data['net_worth'] = $new_net_worth; // Update the array for immediate display
+        $character_data['net_worth'] = $new_net_worth;
     }
 }
-// --- END: NET WORTH RECALCULATION ---
-
 mysqli_close($link);
 
 // --- CALCULATE CUMULATIVE BONUSES FROM UPGRADES ---
@@ -142,14 +131,13 @@ $economy_upgrade_multiplier = 1 + ($total_economy_bonus_pct / 100);
 $strength_bonus = 1 + ($character_data['strength_points'] * 0.01);
 $constitution_bonus = 1 + ($character_data['constitution_points'] * 0.01);
 
-// --- NEW: ARMORY BONUS CALCULATION ---
+// --- ARMORY ATTACK BONUS CALCULATION ---
 $armory_attack_bonus = 0;
 $soldier_count = $character_data['soldiers'];
-if ($soldier_count > 0) {
+if ($soldier_count > 0 && isset($armory_loadouts['soldier'])) {
     foreach ($armory_loadouts['soldier']['categories'] as $category) {
         foreach ($category['items'] as $item_key => $item) {
-            if (isset($owned_items[$item_key])) {
-                // Bonus is capped by the number of soldiers
+            if (isset($owned_items[$item_key]) && isset($item['attack'])) {
                 $effective_items = min($soldier_count, $owned_items[$item_key]);
                 $armory_attack_bonus += $effective_items * $item['attack'];
             }
@@ -157,8 +145,22 @@ if ($soldier_count > 0) {
     }
 }
 
+// --- ARMORY DEFENSE BONUS CALCULATION ---
+$armory_defense_bonus = 0;
+$guard_count = $character_data['guards'];
+if ($guard_count > 0 && isset($armory_loadouts['guard'])) {
+    foreach ($armory_loadouts['guard']['categories'] as $category) {
+        foreach ($category['items'] as $item_key => $item) {
+            if (isset($owned_items[$item_key]) && isset($item['defense'])) {
+                $effective_items = min($guard_count, $owned_items[$item_key]);
+                $armory_defense_bonus += $effective_items * $item['defense'];
+            }
+        }
+    }
+}
+
 $offense_power = floor((($character_data['soldiers'] * 10) * $strength_bonus + $armory_attack_bonus) * $offense_upgrade_multiplier);
-$defense_rating = floor((($character_data['guards'] * 10) * $constitution_bonus) * $defense_upgrade_multiplier);
+$defense_rating = floor(((($character_data['guards'] * 10) + $armory_defense_bonus) * $constitution_bonus) * $defense_upgrade_multiplier);
 $fortification = ($character_data['sentries'] * 10);
 $infiltration = $character_data['spies'] * 10;
 
