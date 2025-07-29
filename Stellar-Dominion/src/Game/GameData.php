@@ -61,7 +61,7 @@ $upgrades = [
         'db_column' => 'population_level',
         'levels' => [
             1 => ['name' => 'Habitation Pods I', 'cost' => 300000, 'fort_req' => 1, 'bonuses' => ['citizens' => 1], 'description' => '+1 citizen per turn (Total: 2).'],
-            2 => ['name' => 'Habitation Pods II', 'cost' => 150000, 'fort_req' => 2, 'bonuses' => ['citizens' => 1], 'description' => '+1 citizen per turn (Total: 3).'],
+            2 => ['name' => 'Habitation Pods II', 'cost' => 1500000, 'fort_req' => 2, 'bonuses' => ['citizens' => 1], 'description' => '+1 citizen per turn (Total: 3).'],
             3 => ['name' => 'Habitation Pods III', 'cost' => 6000000, 'fort_req' => 4, 'bonuses' => ['citizens' => 2], 'description' => '+2 citizens per turn (Total: 5).'],
         ]
     ],
@@ -146,10 +146,10 @@ $armory_loadouts = [
                 'slots' => 1,
                 'items' => [
                     'combat_dagger' => ['name' => 'Combat Dagger', 'attack' => 10, 'cost' => 100, 'notes' => 'Quick, cheap.'],
-                    'shock_baton' => ['name' => 'Shock Baton', 'attack' => 20, 'cost' => 250, 'notes' => 'Stuns briefly, low raw damage.', 'requires' => 'combat_dagger'],
-                    'energy_blade' => ['name' => 'Energy Blade', 'attack' => 30, 'cost' => 400, 'notes' => 'Ignores armor.', 'requires' => 'shock_baton'],
-                    'vibro_axe' => ['name' => 'Vibro Axe', 'attack' => 40, 'cost' => 600, 'notes' => 'Heavy, great vs. fortifications.', 'requires' => 'energy_blade'],
-                    'plasma_sword' => ['name' => 'Plasma Sword', 'attack' => 50, 'cost' => 800, 'notes' => 'High damage, rare.', 'requires' => 'vibro_axe'],
+                    'shock_baton' => ['name' => 'Shock Baton', 'attack' => 20, 'cost' => 250, 'notes' => 'Stuns briefly, low raw damage.', 'requires' => 'combat_dagger', 'armory_level_req' => 1],
+                    'energy_blade' => ['name' => 'Energy Blade', 'attack' => 30, 'cost' => 400, 'notes' => 'Ignores armor.', 'requires' => 'shock_baton', 'armory_level_req' => 2],
+                    'vibro_axe' => ['name' => 'Vibro Axe', 'attack' => 40, 'cost' => 600, 'notes' => 'Heavy, great vs. fortifications.', 'requires' => 'energy_blade', 'armory_level_req' => 3],
+                    'plasma_sword' => ['name' => 'Plasma Sword', 'attack' => 50, 'cost' => 800, 'notes' => 'High damage, rare.', 'requires' => 'vibro_axe', 'armory_level_req' => 4],
                 ]
             ],
             'headgear' => [
@@ -157,10 +157,10 @@ $armory_loadouts = [
                 'slots' => 1,
                 'items' => [
                     'tactical_goggles' => ['name' => 'Tactical Goggles', 'attack' => 5, 'cost' => 150, 'notes' => 'Accuracy boost.'],
-                    'scout_visor' => ['name' => 'Scout Visor', 'attack' => 10, 'cost' => 300, 'notes' => 'Detects stealth.', 'requires' => 'tactical_goggles'],
-                    'heavy_helmet' => ['name' => 'Heavy Helmet', 'attack' => 15, 'cost' => 500, 'notes' => 'Defense bonus, slight weight penalty.', 'requires' => 'scout_visor'],
-                    'neural_uplink' => ['name' => 'Neural Uplink', 'attack' => 20, 'cost' => 700, 'notes' => 'Faster reactions, boosts all attacks slightly.', 'requires' => 'heavy_helmet'],
-                    'cloak_hood' => ['name' => 'Cloak Hood', 'attack' => 25, 'cost' => 1000, 'notes' => 'Stealth advantage, minimal armor.', 'requires' => 'neural_uplink'],
+                    'scout_visor' => ['name' => 'Scout Visor', 'attack' => 10, 'cost' => 300, 'notes' => 'Detects stealth.', 'requires' => 'tactical_goggles', 'armory_level_req' => 1],
+                    'heavy_helmet' => ['name' => 'Heavy Helmet', 'attack' => 15, 'cost' => 500, 'notes' => 'Defense bonus, slight weight penalty.', 'requires' => 'scout_visor', 'armory_level_req' => 2],
+                    'neural_uplink' => ['name' => 'Neural Uplink', 'attack' => 20, 'cost' => 700, 'notes' => 'Faster reactions, boosts all attacks slightly.', 'requires' => 'heavy_helmet', 'armory_level_req' => 3],
+                    'cloak_hood' => ['name' => 'Cloak Hood', 'attack' => 25, 'cost' => 1000, 'notes' => 'Stealth advantage, minimal armor.', 'requires' => 'neural_uplink', 'armory_level_req' => 4],
                 ]
             ],
             'explosives' => [
@@ -168,10 +168,10 @@ $armory_loadouts = [
                 'slots' => 1,
                 'items' => [
                     'frag_grenade' => ['name' => 'Frag Grenade', 'attack' => 30, 'cost' => 200, 'notes' => 'Basic explosive.'],
-                    'plasma_grenade' => ['name' => 'Plasma Grenade', 'attack' => 45, 'cost' => 400, 'notes' => 'Sticks to targets.', 'requires' => 'frag_grenade'],
-                    'emp_charge' => ['name' => 'EMP Charge', 'attack' => 50, 'cost' => 600, 'notes' => 'Weakens shields/tech.', 'requires' => 'plasma_grenade'],
-                    'nano_cluster_bomb' => ['name' => 'Nano Cluster Bomb', 'attack' => 70, 'cost' => 900, 'notes' => 'Drone swarms shred troops.', 'requires' => 'emp_charge'],
-                    'void_charge' => ['name' => 'Void Charge', 'attack' => 100, 'cost' => 1400, 'notes' => 'Creates gravity implosion, devastating AoE.', 'requires' => 'nano_cluster_bomb'],
+                    'plasma_grenade' => ['name' => 'Plasma Grenade', 'attack' => 45, 'cost' => 400, 'notes' => 'Sticks to targets.', 'requires' => 'frag_grenade', 'armory_level_req' => 1],
+                    'emp_charge' => ['name' => 'EMP Charge', 'attack' => 50, 'cost' => 600, 'notes' => 'Weakens shields/tech.', 'requires' => 'plasma_grenade', 'armory_level_req' => 2],
+                    'nano_cluster_bomb' => ['name' => 'Nano Cluster Bomb', 'attack' => 70, 'cost' => 900, 'notes' => 'Drone swarms shred troops.', 'requires' => 'emp_charge', 'armory_level_req' => 3],
+                    'void_charge' => ['name' => 'Void Charge', 'attack' => 100, 'cost' => 1400, 'notes' => 'Creates gravity implosion, devastating AoE.', 'requires' => 'nano_cluster_bomb', 'armory_level_req' => 4],
                 ]
             ]
         ]
