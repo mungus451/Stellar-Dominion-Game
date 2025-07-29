@@ -102,71 +102,69 @@ $alliance_structures_definitions = [
     ]
 ];
 
-// --- NEW: Armory Item Definitions ---
-$armory_items = [
-    'offense' => [
-        'title' => 'Offensive Armaments',
+// --- REFINED ARMORY LOADOUTS ---
+$armory_loadouts = [
+    'soldier' => [
+        'title' => 'Soldier Offensive Loadout',
         'unit' => 'soldiers',
-        'bonus_type' => 'offense',
-        'items' => [
-            'plasma_rifles' => [
-                'name' => 'Plasma Rifles',
-                'description' => 'Increases total Offense Power. You can equip one per Soldier.',
-                'cost' => 500,
-                'bonus' => 0.1 // Each rifle adds +0.1% to total Offense Power
+        'categories' => [
+            'main_weapon' => [
+                'title' => 'Heavy Main Weapons',
+                'slots' => 1,
+                'items' => [
+                    'pulse_rifle' => ['name' => 'Pulse Rifle', 'attack' => 40, 'cost' => 800, 'notes' => 'Basic, reliable.'],
+                    'railgun' => ['name' => 'Railgun', 'attack' => 60, 'cost' => 1200, 'notes' => 'High penetration, slower fire.'],
+                    'plasma_minigun' => ['name' => 'Plasma Minigun', 'attack' => 75, 'cost' => 1700, 'notes' => 'Rapid fire, slightly inaccurate.'],
+                    'arc_cannon' => ['name' => 'Arc Cannon', 'attack' => 90, 'cost' => 2200, 'notes' => 'Chains to nearby enemies.'],
+                    'antimatter_launcher' => ['name' => 'Antimatter Launcher', 'attack' => 120, 'cost' => 3000, 'notes' => 'Extremely strong, high cost.'],
+                ]
             ],
-            'disruptor_torpedoes' => [
-                'name' => 'Disruptor Torpedoes',
-                'description' => 'Advanced munitions that significantly boost offensive capabilities.',
-                'cost' => 2500,
-                'bonus' => 0.25
-            ]
-        ]
-    ],
-    'defense' => [
-        'title' => 'Defensive Systems',
-        'unit' => 'guards',
-        'bonus_type' => 'defense',
-        'items' => [
-            'ablative_armor' => [
-                'name' => 'Ablative Armor',
-                'description' => 'Increases total Defense Rating. You can equip one set per Guard.',
-                'cost' => 500,
-                'bonus' => 0.1 // Each set adds +0.1% to total Defense Rating
+            'sidearm' => [
+                'title' => 'Sidearms',
+                'slots' => 2,
+                'items' => [
+                    'laser_pistol' => ['name' => 'Laser Pistol', 'attack' => 25, 'cost' => 300, 'notes' => 'Basic energy sidearm.'],
+                    'stun_blaster' => ['name' => 'Stun Blaster', 'attack' => 30, 'cost' => 400, 'notes' => 'Weak but disables shields briefly.'],
+                    'needler_pistol' => ['name' => 'Needler Pistol', 'attack' => 35, 'cost' => 500, 'notes' => 'Seeking rounds, bonus vs. light armor.'],
+                    'compact_rail_smg' => ['name' => 'Compact Rail SMG', 'attack' => 45, 'cost' => 700, 'notes' => 'Burst damage, close range.'],
+                    'photon_revolver' => ['name' => 'Photon Revolver', 'attack' => 55, 'cost' => 900, 'notes' => 'High crit chance, slower reload.'],
+                ]
             ],
-            'shield_generators' => [
-                'name' => 'Shield Generators',
-                'description' => 'Energy shields that further enhance defensive strength.',
-                'cost' => 2500,
-                'bonus' => 0.25
-            ]
-        ]
-    ],
-    'sentry' => [
-        'title' => 'Fortification Systems',
-        'unit' => 'sentries',
-        'bonus_type' => 'fortification',
-        'items' => [
-            'sensor_arrays' => [
-                'name' => 'Sensor Arrays',
-                'description' => 'Boosts the effectiveness of your Sentries. One per unit.',
-                'cost' => 1000,
-                'bonus' => 0.2
-            ]
-        ]
-    ],
-    'spy' => [
-        'title' => 'Infiltration Gear',
-        'unit' => 'spies',
-        'bonus_type' => 'infiltration',
-        'items' => [
-            'stealth_generators' => [
-                'name' => 'Stealth Generators',
-                'description' => 'Personal cloaking devices for your Spies. One per unit.',
-                'cost' => 2000,
-                'bonus' => 0.2
+            'melee' => [
+                'title' => 'Melee Weapons',
+                'slots' => 1,
+                'items' => [
+                    'combat_dagger' => ['name' => 'Combat Dagger', 'attack' => 10, 'cost' => 100, 'notes' => 'Quick, cheap.'],
+                    'shock_baton' => ['name' => 'Shock Baton', 'attack' => 20, 'cost' => 250, 'notes' => 'Stuns briefly, low raw damage.'],
+                    'energy_blade' => ['name' => 'Energy Blade', 'attack' => 30, 'cost' => 400, 'notes' => 'Ignores armor.'],
+                    'vibro_axe' => ['name' => 'Vibro Axe', 'attack' => 40, 'cost' => 600, 'notes' => 'Heavy, great vs. fortifications.'],
+                    'plasma_sword' => ['name' => 'Plasma Sword', 'attack' => 50, 'cost' => 800, 'notes' => 'High damage, rare.'],
+                ]
+            ],
+            'headgear' => [
+                'title' => 'Head Gear',
+                'slots' => 1,
+                'items' => [
+                    'tactical_goggles' => ['name' => 'Tactical Goggles', 'attack' => 5, 'cost' => 150, 'notes' => 'Accuracy boost.'],
+                    'scout_visor' => ['name' => 'Scout Visor', 'attack' => 10, 'cost' => 300, 'notes' => 'Detects stealth.'],
+                    'heavy_helmet' => ['name' => 'Heavy Helmet', 'attack' => 15, 'cost' => 500, 'notes' => 'Defense bonus, slight weight penalty.'],
+                    'neural_uplink' => ['name' => 'Neural Uplink', 'attack' => 20, 'cost' => 700, 'notes' => 'Faster reactions, boosts all attacks slightly.'],
+                    'cloak_hood' => ['name' => 'Cloak Hood', 'attack' => 25, 'cost' => 1000, 'notes' => 'Stealth advantage, minimal armor.'],
+                ]
+            ],
+            'explosives' => [
+                'title' => 'Explosives',
+                'slots' => 1,
+                'items' => [
+                    'frag_grenade' => ['name' => 'Frag Grenade', 'attack' => 30, 'cost' => 200, 'notes' => 'Basic explosive.'],
+                    'plasma_grenade' => ['name' => 'Plasma Grenade', 'attack' => 45, 'cost' => 400, 'notes' => 'Sticks to targets.'],
+                    'emp_charge' => ['name' => 'EMP Charge', 'attack' => 50, 'cost' => 600, 'notes' => 'Weakens shields/tech.'],
+                    'nano_cluster_bomb' => ['name' => 'Nano Cluster Bomb', 'attack' => 70, 'cost' => 900, 'notes' => 'Drone swarms shred troops.'],
+                    'void_charge' => ['name' => 'Void Charge', 'attack' => 100, 'cost' => 1400, 'notes' => 'Creates gravity implosion, devastating AoE.'],
+                ]
             ]
         ]
     ]
+    // Future loadouts for Guards, Spies, etc., can be added here.
 ];
 ?>
