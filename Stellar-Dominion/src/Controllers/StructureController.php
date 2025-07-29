@@ -33,7 +33,7 @@ $db_column = $upgrade_category['db_column']; // The corresponding column name in
 mysqli_begin_transaction($link);
 try {
     // Get all necessary user data, locking the row for the transaction to prevent race conditions.
-    $sql_get_user = "SELECT level, credits, fortification_level, offense_upgrade_level, defense_upgrade_level, spy_upgrade_level, economy_upgrade_level, population_level FROM users WHERE id = ? FOR UPDATE";
+    $sql_get_user = "SELECT level, credits, charisma_points, fortification_level, offense_upgrade_level, defense_upgrade_level, spy_upgrade_level, economy_upgrade_level, population_level FROM users WHERE id = ? FOR UPDATE";
     $stmt = mysqli_prepare($link, $sql_get_user);
     mysqli_stmt_bind_param($stmt, "i", $_SESSION["id"]);
     mysqli_stmt_execute($stmt);
@@ -42,6 +42,11 @@ try {
 
     // --- SERVER-SIDE VALIDATION ---
     $current_upgrade_level = $user[$db_column];
+    
+    // Calculate cost with charisma discount
+    $charisma_discount = 1 - ($user['charisma_points'] * 0.01);
+    $final_cost = floor($upgrade_details['cost'] * $charisma_discount);
+
 
     // 1. Check if the user is building the very next level in sequence.
     if ($current_upgrade_level != $target_level - 1) {
@@ -56,8 +61,8 @@ try {
         throw new Exception("Your empire foundation is not advanced enough.");
     }
     // 4. Check if the player has enough credits.
-    if ($user['credits'] < $upgrade_details['cost']) {
-        throw new Exception("Not enough credits.");
+    if ($user['credits'] < $final_cost) {
+        throw new Exception("Not enough credits. Cost: " . number_format($final_cost));
     }
 
     // --- EXECUTE UPDATE ---
@@ -65,7 +70,7 @@ try {
     // against our own trusted $upgrades array, not user input.
     $sql_update = "UPDATE users SET credits = credits - ?, `$db_column` = ? WHERE id = ?";
     $stmt = mysqli_prepare($link, $sql_update);
-    mysqli_stmt_bind_param($stmt, "iii", $upgrade_details['cost'], $target_level, $_SESSION["id"]);
+    mysqli_stmt_bind_param($stmt, "iii", $final_cost, $target_level, $_SESSION["id"]);
     mysqli_stmt_execute($stmt);
     mysqli_stmt_close($stmt);
 
