@@ -89,21 +89,21 @@ if ($is_logged_in) {
                         <h3 class="font-title text-2xl text-cyan-400 mb-4 border-b border-gray-600 pb-2">Development Newsfeed</h3>
                         
                         <div class="mb-8 pb-4 border-b border-gray-700">
-                            <h4 class="font-title text-xl text-yellow-400">Alliance Management Overhaul: Roles & Permissions are LIVE!</h4>
-                            <p class="text-xs text-gray-500 mb-2">Posted: 2025-07-26</p>
-                            <p class="text-gray-300">Commanders, today marks a massive leap forward in alliance management. We have rolled out a comprehensive Roles and Permissions system! Alliance leaders, now designated as 'Supreme Commanders', can create an unlimited number of custom roles within their alliance. Assign granular permissions for editing the alliance profile, approving new members, kicking members, and even delegating the management of roles itself. This feature provides the ultimate flexibility to structure your alliance's hierarchy exactly as you see fit. Check out the new "Roles & Permissions" tab in your Alliance Hub to begin customizing your command structure!</p>
+                            <h4 class="font-title text-xl text-yellow-400">Armory Overhaul: Tech Up to Gear Up!</h4>
+                            <p class="text-xs text-gray-500 mb-2">Posted: 2025-07-29</p>
+                            <p class="text-gray-300">Commanders, a new strategic layer has been added to military progression! The Armory is now a tiered structure that must be upgraded via the 'Structures' page. Each level of your Armory unlocks access to a new tier of advanced weaponry for your soldiers. You must now invest in your empire's infrastructure to unlock its full military potential. Check the Structures page to begin upgrading your Armory and visit the Armory to see the new requirements for high-tier gear!</p>
+                        </div>
+
+                        <div class="mb-8 pb-4 border-b border-gray-700">
+                            <h4 class="font-title text-xl text-yellow-400">The Alliance Initiative: A New Era of Collaboration!</h4>
+                            <p class="text-xs text-gray-500 mb-2">Posted: 2025-07-28</p>
+                            <p class="text-gray-300">Today marks the single largest update to Stellar Dominion with the release of the Alliance Initiative. Commanders can now form powerful Alliances, complete with a shared bank, collaborative structures that benefit all members, and a private forum for strategic discussions. The new Roles & Permissions system allows leaders to create a detailed hierarchy to manage their members. Forge new bonds, share resources, and dominate the galaxy together!</p>
                         </div>
 
                         <div class="mb-8 pb-4 border-b border-gray-700">
                             <h4 class="font-title text-xl text-yellow-400">Join the Ranks: Alliance Applications Now Open</h4>
                             <p class="text-xs text-gray-500 mb-2">Posted: 2025-07-26</p>
                             <p class="text-gray-300">Lone wolves, your time has come to find a pack! We've introduced a formal application system for joining alliances. Commanders without an alliance can now browse a list of active alliances and submit an application to join. For alliance leadership, a new "Applications" tab is now available in the Alliance Hub where authorized members can review, approve, or deny incoming requests. This streamlined process makes recruitment easier and more organized than ever before.</p>
-                        </div>
-
-                        <div class="mb-8 pb-4 border-b border-gray-700">
-                            <h4 class="font-title text-xl text-yellow-400">Major Upgrade System Overhaul & New Structures!</h4>
-                            <p class="text-xs text-gray-500 mb-2">Posted: 2025-07-25</p>
-                            <p class="text-gray-300">We've completely refactored the empire structure system! All permanent empire upgrades have been moved to the Structures page and categorized for clarity. This new, flexible system allows us to add more diverse and interesting upgrade paths in the future. Check out the new Offense, Defense, Economy, and Population upgrade trees and start specializing your empire today!</p>
                         </div>
                     </div>
 
