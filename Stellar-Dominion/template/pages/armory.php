@@ -16,7 +16,7 @@ date_default_timezone_set('UTC');
 $user_id = $_SESSION['id'];
 
 // --- DATA FETCHING ---
-$sql_user = "SELECT credits, level, soldiers FROM users WHERE id = ?";
+$sql_user = "SELECT credits, level, soldiers, armory_level FROM users WHERE id = ?";
 $stmt_user = mysqli_prepare($link, $sql_user);
 mysqli_stmt_bind_param($stmt_user, "i", $user_id);
 mysqli_stmt_execute($stmt_user);
@@ -101,15 +101,23 @@ foreach ($armory_loadouts as $loadout) {
                                                 $owned_quantity = $owned_items[$item_key] ?? 0;
                                                 
                                                 $is_locked = false;
-                                                $requirement_text = '';
+                                                $requirements = [];
                                                 if (isset($item['requires'])) {
                                                     $required_item_key = $item['requires'];
                                                     if (empty($owned_items[$required_item_key])) {
                                                         $is_locked = true;
                                                         $required_item_name = $flat_item_details[$required_item_key]['name'] ?? 'a previous item';
-                                                        $requirement_text = 'Requires ' . htmlspecialchars($required_item_name);
+                                                        $requirements[] = 'Requires ' . htmlspecialchars($required_item_name);
                                                     }
                                                 }
+                                                if (isset($item['armory_level_req'])) {
+                                                    if ($user_data['armory_level'] < $item['armory_level_req']) {
+                                                        $is_locked = true;
+                                                        $requirements[] = 'Requires Armory Lvl ' . $item['armory_level_req'];
+                                                    }
+                                                }
+
+                                                $requirement_text = implode(', ', $requirements);
                                                 $item_class = $is_locked ? 'opacity-60' : '';
                                             ?>
                                             <div class="armory-item flex items-center bg-gray-900 p-2 rounded-md <?php echo $item_class; ?>">
