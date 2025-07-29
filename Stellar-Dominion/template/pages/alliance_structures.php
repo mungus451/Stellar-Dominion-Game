@@ -6,7 +6,7 @@ require_once __DIR__ . '/../../config/config.php';
 require_once __DIR__ . '/../../src/Game/GameData.php'; // Corrected path to GameData
 
 $user_id = $_SESSION['id'];
-$active_page = 'alliance.php'; // Keep main nav category as 'ALLIANCE'
+$active_page = 'alliance_structures.php'; // Keep main nav category as 'ALLIANCE'
 $alliance_id = null;
 $user_permissions = null;
 $alliance = null;
