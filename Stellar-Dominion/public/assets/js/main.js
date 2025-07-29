@@ -133,12 +133,12 @@ document.addEventListener('DOMContentLoaded', () => {
             disbandTabContent.classList.add('hidden');
             
             // Style active tab
-            trainTabBtn.classList.add(...activeClasses);
-            trainTabBtn.classList.remove(...inactiveClasses);
+            activeClasses.forEach(c => trainTabBtn.classList.add(c));
+            inactiveClasses.forEach(c => trainTabBtn.classList.remove(c));
             
             // Style inactive tab
-            disbandTabBtn.classList.add(...inactiveClasses);
-            disbandTabBtn.classList.remove(...activeClasses);
+            inactiveClasses.forEach(c => disbandTabBtn.classList.add(c));
+            activeClasses.forEach(c => disbandTabBtn.classList.remove(c));
         });
 
         disbandTabBtn.addEventListener('click', () => {
@@ -147,12 +147,12 @@ document.addEventListener('DOMContentLoaded', () => {
             trainTab.classList.add('hidden');
             
             // Style active tab
-            disbandTabBtn.classList.add(...activeClasses);
-            disbandTabBtn.classList.remove(...inactiveClasses);
+            activeClasses.forEach(c => disbandTabBtn.classList.add(c));
+            inactiveClasses.forEach(c => disbandTabBtn.classList.remove(c));
 
             // Style inactive tab
-            trainTabBtn.classList.add(...inactiveClasses);
-            trainTabBtn.classList.remove(...activeClasses);
+            inactiveClasses.forEach(c => trainTabBtn.classList.add(c));
+            activeClasses.forEach(c => trainTabBtn.classList.remove(c));
         });
 
         // Training Calculations
@@ -173,13 +173,10 @@ document.addEventListener('DOMContentLoaded', () => {
             availableCitizensEl.classList.toggle('text-red-500', totalCitizens > availableCitizens);
         }
         trainInputs.forEach(input => input.addEventListener('input', updateTrainingCost));
-
-        // *** THIS IS THE CORRECTED LOGIC FOR THE MAX BUTTON ***
+        
         trainForm.querySelectorAll('.train-max-btn').forEach(btn => {
             btn.addEventListener('click', e => {
                 const clickedInput = e.currentTarget.previousElementSibling;
-
-                // 1. Calculate resources used by OTHER inputs
                 let otherInputsCost = 0;
                 let otherInputsCitizens = 0;
                 trainInputs.forEach(input => {
@@ -193,21 +190,14 @@ document.addEventListener('DOMContentLoaded', () => {
                     }
                 });
 
-                // 2. Calculate remaining resources
                 const remainingCredits = availableCredits - otherInputsCost;
                 const remainingCitizens = availableCitizens - otherInputsCitizens;
-
-                // 3. Calculate max for the clicked input based on remaining resources
                 const baseCost = parseInt(clickedInput.dataset.cost);
                 const discountedCost = Math.floor(baseCost * charismaDiscount);
-
                 const maxByCredits = discountedCost > 0 ? Math.floor(remainingCredits / discountedCost) : Infinity;
                 const maxForThisUnit = Math.max(0, Math.min(maxByCredits, remainingCitizens));
                 
-                // 4. Set the value
                 clickedInput.value = maxForThisUnit;
-
-                // 5. Update total display
                 updateTrainingCost();
             });
         });
@@ -234,9 +224,60 @@ document.addEventListener('DOMContentLoaded', () => {
                 updateDisbandRefund();
             });
         });
-
-        // Initial calculation on page load
+        
         updateTrainingCost();
         updateDisbandRefund();
+    }
+
+    // --- Armory Purchase Calculator (armory.php) ---
+    const armoryForm = document.getElementById('armory-form');
+    if (armoryForm) {
+        const summaryItemsEl = document.getElementById('summary-items');
+        const grandTotalEl = document.getElementById('grand-total');
+        const quantityInputs = armoryForm.querySelectorAll('.armory-item-quantity');
+
+        const updateArmoryCost = () => {
+            let grandTotal = 0;
+            let summaryHtml = '';
+
+            quantityInputs.forEach(input => {
+                const quantity = parseInt(input.value) || 0;
+                const itemRow = input.closest('.armory-item');
+                const costEl = itemRow.querySelector('[data-cost]');
+                const subtotalEl = itemRow.querySelector('.subtotal');
+                
+                const cost = parseInt(costEl.dataset.cost);
+                const subtotal = quantity * cost;
+                
+                if (subtotalEl) {
+                    subtotalEl.textContent = subtotal.toLocaleString();
+                }
+
+                grandTotal += subtotal;
+
+                if (quantity > 0) {
+                    const itemName = input.dataset.itemName;
+                    summaryHtml += `
+                        <div class="flex justify-between">
+                            <span>${itemName} x${quantity}</span>
+                            <span class="font-semibold">${subtotal.toLocaleString()}</span>
+                        </div>`;
+                }
+            });
+
+            grandTotalEl.textContent = grandTotal.toLocaleString();
+            
+            if (summaryHtml === '') {
+                summaryItemsEl.innerHTML = '<p class="text-gray-500 italic">Select items to purchase...</p>';
+            } else {
+                summaryItemsEl.innerHTML = summaryHtml;
+            }
+        };
+
+        quantityInputs.forEach(input => {
+            input.addEventListener('input', updateArmoryCost);
+        });
+        
+        updateArmoryCost();
     }
 });
