@@ -37,6 +37,13 @@ $unit_names = [
     'workers' => 'Worker', 'soldiers' => 'Soldier', 'guards' => 'Guard',
     'sentries' => 'Sentry', 'spies' => 'Spy'
 ];
+$unit_descriptions = [
+    'workers' => '+50 Credits per turn',
+    'soldiers' => '+8-12 Offense Power',
+    'guards' => '+8-12 Defense Power',
+    'sentries' => '+10 Fortification',
+    'spies' => '+10 Infiltration'
+];
 
 
 // --- TIMER CALCULATIONS ---
@@ -137,6 +144,7 @@ $current_tab = isset($_GET['tab']) && $_GET['tab'] === 'disband' ? 'disband' : '
                                         <img src="assets/img/<?php echo strtolower($unit_names[$unit]); ?>.png" alt="<?php echo $unit_names[$unit]; ?> Icon" class="w-12 h-12 rounded-md flex-shrink-0">
                                         <div class="flex-grow">
                                             <p class="font-bold text-white"><?php echo $unit_names[$unit]; ?></p>
+                                            <p class="text-xs text-yellow-400 font-semibold"><?php echo $unit_descriptions[$unit]; ?></p>
                                             <p class="text-xs">Cost: <?php echo number_format($cost); ?> Credits</p>
                                             <p class="text-xs">Owned: <?php echo number_format($user_data[$unit]); ?></p>
                                         </div>
@@ -164,6 +172,7 @@ $current_tab = isset($_GET['tab']) && $_GET['tab'] === 'disband' ? 'disband' : '
                                         <img src="assets/img/<?php echo strtolower($unit_names[$unit]); ?>.png" alt="<?php echo $unit_names[$unit]; ?> Icon" class="w-12 h-12 rounded-md flex-shrink-0">
                                         <div class="flex-grow">
                                             <p class="font-bold text-white"><?php echo $unit_names[$unit]; ?></p>
+                                            <p class="text-xs text-yellow-400 font-semibold"><?php echo $unit_descriptions[$unit]; ?></p>
                                             <p class="text-xs">Refund: <?php echo number_format($cost * 0.75); ?> Credits</p>
                                             <p class="text-xs">Owned: <?php echo number_format($user_data[$unit]); ?></p>
                                         </div>
