@@ -16,7 +16,7 @@ date_default_timezone_set('UTC');
 $user_id = $_SESSION['id'];
 
 // --- DATA FETCHING ---
-$sql_user = "SELECT credits, level, soldiers, armory_level FROM users WHERE id = ?";
+$sql_user = "SELECT credits, level, soldiers, armory_level, charisma_points FROM users WHERE id = ?";
 $stmt_user = mysqli_prepare($link, $sql_user);
 mysqli_stmt_bind_param($stmt_user, "i", $user_id);
 mysqli_stmt_execute($stmt_user);
@@ -38,6 +38,7 @@ mysqli_close($link);
 
 $active_page = 'armory.php';
 $unit_count = $user_data['soldiers'];
+$charisma_discount = 1 - ($user_data['charisma_points'] * 0.01);
 
 // Flatten item details to easily find required item names
 $flat_item_details = [];
@@ -58,7 +59,7 @@ foreach ($armory_loadouts as $loadout) {
     <script src="https://unpkg.com/lucide@latest"></script>
 </head>
 <body class="text-gray-400 antialiased">
-    <div class="min-h-screen bg-cover bg-center bg-fixed" style="background-image: url('https://images.unsplash.com/photo-1446776811953-b23d57bd21aa?ixlib=rb-4.0.3&ixid=M3wxMjA3fDB8MHxwaG90by1wYWdlfHx8fGVufDB8fHx8fA%3D%3D&auto=format&fit=crop&w=1742&q=80');">
+    <div class="min-h-screen bg-cover bg-center bg-fixed" style="background-image: url('https://images.unsplash.com/photo-1446776811953-b23d_57bd21aa?ixlib=rb-4.0.3&ixid=M3wxMjA3fDB8MHxwaG90by1wYWdlfHx8fGVufDB8fHx8fA%3D%3D&auto=format&fit=crop&w=1742&q=80');">
         <div class="container mx-auto p-4 md:p-8">
 
             <?php include_once __DIR__ . '/../includes/navigation.php'; ?>
@@ -99,6 +100,7 @@ foreach ($armory_loadouts as $loadout) {
                                         <div class="mt-2 space-y-2">
                                             <?php foreach($category['items'] as $item_key => $item): 
                                                 $owned_quantity = $owned_items[$item_key] ?? 0;
+                                                $discounted_cost = floor($item['cost'] * $charisma_discount);
                                                 
                                                 $is_locked = false;
                                                 $requirements = [];
@@ -130,7 +132,7 @@ foreach ($armory_loadouts as $loadout) {
                                                         <?php endif; ?>
                                                     </div>
                                                     <p>Attack: <span class="text-green-400"><?php echo $item['attack']; ?></span></p>
-                                                    <p>Cost: <span class="text-yellow-400" data-cost="<?php echo $item['cost']; ?>"><?php echo number_format($item['cost']); ?></span></p>
+                                                    <p>Cost: <span class="text-yellow-400" data-cost="<?php echo $discounted_cost; ?>"><?php echo number_format($discounted_cost); ?></span></p>
                                                     <p>Owned: <span class="font-semibold"><?php echo number_format($owned_quantity); ?></span></p>
                                                 </div>
                                                 <div class="flex items-center space-x-2 ml-4" <?php if($is_locked) echo "title='$requirement_text'"; ?>>
