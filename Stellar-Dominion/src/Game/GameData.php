@@ -175,7 +175,67 @@ $armory_loadouts = [
                 ]
             ]
         ]
+    ],
+    'guard' => [
+        'title' => 'Guard Defensive Loadout',
+        'unit' => 'guards',
+        'categories' => [
+            'armor_suit' => [
+                'title' => 'Defensive Main Equipment (Armor Suits)',
+                'slots' => 1,
+                'items' => [
+                    'light_combat_suit' => ['name' => 'Light Combat Suit', 'defense' => 40, 'cost' => 800, 'notes' => 'Basic protection, minimal weight.'],
+                    'titanium_plated_armor' => ['name' => 'Titanium Plated Armor', 'defense' => 60, 'cost' => 1200, 'notes' => 'Strong vs. kinetic weapons.', 'requires' => 'light_combat_suit', 'armory_level_req' => 1],
+                    'reactive_nano_suit' => ['name' => 'Reactive Nano Suit', 'defense' => 75, 'cost' => 1700, 'notes' => 'Reduces energy damage, self-repairs slowly.', 'requires' => 'titanium_plated_armor', 'armory_level_req' => 2],
+                    'bulwark_exo_frame' => ['name' => 'Bulwark Exo-Frame', 'defense' => 90, 'cost' => 2200, 'notes' => 'Heavy, extreme damage reduction.', 'requires' => 'reactive_nano_suit', 'armory_level_req' => 3],
+                    'aegis_shield_suit' => ['name' => 'Aegis Shield Suit', 'defense' => 120, 'cost' => 3000, 'notes' => 'Generates energy shield, top-tier defense.', 'requires' => 'bulwark_exo_frame', 'armory_level_req' => 4],
+                ]
+            ],
+            'secondary_defense' => [
+                'title' => 'Defensive Side Devices (Secondary Defenses)',
+                'slots' => 1,
+                'items' => [
+                    'kinetic_dampener' => ['name' => 'Kinetic Dampener', 'defense' => 15, 'cost' => 300, 'notes' => 'Reduces ballistic damage.'],
+                    'energy_diffuser' => ['name' => 'Energy Diffuser', 'defense' => 20, 'cost' => 400, 'notes' => 'Lowers laser/plasma damage.', 'requires' => 'kinetic_dampener', 'armory_level_req' => 1],
+                    'deflector_module' => ['name' => 'Deflector Module', 'defense' => 25, 'cost' => 500, 'notes' => 'Partial shield that recharges slowly.', 'requires' => 'energy_diffuser', 'armory_level_req' => 2],
+                    'auto_turret_drone' => ['name' => 'Auto-Turret Drone', 'defense' => 35, 'cost' => 700, 'notes' => 'Assists defense, counters attackers.', 'requires' => 'deflector_module', 'armory_level_req' => 3],
+                    'nano_healing_pod' => ['name' => 'Nano-Healing Pod', 'defense' => 45, 'cost' => 900, 'notes' => 'Heals user periodically during battle.', 'requires' => 'auto_turret_drone', 'armory_level_req' => 4],
+                ]
+            ],
+            'melee_counter' => [
+                'title' => 'Melee Countermeasures',
+                'slots' => 1,
+                'items' => [
+                    'combat_knife_parry_kit' => ['name' => 'Combat Knife Parry Kit', 'defense' => 10, 'cost' => 100, 'notes' => 'Minimal, last-ditch block.'],
+                    'shock_shield' => ['name' => 'Shock Shield', 'defense' => 20, 'cost' => 250, 'notes' => 'Electrocutes melee attackers.', 'requires' => 'combat_knife_parry_kit'],
+                    'vibro_blade_guard' => ['name' => 'Vibro Blade Guard', 'defense' => 30, 'cost' => 400, 'notes' => 'Defensive melee stance, reduces melee damage.', 'requires' => 'shock_shield'],
+                    'energy_buckler' => ['name' => 'Energy Buckler', 'defense' => 40, 'cost' => 600, 'notes' => 'Small but strong energy shield.', 'requires' => 'vibro_blade_guard'],
+                    'photon_barrier_blade' => ['name' => 'Photon Barrier Blade', 'defense' => 50, 'cost' => 800, 'notes' => 'Creates a light shield, blocks most melee hits.', 'requires' => 'energy_buckler'],
+                ]
+            ],
+            'defensive_headgear' => [
+                'title' => 'Head Gear (Defensive Helmets)',
+                'slots' => 1,
+                'items' => [
+                    'recon_helmet' => ['name' => 'Recon Helmet', 'defense' => 5, 'cost' => 150, 'notes' => 'Basic head protection.'],
+                    'carbon_fiber_visor' => ['name' => 'Carbon Fiber Visor', 'defense' => 10, 'cost' => 300, 'notes' => 'Lightweight and strong.', 'requires' => 'recon_helmet'],
+                    'reinforced_helmet' => ['name' => 'Reinforced Helmet', 'defense' => 15, 'cost' => 500, 'notes' => 'Excellent impact resistance.', 'requires' => 'carbon_fiber_visor'],
+                    'neural_guard_mask' => ['name' => 'Neural Guard Mask', 'defense' => 20, 'cost' => 700, 'notes' => 'Protects against psychic/EMP effects.', 'requires' => 'reinforced_helmet'],
+                    'aegis_helm' => ['name' => 'Aegis Helm', 'defense' => 25, 'cost' => 1000, 'notes' => 'High-tier head defense.', 'requires' => 'neural_guard_mask'],
+                ]
+            ],
+            'defensive_deployable' => [
+                'title' => 'Defensive Deployables',
+                'slots' => 1,
+                'items' => [
+                    'basic_shield_generator' => ['name' => 'Basic Shield Generator', 'defense' => 30, 'cost' => 200, 'notes' => 'Small personal barrier.'],
+                    'plasma_wall_projector' => ['name' => 'Plasma Wall Projector', 'defense' => 45, 'cost' => 400, 'notes' => 'Deployable energy wall.', 'requires' => 'basic_shield_generator'],
+                    'emp_scrambler' => ['name' => 'EMP Scrambler', 'defense' => 50, 'cost' => 600, 'notes' => 'Nullifies enemy EMP attacks.', 'requires' => 'plasma_wall_projector'],
+                    'nano_repair_beacon' => ['name' => 'Nano Repair Beacon', 'defense' => 70, 'cost' => 900, 'notes' => 'Repairs nearby allies and structures.', 'requires' => 'emp_scrambler'],
+                    'fortress_dome_generator' => ['name' => 'Fortress Dome Generator', 'defense' => 100, 'cost' => 1400, 'notes' => 'Creates a temporary invulnerable dome.', 'requires' => 'nano_repair_beacon'],
+                ]
+            ]
+        ]
     ]
-    // Future loadouts for Guards, Spies, etc., can be added here.
 ];
 ?>
