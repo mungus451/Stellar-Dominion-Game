@@ -101,6 +101,27 @@ $alliance_structures_definitions = [
         'bonuses' => json_encode(['income' => 15, 'defense' => 15, 'offense' => 15, 'citizens' => 15, 'resources' => 15])
     ]
 ];
+// --- TIERED ARMORY LOADOUTS ---
+$armory_loadouts = [
+    'soldier' => [
+        'title' => 'Soldier Offensive Loadout',
+        'unit' => 'soldiers',
+        'categories' => [
+            'main_weapon' => [
+                'title' => 'Heavy Main Weapons',
+                'slots' => 1,
+                'items' => [
+                    'pulse_rifle' => ['name' => 'Pulse Rifle', 'attack' => 40, 'cost' => 800, 'notes' => 'Basic, reliable.'],
+                    'railgun' => ['name' => 'Railgun', 'attack' => 60, 'cost' => 400, 'prerequisite' => 'pulse_rifle', 'notes' => 'High penetration, slower fire.'],
+                    'plasma_minigun' => ['name' => 'Plasma Minigun', 'attack' => 75, 'cost' => 500, 'prerequisite' => 'railgun', 'notes' => 'Rapid fire, slightly inaccurate.'],
+                    'arc_cannon' => ['name' => 'Arc Cannon', 'attack' => 90, 'cost' => 500, 'prerequisite' => 'plasma_minigun', 'notes' => 'Chains to nearby enemies.'],
+                    'antimatter_launcher' => ['name' => 'Antimatter Launcher', 'attack' => 120, 'cost' => 800, 'prerequisite' => 'arc_cannon', 'notes' => 'Extremely strong, high cost.'],
+                ]
+            ],
+            // ... Other categories like sidearm, melee, etc. would follow the same pattern ...
+        ]
+    ]
+];
 
 // --- REFINED ARMORY LOADOUTS ---
 $armory_loadouts = [
