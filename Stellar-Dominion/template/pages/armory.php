@@ -1,9 +1,9 @@
 <?php
 /**
- * armory.php - Tiered Upgrade Version (Refactored)
+ * armory.php - Tiered Progression Version
  *
- * This page allows players to upgrade items for their units.
- * Upgrading requires owning the prerequisite item and paying a credit cost.
+ * This page allows players to purchase multiple items for their units
+ * from different categories simultaneously, following a tiered progression.
  */
 
 // --- SESSION AND DATABASE SETUP ---
@@ -14,10 +14,9 @@ require_once __DIR__ . '/../../src/Game/GameData.php';
 date_default_timezone_set('UTC');
 
 $user_id = $_SESSION['id'];
-$now = new DateTime('now', new DateTimeZone('UTC'));
 
 // --- DATA FETCHING ---
-$sql_user = "SELECT credits, level, attack_turns, last_updated, soldiers, workers, untrained_citizens FROM users WHERE id = ?";
+$sql_user = "SELECT credits, level, soldiers FROM users WHERE id = ?";
 $stmt_user = mysqli_prepare($link, $sql_user);
 mysqli_stmt_bind_param($stmt_user, "i", $user_id);
 mysqli_stmt_execute($stmt_user);
@@ -37,48 +36,16 @@ while($row = mysqli_fetch_assoc($armory_result)) {
 mysqli_stmt_close($stmt_armory);
 mysqli_close($link);
 
-// --- TIMER CALCULATIONS ---
-$turn_interval_minutes = 10;
-$last_updated = new DateTime($user_data['last_updated'], new DateTimeZone('UTC'));
-$seconds_until_next_turn = ($turn_interval_minutes * 60) - (($now->getTimestamp() - $last_updated->getTimestamp()) % ($turn_interval_minutes * 60));
-if ($seconds_until_next_turn < 0) { $seconds_until_next_turn = 0; }
-$minutes_until_next_turn = floor($seconds_until_next_turn / 60);
-$seconds_remainder = $seconds_until_next_turn % 60;
-
 $active_page = 'armory.php';
+$unit_count = $user_data['soldiers'];
 
-// --- NEW REFACTORED LOGIC: PRE-PROCESS ALL ITEMS FOR DISPLAY ---
-$processed_loadouts = $armory_loadouts; // Create a mutable copy
-foreach ($processed_loadouts as &$loadout) {
-    foreach ($loadout['categories'] as &$category) {
-        foreach ($category['items'] as $item_key => &$item) {
-            // Add display-specific data to each item
-            $item['owned_quantity'] = $owned_items[$item_key] ?? 0;
-            $item['can_build'] = true;
-            $item['placeholder'] = '0';
-            $item['max_purchase'] = 99999; // Default max
-
-            $prereq_key = $item['prerequisite'] ?? null;
-            if ($prereq_key) {
-                $prereq_owned = $owned_items[$prereq_key] ?? 0;
-                $item['max_purchase'] = $prereq_owned;
-                if ($prereq_owned <= 0) {
-                    $item['can_build'] = false;
-                    $item['placeholder'] = 'Locked';
-                }
-            }
-            
-            if ($user_data['credits'] < $item['cost']) {
-                $item['can_build'] = false;
-                if ($item['placeholder'] === '0') {
-                    $item['placeholder'] = 'Funds?';
-                }
-            }
-        }
+// Flatten item details to easily find required item names
+$flat_item_details = [];
+foreach ($armory_loadouts as $loadout) {
+    foreach ($loadout['categories'] as $category) {
+        $flat_item_details += $category['items'];
     }
 }
-unset($loadout, $category, $item); // Unset references after loop
-
 ?>
 <!DOCTYPE html>
 <html lang="en">
@@ -86,9 +53,9 @@ unset($loadout, $category, $item); // Unset references after loop
     <meta charset="UTF-8">
     <title>Stellar Dominion - Armory</title>
     <script src="https://cdn.tailwindcss.com"></script>
-    <script src="https://unpkg.com/lucide@latest"></script>
     <link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@700&family=Roboto:wght@400;500;700&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="assets/css/style.css">
+    <script src="https://unpkg.com/lucide@latest"></script>
 </head>
 <body class="text-gray-400 antialiased">
     <div class="min-h-screen bg-cover bg-center bg-fixed" style="background-image: url('assets/img/background.jpg');">
@@ -98,29 +65,15 @@ unset($loadout, $category, $item); // Unset references after loop
             
             <div class="grid grid-cols-1 lg:grid-cols-4 gap-4 p-4">
                 <aside class="lg:col-span-1 space-y-4">
-                    <div class="content-box rounded-lg p-4 sticky top-4">
-                        <h3 class="font-title text-cyan-400 border-b border-gray-600 pb-2 mb-3">Upgrade Summary</h3>
+                    <div id="armory-summary" class="content-box rounded-lg p-4 sticky top-4">
+                        <h3 class="font-title text-cyan-400 border-b border-gray-600 pb-2 mb-3">Purchase Summary</h3>
                         <div id="summary-items" class="space-y-2 text-sm">
-                            <p class="text-gray-500 italic">Select items to upgrade...</p>
+                            <p class="text-gray-500 italic">Select items to purchase...</p>
                         </div>
                         <div class="border-t border-gray-600 mt-3 pt-3">
                             <p class="flex justify-between"><span>Grand Total:</span> <span id="grand-total" class="font-bold text-yellow-300">0</span></p>
                             <p class="flex justify-between text-xs"><span>Your Credits:</span> <span data-amount="<?php echo $user_data['credits']; ?>"><?php echo number_format($user_data['credits']); ?></span></p>
                         </div>
-                    </div>
-                    <div class="content-box rounded-lg p-4">
-                        <h3 class="font-title text-cyan-400 border-b border-gray-600 pb-2 mb-3">Stats</h3>
-                        <ul class="space-y-2 text-sm">
-                            <li class="flex justify-between"><span>Credits:</span> <span class="text-white font-semibold"><?php echo number_format($user_data['credits']); ?></span></li>
-                            <li class="flex justify-between"><span>Untrained Citizens:</span> <span class="text-white font-semibold"><?php echo number_format($user_data['untrained_citizens']); ?></span></li>
-                            <li class="flex justify-between"><span>Attack Turns:</span> <span class="text-white font-semibold"><?php echo $user_data['attack_turns']; ?></span></li>
-                            <li class="flex justify-between border-t border-gray-600 pt-2 mt-2">
-                                <span>Next Turn In:</span> 
-                                <span id="next-turn-timer" class="text-cyan-300 font-bold" data-seconds-until-next-turn="<?php echo $seconds_until_next_turn; ?>">
-                                    <?php echo sprintf('%02d:%02d', $minutes_until_next_turn, $seconds_remainder); ?>
-                                </span>
-                            </li>
-                        </ul>
                     </div>
                 </aside>
                 
@@ -138,36 +91,46 @@ unset($loadout, $category, $item); // Unset references after loop
                         <form id="armory-form" action="lib/armory_actions.php" method="POST">
                             <input type="hidden" name="action" value="purchase_items">
                             <div class="space-y-6">
-                                <?php foreach($processed_loadouts as $loadout): ?>
+                                <?php foreach($armory_loadouts as $loadout_key => $loadout): ?>
                                     <h4 class="font-title text-xl text-white"><?php echo htmlspecialchars($loadout['title']); ?></h4>
-                                    <?php foreach($loadout['categories'] as $category): ?>
+                                    <?php foreach($loadout['categories'] as $cat_key => $category): ?>
                                     <div class="bg-gray-800 p-4 rounded-lg">
                                         <h5 class="font-semibold text-white"><?php echo htmlspecialchars($category['title']); ?></h5>
                                         <div class="mt-2 space-y-2">
-                                            <?php foreach($category['items'] as $item_key => $item): ?>
-                                            <div class="armory-item flex items-center bg-gray-900 p-2 rounded-md">
+                                            <?php foreach($category['items'] as $item_key => $item): 
+                                                $owned_quantity = $owned_items[$item_key] ?? 0;
+                                                
+                                                $is_locked = false;
+                                                $requirement_text = '';
+                                                if (isset($item['requires'])) {
+                                                    $required_item_key = $item['requires'];
+                                                    if (empty($owned_items[$required_item_key])) {
+                                                        $is_locked = true;
+                                                        $required_item_name = $flat_item_details[$required_item_key]['name'] ?? 'a previous item';
+                                                        $requirement_text = 'Requires ' . htmlspecialchars($required_item_name);
+                                                    }
+                                                }
+                                                $item_class = $is_locked ? 'opacity-60' : '';
+                                            ?>
+                                            <div class="armory-item flex items-center bg-gray-900 p-2 rounded-md <?php echo $item_class; ?>">
                                                 <div class="flex-1 grid grid-cols-4 gap-2 text-sm">
                                                     <div>
                                                         <p class="font-bold text-white"><?php echo htmlspecialchars($item['name']); ?></p>
                                                         <p class="text-xs text-gray-400"><?php echo htmlspecialchars($item['notes']); ?></p>
-                                                        <?php if (isset($item['prerequisite'])): ?>
-                                                            <p class="text-xs text-yellow-400 italic">Requires: <?php echo htmlspecialchars($category['items'][$item['prerequisite']]['name']); ?></p>
+                                                        <?php if ($is_locked): ?>
+                                                            <p class="text-xs text-red-400 font-semibold mt-1"><?php echo $requirement_text; ?></p>
                                                         <?php endif; ?>
                                                     </div>
                                                     <p>Attack: <span class="text-green-400"><?php echo $item['attack']; ?></span></p>
-                                                    <p><?php echo isset($item['prerequisite']) ? 'Upgrade Cost' : 'Cost'; ?>: <span class="text-yellow-400" data-cost="<?php echo $item['cost']; ?>"><?php echo number_format($item['cost']); ?></span></p>
-                                                    <p>Owned: <span class="font-semibold"><?php echo number_format($item['owned_quantity']); ?></span></p>
+                                                    <p>Cost: <span class="text-yellow-400" data-cost="<?php echo $item['cost']; ?>"><?php echo number_format($item['cost']); ?></span></p>
+                                                    <p>Owned: <span class="font-semibold"><?php echo number_format($owned_quantity); ?></span></p>
                                                 </div>
-                                                <div class="flex items-center space-x-2 ml-4">
-                                                    <input 
-                                                        type="number" 
-                                                        name="items[<?php echo $item_key; ?>]" 
-                                                        min="0" 
-                                                        max="<?php echo $item['max_purchase']; ?>" 
-                                                        placeholder="<?php echo $item['placeholder']; ?>" 
-                                                        class="armory-item-quantity bg-gray-900/50 border border-gray-600 rounded-md w-20 text-center p-1 disabled:bg-red-900/50 disabled:cursor-not-allowed" 
-                                                        data-item-name="<?php echo htmlspecialchars($item['name']); ?>" 
-                                                        <?php if(!$item['can_build']) echo 'disabled'; ?>>
+                                                <div class="flex items-center space-x-2 ml-4" <?php if($is_locked) echo "title='$requirement_text'"; ?>>
+                                                    <?php if($is_locked): ?>
+                                                        <div class="w-20 text-center p-1"><i data-lucide="lock" class="h-5 w-5 mx-auto text-red-500"></i></div>
+                                                    <?php else: ?>
+                                                        <input type="number" name="items[<?php echo $item_key; ?>]" min="0" placeholder="0" class="armory-item-quantity bg-gray-900/50 border border-gray-600 rounded-md w-20 text-center p-1" data-item-name="<?php echo htmlspecialchars($item['name']); ?>">
+                                                    <?php endif; ?>
                                                     <div class="text-sm">Subtotal: <span class="subtotal font-bold text-yellow-300">0</span></div>
                                                 </div>
                                             </div>
@@ -187,5 +150,6 @@ unset($loadout, $category, $item); // Unset references after loop
         </div>
     </div>
     <script src="assets/js/main.js" defer></script>
+    <script>lucide.createIcons();</script>
 </body>
 </html>
