@@ -1,6 +1,6 @@
 <?php
 /**
- * armory.php - Tiered Upgrade Version
+ * armory.php - Tiered Upgrade Version (Refactored)
  *
  * This page allows players to upgrade items for their units.
  * Upgrading requires owning the prerequisite item and paying a credit cost.
@@ -46,6 +46,39 @@ $minutes_until_next_turn = floor($seconds_until_next_turn / 60);
 $seconds_remainder = $seconds_until_next_turn % 60;
 
 $active_page = 'armory.php';
+
+// --- NEW REFACTORED LOGIC: PRE-PROCESS ALL ITEMS FOR DISPLAY ---
+$processed_loadouts = $armory_loadouts; // Create a mutable copy
+foreach ($processed_loadouts as &$loadout) {
+    foreach ($loadout['categories'] as &$category) {
+        foreach ($category['items'] as $item_key => &$item) {
+            // Add display-specific data to each item
+            $item['owned_quantity'] = $owned_items[$item_key] ?? 0;
+            $item['can_build'] = true;
+            $item['placeholder'] = '0';
+            $item['max_purchase'] = 99999; // Default max
+
+            $prereq_key = $item['prerequisite'] ?? null;
+            if ($prereq_key) {
+                $prereq_owned = $owned_items[$prereq_key] ?? 0;
+                $item['max_purchase'] = $prereq_owned;
+                if ($prereq_owned <= 0) {
+                    $item['can_build'] = false;
+                    $item['placeholder'] = 'Locked';
+                }
+            }
+            
+            if ($user_data['credits'] < $item['cost']) {
+                $item['can_build'] = false;
+                if ($item['placeholder'] === '0') {
+                    $item['placeholder'] = 'Funds?';
+                }
+            }
+        }
+    }
+}
+unset($loadout, $category, $item); // Unset references after loop
+
 ?>
 <!DOCTYPE html>
 <html lang="en">
@@ -54,7 +87,7 @@ $active_page = 'armory.php';
     <title>Stellar Dominion - Armory</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <script src="https://unpkg.com/lucide@latest"></script>
-    <link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@700&family=Roboto:wght@400;500;700&display.swap" rel="stylesheet">
+    <link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@700&family=Roboto:wght@400;500;700&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="assets/css/style.css">
 </head>
 <body class="text-gray-400 antialiased">
@@ -105,62 +138,36 @@ $active_page = 'armory.php';
                         <form id="armory-form" action="lib/armory_actions.php" method="POST">
                             <input type="hidden" name="action" value="purchase_items">
                             <div class="space-y-6">
-                                <?php foreach($armory_loadouts as $loadout_key => $loadout): ?>
+                                <?php foreach($processed_loadouts as $loadout): ?>
                                     <h4 class="font-title text-xl text-white"><?php echo htmlspecialchars($loadout['title']); ?></h4>
-                                    <?php foreach($loadout['categories'] as $cat_key => $category): ?>
+                                    <?php foreach($loadout['categories'] as $category): ?>
                                     <div class="bg-gray-800 p-4 rounded-lg">
                                         <h5 class="font-semibold text-white"><?php echo htmlspecialchars($category['title']); ?></h5>
                                         <div class="mt-2 space-y-2">
-                                            <?php 
-                                            $flat_items = $category['items'];
-
-                                            foreach($category['items'] as $item_key => $item): 
-                                                $owned_quantity = $owned_items[$item_key] ?? 0;
-                                                
-                                                $can_build = true;
-                                                $placeholder = '0';
-                                                $max_purchase = 99999;
-                                                
-                                                $prereq_key = $item['prerequisite'] ?? null;
-                                                if ($prereq_key) {
-                                                    $prereq_owned = $owned_items[$prereq_key] ?? 0;
-                                                    $max_purchase = $prereq_owned;
-                                                    if ($prereq_owned <= 0) {
-                                                        $can_build = false;
-                                                        $placeholder = 'Locked';
-                                                    }
-                                                }
-                                                
-                                                if ($user_data['credits'] < $item['cost']) {
-                                                    $can_build = false;
-                                                    if ($placeholder === '0') {
-                                                        $placeholder = 'Funds?';
-                                                    }
-                                                }
-                                            ?>
+                                            <?php foreach($category['items'] as $item_key => $item): ?>
                                             <div class="armory-item flex items-center bg-gray-900 p-2 rounded-md">
                                                 <div class="flex-1 grid grid-cols-4 gap-2 text-sm">
                                                     <div>
                                                         <p class="font-bold text-white"><?php echo htmlspecialchars($item['name']); ?></p>
                                                         <p class="text-xs text-gray-400"><?php echo htmlspecialchars($item['notes']); ?></p>
-                                                        <?php if ($prereq_key && isset($flat_items[$prereq_key])): ?>
-                                                            <p class="text-xs text-yellow-400 italic">Requires: <?php echo htmlspecialchars($flat_items[$prereq_key]['name']); ?></p>
+                                                        <?php if (isset($item['prerequisite'])): ?>
+                                                            <p class="text-xs text-yellow-400 italic">Requires: <?php echo htmlspecialchars($category['items'][$item['prerequisite']]['name']); ?></p>
                                                         <?php endif; ?>
                                                     </div>
                                                     <p>Attack: <span class="text-green-400"><?php echo $item['attack']; ?></span></p>
-                                                    <p><?php echo $prereq_key ? 'Upgrade Cost' : 'Cost'; ?>: <span class="text-yellow-400" data-cost="<?php echo $item['cost']; ?>"><?php echo number_format($item['cost']); ?></span></p>
-                                                    <p>Owned: <span class="font-semibold"><?php echo number_format($owned_quantity); ?></span></p>
+                                                    <p><?php echo isset($item['prerequisite']) ? 'Upgrade Cost' : 'Cost'; ?>: <span class="text-yellow-400" data-cost="<?php echo $item['cost']; ?>"><?php echo number_format($item['cost']); ?></span></p>
+                                                    <p>Owned: <span class="font-semibold"><?php echo number_format($item['owned_quantity']); ?></span></p>
                                                 </div>
                                                 <div class="flex items-center space-x-2 ml-4">
                                                     <input 
                                                         type="number" 
                                                         name="items[<?php echo $item_key; ?>]" 
                                                         min="0" 
-                                                        max="<?php echo $max_purchase; ?>" 
-                                                        placeholder="<?php echo $placeholder; ?>" 
+                                                        max="<?php echo $item['max_purchase']; ?>" 
+                                                        placeholder="<?php echo $item['placeholder']; ?>" 
                                                         class="armory-item-quantity bg-gray-900/50 border border-gray-600 rounded-md w-20 text-center p-1 disabled:bg-red-900/50 disabled:cursor-not-allowed" 
                                                         data-item-name="<?php echo htmlspecialchars($item['name']); ?>" 
-                                                        <?php if(!$can_build) echo 'disabled'; ?>>
+                                                        <?php if(!$item['can_build']) echo 'disabled'; ?>>
                                                     <div class="text-sm">Subtotal: <span class="subtotal font-bold text-yellow-300">0</span></div>
                                                 </div>
                                             </div>
