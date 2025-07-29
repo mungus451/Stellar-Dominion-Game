@@ -101,4 +101,72 @@ $alliance_structures_definitions = [
         'bonuses' => json_encode(['income' => 15, 'defense' => 15, 'offense' => 15, 'citizens' => 15, 'resources' => 15])
     ]
 ];
+
+// --- NEW: Armory Item Definitions ---
+$armory_items = [
+    'offense' => [
+        'title' => 'Offensive Armaments',
+        'unit' => 'soldiers',
+        'bonus_type' => 'offense',
+        'items' => [
+            'plasma_rifles' => [
+                'name' => 'Plasma Rifles',
+                'description' => 'Increases total Offense Power. You can equip one per Soldier.',
+                'cost' => 500,
+                'bonus' => 0.1 // Each rifle adds +0.1% to total Offense Power
+            ],
+            'disruptor_torpedoes' => [
+                'name' => 'Disruptor Torpedoes',
+                'description' => 'Advanced munitions that significantly boost offensive capabilities.',
+                'cost' => 2500,
+                'bonus' => 0.25
+            ]
+        ]
+    ],
+    'defense' => [
+        'title' => 'Defensive Systems',
+        'unit' => 'guards',
+        'bonus_type' => 'defense',
+        'items' => [
+            'ablative_armor' => [
+                'name' => 'Ablative Armor',
+                'description' => 'Increases total Defense Rating. You can equip one set per Guard.',
+                'cost' => 500,
+                'bonus' => 0.1 // Each set adds +0.1% to total Defense Rating
+            ],
+            'shield_generators' => [
+                'name' => 'Shield Generators',
+                'description' => 'Energy shields that further enhance defensive strength.',
+                'cost' => 2500,
+                'bonus' => 0.25
+            ]
+        ]
+    ],
+    'sentry' => [
+        'title' => 'Fortification Systems',
+        'unit' => 'sentries',
+        'bonus_type' => 'fortification',
+        'items' => [
+            'sensor_arrays' => [
+                'name' => 'Sensor Arrays',
+                'description' => 'Boosts the effectiveness of your Sentries. One per unit.',
+                'cost' => 1000,
+                'bonus' => 0.2
+            ]
+        ]
+    ],
+    'spy' => [
+        'title' => 'Infiltration Gear',
+        'unit' => 'spies',
+        'bonus_type' => 'infiltration',
+        'items' => [
+            'stealth_generators' => [
+                'name' => 'Stealth Generators',
+                'description' => 'Personal cloaking devices for your Spies. One per unit.',
+                'cost' => 2000,
+                'bonus' => 0.2
+            ]
+        ]
+    ]
+];
 ?>
