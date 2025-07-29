@@ -45,6 +45,9 @@ $unit_descriptions = [
     'spies' => '+10 Infiltration'
 ];
 
+// --- CHARISMA DISCOUNT ---
+$charisma_discount = 1 - ($user_data['charisma_points'] * 0.01);
+
 
 // --- TIMER CALCULATIONS ---
 $turn_interval_minutes = 10;
@@ -135,17 +138,19 @@ $current_tab = isset($_GET['tab']) && $_GET['tab'] === 'disband' ? 'disband' : '
                     </div>
 
                     <div id="train-tab-content" class="<?php if ($current_tab !== 'train') echo 'hidden'; ?>">
-                        <form id="train-form" action="lib/train.php" method="POST" class="space-y-4" data-charisma-discount="<?php echo 1 - ($user_data['charisma_points'] * 0.01); ?>">
+                        <form id="train-form" action="lib/train.php" method="POST" class="space-y-4" data-charisma-discount="<?php echo $charisma_discount; ?>">
                             <input type="hidden" name="action" value="train">
                             <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
-                                <?php foreach($unit_costs as $unit => $cost): ?>
+                                <?php foreach($unit_costs as $unit => $cost): 
+                                    $discounted_cost = floor($cost * $charisma_discount);
+                                ?>
                                 <div class="content-box rounded-lg p-3">
                                     <div class="flex items-center space-x-3">
                                         <img src="assets/img/<?php echo strtolower($unit_names[$unit]); ?>.png" alt="<?php echo $unit_names[$unit]; ?> Icon" class="w-12 h-12 rounded-md flex-shrink-0">
                                         <div class="flex-grow">
                                             <p class="font-bold text-white"><?php echo $unit_names[$unit]; ?></p>
                                             <p class="text-xs text-yellow-400 font-semibold"><?php echo $unit_descriptions[$unit]; ?></p>
-                                            <p class="text-xs">Cost: <?php echo number_format($cost); ?> Credits</p>
+                                            <p class="text-xs">Cost: <?php echo number_format($discounted_cost); ?> Credits</p>
                                             <p class="text-xs">Owned: <?php echo number_format($user_data[$unit]); ?></p>
                                         </div>
                                         <div class="flex items-center space-x-2">
