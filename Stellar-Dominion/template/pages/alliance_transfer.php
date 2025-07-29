@@ -5,7 +5,7 @@ if (!isset($_SESSION["loggedin"]) || $_SESSION["loggedin"] !== true) { header("l
 require_once __DIR__ . '/../../config/config.php';
 require_once __DIR__ . '/../../src/Game/GameData.php'; // Corrected path to GameData
 $user_id = $_SESSION['id'];
-$active_page = 'alliance.php';
+$active_page = 'alliance_bank.php';
 
 // Fetch user's alliance and credits
 $sql_user = "SELECT alliance_id, credits, workers, soldiers, guards, sentries, spies FROM users WHERE id = ?";
