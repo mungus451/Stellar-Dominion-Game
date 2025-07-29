@@ -1,6 +1,6 @@
 <?php
 /**
- * game_data.php
+ * src/Game/GameData.php
  *
  * Central repository for all static game data, such as upgrade trees
  * and alliance structure definitions.
@@ -50,7 +50,7 @@ $upgrades = [
         'db_column' => 'population_level',
         'levels' => [
             1 => ['name' => 'Habitation Pods I', 'cost' => 300000, 'fort_req' => 1, 'bonuses' => ['citizens' => 1], 'description' => '+1 citizen per turn (Total: 2).'],
-            2 => ['name' => 'Habitation Pods II', 'cost' => 1500000, 'fort_req' => 2, 'bonuses' => ['citizens' => 1], 'description' => '+1 citizen per turn (Total: 3).'],
+            2 => ['name' => 'Habitation Pods II', 'cost' => 150000, 'fort_req' => 2, 'bonuses' => ['citizens' => 1], 'description' => '+1 citizen per turn (Total: 3).'],
             3 => ['name' => 'Habitation Pods III', 'cost' => 6000000, 'fort_req' => 4, 'bonuses' => ['citizens' => 2], 'description' => '+2 citizens per turn (Total: 5).'],
         ]
     ],
@@ -101,29 +101,8 @@ $alliance_structures_definitions = [
         'bonuses' => json_encode(['income' => 15, 'defense' => 15, 'offense' => 15, 'citizens' => 15, 'resources' => 15])
     ]
 ];
-// --- TIERED ARMORY LOADOUTS ---
-$armory_loadouts = [
-    'soldier' => [
-        'title' => 'Soldier Offensive Loadout',
-        'unit' => 'soldiers',
-        'categories' => [
-            'main_weapon' => [
-                'title' => 'Heavy Main Weapons',
-                'slots' => 1,
-                'items' => [
-                    'pulse_rifle' => ['name' => 'Pulse Rifle', 'attack' => 40, 'cost' => 800, 'notes' => 'Basic, reliable.'],
-                    'railgun' => ['name' => 'Railgun', 'attack' => 60, 'cost' => 400, 'prerequisite' => 'pulse_rifle', 'notes' => 'High penetration, slower fire.'],
-                    'plasma_minigun' => ['name' => 'Plasma Minigun', 'attack' => 75, 'cost' => 500, 'prerequisite' => 'railgun', 'notes' => 'Rapid fire, slightly inaccurate.'],
-                    'arc_cannon' => ['name' => 'Arc Cannon', 'attack' => 90, 'cost' => 500, 'prerequisite' => 'plasma_minigun', 'notes' => 'Chains to nearby enemies.'],
-                    'antimatter_launcher' => ['name' => 'Antimatter Launcher', 'attack' => 120, 'cost' => 800, 'prerequisite' => 'arc_cannon', 'notes' => 'Extremely strong, high cost.'],
-                ]
-            ],
-            // ... Other categories like sidearm, melee, etc. would follow the same pattern ...
-        ]
-    ]
-];
 
-// --- REFINED ARMORY LOADOUTS ---
+// --- REFINED ARMORY LOADOUTS with Tiers ---
 $armory_loadouts = [
     'soldier' => [
         'title' => 'Soldier Offensive Loadout',
@@ -134,10 +113,10 @@ $armory_loadouts = [
                 'slots' => 1,
                 'items' => [
                     'pulse_rifle' => ['name' => 'Pulse Rifle', 'attack' => 40, 'cost' => 800, 'notes' => 'Basic, reliable.'],
-                    'railgun' => ['name' => 'Railgun', 'attack' => 60, 'cost' => 1200, 'notes' => 'High penetration, slower fire.'],
-                    'plasma_minigun' => ['name' => 'Plasma Minigun', 'attack' => 75, 'cost' => 1700, 'notes' => 'Rapid fire, slightly inaccurate.'],
-                    'arc_cannon' => ['name' => 'Arc Cannon', 'attack' => 90, 'cost' => 2200, 'notes' => 'Chains to nearby enemies.'],
-                    'antimatter_launcher' => ['name' => 'Antimatter Launcher', 'attack' => 120, 'cost' => 3000, 'notes' => 'Extremely strong, high cost.'],
+                    'railgun' => ['name' => 'Railgun', 'attack' => 60, 'cost' => 1200, 'notes' => 'High penetration, slower fire.', 'requires' => 'pulse_rifle'],
+                    'plasma_minigun' => ['name' => 'Plasma Minigun', 'attack' => 75, 'cost' => 1700, 'notes' => 'Rapid fire, slightly inaccurate.', 'requires' => 'railgun'],
+                    'arc_cannon' => ['name' => 'Arc Cannon', 'attack' => 90, 'cost' => 2200, 'notes' => 'Chains to nearby enemies.', 'requires' => 'plasma_minigun'],
+                    'antimatter_launcher' => ['name' => 'Antimatter Launcher', 'attack' => 120, 'cost' => 3000, 'notes' => 'Extremely strong, high cost.', 'requires' => 'arc_cannon'],
                 ]
             ],
             'sidearm' => [
@@ -145,10 +124,10 @@ $armory_loadouts = [
                 'slots' => 2,
                 'items' => [
                     'laser_pistol' => ['name' => 'Laser Pistol', 'attack' => 25, 'cost' => 300, 'notes' => 'Basic energy sidearm.'],
-                    'stun_blaster' => ['name' => 'Stun Blaster', 'attack' => 30, 'cost' => 400, 'notes' => 'Weak but disables shields briefly.'],
-                    'needler_pistol' => ['name' => 'Needler Pistol', 'attack' => 35, 'cost' => 500, 'notes' => 'Seeking rounds, bonus vs. light armor.'],
-                    'compact_rail_smg' => ['name' => 'Compact Rail SMG', 'attack' => 45, 'cost' => 700, 'notes' => 'Burst damage, close range.'],
-                    'photon_revolver' => ['name' => 'Photon Revolver', 'attack' => 55, 'cost' => 900, 'notes' => 'High crit chance, slower reload.'],
+                    'stun_blaster' => ['name' => 'Stun Blaster', 'attack' => 30, 'cost' => 400, 'notes' => 'Weak but disables shields briefly.', 'requires' => 'laser_pistol'],
+                    'needler_pistol' => ['name' => 'Needler Pistol', 'attack' => 35, 'cost' => 500, 'notes' => 'Seeking rounds, bonus vs. light armor.', 'requires' => 'stun_blaster'],
+                    'compact_rail_smg' => ['name' => 'Compact Rail SMG', 'attack' => 45, 'cost' => 700, 'notes' => 'Burst damage, close range.', 'requires' => 'needler_pistol'],
+                    'photon_revolver' => ['name' => 'Photon Revolver', 'attack' => 55, 'cost' => 900, 'notes' => 'High crit chance, slower reload.', 'requires' => 'compact_rail_smg'],
                 ]
             ],
             'melee' => [
@@ -156,10 +135,10 @@ $armory_loadouts = [
                 'slots' => 1,
                 'items' => [
                     'combat_dagger' => ['name' => 'Combat Dagger', 'attack' => 10, 'cost' => 100, 'notes' => 'Quick, cheap.'],
-                    'shock_baton' => ['name' => 'Shock Baton', 'attack' => 20, 'cost' => 250, 'notes' => 'Stuns briefly, low raw damage.'],
-                    'energy_blade' => ['name' => 'Energy Blade', 'attack' => 30, 'cost' => 400, 'notes' => 'Ignores armor.'],
-                    'vibro_axe' => ['name' => 'Vibro Axe', 'attack' => 40, 'cost' => 600, 'notes' => 'Heavy, great vs. fortifications.'],
-                    'plasma_sword' => ['name' => 'Plasma Sword', 'attack' => 50, 'cost' => 800, 'notes' => 'High damage, rare.'],
+                    'shock_baton' => ['name' => 'Shock Baton', 'attack' => 20, 'cost' => 250, 'notes' => 'Stuns briefly, low raw damage.', 'requires' => 'combat_dagger'],
+                    'energy_blade' => ['name' => 'Energy Blade', 'attack' => 30, 'cost' => 400, 'notes' => 'Ignores armor.', 'requires' => 'shock_baton'],
+                    'vibro_axe' => ['name' => 'Vibro Axe', 'attack' => 40, 'cost' => 600, 'notes' => 'Heavy, great vs. fortifications.', 'requires' => 'energy_blade'],
+                    'plasma_sword' => ['name' => 'Plasma Sword', 'attack' => 50, 'cost' => 800, 'notes' => 'High damage, rare.', 'requires' => 'vibro_axe'],
                 ]
             ],
             'headgear' => [
@@ -167,10 +146,10 @@ $armory_loadouts = [
                 'slots' => 1,
                 'items' => [
                     'tactical_goggles' => ['name' => 'Tactical Goggles', 'attack' => 5, 'cost' => 150, 'notes' => 'Accuracy boost.'],
-                    'scout_visor' => ['name' => 'Scout Visor', 'attack' => 10, 'cost' => 300, 'notes' => 'Detects stealth.'],
-                    'heavy_helmet' => ['name' => 'Heavy Helmet', 'attack' => 15, 'cost' => 500, 'notes' => 'Defense bonus, slight weight penalty.'],
-                    'neural_uplink' => ['name' => 'Neural Uplink', 'attack' => 20, 'cost' => 700, 'notes' => 'Faster reactions, boosts all attacks slightly.'],
-                    'cloak_hood' => ['name' => 'Cloak Hood', 'attack' => 25, 'cost' => 1000, 'notes' => 'Stealth advantage, minimal armor.'],
+                    'scout_visor' => ['name' => 'Scout Visor', 'attack' => 10, 'cost' => 300, 'notes' => 'Detects stealth.', 'requires' => 'tactical_goggles'],
+                    'heavy_helmet' => ['name' => 'Heavy Helmet', 'attack' => 15, 'cost' => 500, 'notes' => 'Defense bonus, slight weight penalty.', 'requires' => 'scout_visor'],
+                    'neural_uplink' => ['name' => 'Neural Uplink', 'attack' => 20, 'cost' => 700, 'notes' => 'Faster reactions, boosts all attacks slightly.', 'requires' => 'heavy_helmet'],
+                    'cloak_hood' => ['name' => 'Cloak Hood', 'attack' => 25, 'cost' => 1000, 'notes' => 'Stealth advantage, minimal armor.', 'requires' => 'neural_uplink'],
                 ]
             ],
             'explosives' => [
@@ -178,10 +157,10 @@ $armory_loadouts = [
                 'slots' => 1,
                 'items' => [
                     'frag_grenade' => ['name' => 'Frag Grenade', 'attack' => 30, 'cost' => 200, 'notes' => 'Basic explosive.'],
-                    'plasma_grenade' => ['name' => 'Plasma Grenade', 'attack' => 45, 'cost' => 400, 'notes' => 'Sticks to targets.'],
-                    'emp_charge' => ['name' => 'EMP Charge', 'attack' => 50, 'cost' => 600, 'notes' => 'Weakens shields/tech.'],
-                    'nano_cluster_bomb' => ['name' => 'Nano Cluster Bomb', 'attack' => 70, 'cost' => 900, 'notes' => 'Drone swarms shred troops.'],
-                    'void_charge' => ['name' => 'Void Charge', 'attack' => 100, 'cost' => 1400, 'notes' => 'Creates gravity implosion, devastating AoE.'],
+                    'plasma_grenade' => ['name' => 'Plasma Grenade', 'attack' => 45, 'cost' => 400, 'notes' => 'Sticks to targets.', 'requires' => 'frag_grenade'],
+                    'emp_charge' => ['name' => 'EMP Charge', 'attack' => 50, 'cost' => 600, 'notes' => 'Weakens shields/tech.', 'requires' => 'plasma_grenade'],
+                    'nano_cluster_bomb' => ['name' => 'Nano Cluster Bomb', 'attack' => 70, 'cost' => 900, 'notes' => 'Drone swarms shred troops.', 'requires' => 'emp_charge'],
+                    'void_charge' => ['name' => 'Void Charge', 'attack' => 100, 'cost' => 1400, 'notes' => 'Creates gravity implosion, devastating AoE.', 'requires' => 'nano_cluster_bomb'],
                 ]
             ]
         ]
