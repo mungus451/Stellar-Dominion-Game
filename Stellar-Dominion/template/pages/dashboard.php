@@ -73,6 +73,18 @@ if($stmt = mysqli_prepare($link, $sql)){
     mysqli_stmt_close($stmt);
 }
 
+// --- NEW: FETCH ARMORY DATA ---
+$sql_armory = "SELECT item_key, quantity FROM user_armory WHERE user_id = ?";
+$stmt_armory = mysqli_prepare($link, $sql_armory);
+mysqli_stmt_bind_param($stmt_armory, "i", $user_id);
+mysqli_stmt_execute($stmt_armory);
+$armory_result = mysqli_stmt_get_result($stmt_armory);
+$owned_items = [];
+while($row = mysqli_fetch_assoc($armory_result)) {
+    $owned_items[$row['item_key']] = $row['quantity'];
+}
+mysqli_stmt_close($stmt_armory);
+
 // --- NET WORTH RECALCULATION ---
 // Define base unit costs and refund rate for untrain value calculation
 $base_unit_costs = ['workers' => 100, 'soldiers' => 250, 'guards' => 250, 'sentries' => 500, 'spies' => 1000];
@@ -130,7 +142,22 @@ $economy_upgrade_multiplier = 1 + ($total_economy_bonus_pct / 100);
 $strength_bonus = 1 + ($character_data['strength_points'] * 0.01);
 $constitution_bonus = 1 + ($character_data['constitution_points'] * 0.01);
 
-$offense_power = floor((($character_data['soldiers'] * 10) * $strength_bonus) * $offense_upgrade_multiplier);
+// --- NEW: ARMORY BONUS CALCULATION ---
+$armory_attack_bonus = 0;
+$soldier_count = $character_data['soldiers'];
+if ($soldier_count > 0) {
+    foreach ($armory_loadouts['soldier']['categories'] as $category) {
+        foreach ($category['items'] as $item_key => $item) {
+            if (isset($owned_items[$item_key])) {
+                // Bonus is capped by the number of soldiers
+                $effective_items = min($soldier_count, $owned_items[$item_key]);
+                $armory_attack_bonus += $effective_items * $item['attack'];
+            }
+        }
+    }
+}
+
+$offense_power = floor((($character_data['soldiers'] * 10) * $strength_bonus + $armory_attack_bonus) * $offense_upgrade_multiplier);
 $defense_rating = floor((($character_data['guards'] * 10) * $constitution_bonus) * $defense_upgrade_multiplier);
 $fortification = ($character_data['sentries'] * 10);
 $infiltration = $character_data['spies'] * 10;
