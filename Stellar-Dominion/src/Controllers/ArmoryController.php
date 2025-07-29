@@ -30,8 +30,8 @@ if (empty($items_to_purchase)) {
 
 mysqli_begin_transaction($link);
 try {
-    // Fetch user credits and armory level
-    $sql_get_user = "SELECT credits, armory_level FROM users WHERE id = ? FOR UPDATE";
+    // Fetch user credits, armory level, and charisma for discount calculation
+    $sql_get_user = "SELECT credits, armory_level, charisma_points FROM users WHERE id = ? FOR UPDATE";
     $stmt_user = mysqli_prepare($link, $sql_get_user);
     mysqli_stmt_bind_param($stmt_user, "i", $user_id);
     mysqli_stmt_execute($stmt_user);
@@ -46,7 +46,7 @@ try {
     $armory_result = mysqli_stmt_get_result($stmt_armory);
     $owned_items = [];
     while($row = mysqli_fetch_assoc($armory_result)) {
-        $owned_items[$row['item_key']] = true; // Just need to know if it exists
+        $owned_items[$row['item_key']] = true;
     }
     mysqli_stmt_close($stmt_armory);
 
@@ -59,6 +59,9 @@ try {
     }
 
     $total_cost = 0;
+    // **FIX:** Calculate charisma discount to apply to server-side cost validation.
+    $charisma_discount = 1 - (($user_data['charisma_points'] ?? 0) * 0.01);
+
     foreach ($items_to_purchase as $item_key => $quantity) {
         if (!isset($item_details_flat[$item_key])) {
             throw new Exception("Invalid item '$item_key' detected.");
@@ -81,7 +84,9 @@ try {
             }
         }
         
-        $total_cost += $item['cost'] * $quantity;
+        // **FIX:** Apply the charisma discount to the cost calculation.
+        $discounted_cost = floor($item['cost'] * $charisma_discount);
+        $total_cost += $discounted_cost * $quantity;
     }
 
     if ($user_data['credits'] < $total_cost) {
@@ -95,11 +100,13 @@ try {
     mysqli_stmt_execute($stmt_deduct);
     mysqli_stmt_close($stmt_deduct);
 
-    // Add items to armory using ON DUPLICATE KEY UPDATE to handle both new and existing items
+    // Add items to armory using ON DUPLICATE KEY UPDATE
     $sql_upsert = "INSERT INTO user_armory (user_id, item_key, quantity) VALUES (?, ?, ?) ON DUPLICATE KEY UPDATE quantity = quantity + VALUES(quantity)";
     $stmt_upsert = mysqli_prepare($link, $sql_upsert);
     foreach ($items_to_purchase as $item_key => $quantity) {
-        mysqli_stmt_bind_param($stmt_upsert, "isi", $user_id, $item_key, (int)$quantity);
+        // **FIX:** The value must be in a variable to be passed by reference.
+        $int_quantity = (int)$quantity; 
+        mysqli_stmt_bind_param($stmt_upsert, "isi", $user_id, $item_key, $int_quantity);
         mysqli_stmt_execute($stmt_upsert);
     }
     mysqli_stmt_close($stmt_upsert);
