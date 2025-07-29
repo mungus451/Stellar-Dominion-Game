@@ -16,7 +16,7 @@ date_default_timezone_set('UTC');
 $user_id = $_SESSION['id'];
 
 // --- DATA FETCHING ---
-$sql = "SELECT level, credits, untrained_citizens, attack_turns, last_updated, fortification_level, offense_upgrade_level, defense_upgrade_level, spy_upgrade_level, economy_upgrade_level, population_level FROM users WHERE id = ?";
+$sql = "SELECT level, credits, untrained_citizens, attack_turns, last_updated, fortification_level, offense_upgrade_level, defense_upgrade_level, spy_upgrade_level, economy_upgrade_level, population_level, armory_level FROM users WHERE id = ?";
 if($stmt = mysqli_prepare($link, $sql)){
     mysqli_stmt_bind_param($stmt, "i", $user_id);
     mysqli_stmt_execute($stmt);
