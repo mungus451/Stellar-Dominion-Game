@@ -217,6 +217,7 @@ CREATE TABLE `users` (
   `spy_upgrade_level` int(11) NOT NULL DEFAULT 0,
   `economy_upgrade_level` int(11) NOT NULL DEFAULT 0,
   `population_level` int(11) NOT NULL DEFAULT 0,
+  `armory_level` int(11) NOT NULL DEFAULT 0,
   `net_worth` bigint(20) NOT NULL DEFAULT 0,
   `avatar_path` varchar(255) DEFAULT NULL,
   `biography` text DEFAULT NULL,
