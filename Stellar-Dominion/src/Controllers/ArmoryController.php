@@ -30,8 +30,8 @@ if (empty($items_to_purchase)) {
 
 mysqli_begin_transaction($link);
 try {
-    // Fetch user credits
-    $sql_get_user = "SELECT credits FROM users WHERE id = ? FOR UPDATE";
+    // Fetch user credits and armory level
+    $sql_get_user = "SELECT credits, armory_level FROM users WHERE id = ? FOR UPDATE";
     $stmt_user = mysqli_prepare($link, $sql_get_user);
     mysqli_stmt_bind_param($stmt_user, "i", $user_id);
     mysqli_stmt_execute($stmt_user);
@@ -72,6 +72,12 @@ try {
             if (empty($owned_items[$required_item_key])) {
                 $required_item_name = $item_details_flat[$required_item_key]['name'] ?? 'the required item';
                 throw new Exception("Cannot purchase '" . htmlspecialchars($item['name']) . "'. You must own '" . htmlspecialchars($required_item_name) . "' first.");
+            }
+        }
+        
+        if (isset($item['armory_level_req'])) {
+            if ($user_data['armory_level'] < $item['armory_level_req']) {
+                throw new Exception("Cannot purchase '" . htmlspecialchars($item['name']) . "'. It requires Armory Level " . $item['armory_level_req'] . ".");
             }
         }
         
