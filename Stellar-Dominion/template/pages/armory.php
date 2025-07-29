@@ -53,7 +53,8 @@ $active_page = 'armory.php';
     <meta charset="UTF-8">
     <title>Stellar Dominion - Armory</title>
     <script src="https://cdn.tailwindcss.com"></script>
-    <link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@700&family=Roboto:wght@400;500;700&display=swap" rel="stylesheet">
+    <script src="https://unpkg.com/lucide@latest"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@700&family=Roboto:wght@400;500;700&display.swap" rel="stylesheet">
     <link rel="stylesheet" href="assets/css/style.css">
 </head>
 <body class="text-gray-400 antialiased">
@@ -111,21 +112,19 @@ $active_page = 'armory.php';
                                         <h5 class="font-semibold text-white"><?php echo htmlspecialchars($category['title']); ?></h5>
                                         <div class="mt-2 space-y-2">
                                             <?php 
-                                            // Flatten items for easy lookup within the same category
                                             $flat_items = $category['items'];
 
                                             foreach($category['items'] as $item_key => $item): 
                                                 $owned_quantity = $owned_items[$item_key] ?? 0;
                                                 
-                                                // --- NEW ROBUST LOGIC ---
                                                 $can_build = true;
                                                 $placeholder = '0';
-                                                $max_purchase = 9999; // Default max for base items
+                                                $max_purchase = 99999;
                                                 
                                                 $prereq_key = $item['prerequisite'] ?? null;
                                                 if ($prereq_key) {
                                                     $prereq_owned = $owned_items[$prereq_key] ?? 0;
-                                                    $max_purchase = $prereq_owned; // Can only upgrade as many as you own
+                                                    $max_purchase = $prereq_owned;
                                                     if ($prereq_owned <= 0) {
                                                         $can_build = false;
                                                         $placeholder = 'Locked';
@@ -134,12 +133,10 @@ $active_page = 'armory.php';
                                                 
                                                 if ($user_data['credits'] < $item['cost']) {
                                                     $can_build = false;
-                                                    // Only show 'Funds?' if not already locked by prerequisite
                                                     if ($placeholder === '0') {
                                                         $placeholder = 'Funds?';
                                                     }
                                                 }
-                                                // --- END NEW LOGIC ---
                                             ?>
                                             <div class="armory-item flex items-center bg-gray-900 p-2 rounded-md">
                                                 <div class="flex-1 grid grid-cols-4 gap-2 text-sm">
