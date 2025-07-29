@@ -110,11 +110,31 @@ $active_page = 'armory.php';
                                     <div class="bg-gray-800 p-4 rounded-lg">
                                         <h5 class="font-semibold text-white"><?php echo htmlspecialchars($category['title']); ?></h5>
                                         <div class="mt-2 space-y-2">
-                                            <?php foreach($category['items'] as $item_key => $item): 
+                                            <?php 
+                                            // Flatten items for easy lookup within the same category
+                                            $flat_items = [];
+                                            foreach($category['items'] as $ik => $i) { $flat_items[$ik] = $i; }
+
+                                            foreach($category['items'] as $item_key => $item): 
                                                 $owned_quantity = $owned_items[$item_key] ?? 0;
                                                 $prereq_key = $item['prerequisite'] ?? null;
-                                                $prereq_owned = ($prereq_key) ? ($owned_items[$prereq_key] ?? 0) : 999999;
-                                                $max_can_build = $prereq_owned;
+                                                
+                                                $prereq_owned = 999999; // Assume can afford if no prereq
+                                                $disabled = false;
+                                                $placeholder_text = "0";
+
+                                                if ($prereq_key) {
+                                                    $prereq_owned = $owned_items[$prereq_key] ?? 0;
+                                                    if ($prereq_owned == 0) {
+                                                        $disabled = true;
+                                                        $placeholder_text = "Locked";
+                                                    }
+                                                }
+                                                
+                                                if ($user_data['credits'] < $item['cost']) {
+                                                    $disabled = true;
+                                                    $placeholder_text = "Funds?";
+                                                }
                                             ?>
                                             <div class="armory-item flex items-center bg-gray-900 p-2 rounded-md">
                                                 <div class="flex-1 grid grid-cols-4 gap-2 text-sm">
@@ -122,7 +142,7 @@ $active_page = 'armory.php';
                                                         <p class="font-bold text-white"><?php echo htmlspecialchars($item['name']); ?></p>
                                                         <p class="text-xs text-gray-400"><?php echo htmlspecialchars($item['notes']); ?></p>
                                                         <?php if ($prereq_key): ?>
-                                                            <p class="text-xs text-yellow-400 italic">Requires: <?php echo htmlspecialchars($armory_loadouts[$loadout_key]['categories'][$cat_key]['items'][$prereq_key]['name']); ?></p>
+                                                            <p class="text-xs text-yellow-400 italic">Requires: <?php echo htmlspecialchars($flat_items[$prereq_key]['name']); ?></p>
                                                         <?php endif; ?>
                                                     </div>
                                                     <p>Attack: <span class="text-green-400"><?php echo $item['attack']; ?></span></p>
@@ -130,7 +150,7 @@ $active_page = 'armory.php';
                                                     <p>Owned: <span class="font-semibold"><?php echo number_format($owned_quantity); ?></span></p>
                                                 </div>
                                                 <div class="flex items-center space-x-2 ml-4">
-                                                    <input type="number" name="items[<?php echo $item_key; ?>]" min="0" max="<?php echo $max_can_build; ?>" placeholder="0" class="armory-item-quantity bg-gray-900/50 border border-gray-600 rounded-md w-20 text-center p-1" data-item-name="<?php echo htmlspecialchars($item['name']); ?>">
+                                                    <input type="number" name="items[<?php echo $item_key; ?>]" min="0" max="<?php echo $prereq_owned; ?>" placeholder="<?php echo $placeholder_text; ?>" class="armory-item-quantity bg-gray-900/50 border border-gray-600 rounded-md w-20 text-center p-1 disabled:bg-red-900/50 disabled:cursor-not-allowed" data-item-name="<?php echo htmlspecialchars($item['name']); ?>" <?php if($disabled) echo 'disabled'; ?>>
                                                     <div class="text-sm">Subtotal: <span class="subtotal font-bold text-yellow-300">0</span></div>
                                                 </div>
                                             </div>
