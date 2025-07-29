@@ -18,6 +18,7 @@ $routes = [
     '/dashboard.php'        => '../template/pages/dashboard.php',
     '/attack.php'           => '../template/pages/attack.php',
     '/battle.php'           => '../template/pages/battle.php',
+    '/armory.php'           => '../template/pages/armory.php', // New Armory Page
     '/bank.php'             => '../template/pages/bank.php',
     '/levels.php'           => '../template/pages/levels.php',
     '/profile.php'          => '../template/pages/profile.php',
@@ -52,6 +53,7 @@ $routes = [
     '/lib/update_settings.php'  => '../src/Controllers/SettingsController.php',
     '/lib/process_banking.php'  => '../src/Controllers/BankController.php',
     '/lib/alliance_actions.php' => '../src/Controllers/AllianceController.php',
+    '/lib/armory_actions.php'   => '../src/Controllers/ArmoryController.php', // New Armory Controller
     '/levelup.php'              => '../src/Controllers/LevelUpController.php',
 ];
 
@@ -61,7 +63,8 @@ $authenticated_routes = [
     '/profile.php', '/settings.php', '/structures.php', '/war_history.php',
     '/battle_report.php', '/alliance.php', '/create_alliance.php', '/edit_alliance.php',
     '/alliance_bank.php', '/alliance_roles.php', '/alliance_structures.php',
-    '/alliance_transfer.php', '/alliance_forum.php', '/create_thread.php', '/view_thread.php'
+    '/alliance_transfer.php', '/alliance_forum.php', '/create_thread.php', '/view_thread.php',
+    '/armory.php' // New authenticated route
 ];
 
 // --- ROUTING LOGIC ---
