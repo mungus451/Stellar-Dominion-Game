@@ -1,9 +1,9 @@
 <?php
 /**
- * armory.php - Multi-purchase Version
+ * armory.php - Tiered Upgrade Version
  *
- * This page allows players to purchase multiple items for their units
- * from different categories simultaneously.
+ * This page allows players to upgrade items for their units.
+ * Upgrading requires owning the prerequisite item and paying a credit cost.
  */
 
 // --- SESSION AND DATABASE SETUP ---
@@ -14,9 +14,10 @@ require_once __DIR__ . '/../../src/Game/GameData.php';
 date_default_timezone_set('UTC');
 
 $user_id = $_SESSION['id'];
+$now = new DateTime('now', new DateTimeZone('UTC'));
 
 // --- DATA FETCHING ---
-$sql_user = "SELECT credits, level, soldiers FROM users WHERE id = ?";
+$sql_user = "SELECT credits, level, attack_turns, last_updated, soldiers, workers, untrained_citizens FROM users WHERE id = ?";
 $stmt_user = mysqli_prepare($link, $sql_user);
 mysqli_stmt_bind_param($stmt_user, "i", $user_id);
 mysqli_stmt_execute($stmt_user);
@@ -36,8 +37,15 @@ while($row = mysqli_fetch_assoc($armory_result)) {
 mysqli_stmt_close($stmt_armory);
 mysqli_close($link);
 
+// --- TIMER CALCULATIONS ---
+$turn_interval_minutes = 10;
+$last_updated = new DateTime($user_data['last_updated'], new DateTimeZone('UTC'));
+$seconds_until_next_turn = ($turn_interval_minutes * 60) - (($now->getTimestamp() - $last_updated->getTimestamp()) % ($turn_interval_minutes * 60));
+if ($seconds_until_next_turn < 0) { $seconds_until_next_turn = 0; }
+$minutes_until_next_turn = floor($seconds_until_next_turn / 60);
+$seconds_remainder = $seconds_until_next_turn % 60;
+
 $active_page = 'armory.php';
-$unit_count = $user_data['soldiers'];
 ?>
 <!DOCTYPE html>
 <html lang="en">
@@ -56,15 +64,29 @@ $unit_count = $user_data['soldiers'];
             
             <div class="grid grid-cols-1 lg:grid-cols-4 gap-4 p-4">
                 <aside class="lg:col-span-1 space-y-4">
-                    <div id="armory-summary" class="content-box rounded-lg p-4 sticky top-4">
-                        <h3 class="font-title text-cyan-400 border-b border-gray-600 pb-2 mb-3">Purchase Summary</h3>
+                    <div class="content-box rounded-lg p-4 sticky top-4">
+                        <h3 class="font-title text-cyan-400 border-b border-gray-600 pb-2 mb-3">Upgrade Summary</h3>
                         <div id="summary-items" class="space-y-2 text-sm">
-                            <p class="text-gray-500 italic">Select items to purchase...</p>
+                            <p class="text-gray-500 italic">Select items to upgrade...</p>
                         </div>
                         <div class="border-t border-gray-600 mt-3 pt-3">
                             <p class="flex justify-between"><span>Grand Total:</span> <span id="grand-total" class="font-bold text-yellow-300">0</span></p>
                             <p class="flex justify-between text-xs"><span>Your Credits:</span> <span data-amount="<?php echo $user_data['credits']; ?>"><?php echo number_format($user_data['credits']); ?></span></p>
                         </div>
+                    </div>
+                    <div class="content-box rounded-lg p-4">
+                        <h3 class="font-title text-cyan-400 border-b border-gray-600 pb-2 mb-3">Stats</h3>
+                        <ul class="space-y-2 text-sm">
+                            <li class="flex justify-between"><span>Credits:</span> <span class="text-white font-semibold"><?php echo number_format($user_data['credits']); ?></span></li>
+                            <li class="flex justify-between"><span>Untrained Citizens:</span> <span class="text-white font-semibold"><?php echo number_format($user_data['untrained_citizens']); ?></span></li>
+                            <li class="flex justify-between"><span>Attack Turns:</span> <span class="text-white font-semibold"><?php echo $user_data['attack_turns']; ?></span></li>
+                            <li class="flex justify-between border-t border-gray-600 pt-2 mt-2">
+                                <span>Next Turn In:</span> 
+                                <span id="next-turn-timer" class="text-cyan-300 font-bold" data-seconds-until-next-turn="<?php echo $seconds_until_next_turn; ?>">
+                                    <?php echo sprintf('%02d:%02d', $minutes_until_next_turn, $seconds_remainder); ?>
+                                </span>
+                            </li>
+                        </ul>
                     </div>
                 </aside>
                 
@@ -90,19 +112,25 @@ $unit_count = $user_data['soldiers'];
                                         <div class="mt-2 space-y-2">
                                             <?php foreach($category['items'] as $item_key => $item): 
                                                 $owned_quantity = $owned_items[$item_key] ?? 0;
+                                                $prereq_key = $item['prerequisite'] ?? null;
+                                                $prereq_owned = ($prereq_key) ? ($owned_items[$prereq_key] ?? 0) : 999999;
+                                                $max_can_build = $prereq_owned;
                                             ?>
                                             <div class="armory-item flex items-center bg-gray-900 p-2 rounded-md">
                                                 <div class="flex-1 grid grid-cols-4 gap-2 text-sm">
                                                     <div>
                                                         <p class="font-bold text-white"><?php echo htmlspecialchars($item['name']); ?></p>
                                                         <p class="text-xs text-gray-400"><?php echo htmlspecialchars($item['notes']); ?></p>
+                                                        <?php if ($prereq_key): ?>
+                                                            <p class="text-xs text-yellow-400 italic">Requires: <?php echo htmlspecialchars($armory_loadouts[$loadout_key]['categories'][$cat_key]['items'][$prereq_key]['name']); ?></p>
+                                                        <?php endif; ?>
                                                     </div>
                                                     <p>Attack: <span class="text-green-400"><?php echo $item['attack']; ?></span></p>
-                                                    <p>Cost: <span class="text-yellow-400" data-cost="<?php echo $item['cost']; ?>"><?php echo number_format($item['cost']); ?></span></p>
+                                                    <p><?php echo $prereq_key ? 'Upgrade Cost' : 'Cost'; ?>: <span class="text-yellow-400" data-cost="<?php echo $item['cost']; ?>"><?php echo number_format($item['cost']); ?></span></p>
                                                     <p>Owned: <span class="font-semibold"><?php echo number_format($owned_quantity); ?></span></p>
                                                 </div>
                                                 <div class="flex items-center space-x-2 ml-4">
-                                                    <input type="number" name="items[<?php echo $item_key; ?>]" min="0" placeholder="0" class="armory-item-quantity bg-gray-900/50 border border-gray-600 rounded-md w-20 text-center p-1" data-item-name="<?php echo htmlspecialchars($item['name']); ?>">
+                                                    <input type="number" name="items[<?php echo $item_key; ?>]" min="0" max="<?php echo $max_can_build; ?>" placeholder="0" class="armory-item-quantity bg-gray-900/50 border border-gray-600 rounded-md w-20 text-center p-1" data-item-name="<?php echo htmlspecialchars($item['name']); ?>">
                                                     <div class="text-sm">Subtotal: <span class="subtotal font-bold text-yellow-300">0</span></div>
                                                 </div>
                                             </div>
