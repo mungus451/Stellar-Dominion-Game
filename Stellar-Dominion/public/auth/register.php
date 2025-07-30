@@ -1,10 +1,14 @@
 <?php
 // /Stellar-Dominion/public/auth/register.php
 
-// Use relative paths from the current file's directory to include necessary files.
-// This goes up two directories to the project root, then into the respective folders.
-require_once __DIR__ . '/../../config/config.php';
-require_once __DIR__ . '/../../src/Controllers/AuthController.php';
+// Set the include path to the project's root directory.
+// This provides a consistent base for all file inclusions.
+$rootPath = dirname(__DIR__, 2);
+set_include_path(get_include_path() . PATH_SEPARATOR . $rootPath);
+
+// Now, require files using paths relative to the project root.
+require_once 'config/config.php';
+require_once 'src/Controllers/AuthController.php';
 
 $authController = new AuthController($pdo);
 $message = '';
