@@ -16,6 +16,7 @@ $request_uri = parse_url($_SERVER['REQUEST_URI'], PHP_URL_PATH);
 $routes = [
     // Page Views
     '/'                     => '../template/pages/landing.php',
+    '/index.php'            => '../template/pages/landing.php',
     '/dashboard.php'        => '../template/pages/dashboard.php',
     '/attack.php'           => '../template/pages/attack.php',
     '/battle.php'           => '../template/pages/battle.php',
@@ -78,7 +79,11 @@ if (array_key_exists($request_uri, $routes)) {
             exit;
         }
     }
-    require_once __DIR__ . '/../' . $routes[$request_uri];
+    // --- START CORRECTION ---
+    // This path construction correctly navigates from /public up to the project root
+    // and then into the template or src directories as defined in the $routes array.
+    require_once __DIR__ . '/' . $routes[$request_uri];
+    // --- END CORRECTION ---
 } else {
     http_response_code(404);
     require_once __DIR__ . '/404.php';
