@@ -1,14 +1,12 @@
 <?php
-// REMOVED session_start(); as it's handled by the front controller.
-// Go up two directories to the project root, then into the config folder.
+// session_start() is handled by the front controller (index.php)
 require_once __DIR__ . '/../../config/config.php';
 
 $email = trim($_POST['email']);
 $password = trim($_POST['password']);
 
 if(empty($email) || empty($password)) {
-    // Changed redirect to provide a more specific error if needed in future
-    header("location: /?error=2"); // Error 2: Fields empty
+    header("location: /?error=1");
     exit;
 }
 
@@ -24,30 +22,25 @@ if($stmt = mysqli_prepare($link, $sql)){
             mysqli_stmt_bind_result($stmt, $id, $character_name, $hashed_password);
             if(mysqli_stmt_fetch($stmt)){
                 if(password_verify($password, $hashed_password)){
-                    // Session is already started by index.php
+                    // Set session variables
                     $_SESSION["loggedin"] = true;
                     $_SESSION["id"] = $id;
                     $_SESSION["character_name"] = $character_name;                            
                     
+                    // --- START CORRECTION ---
+                    // Explicitly save the session data before redirecting
+                    session_write_close();
+                    // --- END CORRECTION ---
+                    
                     header("location: /dashboard.php");
-                    exit;
-                } else {
-                    // Incorrect password
-                    header("location: /?error=1");
                     exit;
                 }
             }
-        } else {
-            // No account found with that email
-            header("location: /?error=1");
-            exit;
         }
-    } else {
-        // SQL execution error
-        header("location: /?error=3"); // Error 3: Query failed
-        exit;
     }
-    mysqli_stmt_close($stmt);
+    // If any part of the login fails, redirect with an error
+    header("location: /?error=1");
+    exit;
 }
 mysqli_close($link);
 ?>
