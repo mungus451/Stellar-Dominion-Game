@@ -71,6 +71,25 @@ $ogImageURL = $protocol . $host . $path . '/assets/img/og-image.png';
     <!-- Stylesheets -->
     <link rel="stylesheet" href="https://maxcdn.bootstrapcdn.com/bootstrap/3.3.7/css/bootstrap.min.css">
     <link rel="stylesheet" href="assets/css/style.css">
+
+    <!-- Custom Theme Styles -->
+    <style>
+        body {
+            background-color: #0d1117; /* Dark background color */
+            color: #c9d1d9; /* Light text color for contrast */
+        }
+        .jumbotron {
+            background-color: #f5f5f5; /* Light background for the jumbotron */
+            color: #333; /* Dark text for the jumbotron */
+        }
+        .navbar-default {
+            background-color: #f8f8f8;
+            border-color: #e7e7e7;
+        }
+        .footer {
+            color: #c9d1d9;
+        }
+    </style>
 </head>
 <body>
 <nav class="navbar navbar-default">
