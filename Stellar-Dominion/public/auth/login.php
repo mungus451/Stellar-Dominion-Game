@@ -31,13 +31,15 @@ if($stmt = mysqli_prepare($link, $sql)){
                     exit;
                 } else{
                     // Incorrect password
-                    header("location: /index.html?error=1");
+                    // **FIX:** Changed redirect from /index.html to / which is handled by the front controller.
+                    header("location: /?error=1");
                     exit;
                 }
             }
         } else{
             // No account found
-            header("location: /index.html?error=1");
+            // **FIX:** Changed redirect from /index.html to / which is handled by the front controller.
+            header("location: /?error=1");
             exit;
         }
     } else{
