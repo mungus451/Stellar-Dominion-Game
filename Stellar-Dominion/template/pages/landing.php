@@ -37,14 +37,14 @@ include_once __DIR__ . '/../includes/public_header.php';
                 <button id="showRegisterBtn" class="flex-1 py-2 text-lg font-title text-cyan-400 hover:text-white focus:outline-none focus:border-b-2 focus:border-cyan-400">Register</button>
             </div>
 
-            <form id="loginForm" action="auth/login.php" method="POST" class="space-y-6">
-                <div id="loginError" class="hidden bg-red-900 border border-red-500/50 text-red-300 p-3 rounded-md text-center">Invalid email or password.</div>
+            <form id="loginForm" action="/auth/login.php" method="POST" class="space-y-6">
+                <div id="loginError" class="hidden bg-red-900 border border-red-500/50 text-red-300 p-3 rounded-md text-center">Invalid email or password provided.</div>
                 <input type="email" name="email" placeholder="Email Address" class="w-full bg-gray-900/50 border border-gray-700 rounded-lg px-4 py-3 text-white focus:outline-none focus:ring-2 focus:ring-cyan-500" required>
                 <input type="password" name="password" placeholder="Password" class="w-full bg-gray-900/50 border border-gray-700 rounded-lg px-4 py-3 text-white focus:outline-none focus:ring-2 focus:ring-cyan-500" required>
                 <button type="submit" class="w-full bg-cyan-600 hover:bg-cyan-700 text-white font-bold py-3 px-6 rounded-lg transition-colors">Login</button>
             </form>
 
-            <form id="registerForm" action="auth/register.php" method="POST" class="hidden space-y-4">
+            <form id="registerForm" action="/auth/register.php" method="POST" class="hidden space-y-4">
                 <input type="email" name="email" placeholder="Email Address" class="w-full bg-gray-900/50 border border-gray-700 rounded-lg px-4 py-3 text-white focus:outline-none focus:ring-2 focus:ring-cyan-500" required>
                 <input type="text" name="characterName" placeholder="Character Name" class="w-full bg-gray-900/50 border border-gray-700 rounded-lg px-4 py-3 text-white focus:outline-none focus:ring-2 focus:ring-cyan-500" required>
                 <input type="password" name="password" placeholder="Password" class="w-full bg-gray-900/50 border border-gray-700 rounded-lg px-4 py-3 text-white focus:outline-none focus:ring-2 focus:ring-cyan-500" required>
@@ -105,6 +105,7 @@ document.addEventListener('DOMContentLoaded', () => {
     const urlParams = new URLSearchParams(window.location.search);
     if (urlParams.has('error')) {
         authModal.classList.remove('hidden');
+        loginErrorDiv.textContent = urlParams.get('error') === '1' ? 'Invalid email or password.' : 'An unknown error occurred.';
         loginErrorDiv.classList.remove('hidden');
     }
 });
