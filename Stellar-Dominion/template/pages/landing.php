@@ -5,7 +5,8 @@ require_once __DIR__ . '/../includes/public_header.php';
 
 <div class="landing-container">
     <!-- This div holds the initial welcome message and button -->
-    <div id="landing-intro">
+    <!-- The "landing-left" class has been restored for styling -->
+    <div class="landing-left" id="landing-intro">
         <h1>Your Empire Awaits</h1>
         <p>The ultimate sci-fi idle RPG adventure.</p>
         <p>Command your fleet, conquer unknown star systems, and build a galactic empire that stands the test of time. Your conquest begins now, even while you're away.</p>
@@ -13,7 +14,8 @@ require_once __DIR__ . '/../includes/public_header.php';
     </div>
 
     <!-- This div holds both the login and registration forms, hidden by default -->
-    <div id="auth-forms" style="display: none;">
+    <!-- The "landing-right" class has been restored for styling -->
+    <div class="landing-right" id="auth-forms" style="display: none;">
         <?php
         // Check for a session error message and display it above the forms.
         if (isset($_SESSION['error'])) {
