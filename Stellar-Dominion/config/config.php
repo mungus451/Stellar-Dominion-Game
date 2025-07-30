@@ -1,11 +1,13 @@
 <?php
 // Database configuration
 define('DB_HOST', 'localhost');
-define('DB_USERNAME', 'admin');
-// --- IMPORTANT ---
-// Make sure this password is correct for your local MySQL server.
+// We are using 'root' as this is the user confirmed to work from the command line.
+define('DB_USERNAME', 'root'); 
+// --- VERY IMPORTANT ---
+// This MUST be the correct password for the 'root' user on your MySQL server.
 define('DB_PASSWORD', 'password'); 
-define('DB_NAME', 'users');
+// This has been corrected to point to the game's actual database.
+define('DB_NAME', 'stellar_dominion');
 
 // Initialize $mysqli to null to ensure it exists.
 $mysqli = null;
