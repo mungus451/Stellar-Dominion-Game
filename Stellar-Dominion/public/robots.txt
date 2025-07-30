@@ -1,0 +1,17 @@
+User-agent: *
+# Allow crawling of all public pages
+Allow: /
+
+# Disallow crawling of sensitive or non-public areas
+Disallow: /config/
+Disallow: /src/
+Disallow: /template/
+Disallow: /auth/ # Don't index login/register pages directly
+Disallow: /*?page=attack
+Disallow: /*?page=bank
+Disallow: /*?page=armory
+Disallow: /*?page=settings
+# Add other game-specific pages you don't want indexed
+
+# Location of sitemap
+Sitemap: https://www.yourdomain.com/sitemap.xml
