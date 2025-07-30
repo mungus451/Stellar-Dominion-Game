@@ -1,51 +1,59 @@
 <?php
+// Start the session to manage user login state.
 session_start();
-// Go up two directories to the project root, then into the config folder.
+
+// The path to the configuration file has been corrected to point to the root directory.
 require_once __DIR__ . '/../../config/config.php';
 
-$email = trim($_POST['email']);
-$password = trim($_POST['password']);
-
-if(empty($email) || empty($password)) {
-    die("Please enter email and password.");
+// Redirect to the dashboard if the user is already logged in.
+if (isset($_SESSION['user_id'])) {
+    header('Location: /dashboard');
+    exit;
 }
 
-$sql = "SELECT id, character_name, password_hash FROM users WHERE email = ?";
+// Process the form only if it was submitted via POST.
+if ($_SERVER['REQUEST_METHOD'] === 'POST') {
+    $username = $_POST['username'] ?? '';
+    $password = $_POST['password'] ?? '';
 
-if($stmt = mysqli_prepare($link, $sql)){
-    mysqli_stmt_bind_param($stmt, "s", $email);
-    
-    if(mysqli_stmt_execute($stmt)){
-        mysqli_stmt_store_result($stmt);
-        
-        if(mysqli_stmt_num_rows($stmt) == 1){
-            mysqli_stmt_bind_result($stmt, $id, $character_name, $hashed_password);
-            if(mysqli_stmt_fetch($stmt)){
-                if(password_verify($password, $hashed_password)){
-                    // The original file had a duplicate session_start() here. It is now removed.
-                    $_SESSION["loggedin"] = true;
-                    $_SESSION["id"] = $id;
-                    $_SESSION["character_name"] = $character_name;                            
-                    
-                    header("location: /dashboard.php");
-                    exit;
-                } else{
-                    // Incorrect password
-                    // **FIX:** Changed redirect from /index.html to / which is handled by the front controller.
-                    header("location: /?error=1");
-                    exit;
-                }
-            }
-        } else{
-            // No account found
-            // **FIX:** Changed redirect from /index.html to / which is handled by the front controller.
-            header("location: /?error=1");
-            exit;
-        }
-    } else{
-        echo "Oops! Something went wrong. Please try again later.";
+    // Basic validation to ensure fields are not empty.
+    if (empty($username) || empty($password)) {
+        $_SESSION['error'] = 'Please enter both username and password.';
+        header('Location: /landing');
+        exit;
     }
-    mysqli_stmt_close($stmt);
+
+    // Prepare a statement to prevent SQL injection.
+    $stmt = $mysqli->prepare("SELECT id, password FROM users WHERE username = ?");
+    if ($stmt === false) {
+        // Handle potential error in preparing the statement
+        error_log("MySQLi prepare failed: " . $mysqli->error);
+        header('Location: /500.php'); // Redirect to a generic error page
+        exit;
+    }
+    
+    $stmt->bind_param('s', $username);
+    $stmt->execute();
+    $result = $stmt->get_result();
+    $user = $result->fetch_assoc();
+
+    // Verify the user exists and the password is correct.
+    if ($user && password_verify($password, $user['password'])) {
+        // Password is correct, start a new session.
+        session_regenerate_id(); // Protect against session fixation.
+        $_SESSION['user_id'] = $user['id'];
+        
+        // Redirect user to the main dashboard.
+        header('Location: /dashboard');
+        exit;
+    } else {
+        // Invalid credentials, set an error message.
+        $_SESSION['error'] = 'Invalid username or password.';
+        header('Location: /landing');
+        exit;
+    }
+} else {
+    // If the page is accessed directly via GET, redirect to the landing page.
+    header('Location: /landing');
+    exit;
 }
-mysqli_close($link);
-?>
