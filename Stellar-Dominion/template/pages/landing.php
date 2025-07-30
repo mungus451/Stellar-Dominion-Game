@@ -4,14 +4,16 @@ require_once __DIR__ . '/../includes/public_header.php';
 ?>
 
 <div class="landing-container">
-    <div class="landing-left">
+    <!-- This div holds the initial welcome message and button -->
+    <div id="landing-intro">
         <h1>Your Empire Awaits</h1>
         <p>The ultimate sci-fi idle RPG adventure.</p>
         <p>Command your fleet, conquer unknown star systems, and build a galactic empire that stands the test of time. Your conquest begins now, even while you're away.</p>
-        <button class="cta-button" onclick="showLogin()">Launch Your Fleet</button>
+        <button class="cta-button" onclick="showAuthForms()">Launch Your Fleet</button>
     </div>
-    <div class="landing-right" style="display: none;">
-        
+
+    <!-- This div holds both the login and registration forms, hidden by default -->
+    <div id="auth-forms" style="display: none;">
         <?php
         // Check for a session error message and display it above the forms.
         if (isset($_SESSION['error'])) {
@@ -29,7 +31,7 @@ require_once __DIR__ . '/../includes/public_header.php';
                 <input type="password" name="password" placeholder="Password" required>
                 <button type="submit">Login</button>
             </form>
-            <p>Don't have an account? <a href="#" onclick="showRegister()">Register here</a></p>
+            <p>Don't have an account? <a href="#" onclick="showRegisterForm()">Register here</a></p>
         </div>
 
         <!-- Registration Form -->
@@ -48,33 +50,43 @@ require_once __DIR__ . '/../includes/public_header.php';
                 </select>
                 <button type="submit">Register</button>
             </form>
-            <p>Already have an account? <a href="#" onclick="showLogin()">Login here</a></p>
+            <p>Already have an account? <a href="#" onclick="showLoginForm()">Login here</a></p>
         </div>
     </div>
 </div>
 
 <script>
-    function showLogin() {
-        document.getElementById('login-form').style.display = 'block';
-        document.getElementById('register-form').style.display = 'none';
-        document.querySelector('.landing-left').style.display = 'none';
-        document.querySelector('.landing-right').style.display = 'block';
+    // This function hides the intro and shows the form container
+    function showAuthForms() {
+        document.getElementById('landing-intro').style.display = 'none';
+        document.getElementById('auth-forms').style.display = 'block';
+        // By default, show the login form first
+        showLoginForm();
     }
 
-    function showRegister() {
+    // This function shows the login form and hides the register form
+    function showLoginForm() {
+        document.getElementById('login-form').style.display = 'block';
+        document.getElementById('register-form').style.display = 'none';
+    }
+
+    // This function shows the register form and hides the login form
+    function showRegisterForm() {
         document.getElementById('login-form').style.display = 'none';
         document.getElementById('register-form').style.display = 'block';
-        document.querySelector('.landing-left').style.display = 'none';
-        document.querySelector('.landing-right').style.display = 'block';
     }
 
     // When the page loads, check if we need to show a specific form due to an error.
     <?php
     if (isset($_SESSION['form'])) {
+        // First, show the forms container
+        echo 'showAuthForms();'; 
+        // Then, show the specific form that had the error
         if ($_SESSION['form'] === 'register') {
-            echo 'showRegister();';
+            echo 'showRegisterForm();';
         } else {
-            echo 'showLogin();';
+            // Default to showing login form if 'form' is set but not 'register'
+            echo 'showLoginForm();';
         }
         unset($_SESSION['form']); 
     }
