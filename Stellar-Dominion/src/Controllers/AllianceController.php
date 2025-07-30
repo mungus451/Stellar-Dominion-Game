@@ -1,48 +1,3 @@
-Of course. It looks like the previous fix worked, but now we've hit a server configuration issue. The error "Could not move uploaded file" is almost always caused by incorrect file permissions on the server, not a bug in the code's logic.
-
-### The Problem
-
-When you upload a file, the web server (running as a user like `www-data` or `apache`) needs permission to write that file to its destination directory. The controller is trying to save the new alliance avatar to the `public/uploads/avatars/` directory, but it's failing because it doesn't have the necessary permissions to create files there.
-
-### The Fix: Adjusting Server Permissions
-
-You will need to run a few commands in your server's terminal to create the directory and give the web server ownership of it.
-
-1.  **Navigate to your project's `public` directory:**
-
-    ```bash
-    cd /path/to/your/Stellar-Dominion/public/
-    ```
-
-2.  **Create the uploads directory:** This command will create `uploads` and `avatars` if they don't already exist.
-
-    ```bash
-    mkdir -p uploads/avatars
-    ```
-
-3.  **Change Ownership:** This command gives the web server user ownership of the `uploads` directory. (Note: `www-data:www-data` is common for Debian/Ubuntu. On CentOS/RHEL it might be `apache:apache`, and on macOS with native Apache it might be `_www:_www`).
-
-    ```bash
-    sudo chown -R www-data:www-data uploads
-    ```
-
-4.  **Set Permissions:** This ensures the owner can read, write, and execute within the directory.
-
-    ```bash
-    sudo chmod -R 755 uploads
-    ```
-
-After running these commands, the file upload should work correctly.
-
------
-
-### Proactive Code Improvement
-
-To make diagnosing these kinds of issues easier in the future, we can improve the error handling in `src/Controllers/AllianceController.php` to be more specific, just like it is in the `ProfileController`.
-
-Here is the updated code for the controller. It will now give you a more precise error if the directory is missing or not writable.
-
-```php
 <?php
 /**
  * src/Controllers/AllianceController.php
@@ -679,4 +634,3 @@ try {
 header("location: " . $redirect_url);
 exit;
 ?>
-```
