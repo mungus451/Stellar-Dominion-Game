@@ -1,63 +1,53 @@
 <?php
-// Stellar-Dominion/public/auth/login.php
+// REMOVED session_start(); as it's handled by the front controller.
+// Go up two directories to the project root, then into the config folder.
+require_once __DIR__ . '/../../config/config.php';
 
-/**
- * Handles the user login process.
- * This script is included by index.php for the /auth/login route.
- * It expects a POST request with username and password.
- */
+$email = trim($_POST['email']);
+$password = trim($_POST['password']);
 
-// We should only process POST requests. If accessed directly, redirect to home.
-if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
-    header('Location: /');
-    exit();
+if(empty($email) || empty($password)) {
+    // Changed redirect to provide a more specific error if needed in future
+    header("location: /?error=2"); // Error 2: Fields empty
+    exit;
 }
 
-// Use trim() to remove accidental whitespace and the null coalescing operator for safety.
-$username = trim($_POST['username'] ?? '');
-$password = trim($_POST['password'] ?? '');
+$sql = "SELECT id, character_name, password_hash FROM users WHERE email = ?";
 
-// Check if credentials are provided
-if (empty($username) || empty($password)) {
-    $_SESSION['login_error'] = 'Please enter both username and password.';
-    header('Location: /');
-    exit();
+if($stmt = mysqli_prepare($link, $sql)){
+    mysqli_stmt_bind_param($stmt, "s", $email);
+    
+    if(mysqli_stmt_execute($stmt)){
+        mysqli_stmt_store_result($stmt);
+        
+        if(mysqli_stmt_num_rows($stmt) == 1){
+            mysqli_stmt_bind_result($stmt, $id, $character_name, $hashed_password);
+            if(mysqli_stmt_fetch($stmt)){
+                if(password_verify($password, $hashed_password)){
+                    // Session is already started by index.php
+                    $_SESSION["loggedin"] = true;
+                    $_SESSION["id"] = $id;
+                    $_SESSION["character_name"] = $character_name;                            
+                    
+                    header("location: /dashboard.php");
+                    exit;
+                } else {
+                    // Incorrect password
+                    header("location: /?error=1");
+                    exit;
+                }
+            }
+        } else {
+            // No account found with that email
+            header("location: /?error=1");
+            exit;
+        }
+    } else {
+        // SQL execution error
+        header("location: /?error=3"); // Error 3: Query failed
+        exit;
+    }
+    mysqli_stmt_close($stmt);
 }
-
-// Prepare SQL statement to prevent SQL injection
-$sql = "SELECT id, password FROM users WHERE username = ?";
-$stmt = $mysqli->prepare($sql);
-
-// Handle potential SQL errors
-if (!$stmt) {
-    // Log the actual error for debugging, but show a generic message to the user.
-    error_log("Login prepare failed: " . $mysqli->error);
-    $_SESSION['login_error'] = 'An unexpected error occurred. Please try again.';
-    header('Location: /');
-    exit();
-}
-
-$stmt->bind_param('s', $username);
-$stmt->execute();
-$result = $stmt->get_result();
-$user = $result->fetch_assoc();
-$stmt->close();
-
-// Verify user existence and password correctness
-if ($user && password_verify($password, $user['password'])) {
-    // Login successful
-    // Regenerate session ID to protect against session fixation attacks
-    session_regenerate_id(true);
-
-    // Store user ID in session
-    $_SESSION['user_id'] = $user['id'];
-
-    // Redirect to the main game dashboard
-    header('Location: /dashboard');
-    exit();
-} else {
-    // Login failed
-    $_SESSION['login_error'] = 'Invalid username or password.';
-    header('Location: /');
-    exit();
-}
+mysqli_close($link);
+?>
