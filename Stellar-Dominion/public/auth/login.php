@@ -2,8 +2,8 @@
 // Start the session to manage user login state.
 session_start();
 
-// Correctly load the database configuration file.
-// This defines the $mysqli variable for our database connection.
+// **FIX:** Correctly load the database configuration file.
+// This defines the $mysqli variable needed for the database connection.
 require_once __DIR__ . '/../../config/config.php';
 
 // Redirect to the dashboard if the user is already logged in.
@@ -25,28 +25,43 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         exit;
     }
 
-    // Prepare a statement to prevent SQL injection.
-    // Allow login with either username or email.
-    $stmt = $mysqli->prepare("SELECT id, password FROM users WHERE username = ? OR email = ?");
-    if ($stmt === false) {
-        error_log("MySQLi prepare failed: " . $mysqli->error);
-        header('Location: /500.php');
-        exit;
-    }
-    
-    $stmt->bind_param('ss', $username, $username);
-    $stmt->execute();
-    $result = $stmt->get_result();
-    $user = $result->fetch_assoc();
+    // Check if the database connection is valid before using it.
+    if ($mysqli) {
+        // Prepare a statement to prevent SQL injection.
+        // Allow login with either username or email.
+        $stmt = $mysqli->prepare("SELECT id, password FROM users WHERE username = ? OR email = ?");
+        
+        if ($stmt === false) {
+            // Log the actual error for debugging.
+            error_log("MySQLi prepare failed in login.php: " . $mysqli->error);
+            // Show a generic error to the user.
+            $_SESSION['error'] = 'A server error occurred. Please try again later.';
+            $_SESSION['form'] = 'login';
+            header('Location: /index.php?url=landing');
+            exit;
+        }
+        
+        $stmt->bind_param('ss', $username, $username);
+        $stmt->execute();
+        $result = $stmt->get_result();
+        $user = $result->fetch_assoc();
 
-    // Verify user and password.
-    if ($user && password_verify($password, $user['password'])) {
-        session_regenerate_id();
-        $_SESSION['user_id'] = $user['id'];
-        header('Location: /index.php?url=dashboard');
-        exit;
+        // Verify user and password.
+        if ($user && password_verify($password, $user['password'])) {
+            session_regenerate_id();
+            $_SESSION['user_id'] = $user['id'];
+            header('Location: /index.php?url=dashboard');
+            exit;
+        } else {
+            $_SESSION['error'] = 'Invalid username or password.';
+            $_SESSION['form'] = 'login';
+            header('Location: /index.php?url=landing');
+            exit;
+        }
     } else {
-        $_SESSION['error'] = 'Invalid username or password.';
+        // This case handles if $mysqli is not created in config.php.
+        error_log("Database connection variable (\$mysqli) not found in login.php.");
+        $_SESSION['error'] = 'Database connection error. Please contact support.';
         $_SESSION['form'] = 'login';
         header('Location: /index.php?url=landing');
         exit;
