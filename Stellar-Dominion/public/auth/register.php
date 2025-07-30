@@ -1,6 +1,5 @@
 <?php
-// REMOVED session_start(); as it's handled by the front controller.
-// Go up two directories to the project root, then into the config folder.
+// session_start() is handled by the front controller (index.php)
 require_once __DIR__ . '/../../config/config.php';
 
 $email = trim($_POST['email']);
@@ -31,7 +30,7 @@ switch ($race) {
 }
 
 $password_hash = password_hash($password, PASSWORD_DEFAULT);
-$current_time = gmdate('Y-m-d H:i:s'); // Get current UTC time
+$current_time = gmdate('Y-m-d H:i:s');
 
 $sql = "INSERT INTO users (email, character_name, password_hash, race, class, credits, untrained_citizens, level_up_points, avatar_path, last_updated) VALUES (?, ?, ?, ?, ?, 100000, 1000, 1, ?, ?)";
 
@@ -39,11 +38,15 @@ if($stmt = mysqli_prepare($link, $sql)){
     mysqli_stmt_bind_param($stmt, "sssssss", $email, $character_name, $password_hash, $race, $class, $avatar_path, $current_time);
 
     if(mysqli_stmt_execute($stmt)){
-        // Session is already started by index.php
         $_SESSION["loggedin"] = true;
         $_SESSION["id"] = mysqli_insert_id($link);
         $_SESSION["character_name"] = $character_name;
         
+        // --- START CORRECTION ---
+        // Explicitly save the session data before redirecting
+        session_write_close();
+        // --- END CORRECTION ---
+
         header("location: /dashboard.php");
         exit;
     } else {
