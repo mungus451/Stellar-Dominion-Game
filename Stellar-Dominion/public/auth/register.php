@@ -44,39 +44,48 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     $hashed_password = password_hash($password, PASSWORD_DEFAULT);
 
     // --- Check for existing user ---
-    $stmt = $mysqli->prepare("SELECT id FROM users WHERE username = ? OR email = ?");
-    $stmt->bind_param('ss', $username, $email);
-    $stmt->execute();
-    $stmt->store_result();
+    if ($mysqli) {
+        $stmt = $mysqli->prepare("SELECT id FROM users WHERE username = ? OR email = ?");
+        $stmt->bind_param('ss', $username, $email);
+        $stmt->execute();
+        $stmt->store_result();
 
-    if ($stmt->num_rows > 0) {
-        $_SESSION['error'] = 'Username or email already taken.';
-        $_SESSION['form'] = 'register';
-        header('Location: /index.php?url=landing');
-        exit;
-    }
-    $stmt->close();
+        if ($stmt->num_rows > 0) {
+            $_SESSION['error'] = 'Username or email already taken.';
+            $_SESSION['form'] = 'register';
+            header('Location: /index.php?url=landing');
+            exit;
+        }
+        $stmt->close();
 
-    // --- Insert New User ---
-    $stmt = $mysqli->prepare("INSERT INTO users (username, email, password, race) VALUES (?, ?, ?, ?)");
-    $stmt->bind_param('ssss', $username, $email, $hashed_password, $race);
+        // --- Insert New User ---
+        $stmt = $mysqli->prepare("INSERT INTO users (username, email, password, race) VALUES (?, ?, ?, ?)");
+        $stmt->bind_param('ssss', $username, $email, $hashed_password, $race);
 
-    if ($stmt->execute()) {
-        $user_id = $mysqli->insert_id;
-        
-        session_regenerate_id();
-        $_SESSION['user_id'] = $user_id;
+        if ($stmt->execute()) {
+            $user_id = $mysqli->insert_id;
+            
+            session_regenerate_id();
+            $_SESSION['user_id'] = $user_id;
 
-        // Initialize game data for the new player.
-        GameData::initializePlayerStats($mysqli, $user_id);
-        GameData::initializePlayerResources($mysqli, $user_id);
+            // Initialize game data for the new player.
+            GameData::initializePlayerStats($mysqli, $user_id);
+            GameData::initializePlayerResources($mysqli, $user_id);
 
-        header('Location: /index.php?url=dashboard');
-        exit;
+            header('Location: /index.php?url=dashboard');
+            exit;
+        } else {
+            $_SESSION['error'] = 'Registration failed. Please try again.';
+            $_SESSION['form'] = 'register';
+            error_log("Registration failed: " . $stmt->error);
+            header('Location: /index.php?url=landing');
+            exit;
+        }
     } else {
-        $_SESSION['error'] = 'Registration failed. Please try again.';
+        // This case handles if $mysqli is not created in config.php.
+        error_log("Database connection variable (\$mysqli) not found in register.php.");
+        $_SESSION['error'] = 'Database connection error. Please contact support.';
         $_SESSION['form'] = 'register';
-        error_log("Registration failed: " . $stmt->error);
         header('Location: /index.php?url=landing');
         exit;
     }
