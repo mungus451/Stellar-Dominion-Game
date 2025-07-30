@@ -9,17 +9,10 @@ if (isset($_SESSION['user_id'])) {
 }
 
 // --- SEO & URL Configuration ---
-// This block dynamically creates the full URL to the page.
-// This ensures that canonical URLs and social sharing tags work correctly
-// on both your local development server and your live production website.
 $protocol = (!empty($_SERVER['HTTPS']) && $_SERVER['HTTPS'] !== 'off' || $_SERVER['SERVER_PORT'] == 443) ? "https://" : "http://";
 $host = $_SERVER['HTTP_HOST'];
-// Grabs the path to the current directory
 $path = rtrim(dirname($_SERVER['PHP_SELF']), '/\\');
-// Constructs the full URL for the canonical link and social sharing tags.
 $canonicalURL = $protocol . $host . $_SERVER['REQUEST_URI'];
-// It's highly recommended to create a specific image for social media sharing (1200x630px).
-// Place it in 'public/assets/img/' and name it 'og-image.png' or update the path here.
 $ogImageURL = $protocol . $host . $path . '/assets/img/og-image.png'; 
 ?>
 <!DOCTYPE html>
@@ -69,46 +62,111 @@ $ogImageURL = $protocol . $host . $path . '/assets/img/og-image.png';
     <!-- Stylesheets -->
     <link rel="stylesheet" href="https://maxcdn.bootstrapcdn.com/bootstrap/3.3.7/css/bootstrap.min.css">
     <link rel="stylesheet" href="assets/css/style.css">
+    <style>
+        html, body {
+            height: 100%;
+            margin: 0;
+        }
+        body {
+            background: #000 url('https://www.transparenttextures.com/patterns/stardust.png') repeat;
+            color: #fff;
+            display: flex;
+            flex-direction: column;
+            text-align: center;
+        }
+        .navbar-default {
+            background-color: rgba(13, 17, 23, 0.8);
+            border-bottom: 1px solid #00aaff;
+        }
+        .navbar-default .navbar-brand, .navbar-default .nav > li > a {
+            color: #fff;
+            text-shadow: 0 0 5px #00aaff;
+        }
+        .navbar-default .navbar-brand:hover, .navbar-default .nav > li > a:hover {
+            color: #00aaff;
+        }
+        .hero-section {
+            flex-grow: 1;
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+            padding: 20px;
+        }
+        .hero-section h1 {
+            font-size: 4.5em;
+            font-weight: bold;
+            text-shadow: 0 0 15px #00aaff;
+        }
+        .hero-section .subheading {
+            font-size: 1.5em;
+            margin-top: 0;
+            margin-bottom: 20px;
+        }
+        .hero-section .description {
+            max-width: 600px;
+            margin-bottom: 30px;
+            font-size: 1.1em;
+            line-height: 1.6;
+        }
+        .btn-launch {
+            background-color: #00aaff;
+            border-color: #00aaff;
+            color: #fff;
+            padding: 15px 30px;
+            font-size: 1.2em;
+            border-radius: 5px;
+            transition: all 0.3s ease;
+            box-shadow: 0 0 10px #00aaff;
+        }
+        .btn-launch:hover, .btn-launch:focus {
+            background-color: #0077cc;
+            border-color: #0077cc;
+            color: #fff;
+            box-shadow: 0 0 20px #00aaff;
+        }
+        .footer {
+            padding: 20px;
+            background-color: rgba(13, 17, 23, 0.8);
+            border-top: 1px solid #00aaff;
+            color: #c9d1d9;
+        }
+    </style>
 </head>
 <body>
-<nav class="navbar navbar-default">
-    <div class="container-fluid">
+
+<nav class="navbar navbar-default navbar-fixed-top">
+    <div class="container">
         <div class="navbar-header">
-            <a class="navbar-brand" href="index.php">Stellar Dominion</a>
+            <a class="navbar-brand" href="#">STELLAR DOMINION</a>
         </div>
-        <ul class="nav navbar-nav navbar-right">
-            <li><a href="auth/register.php">Register</a></li>
-            <li><a href="auth/login.php">Login</a></li>
-        </ul>
+        <div class="collapse navbar-collapse">
+            <ul class="nav navbar-nav navbar-right">
+                <li><a href="#">Gameplay</a></li>
+                <li><a href="#">Community</a></li>
+                <li><a href="#">Leaderboards</a></li>
+            </ul>
+        </div>
     </div>
 </nav>
 
-<div class="container">
-    <div class="jumbotron">
-        <h1>Welcome to Stellar Dominion</h1>
-        <p>Conquer the galaxy, form alliances, and become the ultimate ruler.</p>
-        <p><a class="btn btn-primary btn-lg" href="auth/register.php" role="button">Join Now</a> <a class="btn btn-default btn-lg" href="auth/login.php" role="button">Login</a></p>
-    </div>
-
-    <div class="row">
-        <div class="col-md-4">
-            <h2>Build Your Empire</h2>
-            <p>From a single planet to a galactic empire, your journey begins now. Manage resources, research technologies, and build a powerful fleet.</p>
-        </div>
-        <div class="col-md-4">
-            <h2>Form Alliances</h2>
-            <p>You are not alone in the galaxy. Forge alliances with other players, wage epic wars, and dominate the universe together.</p>
-        </div>
-        <div class="col-md-4">
-            <h2>Strategic Warfare</h2>
-            <p>Engage in strategic turn-based combat. Customize your units, plan your attacks, and outsmart your opponents to claim victory.</p>
-        </div>
-    </div>
+<div class="hero-section">
+    <h1>Your Empire Awaits</h1>
+    <p class="subheading">The ultimate sci-fi idle RPG adventure.</p>
+    <p class="description">
+        Command your fleet, conquer unknown star systems, and build a galactic empire that stands the test of time. Your conquest begins now, even while you're away.
+    </p>
+    <a href="auth/register.php" class="btn btn-primary btn-lg btn-launch" role="button">Launch Your Fleet</a>
 </div>
 
-<?php
-// Includes the standard public footer
-include __DIR__ . '/../../template/includes/public_footer.php';
-?>
+<footer class="footer">
+    <div class="container">
+        <p>&copy; <?php echo date("Y"); ?> Garbensarf Productions. All rights reserved.</p>
+    </div>
+</footer>
+
+<script src="https://ajax.googleapis.com/ajax/libs/jquery/1.12.4/jquery.min.js"></script>
+<script src="https://maxcdn.bootstrapcdn.com/bootstrap/3.3.7/js/bootstrap.min.js"></script>
+
 </body>
 </html>
