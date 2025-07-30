@@ -44,6 +44,12 @@ $routes = [
     '/create_thread.php'        => '../template/pages/create_thread.php',
     '/view_thread.php'          => '../template/pages/view_thread.php',
 
+    // --- START CORRECTION ---
+    // Authentication Action Handlers
+    '/auth/login.php'           => 'auth/login.php',
+    '/auth/register.php'        => 'auth/register.php',
+    // --- END CORRECTION ---
+
     // Form Action Handlers (map legacy "lib" URLs to new controller paths)
     '/lib/train.php'            => '../src/Controllers/TrainingController.php',
     '/lib/untrain.php'          => '../src/Controllers/TrainingController.php',
