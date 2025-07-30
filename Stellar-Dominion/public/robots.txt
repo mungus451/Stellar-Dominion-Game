@@ -11,7 +11,10 @@ Disallow: /*?page=attack
 Disallow: /*?page=bank
 Disallow: /*?page=armory
 Disallow: /*?page=settings
-# Add other game-specific pages you don't want indexed
+# Add other game-specific pages you don't want indexed, for example:
+Disallow: /*?page=alliance
+Disallow: /*?page=profile
+Disallow: /*?page=dashboard
 
 # Location of sitemap
-Sitemap: https://www.yourdomain.com/sitemap.xml
+Sitemap: https://www.stellar-dominion.com/sitemap.xml
