@@ -1,8 +1,7 @@
 <?php
 // --- SESSION AND DATABASE SETUP ---
-session_start();
+// session_start() and the login check are now handled by the main router (public/index.php)
 date_default_timezone_set('UTC');
-if(!isset($_SESSION["loggedin"]) || $_SESSION["loggedin"] !== true){ header("location: index.html"); exit; }
 
 // --- CORRECTED FILE PATHS ---
 require_once __DIR__ . '/../../config/config.php';
