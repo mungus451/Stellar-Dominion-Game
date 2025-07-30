@@ -3,9 +3,11 @@
  * public/index.php
  *
  * Main entry point and Front Controller for the application.
- * It routes all incoming requests to the appropriate page templates or action controllers.
  */
 session_start();
+
+// CENTRALIZED DATABASE CONNECTION & CONFIGURATION
+require_once __DIR__ . '/../config/config.php';
 
 // Get the requested URL path
 $request_uri = parse_url($_SERVER['REQUEST_URI'], PHP_URL_PATH);
@@ -14,11 +16,10 @@ $request_uri = parse_url($_SERVER['REQUEST_URI'], PHP_URL_PATH);
 $routes = [
     // Page Views
     '/'                     => '../template/pages/landing.php',
-    '/index.php'            => '../template/pages/landing.php',
     '/dashboard.php'        => '../template/pages/dashboard.php',
     '/attack.php'           => '../template/pages/attack.php',
     '/battle.php'           => '../template/pages/battle.php',
-    '/armory.php'           => '../template/pages/armory.php', // New Armory Page
+    '/armory.php'           => '../template/pages/armory.php',
     '/bank.php'             => '../template/pages/bank.php',
     '/levels.php'           => '../template/pages/levels.php',
     '/profile.php'          => '../template/pages/profile.php',
@@ -31,7 +32,7 @@ $routes = [
     '/community.php'        => '../template/pages/community.php',
     '/stats.php'            => '../template/pages/stats.php',
     '/inspiration.php'      => '../template/pages/inspiration.php',
-
+    
     // Alliance Page Views
     '/alliance.php'             => '../template/pages/alliance.php',
     '/create_alliance.php'      => '../template/pages/create_alliance.php',
@@ -44,22 +45,17 @@ $routes = [
     '/create_thread.php'        => '../template/pages/create_thread.php',
     '/view_thread.php'          => '../template/pages/view_thread.php',
 
-    // --- START CORRECTION ---
-    // Authentication Action Handlers
-    '/auth/login.php'           => 'auth/login.php',
-    '/auth/register.php'        => 'auth/register.php',
-    // --- END CORRECTION ---
-
-    // Form Action Handlers (map legacy "lib" URLs to new controller paths)
+    // Action Handlers
+    '/auth.php'                 => '../src/Controllers/AuthController.php',
     '/lib/train.php'            => '../src/Controllers/TrainingController.php',
     '/lib/untrain.php'          => '../src/Controllers/TrainingController.php',
     '/lib/process_attack.php'   => '../src/Controllers/AttackController.php',
     '/lib/perform_upgrade.php'  => '../src/Controllers/StructureController.php',
-    '/lib/update_profile.php'   => '../src/Controllers/ProfileControllerphp.php',
+    '/lib/update_profile.php'   => '../src/Controllers/ProfileController.php',
     '/lib/update_settings.php'  => '../src/Controllers/SettingsController.php',
     '/lib/process_banking.php'  => '../src/Controllers/BankController.php',
     '/lib/alliance_actions.php' => '../src/Controllers/AllianceController.php',
-    '/lib/armory_actions.php'   => '../src/Controllers/ArmoryController.php', // New Armory Controller
+    '/lib/armory_actions.php'   => '../src/Controllers/ArmoryController.php',
     '/levelup.php'              => '../src/Controllers/LevelUpController.php',
 ];
 
@@ -70,7 +66,7 @@ $authenticated_routes = [
     '/battle_report.php', '/alliance.php', '/create_alliance.php', '/edit_alliance.php',
     '/alliance_bank.php', '/alliance_roles.php', '/alliance_structures.php',
     '/alliance_transfer.php', '/alliance_forum.php', '/create_thread.php', '/view_thread.php',
-    '/armory.php' // New authenticated route
+    '/armory.php'
 ];
 
 // --- ROUTING LOGIC ---
@@ -78,16 +74,12 @@ if (array_key_exists($request_uri, $routes)) {
     // Check if the route requires authentication
     if (in_array($request_uri, $authenticated_routes)) {
         if (!isset($_SESSION["loggedin"]) || $_SESSION["loggedin"] !== true) {
-            header("location: /"); // Redirect unauthenticated users to the landing page
+            header("location: /");
             exit;
         }
     }
-
-    // Load the target script
-    require_once __DIR__ . '/' . $routes[$request_uri];
-
+    require_once __DIR__ . '/../' . $routes[$request_uri];
 } else {
-    // Handle 404 Not Found error
     http_response_code(404);
     require_once __DIR__ . '/404.php';
 }
