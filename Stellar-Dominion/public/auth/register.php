@@ -8,7 +8,8 @@ require_once __DIR__ . '/../../src/Game/GameData.php';
 
 // Redirect to the dashboard if the user is already logged in.
 if (isset($_SESSION['user_id'])) {
-    header('Location: /dashboard');
+    // Using direct path to avoid URL rewriting issues.
+    header('Location: /index.php?url=dashboard');
     exit;
 }
 
@@ -36,7 +37,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
     if (!empty($errors)) {
         $_SESSION['error'] = implode('<br>', $errors);
-        header('Location: /landing');
+        // Using direct path to avoid URL rewriting issues.
+        header('Location: /index.php?url=landing');
         exit;
     }
     
@@ -51,7 +53,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
     if ($stmt->num_rows > 0) {
         $_SESSION['error'] = 'Username or email already taken.';
-        header('Location: /landing');
+        // Using direct path to avoid URL rewriting issues.
+        header('Location: /index.php?url=landing');
         exit;
     }
     $stmt->close();
@@ -74,18 +77,21 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         // Add any other initialization calls here.
 
         // Redirect to the dashboard.
-        header('Location: /dashboard');
+        // Using direct path to avoid URL rewriting issues.
+        header('Location: /index.php?url=dashboard');
         exit;
     } else {
         // Handle database insertion error.
         $_SESSION['error'] = 'Registration failed due to a server error. Please try again.';
         error_log("Registration failed: " . $stmt->error); // Log the actual error for debugging.
-        header('Location: /landing');
+        // Using direct path to avoid URL rewriting issues.
+        header('Location: /index.php?url=landing');
         exit;
     }
 
 } else {
     // If the page is accessed directly via GET, redirect to the landing page.
-    header('Location: /landing');
+    // Using direct path to avoid URL rewriting issues.
+    header('Location: /index.php?url=landing');
     exit;
 }
