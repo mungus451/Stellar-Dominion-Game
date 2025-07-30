@@ -1,6 +1,7 @@
 <?php
 $page_title = 'A New Era of Idle Sci-Fi RPG';
 $active_page = 'landing.php';
+// This includes the DOCTYPE, head, body opening tag, and the site header.
 include_once __DIR__ . '/../includes/public_header.php';
 ?>
 
@@ -70,12 +71,46 @@ include_once __DIR__ . '/../includes/public_header.php';
 </div>
 
 <script>
-// This script block specifically controls the modal on the landing page.
 document.addEventListener('DOMContentLoaded', () => {
-    // ... (rest of the script is unchanged)
+    // DOM Elements
+    const launchFleetBtn = document.getElementById('launchFleetBtn');
+    const authModal = document.getElementById('authModal');
+    const closeModalBtn = document.getElementById('closeModalBtn');
+    const showLoginBtn = document.getElementById('showLoginBtn');
+    const showRegisterBtn = document.getElementById('showRegisterBtn');
+    const loginForm = document.getElementById('loginForm');
+    const registerForm = document.getElementById('registerForm');
+    const loginErrorDiv = document.getElementById('loginError');
+
+    // --- MODAL VISIBILITY ---
+    if(launchFleetBtn) {
+        launchFleetBtn.addEventListener('click', () => authModal.classList.remove('hidden'));
+    }
+    if(closeModalBtn) {
+        closeModalBtn.addEventListener('click', () => authModal.classList.add('hidden'));
+    }
+    if(showLoginBtn) {
+        showLoginBtn.addEventListener('click', () => {
+            loginForm.classList.remove('hidden');
+            registerForm.classList.add('hidden');
+        });
+    }
+    if(showRegisterBtn) {
+        showRegisterBtn.addEventListener('click', () => {
+            registerForm.classList.remove('hidden');
+            loginForm.classList.add('hidden');
+        });
+    }
+    
+    // --- LOGIN ERROR HANDLING ---
+    const urlParams = new URLSearchParams(window.location.search);
+    if (urlParams.has('error')) {
+        authModal.classList.remove('hidden');
+        loginErrorDiv.classList.remove('hidden');
+    }
 });
 </script>
-
 <?php
+// This includes the site footer and the shared script for icons/mobile menu.
 include_once __DIR__ . '/../includes/public_footer.php';
 ?>
