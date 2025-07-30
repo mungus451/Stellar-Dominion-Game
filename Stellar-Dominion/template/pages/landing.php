@@ -161,7 +161,7 @@ $ogImageURL = $protocol . $host . $path . '/assets/img/og-image.png';
 
 <footer class="footer">
     <div class="container">
-        <p>&copy; <?php echo date("Y"); ?> Garbensarf Productions. All rights reserved.</p>
+        <p>&copy; <?php echo date("Y"); ?> R. L. Fine. All rights reserved.</p>
     </div>
 </footer>
 
