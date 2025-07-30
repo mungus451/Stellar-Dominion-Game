@@ -1,93 +1,91 @@
 <?php
-// /Stellar-Dominion/public/auth/register.php
+// Start the session to manage user login state.
+session_start();
 
-// Define the absolute path to the project's root directory.
-// This is a more robust method than using relative paths.
-$rootPath = $_SERVER['DOCUMENT_ROOT'] . '/Stellar-Dominion';
+// The paths to the configuration and game data files have been corrected.
+require_once __DIR__ . '/../../config/config.php';
+require_once __DIR__ . '/../../src/Game/GameData.php';
 
-// Require files using the absolute path.
-require_once $rootPath . '/config/config.php';
-require_once $rootPath . '/src/Controllers/AuthController.php';
-
-$authController = new AuthController($pdo);
-$message = '';
-
-// ONLY process the form if it has been submitted
-if ($_SERVER['REQUEST_METHOD'] === 'POST') {
-    // Check if all required fields are filled
-    if (empty($_POST['email']) || empty($_POST['password']) || empty($_POST['characterName']) || empty($_POST['race']) || empty($_POST['characterClass'])) {
-        $message = 'Please fill all required fields.';
-    } else {
-        $email = trim($_POST['email']);
-        $password = $_POST['password'];
-        $characterName = trim($_POST['characterName']);
-        $race = trim($_POST['race']);
-        $characterClass = trim($_POST['characterClass']);
-
-        $result = $authController->register($email, $password, $characterName, $race, $characterClass);
-
-        if ($result === true) {
-            // Redirect to login page on successful registration
-            header('Location: login.php?registration=success');
-            exit;
-        } else {
-            $message = $result; // Show the error message from the controller
-        }
-    }
+// Redirect to the dashboard if the user is already logged in.
+if (isset($_SESSION['user_id'])) {
+    header('Location: /dashboard');
+    exit;
 }
-?>
 
-<!DOCTYPE html>
-<html lang="en">
-<head>
-    <meta charset="UTF-8">
-    <title>Register - Stellar Dominion</title>
-    <link rel="stylesheet" href="https://maxcdn.bootstrapcdn.com/bootstrap/3.3.7/css/bootstrap.min.css">
-    <link rel="stylesheet" href="../assets/css/style.css">
-</head>
-<body>
-<div class="container">
-    <div class="row">
-        <div class="col-md-6 col-md-offset-3">
-            <h2>Register</h2>
-            <?php if (!empty($message)): ?>
-                <div class="alert alert-danger"><?php echo htmlspecialchars($message, ENT_QUOTES, 'UTF-8'); ?></div>
-            <?php endif; ?>
-            <form action="register.php" method="post">
-                <div class="form-group">
-                    <label for="email">Email:</label>
-                    <input type="email" name="email" id="email" class="form-control" required>
-                </div>
-                <div class="form-group">
-                    <label for="password">Password:</label>
-                    <input type="password" name="password" id="password" class="form-control" required>
-                </div>
-                <div class="form-group">
-                    <label for="characterName">Character Name:</label>
-                    <input type="text" name="characterName" id="characterName" class="form-control" required>
-                </div>
-                <div class="form-group">
-                    <label for="race">Race:</label>
-                    <select name="race" id="race" class="form-control" required>
-                        <option value="human">Human</option>
-                        <option value="cyborg">Cyborg</option>
-                        <option value="mutant">Mutant</option>
-                        <option value="shade">Shade</option>
-                    </select>
-                </div>
-                 <div class="form-group">
-                    <label for="characterClass">Class:</label>
-                    <select name="characterClass" id="characterClass" class="form-control" required>
-                        <option value="soldier">Soldier</option>
-                        <option value="spy">Spy</option>
-                        <option value="worker">Worker</option>
-                    </select>
-                </div>
-                <button type="submit" class="btn btn-primary">Register</button>
-            </form>
-            <p>Already have an account? <a href="login.php">Login here</a>.</p>
-        </div>
-    </div>
-</div>
-</body>
-</html>
+// Process the form only if it was submitted via POST.
+if ($_SERVER['REQUEST_METHOD'] === 'POST') {
+    $username = $_POST['username'] ?? '';
+    $email = $_POST['email'] ?? '';
+    $password = $_POST['password'] ?? '';
+    $race = $_POST['race'] ?? '';
+
+    // --- Basic Input Validation ---
+    $errors = [];
+    if (empty($username)) {
+        $errors[] = "Username is required.";
+    }
+    if (empty($email) || !filter_var($email, FILTER_VALIDATE_EMAIL)) {
+        $errors[] = "A valid email is required.";
+    }
+    if (empty($password) || strlen($password) < 6) {
+        $errors[] = "Password must be at least 6 characters long.";
+    }
+    if (empty($race)) {
+        $errors[] = "You must select a race.";
+    }
+
+    if (!empty($errors)) {
+        $_SESSION['error'] = implode('<br>', $errors);
+        header('Location: /landing');
+        exit;
+    }
+    
+    // Hash the password for security before storing it in the database.
+    $hashed_password = password_hash($password, PASSWORD_DEFAULT);
+
+    // --- Check if username or email already exists ---
+    $stmt = $mysqli->prepare("SELECT id FROM users WHERE username = ? OR email = ?");
+    $stmt->bind_param('ss', $username, $email);
+    $stmt->execute();
+    $stmt->store_result();
+
+    if ($stmt->num_rows > 0) {
+        $_SESSION['error'] = 'Username or email already taken.';
+        header('Location: /landing');
+        exit;
+    }
+    $stmt->close();
+
+    // --- Insert New User into the Database ---
+    $stmt = $mysqli->prepare("INSERT INTO users (username, email, password, race) VALUES (?, ?, ?, ?)");
+    $stmt->bind_param('ssss', $username, $email, $hashed_password, $race);
+
+    if ($stmt->execute()) {
+        $user_id = $mysqli->insert_id;
+        
+        // Log the user in immediately after registration.
+        session_regenerate_id();
+        $_SESSION['user_id'] = $user_id;
+
+        // --- Initialize Game Data for the New Player ---
+        // (Assuming GameData class has static methods for initialization)
+        GameData::initializePlayerStats($mysqli, $user_id);
+        GameData::initializePlayerResources($mysqli, $user_id);
+        // Add any other initialization calls here.
+
+        // Redirect to the dashboard.
+        header('Location: /dashboard');
+        exit;
+    } else {
+        // Handle database insertion error.
+        $_SESSION['error'] = 'Registration failed due to a server error. Please try again.';
+        error_log("Registration failed: " . $stmt->error); // Log the actual error for debugging.
+        header('Location: /landing');
+        exit;
+    }
+
+} else {
+    // If the page is accessed directly via GET, redirect to the landing page.
+    header('Location: /landing');
+    exit;
+}
