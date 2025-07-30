@@ -1,53 +1,38 @@
 <?php
-// Database configuration
-define('DB_HOST', 'localhost');
-// We are using 'root' as this is the user confirmed to work from the command line.
-define('DB_USERNAME', 'root'); 
-// --- VERY, VERY IMPORTANT ---
-// You MUST replace the empty string below with your actual 'root' user password for MySQL.
-// The login will not work until you do this.
-define('DB_PASSWORD', 'password'); // <-- ENTER YOUR REAL MYSQL ROOT PASSWORD HERE
-// This has been corrected to point to the game's actual database.
-define('DB_NAME', 'stellar_dominion');
+// Enable full error reporting
+ini_set('display_errors', 1);
+ini_set('display_startup_errors', 1);
+error_reporting(E_ALL);
 
-// Initialize $mysqli to null to ensure it exists.
-$mysqli = null;
+// --- Database Credentials ---
+define('DB_SERVER', 'localhost');
+define('DB_USERNAME', 'admin');
+define('DB_PASSWORD', 'password');
+define('DB_NAME', 'users');
 
-// Use a try-catch block for robust error handling.
+// --- Modern Error Handling for Connection ---
 try {
-    // Suppress the default warning with '@' since we are handling the error manually.
-    $connection = @new mysqli(DB_HOST, DB_USERNAME, DB_PASSWORD, DB_NAME);
+    // Attempt to connect to MySQL database
+    $link = mysqli_connect(DB_SERVER, DB_USERNAME, DB_PASSWORD, DB_NAME);
 
-    // Check if the connection attempt resulted in an error.
-    if ($connection->connect_errno) {
-        // Log the detailed error for your own debugging.
-        error_log("Database connection failed: (" . $connection->connect_errno . ") " . $connection->connect_error);
-        // Ensure $mysqli remains null if connection fails.
-        $mysqli = null;
-    } else {
-        // If the connection is successful, assign the connection object to $mysqli.
-        $mysqli = $connection;
+    // Check if the connection failed
+    if ($link === false) {
+        // Throw an exception with the connection error
+        throw new Exception("ERROR: Could not connect. " . mysqli_connect_error());
     }
-} catch (Exception $e) {
-    // Catch any other exceptions that might occur during connection.
-    error_log("Exception during database connection: " . $e->getMessage());
-    $mysqli = null;
+
+    // Set the connection timezone to UTC
+    mysqli_query($link, "SET time_zone = '+00:00'");
+
+} catch (Throwable $e) {
+    // If any error (including connection error) was caught, display it and stop the script.
+    // This is more likely to display an error than the previous methods.
+    http_response_code(500); // Set a server error status
+    echo "<h1>Database Connection Failed</h1>";
+    echo "<p>The application could not connect to the database. Please check your configuration.</p>";
+    echo "<hr>";
+    echo "<p><b>Error Details:</b> " . $e->getMessage() . "</p>";
+    exit; // Stop the script from running further
 }
 
-// Game settings
-define('GAME_NAME', 'Stellar Dominion');
-define('GAME_VERSION', '0.1.0-alpha');
-
-// Set the default timezone
-date_default_timezone_set('UTC');
-
-// Function to sanitize user input
-function sanitize($input) {
-    global $mysqli;
-    // Only try to use the database connection if it's valid.
-    if ($mysqli) {
-        return $mysqli->real_escape_string(htmlspecialchars(strip_tags(trim($input))));
-    }
-    // If there's no DB connection, perform basic sanitization.
-    return htmlspecialchars(strip_tags(trim($input)));
-}
+?>
