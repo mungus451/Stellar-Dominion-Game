@@ -37,6 +37,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
     if (!empty($errors)) {
         $_SESSION['error'] = implode('<br>', $errors);
+        $_SESSION['form'] = 'register'; // Indicate which form had the error
         // Using direct path to avoid URL rewriting issues.
         header('Location: /index.php?url=landing');
         exit;
@@ -53,6 +54,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
     if ($stmt->num_rows > 0) {
         $_SESSION['error'] = 'Username or email already taken.';
+        $_SESSION['form'] = 'register'; // Indicate which form had the error
         // Using direct path to avoid URL rewriting issues.
         header('Location: /index.php?url=landing');
         exit;
@@ -71,18 +73,16 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $_SESSION['user_id'] = $user_id;
 
         // --- Initialize Game Data for the New Player ---
-        // (Assuming GameData class has static methods for initialization)
         GameData::initializePlayerStats($mysqli, $user_id);
         GameData::initializePlayerResources($mysqli, $user_id);
-        // Add any other initialization calls here.
 
         // Redirect to the dashboard.
-        // Using direct path to avoid URL rewriting issues.
         header('Location: /index.php?url=dashboard');
         exit;
     } else {
         // Handle database insertion error.
         $_SESSION['error'] = 'Registration failed due to a server error. Please try again.';
+        $_SESSION['form'] = 'register'; // Indicate which form had the error
         error_log("Registration failed: " . $stmt->error); // Log the actual error for debugging.
         // Using direct path to avoid URL rewriting issues.
         header('Location: /index.php?url=landing');
@@ -91,7 +91,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
 } else {
     // If the page is accessed directly via GET, redirect to the landing page.
-    // Using direct path to avoid URL rewriting issues.
     header('Location: /index.php?url=landing');
     exit;
 }
