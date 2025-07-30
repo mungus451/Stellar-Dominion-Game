@@ -10,7 +10,7 @@ require_once __DIR__ . '/../includes/public_header.php';
         <p>Command your fleet, conquer unknown star systems, and build a galactic empire that stands the test of time. Your conquest begins now, even while you're away.</p>
         <button class="cta-button" onclick="showLogin()">Launch Your Fleet</button>
     </div>
-    <div class="landing-right">
+    <div class="landing-right" style="display: none;">
         
         <?php
         // Check for a session error message and display it above the forms.
