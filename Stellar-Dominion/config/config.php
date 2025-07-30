@@ -1,7 +1,7 @@
 <?php
 // Database configuration
 define('DB_HOST', 'localhost');
-define('DB_USERNAME', 'root');
+define('DB_USERNAME', 'admin');
 // --- IMPORTANT ---
 // Make sure this password is correct for your local MySQL server.
 define('DB_PASSWORD', 'password'); 
