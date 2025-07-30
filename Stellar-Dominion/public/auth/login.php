@@ -1,73 +1,63 @@
 <?php
-// Start the session to manage user login state.
-session_start();
+// Stellar-Dominion/public/auth/login.php
 
-// **FIX:** Correctly load the database configuration file.
-// This defines the $mysqli variable needed for the database connection.
-require_once __DIR__ . '/../../config/config.php';
+/**
+ * Handles the user login process.
+ * This script is included by index.php for the /auth/login route.
+ * It expects a POST request with username and password.
+ */
 
-// Redirect to the dashboard if the user is already logged in.
-if (isset($_SESSION['user_id'])) {
-    header('Location: /index.php?url=dashboard');
-    exit;
+// We should only process POST requests. If accessed directly, redirect to home.
+if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
+    header('Location: /');
+    exit();
 }
 
-// Process the form only if it was submitted via POST.
-if ($_SERVER['REQUEST_METHOD'] === 'POST') {
-    $username = $_POST['username'] ?? '';
-    $password = $_POST['password'] ?? '';
+// Use trim() to remove accidental whitespace and the null coalescing operator for safety.
+$username = trim($_POST['username'] ?? '');
+$password = trim($_POST['password'] ?? '');
 
-    // Basic validation.
-    if (empty($username) || empty($password)) {
-        $_SESSION['error'] = 'Please enter both username/email and password.';
-        $_SESSION['form'] = 'login';
-        header('Location: /index.php?url=landing');
-        exit;
-    }
+// Check if credentials are provided
+if (empty($username) || empty($password)) {
+    $_SESSION['login_error'] = 'Please enter both username and password.';
+    header('Location: /');
+    exit();
+}
 
-    // Check if the database connection is valid before using it.
-    if ($mysqli) {
-        // Prepare a statement to prevent SQL injection.
-        // Allow login with either username or email.
-        $stmt = $mysqli->prepare("SELECT id, password FROM users WHERE username = ? OR email = ?");
-        
-        if ($stmt === false) {
-            // Log the actual error for debugging.
-            error_log("MySQLi prepare failed in login.php: " . $mysqli->error);
-            // Show a generic error to the user.
-            $_SESSION['error'] = 'A server error occurred. Please try again later.';
-            $_SESSION['form'] = 'login';
-            header('Location: /index.php?url=landing');
-            exit;
-        }
-        
-        $stmt->bind_param('ss', $username, $username);
-        $stmt->execute();
-        $result = $stmt->get_result();
-        $user = $result->fetch_assoc();
+// Prepare SQL statement to prevent SQL injection
+$sql = "SELECT id, password FROM users WHERE username = ?";
+$stmt = $mysqli->prepare($sql);
 
-        // Verify user and password.
-        if ($user && password_verify($password, $user['password'])) {
-            session_regenerate_id();
-            $_SESSION['user_id'] = $user['id'];
-            header('Location: /index.php?url=dashboard');
-            exit;
-        } else {
-            $_SESSION['error'] = 'Invalid username or password.';
-            $_SESSION['form'] = 'login';
-            header('Location: /index.php?url=landing');
-            exit;
-        }
-    } else {
-        // This case handles if $mysqli is not created in config.php.
-        error_log("Database connection variable (\$mysqli) not found in login.php.");
-        $_SESSION['error'] = 'Database connection error. Please contact support.';
-        $_SESSION['form'] = 'login';
-        header('Location: /index.php?url=landing');
-        exit;
-    }
+// Handle potential SQL errors
+if (!$stmt) {
+    // Log the actual error for debugging, but show a generic message to the user.
+    error_log("Login prepare failed: " . $mysqli->error);
+    $_SESSION['login_error'] = 'An unexpected error occurred. Please try again.';
+    header('Location: /');
+    exit();
+}
+
+$stmt->bind_param('s', $username);
+$stmt->execute();
+$result = $stmt->get_result();
+$user = $result->fetch_assoc();
+$stmt->close();
+
+// Verify user existence and password correctness
+if ($user && password_verify($password, $user['password'])) {
+    // Login successful
+    // Regenerate session ID to protect against session fixation attacks
+    session_regenerate_id(true);
+
+    // Store user ID in session
+    $_SESSION['user_id'] = $user['id'];
+
+    // Redirect to the main game dashboard
+    header('Location: /dashboard');
+    exit();
 } else {
-    // Redirect GET requests back to the landing page.
-    header('Location: /index.php?url=landing');
-    exit;
+    // Login failed
+    $_SESSION['login_error'] = 'Invalid username or password.';
+    header('Location: /');
+    exit();
 }
