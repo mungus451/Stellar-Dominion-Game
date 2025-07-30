@@ -1,7 +1,12 @@
 <?php
 // /Stellar-Dominion/public/auth/register.php
-require_once __DIR__ . '/../../config/config.php';
-require_once __DIR__ . '/../../src/Controllers/AuthController.php';
+
+// Define a constant for the project root path to make includes more reliable.
+// dirname(__DIR__, 2) goes up two directories from the current one (/public/auth) to the project root.
+define('ROOT_PATH', dirname(__DIR__, 2));
+
+require_once ROOT_PATH . '/config/config.php';
+require_once ROOT_PATH . '/src/Controllers/AuthController.php';
 
 $authController = new AuthController($pdo);
 $message = '';
@@ -64,7 +69,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     <label for="race">Race:</label>
                     <select name="race" id="race" class="form-control" required>
                         <option value="human">Human</option>
-                        <option valuecyborg">Cyborg</option>
+                        <option value="cyborg">Cyborg</option>
                         <option value="mutant">Mutant</option>
                         <option value="shade">Shade</option>
                     </select>
