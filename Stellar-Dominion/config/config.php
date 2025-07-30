@@ -3,9 +3,10 @@
 define('DB_HOST', 'localhost');
 // We are using 'root' as this is the user confirmed to work from the command line.
 define('DB_USERNAME', 'root'); 
-// --- VERY IMPORTANT ---
-// This MUST be the correct password for the 'root' user on your MySQL server.
-define('DB_PASSWORD', 'password'); 
+// --- VERY, VERY IMPORTANT ---
+// You MUST replace the empty string below with your actual 'root' user password for MySQL.
+// The login will not work until you do this.
+define('DB_PASSWORD', 'password'); // <-- ENTER YOUR REAL MYSQL ROOT PASSWORD HERE
 // This has been corrected to point to the game's actual database.
 define('DB_NAME', 'stellar_dominion');
 
