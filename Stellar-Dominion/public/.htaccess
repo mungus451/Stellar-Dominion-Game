@@ -1,13 +1,58 @@
-# .htaccess for Stellar-Dominion/public/
+# ==============================================================================
+# Stellar Dominion .htaccess
+#
+# This file handles URL rewriting for SEO-friendly URLs and security headers.
+# Place this file in your /public/ directory.
+# ==============================================================================
 
-RewriteEngine On
+<IfModule mod_rewrite.c>
+    # --- Enable the rewrite engine ---
+    RewriteEngine On
 
-# Redirect all requests to non-existent files/directories to index.php
-RewriteCond %{REQUEST_FILENAME} !-f
-RewriteCond %{REQUEST_FILENAME} !-d
-RewriteRule ^ index.php [QSA,L]
+    # --- Set the base directory for rewrite rules ---
+    # If your game is in a subdirectory, change / to /your-subdirectory/
+    RewriteBase /
 
-# Set custom error pages
-ErrorDocument 404 /404.php
+    # --- Force HTTPS and WWW ---
+    # This ensures all traffic goes to https://www.stellar-dominion.com
+    # for consistency, which is good for SEO.
+    RewriteCond %{HTTPS} off [OR]
+    RewriteCond %{HTTP_HOST} !^www\. [NC]
+    RewriteCond %{HTTP_HOST} ^(?:www\.)?(.+)$ [NC]
+    RewriteRule ^ https://www.stellar-dominion.com%{REQUEST_URI} [L,R=301]
+
+    # --- Sitemap Rewrite Rule ---
+    # This rule makes sitemap.php accessible via the clean sitemap.xml URL.
+    # It should come before the general page rewrite rule.
+    RewriteRule ^sitemap\.xml$ sitemap.php [L]
+
+    # --- Main Rewrite Rule for Clean URLs ---
+    # This rule takes a request like /gameplay and internally rewrites it
+    # to index.php?page=gameplay, allowing your PHP router to work.
+    # It ignores requests for actual files or directories that exist.
+    RewriteCond %{REQUEST_FILENAME} !-f
+    RewriteCond %{REQUEST_FILENAME} !-d
+    RewriteRule ^([a-zA-Z0-9_-]+)/?$ index.php?page=$1 [L,QSA]
+
+</IfModule>
+
+# --- Security Headers ---
+# Improve security by setting headers that protect against common attacks.
+<IfModule mod_headers.c>
+    # Prevent Clickjacking
+    Header always set X-Frame-Options "SAMEORIGIN"
+    # Prevent Content Sniffing
+    Header always set X-Content-Type-Options "nosniff"
+    # Enable XSS Protection
+    Header always set X-XSS-Protection "1; mode=block"
+</IfModule>
+
+# --- Prevent Directory Listing ---
+# Stops visitors from being able to see the contents of directories.
+Options -Indexes
+
+# --- Error Documents ---
+# Redirect server errors to your custom error pages.
 ErrorDocument 403 /403.php
+ErrorDocument 404 /404.php
 ErrorDocument 500 /500.php
