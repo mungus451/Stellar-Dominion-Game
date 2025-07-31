@@ -88,7 +88,7 @@ if (in_array($active_page, ['battle.php', 'attack.php', 'war_history.php', 'armo
 </header>
 
 <div class="main-bg border border-gray-700 rounded-lg shadow-2xl p-1">
-    <nav class="flex justify-center space-x-4 md:space-x-8 bg-gray-900 p-3 rounded-t-md">
+    <nav class="flex justify-center flex-wrap gap-x-4 gap-y-2 md:gap-x-8 bg-gray-900 p-3 rounded-t-md">
         <?php
         // Loop through the main navigation links and generate the HTML for each one.
         foreach ($main_nav_links as $title => $link):
@@ -108,7 +108,7 @@ if (in_array($active_page, ['battle.php', 'attack.php', 'war_history.php', 'armo
     // Check if a sub-navigation menu exists for the current active category and is not empty.
     if (isset($sub_nav_links[$active_main_category]) && !empty($sub_nav_links[$active_main_category])):
     ?>
-    <div class="bg-gray-800 text-center p-2">
+    <div class="bg-gray-800 text-center p-2 flex justify-center flex-wrap gap-x-4 gap-y-1">
         <?php
         // Loop through the sub-navigation links for the active category.
         foreach ($sub_nav_links[$active_main_category] as $title => $link):
