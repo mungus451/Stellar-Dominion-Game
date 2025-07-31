@@ -1,5 +1,7 @@
 <?php
 $page_title = 'Gameplay Overview';
+$page_description = 'Learn about the core mechanics of Stellar Dominion, from the turn-based system and economy to unit training, combat, and the leveling system.';
+$page_keywords = 'gameplay, game mechanics, turn system, economy, unit training, combat';
 $active_page = 'gameplay.php';
 include_once __DIR__ . '/../includes/public_header.php';
 ?>
