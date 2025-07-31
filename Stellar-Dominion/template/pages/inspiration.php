@@ -1,6 +1,6 @@
 <?php
 // --- SESSION SETUP ---
-session_start();
+//session_start();
 date_default_timezone_set('UTC');
 $is_logged_in = isset($_SESSION["loggedin"]) && $_SESSION["loggedin"] === true;
 
