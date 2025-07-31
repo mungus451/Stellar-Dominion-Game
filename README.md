@@ -130,7 +130,7 @@ Add the following line, replacing the path with the absolute path to your TurnPr
 */10 * * * * /usr/bin/php /path/to/your/Stellar-Dominion/src/Game/TurnProcessor.php >> /path/to/your/Stellar-Dominion/src/Game/cron_log.txt 2>&1
 This command executes the turn processor script every 10 minutes and logs its output.
 
-📂 File Structure & Purpose
+### 📂 File Structure & Purpose
 /config/: Contains the database connection configuration (config.php) and the database schema (database.sql).
 
 /public/: The web server's document root. Contains the front controller (index.php), assets (CSS, JS, images), and user-facing error pages.
