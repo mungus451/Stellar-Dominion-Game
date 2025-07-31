@@ -5,13 +5,30 @@
  * A reusable header for all public-facing pages (index, gameplay, community).
  * It expects a variable named $active_page to be set.
  */
+
+// --- SEO META TAGS ---
+// Set default values for meta tags. These can be overridden by each individual page.
+$meta_title = isset($page_title) ? 'Stellar Dominion - ' . $page_title : 'Stellar Dominion - A New Era of Idle Sci-Fi RPG';
+$meta_description = isset($page_description) ? $page_description : 'Command your fleet, conquer unknown star systems, and build a galactic empire that stands the test of time. A free-to-play, persistent, browser-based idle RPG.';
+$meta_keywords = isset($page_keywords) ? $page_keywords : 'sci-fi rpg, idle game, browser game, strategy game, space combat, empire building';
+$meta_og_image = isset($page_og_image) ? $page_og_image : 'https://www.your-domain.com/assets/img/default_alliance.png'; // Use an absolute URL
 ?>
 <!DOCTYPE html>
 <html lang="en" class="scroll-smooth">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Stellar Dominion - <?php echo isset($page_title) ? $page_title : 'A New Era of Idle Sci-Fi RPG'; ?></title>
+    <title><?php echo htmlspecialchars($meta_title); ?></title>
+    
+    <meta name="description" content="<?php echo htmlspecialchars($meta_description); ?>">
+    <meta name="keywords" content="<?php echo htmlspecialchars($meta_keywords); ?>">
+
+    <meta property="og:title" content="<?php echo htmlspecialchars($meta_title); ?>">
+    <meta property="og:description" content="<?php echo htmlspecialchars($meta_description); ?>">
+    <meta property="og:image" content="<?php echo htmlspecialchars($meta_og_image); ?>">
+    <meta property="og:type" content="website">
+    <meta property="og:url" content="https://www.your-domain.com<?php echo $_SERVER['REQUEST_URI']; ?>">
+
     <script src="https://cdn.tailwindcss.com"></script>
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
