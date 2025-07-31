@@ -84,6 +84,42 @@ while($row = mysqli_fetch_assoc($armory_result)) {
 }
 mysqli_stmt_close($stmt_armory);
 
+// --- FETCH ALLIANCE INFO ---
+$alliance_info = null;
+if ($character_data['alliance_id']) {
+    $sql_alliance = "SELECT name, tag FROM alliances WHERE id = ?";
+    if($stmt_alliance = mysqli_prepare($link, $sql_alliance)) {
+        mysqli_stmt_bind_param($stmt_alliance, "i", $character_data['alliance_id']);
+        mysqli_stmt_execute($stmt_alliance);
+        $alliance_info = mysqli_fetch_assoc(mysqli_stmt_get_result($stmt_alliance));
+        mysqli_stmt_close($stmt_alliance);
+    }
+}
+
+// --- FETCH COMBAT RECORD ---
+$sql_wins = "SELECT COUNT(id) as wins FROM battle_logs WHERE attacker_id = ? AND outcome = 'victory'";
+$stmt_wins = mysqli_prepare($link, $sql_wins);
+mysqli_stmt_bind_param($stmt_wins, "i", $user_id);
+mysqli_stmt_execute($stmt_wins);
+$wins = mysqli_fetch_assoc(mysqli_stmt_get_result($stmt_wins))['wins'] ?? 0;
+mysqli_stmt_close($stmt_wins);
+
+$sql_losses_attacker = "SELECT COUNT(id) as losses FROM battle_logs WHERE attacker_id = ? AND outcome = 'defeat'";
+$stmt_losses_a = mysqli_prepare($link, $sql_losses_attacker);
+mysqli_stmt_bind_param($stmt_losses_a, "i", $user_id);
+mysqli_stmt_execute($stmt_losses_a);
+$losses_as_attacker = mysqli_fetch_assoc(mysqli_stmt_get_result($stmt_losses_a))['losses'] ?? 0;
+mysqli_stmt_close($stmt_losses_a);
+
+$sql_losses_defender = "SELECT COUNT(id) as losses FROM battle_logs WHERE defender_id = ? AND outcome = 'victory'";
+$stmt_losses_d = mysqli_prepare($link, $sql_losses_defender);
+mysqli_stmt_bind_param($stmt_losses_d, "i", $user_id);
+mysqli_stmt_execute($stmt_losses_d);
+$losses_as_defender = mysqli_fetch_assoc(mysqli_stmt_get_result($stmt_losses_d))['losses'] ?? 0;
+mysqli_stmt_close($stmt_losses_d);
+$total_losses = $losses_as_attacker + $losses_as_defender;
+
+
 // --- NET WORTH RECALCULATION ---
 $base_unit_costs = ['workers' => 100, 'soldiers' => 250, 'guards' => 250, 'sentries' => 500, 'spies' => 1000];
 $refund_rate = 0.75;
@@ -101,7 +137,7 @@ foreach ($upgrades as $category_key => $category) {
         $total_upgrade_cost += $category['levels'][$i]['cost'] ?? 0;
     }
 }
-$new_net_worth = $total_unit_value + $total_upgrade_cost + $character_data['credits'];
+$new_net_worth = $total_unit_value + $total_upgrade_cost + $character_data['credits'] + $character_data['banked_credits'];
 if ($new_net_worth != $character_data['net_worth']) {
     $sql_update_networth = "UPDATE users SET net_worth = ? WHERE id = ?";
     if($stmt_nw = mysqli_prepare($link, $sql_update_networth)) {
@@ -160,13 +196,19 @@ if ($guard_count > 0 && isset($armory_loadouts['guard'])) {
 
 $offense_power = floor((($character_data['soldiers'] * 10) * $strength_bonus + $armory_attack_bonus) * $offense_upgrade_multiplier);
 $defense_rating = floor(((($character_data['guards'] * 10) + $armory_defense_bonus) * $constitution_bonus) * $defense_upgrade_multiplier);
-$fortification = ($character_data['sentries'] * 10);
-$infiltration = $character_data['spies'] * 10;
 
 $worker_income = $character_data['workers'] * 50;
 $total_base_income = 5000 + $worker_income;
 $wealth_bonus = 1 + ($character_data['wealth_points'] * 0.01);
 $credits_per_turn = floor(($total_base_income * $wealth_bonus) * $economy_upgrade_multiplier);
+
+// --- POPULATION & UNIT CALCULATIONS ---
+$non_military_units = $character_data['workers'] + $character_data['untrained_citizens'];
+$defensive_units = $character_data['guards'] + $character_data['sentries'];
+$offensive_units = $character_data['soldiers'];
+$utility_units = $character_data['spies'];
+$total_military_units = $defensive_units + $offensive_units + $utility_units;
+$total_population = $non_military_units + $total_military_units;
 
 // --- TIMER CALCULATIONS ---
 $turn_interval_minutes = 10;
@@ -225,34 +267,51 @@ $active_page = 'dashboard.php';
                 </aside>
 
                 <main class="lg:col-span-3 space-y-4">
-                    <div class="content-box rounded-lg p-4 text-center">
-                        <p class="font-semibold text-cyan-300">Welcome, Commander <?php echo htmlspecialchars($character_data['character_name']); ?> - <?php echo htmlspecialchars(strtoupper($character_data['race'])); ?> <?php echo htmlspecialchars(strtoupper($character_data['class'])); ?></p>
+                    <div class="content-box rounded-lg p-4">
+                        <div class="flex flex-col md:flex-row items-center gap-4">
+                            <img src="<?php echo htmlspecialchars($character_data['avatar_path'] ?? 'https://via.placeholder.com/100'); ?>" alt="Avatar" class="w-24 h-24 rounded-full border-2 border-gray-600 object-cover flex-shrink-0">
+                            <div class="text-center md:text-left">
+                                <h2 class="font-title text-3xl text-white"><?php echo htmlspecialchars($character_data['character_name']); ?></h2>
+                                <p class="text-lg text-cyan-300">Level <?php echo $character_data['level']; ?> <?php echo htmlspecialchars(ucfirst($character_data['race']) . ' ' . ucfirst($character_data['class'])); ?></p>
+                                <?php if ($alliance_info): ?>
+                                    <p class="text-sm">Alliance: <span class="font-bold">[<?php echo htmlspecialchars($alliance_info['tag']); ?>] <?php echo htmlspecialchars($alliance_info['name']); ?></span></p>
+                                <?php endif; ?>
+                            </div>
+                        </div>
                     </div>
 
                     <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
-                        <div class="content-box rounded-lg p-4">
-                            <h3 class="font-title text-cyan-400 border-b border-gray-600 pb-2 mb-3">Dominion Stats</h3>
-                            <ul class="space-y-2 text-sm">
-                                <li class="flex justify-between"><span>Workers:</span> <span class="text-white font-semibold"><?php echo number_format($character_data['workers']); ?></span></li>
-                                <li class="flex justify-between"><span>Income per Turn:</span> <span class="text-white font-semibold"><?php echo number_format($credits_per_turn); ?></span></li>
-                                <li class="flex justify-between"><span>Net Worth:</span> <span class="text-white font-semibold"><?php echo number_format($character_data['net_worth']); ?></span></li>
-                                <li class="flex justify-between"><span>Fortification:</span> <span class="text-white font-semibold"><?php echo number_format($fortification); ?></span></li>
-                                <li class="flex justify-between"><span>Infiltration:</span> <span class="text-white font-semibold"><?php echo number_format($infiltration); ?></span></li>
-                            </ul>
+                        <div class="content-box rounded-lg p-4 space-y-3">
+                            <h3 class="font-title text-cyan-400 border-b border-gray-600 pb-2 mb-2 flex items-center"><i data-lucide="banknote" class="w-5 h-5 mr-2"></i>Economic Overview</h3>
+                            <div class="flex justify-between text-sm"><span>Credits on Hand:</span> <span class="text-white font-semibold"><?php echo number_format($character_data['credits']); ?></span></div>
+                            <div class="flex justify-between text-sm"><span>Banked Credits:</span> <span class="text-white font-semibold"><?php echo number_format($character_data['banked_credits']); ?></span></div>
+                            <div class="flex justify-between text-sm"><span>Income per Turn:</span> <span class="text-green-400 font-semibold">+<?php echo number_format($credits_per_turn); ?></span></div>
+                            <div class="flex justify-between text-sm"><span>Net Worth:</span> <span class="text-yellow-300 font-semibold"><?php echo number_format($character_data['net_worth']); ?></span></div>
                         </div>
-                        <div class="content-box rounded-lg p-4">
-                            <h3 class="font-title text-cyan-400 border-b border-gray-600 pb-2 mb-3">Fleet Stats</h3>
-                            <ul class="space-y-2 text-sm">
-                                <li class="flex justify-between"><span>Soldiers:</span> <span class="text-white font-semibold"><?php echo number_format($character_data['soldiers']); ?></span></li>
-                                <li class="flex justify-between"><span>Guards:</span> <span class="text-white font-semibold"><?php echo number_format($character_data['guards']); ?></span></li>
-                                <li class="flex justify-between"><span>Offense Power:</span> <span class="text-white font-semibold"><?php echo number_format($offense_power); ?></span></li>
-                                <li class="flex justify-between"><span>Defense Rating:</span> <span class="text-white font-semibold"><?php echo number_format($defense_rating); ?></span></li>
-                            </ul>
+                         <div class="content-box rounded-lg p-4 space-y-3">
+                            <h3 class="font-title text-cyan-400 border-b border-gray-600 pb-2 mb-2 flex items-center"><i data-lucide="swords" class="w-5 h-5 mr-2"></i>Military Command</h3>
+                            <div class="flex justify-between text-sm"><span>Offense Power:</span> <span class="text-white font-semibold"><?php echo number_format($offense_power); ?></span></div>
+                            <div class="flex justify-between text-sm"><span>Defense Rating:</span> <span class="text-white font-semibold"><?php echo number_format($defense_rating); ?></span></div>
+                            <div class="flex justify-between text-sm"><span>Attack Turns:</span> <span class="text-white font-semibold"><?php echo number_format($character_data['attack_turns']); ?></span></div>
+                            <div class="flex justify-between text-sm"><span>Combat Record (W/L):</span> <span class="text-white font-semibold"><span class="text-green-400"><?php echo $wins; ?></span> / <span class="text-red-400"><?php echo $total_losses; ?></span></span></div>
+                        </div>
+                        <div class="content-box rounded-lg p-4 space-y-3">
+                            <h3 class="font-title text-cyan-400 border-b border-gray-600 pb-2 mb-2 flex items-center"><i data-lucide="users" class="w-5 h-5 mr-2"></i>Population Census</h3>
+                            <div class="flex justify-between text-sm"><span>Total Population:</span> <span class="text-white font-semibold"><?php echo number_format($total_population); ?></span></div>
+                            <div class="flex justify-between text-sm"><span>Untrained Citizens:</span> <span class="text-white font-semibold"><?php echo number_format($character_data['untrained_citizens']); ?></span></div>
+                            <div class="flex justify-between text-sm"><span>Non-Military (Workers):</span> <span class="text-white font-semibold"><?php echo number_format($character_data['workers']); ?></span></div>
+                        </div>
+                        <div class="content-box rounded-lg p-4 space-y-3">
+                            <h3 class="font-title text-cyan-400 border-b border-gray-600 pb-2 mb-2 flex items-center"><i data-lucide="rocket" class="w-5 h-5 mr-2"></i>Fleet Composition</h3>
+                            <div class="flex justify-between text-sm"><span>Total Military:</span> <span class="text-white font-semibold"><?php echo number_format($total_military_units); ?></span></div>
+                            <div class="flex justify-between text-sm"><span>Offensive (Soldiers):</span> <span class="text-white font-semibold"><?php echo number_format($offensive_units); ?></span></div>
+                            <div class="flex justify-between text-sm"><span>Defensive (Guards/Sentries):</span> <span class="text-white font-semibold"><?php echo number_format($defensive_units); ?></span></div>
+                             <div class="flex justify-between text-sm"><span>Utility (Spies):</span> <span class="text-white font-semibold"><?php echo number_format($utility_units); ?></span></div>
                         </div>
                     </div>
                 </main>
             </div>
-            </div> </div>
+        </div>
     </div>
     <script src="assets/js/main.js" defer></script>
 </body>
