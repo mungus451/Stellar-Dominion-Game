@@ -1,10 +1,14 @@
 <?php
-// --- SESSION AND DATABASE SETUP ---
-//session_start();
-require_once __DIR__ . '/../../config/config.php';
+// --- SESSION SETUP ---
+// session_start();
 date_default_timezone_set('UTC');
-
 $is_logged_in = isset($_SESSION["loggedin"]) && $_SESSION["loggedin"] === true;
+
+// --- SEO and Page Config ---
+$page_title = 'Community & News';
+$page_description = 'Get the latest development news for Stellar Dominion, read about new features like the Alliance Initiative, and find a link to join our official Discord community.';
+$page_keywords = 'news, updates, community, discord, alliances, patch notes';
+$active_page = 'community.php';
 
 // Initialize variables
 $user_stats = null;
