@@ -7,7 +7,7 @@
  */
 
 // --- SESSION AND DATABASE SETUP ---
-session_start();
+//session_start();
 if(!isset($_SESSION["loggedin"]) || $_SESSION["loggedin"] !== true){ header("location: index.html"); exit; }
 require_once __DIR__ . '/../../config/config.php';
 date_default_timezone_set('UTC');
