@@ -116,3 +116,38 @@ RewriteRule ^ index.php [QSA,L]
 ErrorDocument 404 /404.php
 ErrorDocument 403 /403.php
 ErrorDocument 500 /500.php
+
+```
+
+### Step 4: Cron Job Setup
+The game's turn processing relies on a script that must be run automatically every 10 minutes.
+
+Log into your server via SSH and open the crontab editor:
+
+crontab -e
+Add the following line, replacing the path with the absolute path to your TurnProcessor.php file:
+
+*/10 * * * * /usr/bin/php /path/to/your/Stellar-Dominion/src/Game/TurnProcessor.php >> /path/to/your/Stellar-Dominion/src/Game/cron_log.txt 2>&1
+This command executes the turn processor script every 10 minutes and logs its output.
+
+📂 File Structure & Purpose
+/config/: Contains the database connection configuration (config.php) and the database schema (database.sql).
+
+/public/: The web server's document root. Contains the front controller (index.php), assets (CSS, JS, images), and user-facing error pages.
+
+/src/: Contains the core application logic.
+
+/Controllers/: PHP scripts that handle server-side logic for attacks, training, banking, profile updates, etc.
+
+/Game/: Core game data files (GameData.php) and the main turn processing script (TurnProcessor.php).
+
+/template/: Contains all the HTML/PHP view files (pages and reusable includes).
+
+/includes/: Reusable components like the navigation menu and AI advisor.
+
+/pages/: The individual pages of the game that the user sees.
+
+.gitignore: Specifies files and directories to be ignored by version control, such as the configuration file and user uploads.
+
+
+
