@@ -24,6 +24,7 @@ $main_nav_links = [
     'STRUCTURES' => '/structures.php',
     'ALLIANCE' => '/alliance.php',
     'COMMUNITY' => '/community.php',
+    'TUTORIAL' => '/tutorial.php', // New Link Added
     'SIGN OUT' => '/auth.php?action=logout'
 ];
 
