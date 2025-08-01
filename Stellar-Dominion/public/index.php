@@ -33,6 +33,7 @@ $routes = [
     '/community.php'        => '../template/pages/community.php',
     '/stats.php'            => '../template/pages/stats.php',
     '/inspiration.php'      => '../template/pages/inspiration.php',
+    '/tutorial.php'         => '../template/pages/tutorial.php', // This line is the fix
     
     // Alliance Page Views
     '/alliance.php'             => '../template/pages/alliance.php',
