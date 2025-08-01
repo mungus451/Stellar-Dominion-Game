@@ -13,6 +13,7 @@ if ($is_logged_in) {
     // You can add data fetching for the sidebar here if needed
 }
 ?>
+
 <!DOCTYPE html>
 <html lang="en">
 <head>
