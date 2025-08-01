@@ -24,7 +24,7 @@ $main_nav_links = [
     'STRUCTURES' => '/structures.php',
     'ALLIANCE' => '/alliance.php',
     'COMMUNITY' => '/community.php',
-    'SIGN OUT' => '/auth/logout.php'
+    'SIGN OUT' => '/auth.php?action=logout'
 ];
 
 // Defines the links that appear in the secondary, sub-navigation bar.
