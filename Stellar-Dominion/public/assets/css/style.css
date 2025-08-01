@@ -12,7 +12,7 @@ body {
     font-family: 'Orbitron', sans-serif; 
 }
 
-/* --- Layout & Backgrounds --- */
+/* --- In-Game Layout & Backgrounds --- */
 .main-bg { 
     background-color: #111827; 
 }
@@ -22,7 +22,7 @@ body {
     border: 1px solid #374151; 
 }
 
-/* --- Navigation --- */
+/* --- In-Game Navigation --- */
 .nav-link { 
     border-bottom: 2px solid transparent; 
 }
@@ -49,4 +49,35 @@ input[type=number]::-webkit-outer-spin-button {
     background-image: url('https://images.unsplash.com/photo-1534796636912-3b95b3ab5986?auto=format&fit=crop&w=1200&q=80');
     background-size: cover;
     background-position: center;
+}
+
+/* --- Public Page Styles (Landing, Gameplay, etc.) --- */
+.public-body {
+    background-color: #000;
+    background-image: url('https://images.unsplash.com/photo-1534796636912-3b95b3ab5986?auto=format&fit=crop&w=1200&q=80');
+    background-size: cover;
+    background-position: center;
+    background-attachment: fixed;
+    color: #e5e7eb;
+}
+
+.public-header {
+    padding: 1.5rem 0;
+}
+
+.public-header nav a {
+    color: #d1d5db;
+    font-size: 1rem;
+    padding-bottom: 4px;
+    border-bottom: 2px solid transparent;
+    transition: color 0.3s ease, border-color 0.3s ease;
+}
+
+.public-header nav a:hover {
+    color: #ffffff;
+    border-color: #ffffff;
+}
+
+.text-shadow-glow {
+    text-shadow: 0 0 15px rgba(255, 255, 255, 0.5), 0 0 5px rgba(255, 255, 255, 0.8);
 }
