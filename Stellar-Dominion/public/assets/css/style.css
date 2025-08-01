@@ -65,6 +65,15 @@ input[type=number]::-webkit-outer-spin-button {
     padding: 1.5rem 0;
 }
 
+/* START FIX: Added class for the translucent header background */
+.public-header-bg {
+    background-color: rgba(10, 25, 47, 0.5); /* A translucent dark blue */
+    backdrop-filter: blur(4px);
+    -webkit-backdrop-filter: blur(4px); /* For Safari */
+    border-bottom: 1px solid rgba(107, 114, 128, 0.2);
+}
+/* END FIX */
+
 .public-header nav a {
     color: #d1d5db;
     font-size: 1rem;
