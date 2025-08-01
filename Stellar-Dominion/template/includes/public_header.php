@@ -75,13 +75,10 @@ $og_image_url = $base_url . $og_image;
         <div class="container mx-auto px-6 flex justify-between items-center">
              <a href="/" class="text-3xl font-title text-white uppercase tracking-widest">Stellar Dominion</a>
             <nav class="hidden md:flex items-center space-x-8">
-                <a href="/">Home</a>
                 <a href="/gameplay">Gameplay</a>
-                <a href="/inspiration">Inspiration</a>
                 <a href="/community">Community</a>
-                <a href="/stats">Stats</a>
-                <a href="/dashboard">Login/Register</a>
+                <a href="/stats">Leaderboards</a>
             </nav>
-        </div>
+            </div>
     </header>
-    <main>
+ <main>
