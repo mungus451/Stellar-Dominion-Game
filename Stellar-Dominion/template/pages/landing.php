@@ -16,7 +16,7 @@ include_once __DIR__ . '/../includes/public_header.php';
                 Command your fleet, conquer unknown star systems, and build a galactic empire that stands the test of time. Your conquest begins now, even while you're away.
             </p>
             <div class="mt-10">
-                <button id="launchFleetBtn" class="bg-cyan-500 hover:bg-cyan-600 text-gray-900 font-bold py-4 px-10 rounded-lg text-lg transition-all transform hover:scale-105 shadow-lg shadow-cyan-500/20">
+                <button id="launchFleetBtn" class="bg-sky-600 hover:bg-sky-700 text-white font-bold py-4 px-10 rounded-lg text-lg transition-all transform hover:scale-105 shadow-lg shadow-sky-500/20">
                     Launch Your Fleet
                 </button>
             </div>
