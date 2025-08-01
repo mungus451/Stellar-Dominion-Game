@@ -54,14 +54,12 @@ $og_image_url = $base_url . $og_image;
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     
-    <!-- Primary SEO Meta Tags -->
     <title><?php echo htmlspecialchars($title); ?></title>
     <meta name="description" content="<?php echo htmlspecialchars($description); ?>">
     <meta name="keywords" content="<?php echo htmlspecialchars($keywords); ?>">
     <meta name="author" content="Stellar Dominion">
     <link rel="canonical" href="<?php echo htmlspecialchars($current_url); ?>" />
 
-    <!-- Open Graph / Facebook -->
     <meta property="og:type" content="website">
     <meta property="og:url" content="<?php echo htmlspecialchars($current_url); ?>">
     <meta property="og:title" content="<?php echo htmlspecialchars($title); ?>">
@@ -69,28 +67,38 @@ $og_image_url = $base_url . $og_image;
     <meta property="og:image" content="<?php echo htmlspecialchars($og_image_url); ?>">
     <meta property="og:site_name" content="Stellar Dominion">
 
-    <!-- Twitter -->
     <meta name="twitter:card" content="summary_large_image">
     <meta name="twitter:url" content="<?php echo htmlspecialchars($current_url); ?>">
     <meta name="twitter:title" content="<?php echo htmlspecialchars($title); ?>">
     <meta name="twitter:description" content="<?php echo htmlspecialchars($description); ?>">
     <meta name="twitter:image" content="<?php echo htmlspecialchars($og_image_url); ?>">
 
-    <!-- Favicon and Styles -->
     <link rel="icon" href="/favicon.ico" type="image/x-icon">
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://unpkg.com/lucide@latest"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@700&family=Roboto:wght@400;500;700&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="/assets/css/style.css">
 </head>
 
-<body>
-    <header>
-        <h1><a href="/landing">Stellar Dominion</a></h1>
-        <nav>
-            <a href="/landing">Home</a>
-            <a href="/gameplay">Gameplay</a>
-            <a href="/inspiration">Inspiration</a>
-            <a href="/community">Community</a>
-            <a href="/stats">Stats</a>
-            <a href="/dashboard" class="login-btn">Login/Register</a>
-        </nav>
+<body class="text-gray-400 antialiased bg-cover bg-center bg-fixed" style="background-image: url('https://images.unsplash.com/photo-1446776811953-b23d57bd21aa?ixlib=rb-4.0.3&ixid=M3wxMjA3fDB8MHxwaG90by1wYWdlfHx8fGVufDB8fHx8fA%3D%3D&auto=format&fit=crop&w=1742&q=80');">
+    <header class="bg-black/30 backdrop-blur-md fixed top-0 left-0 right-0 z-40 border-b border-cyan-400/20">
+        <div class="container mx-auto px-6 py-4 flex justify-between items-center">
+            <h1 class="text-3xl font-title text-cyan-400" style="text-shadow: 0 0 8px rgba(6, 182, 212, 0.7);">
+                <a href="/">Stellar Dominion</a>
+            </h1>
+            <nav class="hidden md:flex items-center space-x-6">
+                <a href="/" class="text-gray-300 hover:text-white transition-colors">Home</a>
+                <a href="/gameplay" class="text-gray-300 hover:text-white transition-colors">Gameplay</a>
+                <a href="/inspiration" class="text-gray-300 hover:text-white transition-colors">Inspiration</a>
+                <a href="/community" class="text-gray-300 hover:text-white transition-colors">Community</a>
+                <a href="/stats" class="text-gray-300 hover:text-white transition-colors">Stats</a>
+                <a href="/dashboard" class="bg-cyan-600 hover:bg-cyan-700 text-white font-bold py-2 px-5 rounded-lg transition-colors">Login/Register</a>
+            </nav>
+            <div class="md:hidden">
+                <button id="mobile-menu-button" class="text-white">
+                    <i data-lucide="menu"></i>
+                </button>
+            </div>
+        </div>
     </header>
-    <main>
+     <main class="text-gray-400 antialiased">
