@@ -71,14 +71,14 @@ $og_image_url = $base_url . $og_image;
 </head>
 
 <body class="public-body">
-    <header class="public-header">
+    <header class="public-header public-header-bg">
         <div class="container mx-auto px-6 flex justify-between items-center">
-             <a href="/" class="text-3xl font-title text-white uppercase tracking-widest">Stellar Dominion</a>
-            <nav class="hidden md:flex items-center space-x-8">
+             <a href="/" class="text-3xl font-bold text-sky-400 uppercase tracking-widest">Stellar Dominion</a>
+             <nav class="hidden md:flex items-center space-x-8">
                 <a href="/gameplay">Gameplay</a>
                 <a href="/community">Community</a>
                 <a href="/stats">Leaderboards</a>
             </nav>
-            </div>
+        </div>
     </header>
  <main>
