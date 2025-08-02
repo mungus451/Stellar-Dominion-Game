@@ -16,6 +16,7 @@ if(!isset($_SESSION["loggedin"]) || $_SESSION["loggedin"] !== true){ header("loc
 
 // Correct path from src/Controllers/ to the root config/ folder
 require_once __DIR__ . '/../../config/config.php';
+require_once __DIR__ . '/../../src/Game/GameFunctions.php';
 
 // --- SHARED DEFINITIONS ---
 $base_unit_costs = [
@@ -38,13 +39,14 @@ try {
         $total_citizens_needed = array_sum($units_to_train);
         if ($total_citizens_needed <= 0) { header("location: /battle.php"); exit; }
 
-        $sql_get_user = "SELECT untrained_citizens, credits, charisma_points FROM users WHERE id = ? FOR UPDATE";
+        $sql_get_user = "SELECT experience, untrained_citizens, credits, charisma_points FROM users WHERE id = ? FOR UPDATE";
         $stmt = mysqli_prepare($link, $sql_get_user);
         mysqli_stmt_bind_param($stmt, "i", $_SESSION["id"]);
         mysqli_stmt_execute($stmt);
         $user = mysqli_fetch_assoc(mysqli_stmt_get_result($stmt));
         mysqli_stmt_close($stmt);
 
+        $initial_xp = $user['experience'];
         $charisma_discount = 1 - ($user['charisma_points'] * 0.01);
         $total_credits_needed = 0;
         foreach ($units_to_train as $unit => $amount) {
@@ -61,6 +63,7 @@ try {
         }
 
         $experience_gained = rand(2 * $total_citizens_needed, 5 * $total_citizens_needed);
+        $final_xp = $initial_xp + $experience_gained;
 
         $sql_update = "UPDATE users SET 
                         untrained_citizens = untrained_citizens - ?, credits = credits - ?,
@@ -76,7 +79,10 @@ try {
         );
         mysqli_stmt_execute($stmt_update);
         mysqli_stmt_close($stmt_update);
-        $_SESSION['training_message'] = "Units trained successfully.";
+        
+        check_and_process_levelup($_SESSION["id"], $link);
+        
+        $_SESSION['training_message'] = "Units trained successfully. Gained " . number_format($experience_gained) . " XP (" . number_format($initial_xp) . " -> " . number_format($final_xp) . ").";
 
     } elseif ($action === 'disband') {
         // --- DISBANDING LOGIC ---
@@ -108,14 +114,11 @@ try {
             $total_refund += floor($amount * $base_unit_costs[$unit] * $refund_rate);
         }
 
-        // *** START FIX ***
-        // Create variables to hold the values for binding.
         $disband_workers = $units_to_disband['workers'] ?? 0;
         $disband_soldiers = $units_to_disband['soldiers'] ?? 0;
         $disband_guards = $units_to_disband['guards'] ?? 0;
         $disband_sentries = $units_to_disband['sentries'] ?? 0;
         $disband_spies = $units_to_disband['spies'] ?? 0;
-        // *** END FIX ***
 
         $sql_update = "UPDATE users SET 
                         untrained_citizens = untrained_citizens + ?, credits = credits + ?,
@@ -123,8 +126,6 @@ try {
                         sentries = sentries - ?, spies = spies - ?
                        WHERE id = ?";
         $stmt_update = mysqli_prepare($link, $sql_update);
-        // *** START FIX ***
-        // Use the newly created variables in the bind_param call.
         mysqli_stmt_bind_param($stmt_update, "iiiiiiii", 
             $total_citizens_to_return, $total_refund,
             $disband_workers, $disband_soldiers,
@@ -132,7 +133,6 @@ try {
             $disband_spies,
             $_SESSION["id"]
         );
-        // *** END FIX ***
         mysqli_stmt_execute($stmt_update);
         mysqli_stmt_close($stmt_update);
         $_SESSION['training_message'] = "Units successfully disbanded for " . number_format($total_refund) . " credits.";

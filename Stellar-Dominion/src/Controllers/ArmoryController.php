@@ -9,54 +9,7 @@ if (!isset($_SESSION["loggedin"]) || $_SESSION["loggedin"] !== true) { exit; }
 
 require_once __DIR__ . '/../../config/config.php';
 require_once __DIR__ . '/../Game/GameData.php';
-
-/**
- * A utility function to check if a user has enough experience to level up
- * and processes the level-up if they do. This can handle multiple level-ups
- * from a single large XP gain.
- *
- * @param int $user_id The ID of the user to check.
- * @param mysqli $link The active database connection (must be inside a transaction).
- */
-function check_and_process_levelup($user_id, $link) {
-    // Fetch the user's current state within the transaction
-    $sql_get = "SELECT level, experience, level_up_points FROM users WHERE id = ? FOR UPDATE";
-    $stmt_get = mysqli_prepare($link, $sql_get);
-    mysqli_stmt_bind_param($stmt_get, "i", $user_id);
-    mysqli_stmt_execute($stmt_get);
-    $user = mysqli_fetch_assoc(mysqli_stmt_get_result($stmt_get));
-    mysqli_stmt_close($stmt_get);
-
-    if (!$user) { return; }
-
-    $current_level = $user['level'];
-    $current_xp = $user['experience'];
-    $current_points = $user['level_up_points'];
-    $leveled_up = false;
-
-    // The XP required for the next level is based on the current level.
-    $xp_needed = floor(1000 * pow($current_level, 1.5));
-
-    // Loop to handle multiple level-ups from a large XP gain
-    while ($current_xp >= $xp_needed && $xp_needed > 0) {
-        $leveled_up = true;
-        $current_xp -= $xp_needed; // Subtract the cost of the level-up
-        $current_level++;          // Increase level
-        $current_points++;         // Grant a proficiency point
-
-        // Recalculate the XP needed for the new current level
-        $xp_needed = floor(1000 * pow($current_level, 1.5));
-    }
-
-    // If a level-up occurred, update the database
-    if ($leveled_up) {
-        $sql_update = "UPDATE users SET level = ?, experience = ?, level_up_points = ? WHERE id = ?";
-        $stmt_update = mysqli_prepare($link, $sql_update);
-        mysqli_stmt_bind_param($stmt_update, "iiii", $current_level, $current_xp, $current_points, $user_id);
-        mysqli_stmt_execute($stmt_update);
-        mysqli_stmt_close($stmt_update);
-    }
-}
+require_once __DIR__ . '/../Game/GameFunctions.php';
 
 $user_id = $_SESSION['id'];
 $action = $_POST['action'] ?? '';
@@ -78,13 +31,15 @@ if (empty($items_to_purchase)) {
 
 mysqli_begin_transaction($link);
 try {
-    // Fetch user credits, armory level, and charisma for discount calculation
-    $sql_get_user = "SELECT credits, armory_level, charisma_points FROM users WHERE id = ? FOR UPDATE";
+    // Fetch user credits, armory level, charisma, and experience
+    $sql_get_user = "SELECT experience, credits, armory_level, charisma_points FROM users WHERE id = ? FOR UPDATE";
     $stmt_user = mysqli_prepare($link, $sql_get_user);
     mysqli_stmt_bind_param($stmt_user, "i", $user_id);
     mysqli_stmt_execute($stmt_user);
     $user_data = mysqli_fetch_assoc(mysqli_stmt_get_result($stmt_user));
     mysqli_stmt_close($stmt_user);
+
+    $initial_xp = $user_data['experience'];
 
     // Fetch user's current armory inventory for prerequisite checks
     $sql_armory = "SELECT item_key FROM user_armory WHERE user_id = ?";
@@ -108,7 +63,6 @@ try {
 
     $total_cost = 0;
     $total_items = 0;
-    // **FIX:** Calculate charisma discount to apply to server-side cost validation.
     $charisma_discount = 1 - (($user_data['charisma_points'] ?? 0) * 0.01);
 
     foreach ($items_to_purchase as $item_key => $quantity) {
@@ -134,7 +88,6 @@ try {
             }
         }
         
-        // **FIX:** Apply the charisma discount to the cost calculation.
         $discounted_cost = floor($item['cost'] * $charisma_discount);
         $total_cost += $discounted_cost * $quantity;
     }
@@ -144,6 +97,7 @@ try {
     }
 
     $experience_gained = rand(2 * $total_items, 5 * $total_items);
+    $final_xp = $initial_xp + $experience_gained;
 
     // Deduct credits and add experience
     $sql_deduct = "UPDATE users SET credits = credits - ?, experience = experience + ? WHERE id = ?";
@@ -152,11 +106,10 @@ try {
     mysqli_stmt_execute($stmt_deduct);
     mysqli_stmt_close($stmt_deduct);
 
-    // Add items to armory using ON DUPLICATE KEY UPDATE
+    // Add items to armory
     $sql_upsert = "INSERT INTO user_armory (user_id, item_key, quantity) VALUES (?, ?, ?) ON DUPLICATE KEY UPDATE quantity = quantity + VALUES(quantity)";
     $stmt_upsert = mysqli_prepare($link, $sql_upsert);
     foreach ($items_to_purchase as $item_key => $quantity) {
-        // **FIX:** The value must be in a variable to be passed by reference.
         $int_quantity = (int)$quantity; 
         mysqli_stmt_bind_param($stmt_upsert, "isi", $user_id, $item_key, $int_quantity);
         mysqli_stmt_execute($stmt_upsert);
@@ -166,7 +119,7 @@ try {
     check_and_process_levelup($user_id, $link);
 
     mysqli_commit($link);
-    $_SESSION['armory_message'] = "Items successfully purchased for " . number_format($total_cost) . " credits!";
+    $_SESSION['armory_message'] = "Items successfully purchased for " . number_format($total_cost) . " credits! Gained " . number_format($experience_gained) . " XP (" . number_format($initial_xp) . " -> " . number_format($final_xp) . ").";
 
 } catch (Exception $e) {
     mysqli_rollback($link);
