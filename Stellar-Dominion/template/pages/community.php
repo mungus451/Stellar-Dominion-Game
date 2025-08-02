@@ -57,7 +57,7 @@ if ($is_logged_in) {
     <link rel="stylesheet" href="assets/css/style.css">
 </head>
 <body class="text-gray-400 antialiased">
-    <div class="min-h-screen bg-cover bg-center bg-fixed" style="background-image: url('https://images.unsplash.com/photo-1446776811953-b23d57bd21aa?ixlib=rb-4.0.3&ixid=M3wxMjA3fDB8MHxwaG90by1wYWdlfHx8fGVufDB8fHx8fA%3D%3D&auto=format&fit=crop&w=1742&q=80');">
+    <div class="min-h-screen bg-cover bg-center bg-fixed" style="background-image: url('https://images.unsplash.com/photo-1446776811953-b23d57bd21aa?ixlib-rb-4.0.3&ixid=M3wxMjA3fDB8MHxwaG90by1wYWdlfHx8fGVufDB8fHx8fA%3D%3D&auto=format&fit=crop&w=1742&q=80');">
         <div class="container mx-auto p-4 md:p-8">
 
             <?php if ($is_logged_in): ?>
@@ -95,6 +95,18 @@ if ($is_logged_in) {
                         <h3 class="font-title text-2xl text-cyan-400 mb-4 border-b border-gray-600 pb-2">Development Newsfeed</h3>
                         
                         <div class="mb-8 pb-4 border-b border-gray-700">
+                            <h4 class="font-title text-xl text-yellow-400">Patch Notes: The Balancing Act</h4>
+                            <p class="text-xs text-gray-500 mb-2">Posted: 2025-08-02</p>
+                            <p class="text-gray-300">Commanders, we've heard your feedback regarding the galactic economy. Wealth was accumulating at a rate that outpaced our credit sinks, making late-game progression less challenging. To address this, we have performed a major rebalance, increasing the costs of all Structures and Armory items by a factor of 1,000. This change is intended to make high-tier upgrades feel more meaningful and to provide a significant goal for established empires. We believe this will create a healthier, more competitive long-term environment for everyone. Thank you for your understanding!</p>
+                        </div>
+                        
+                        <div class="mb-8 pb-4 border-b border-gray-700">
+                            <h4 class="font-title text-xl text-yellow-400">System Update: Rewarding Activity & Smarter Leveling</h4>
+                            <p class="text-xs text-gray-500 mb-2">Posted: 2025-08-01</p>
+                            <p class="text-gray-300">Today's update brings two major quality-of-life improvements. First, we're introducing **Activity Experience**. You will now gain a small amount of XP for training units, building structures, and purchasing from the armory to reward active players. Second, we have fixed a critical bug where players would not level up automatically. Now, simply visiting the **Levels** page will instantly process any pending level-ups you have earned. We have also granted retroactive XP to all players for their past actions to ensure fairness.</p>
+                        </div>
+
+                        <div class="mb-8 pb-4 border-b border-gray-700">
                             <h4 class="font-title text-xl text-yellow-400">Armory Overhaul: Tech Up to Gear Up!</h4>
                             <p class="text-xs text-gray-500 mb-2">Posted: 2025-07-29</p>
                             <p class="text-gray-300">Commanders, a new strategic layer has been added to military progression! The Armory is now a tiered structure that must be upgraded via the 'Structures' page. Each level of your Armory unlocks access to a new tier of advanced weaponry for your soldiers. You must now invest in your empire's infrastructure to unlock its full military potential. Check the Structures page to begin upgrading your Armory and visit the Armory to see the new requirements for high-tier gear!</p>
@@ -104,12 +116,6 @@ if ($is_logged_in) {
                             <h4 class="font-title text-xl text-yellow-400">The Alliance Initiative: A New Era of Collaboration!</h4>
                             <p class="text-xs text-gray-500 mb-2">Posted: 2025-07-28</p>
                             <p class="text-gray-300">Today marks the single largest update to Stellar Dominion with the release of the Alliance Initiative. Commanders can now form powerful Alliances, complete with a shared bank, collaborative structures that benefit all members, and a private forum for strategic discussions. The new Roles & Permissions system allows leaders to create a detailed hierarchy to manage their members. Forge new bonds, share resources, and dominate the galaxy together!</p>
-                        </div>
-
-                        <div class="mb-8 pb-4 border-b border-gray-700">
-                            <h4 class="font-title text-xl text-yellow-400">Join the Ranks: Alliance Applications Now Open</h4>
-                            <p class="text-xs text-gray-500 mb-2">Posted: 2025-07-26</p>
-                            <p class="text-gray-300">Lone wolves, your time has come to find a pack! We've introduced a formal application system for joining alliances. Commanders without an alliance can now browse a list of active alliances and submit an application to join. For alliance leadership, a new "Applications" tab is now available in the Alliance Hub where authorized members can review, approve, or deny incoming requests. This streamlined process makes recruitment easier and more organized than ever before.</p>
                         </div>
                     </div>
 
