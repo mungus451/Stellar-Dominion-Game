@@ -35,22 +35,6 @@ if ($defender_id <= 0 || $attack_turns < 1 || $attack_turns > 10) {
     exit;
 }
 
-
-/**
- * A utility function to check if a user has enough experience to level up
- * and processes the level-up if they do.
- *
- * @param int $user_id The ID of the user to check.
- * @param mysqli $link The active database connection.
- */
-function check_and_process_levelup($user_id, $link) {
-    // This is a placeholder for the full level-up logic.
-    // In a real implementation, this would query the user's current XP and level,
-    // compare it against an XP curve, and if they have enough XP,
-    // increment their level and award them a level_up_point.
-}
-
-
 // --- TRANSACTIONAL BATTLE LOGIC ---
 // Begin a new MySQL transaction. This ensures that the entire battle process
 // is "all or nothing." If any part of the process fails, all database
@@ -188,10 +172,6 @@ try {
     mysqli_stmt_bind_param($stmt_deduct, "ii", $attack_turns, $attacker_id);
     mysqli_stmt_execute($stmt_deduct);
     mysqli_stmt_close($stmt_deduct);
-
-    // Check if the battle resulted in a level-up for either player.
-    check_and_process_levelup($attacker_id, $link);
-    check_and_process_levelup($defender_id, $link);
 
     // --- BATTLE LOGGING ---
     // Create a permanent record of the battle in the `battle_logs` table.

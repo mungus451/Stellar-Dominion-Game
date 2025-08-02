@@ -13,9 +13,15 @@
 //session_start();
 if(!isset($_SESSION["loggedin"]) || $_SESSION["loggedin"] !== true){ header("location: index.html"); exit; }
 require_once __DIR__ . '/../../config/config.php';
+require_once __DIR__ . '/../../src/Game/GameFunctions.php'; // Include the new functions file
 date_default_timezone_set('UTC');
 
 $user_id = $_SESSION['id'];
+
+// --- FIX: RUN LEVEL-UP CHECK ON PAGE LOAD ---
+// This ensures that any pending level-ups are processed before the page is displayed.
+check_and_process_levelup($user_id, $link);
+
 
 // --- DATA FETCHING ---
 // Fetch all stats related to leveling and the five core proficiency stats.
