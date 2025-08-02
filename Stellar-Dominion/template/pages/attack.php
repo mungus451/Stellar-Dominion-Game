@@ -56,14 +56,15 @@ if($stmt_check = mysqli_prepare($link, $sql_check)) {
 }
 
 // --- DATA FETCHING FOR DISPLAY ---
-// Fetch the current player's stats for the sidebar.
-$sql_user_stats = "SELECT credits, untrained_citizens, level, attack_turns, last_updated FROM users WHERE id = ?";
+// Fetch the current player's stats for the sidebar, NOW INCLUDING alliance_id
+$sql_user_stats = "SELECT credits, untrained_citizens, level, attack_turns, last_updated, alliance_id FROM users WHERE id = ?";
 $stmt_user_stats = mysqli_prepare($link, $sql_user_stats);
 mysqli_stmt_bind_param($stmt_user_stats, "i", $user_id);
 mysqli_stmt_execute($stmt_user_stats);
 $user_stats_result = mysqli_stmt_get_result($stmt_user_stats);
 $user_stats = mysqli_fetch_assoc($user_stats_result);
 mysqli_stmt_close($stmt_user_stats);
+$viewer_alliance_id = $user_stats['alliance_id']; // Store viewer's alliance ID
 
 // --- Pre-fetch all battle log stats for efficiency ---
 $sql_battle_stats = "SELECT attacker_id, SUM(CASE WHEN outcome = 'victory' THEN 1 ELSE 0 END) as wins, SUM(CASE WHEN outcome = 'defeat' THEN 1 ELSE 0 END) as losses FROM battle_logs GROUP BY attacker_id";
@@ -74,8 +75,8 @@ while ($row = mysqli_fetch_assoc($result_battle_stats)) {
 }
 
 
-// Fetch all users to display as potential targets.
-$sql_targets = "SELECT id, character_name, race, class, avatar_path, credits, level, last_updated, workers, wealth_points, soldiers, guards, sentries, spies, experience, fortification_level FROM users";
+// Fetch all users to display as potential targets, NOW INCLUDING alliance_id
+$sql_targets = "SELECT id, character_name, race, class, avatar_path, credits, level, last_updated, workers, wealth_points, soldiers, guards, sentries, spies, experience, fortification_level, alliance_id FROM users";
 $stmt_targets = mysqli_prepare($link, $sql_targets);
 mysqli_stmt_execute($stmt_targets);
 $targets_result = mysqli_stmt_get_result($stmt_targets);
@@ -152,7 +153,7 @@ $active_page = 'attack.php';
     <link rel="stylesheet" href="assets/css/style.css">
 </head>
 <body class="text-gray-400 antialiased">
-    <div class="min-h-screen bg-cover bg-center bg-fixed" style="background-image: url('https://images.unsplash.com/photo-1446776811953-b23d57bd21aa?ixlib=rb-4.0.3&ixid=M3wxMjA3fDB8MHxwaG90by1wYWdlfHx8fGVufDB8fHx8fA%3D%3D&auto=format&fit=crop&w=1742&q=80');">
+    <div class="min-h-screen bg-cover bg-center bg-fixed" style="background-image: url('https://images.unsplash.com/photo-1446776811953-b23d57bd21aa?ixlib-rb-4.0.3&ixid=M3wxMjA3fDB8MHxwaG90by1wYWdlfHx8fGVufDB8fHx8fA%3D%3D&auto=format&fit=crop&w=1742&q=80');">
         <div class="container mx-auto p-4 md:p-8">
 
             <?php include_once __DIR__ .  '/../includes/navigation.php'; ?>
@@ -249,13 +250,19 @@ $active_page = 'attack.php';
                                         <td class="p-2"><?php echo number_format($target['army_size']); ?></td>
                                         <td class="p-2"><?php echo $target['level']; ?></td>
                                         <td class="p-2 text-right">
-                                             <?php if ($target['id'] != $user_id): ?>
-                                                <a href="view_profile.php?id=<?php echo $target['id']; ?>" class="bg-cyan-600 hover:bg-cyan-700 text-white font-bold py-1 px-3 rounded-md text-xs">
-                                                    Scout
-                                                </a>
-                                            <?php else: ?>
-                                                <span class="text-gray-500 text-xs italic">This is you</span>
-                                            <?php endif; ?>
+                                             <?php 
+                                                // --- START: NEW LOGIC FOR ACTION BUTTON ---
+                                                $is_ally = ($viewer_alliance_id !== null && $viewer_alliance_id == $target['alliance_id']);
+                                                
+                                                if ($target['id'] == $user_id) {
+                                                    echo '<span class="text-gray-500 text-xs italic">This is you</span>';
+                                                } elseif ($is_ally) {
+                                                    echo '<a href="/alliance_transfer.php" class="bg-green-600 hover:bg-green-700 text-white font-bold py-1 px-3 rounded-md text-xs">Make a Transfer</a>';
+                                                } else {
+                                                    echo '<a href="/view_profile.php?id=' . $target['id'] . '" class="bg-cyan-600 hover:bg-cyan-700 text-white font-bold py-1 px-3 rounded-md text-xs">Scout</a>';
+                                                }
+                                                // --- END: NEW LOGIC FOR ACTION BUTTON ---
+                                             ?>
                                         </td>
                                     </tr>
                                     <?php endforeach; ?>
