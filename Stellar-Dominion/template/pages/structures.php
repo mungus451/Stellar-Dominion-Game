@@ -16,7 +16,7 @@ date_default_timezone_set('UTC');
 $user_id = $_SESSION['id'];
 
 // --- DATA FETCHING ---
-$sql = "SELECT level, credits, untrained_citizens, attack_turns, last_updated, fortification_level, offense_upgrade_level, defense_upgrade_level, spy_upgrade_level, economy_upgrade_level, population_level, armory_level FROM users WHERE id = ?";
+$sql = "SELECT experience, level, credits, untrained_citizens, attack_turns, last_updated, fortification_level, offense_upgrade_level, defense_upgrade_level, spy_upgrade_level, economy_upgrade_level, population_level, armory_level FROM users WHERE id = ?";
 if($stmt = mysqli_prepare($link, $sql)){
     mysqli_stmt_bind_param($stmt, "i", $user_id);
     mysqli_stmt_execute($stmt);
@@ -58,7 +58,11 @@ $current_tab = isset($_GET['tab']) && isset($upgrades[$_GET['tab']]) ? $_GET['ta
             
             <div class="grid grid-cols-1 lg:grid-cols-4 gap-4 p-4">
                 <aside class="lg:col-span-1 space-y-4">
-                        <?php include_once __DIR__ . '/../includes/advisor.php'; ?>
+                        <?php 
+                            $user_xp = $user_stats['experience'];
+                            $user_level = $user_stats['level'];
+                            include_once __DIR__ . '/../includes/advisor.php'; 
+                        ?>
                     <div class="content-box rounded-lg p-4">
                         <h3 class="font-title text-cyan-400 border-b border-gray-600 pb-2 mb-3">Stats</h3>
                         <ul class="space-y-2 text-sm">
