@@ -6,13 +6,19 @@
  * covers creation, applications, member and role management, structure purchasing,
  * bank and unit transfers, and a full suite of forum actions.
  */
-session_start();
+
+// session_start() is now handled by the main index.php router, so it's removed from here.
 
 // Ensure the user is logged in before proceeding with any actions.
 if (!isset($_SESSION["loggedin"]) || $_SESSION["loggedin"] !== true) {
     // Silently exit if not logged in to prevent exposing script existence.
     exit;
 }
+
+// --- BUG FIX: Clear old messages to prevent conflicts ---
+unset($_SESSION['alliance_message']);
+unset($_SESSION['alliance_error']);
+// --- END BUG FIX ---
 
 // --- FILE INCLUDES ---
 // From this file's location (src/Controllers/), we go up two directories (../../) to the project root,
@@ -108,200 +114,49 @@ try {
         $_SESSION['alliance_message'] = "Alliance created successfully!";
         $redirect_url = '/alliance.php';
 
-// Find this line in your AllianceController.php:
-// } else if ($action === 'edit') {
-// And replace the entire block with this corrected version:
-
-} else if ($action === 'edit') {
-    $redirect_url = '/edit_alliance.php';
-    $alliance_id = (int)$_POST['alliance_id'];
-    $description = trim($_POST['description']);
-    $avatar_path = null;
-    $update_messages = [];
-
-    // 1. Permission Check
-    if (!($user_info['can_edit_profile'] ?? false) || $user_info['alliance_id'] != $alliance_id) {
-        throw new Exception("You do not have permission to edit this alliance profile.");
-    }
-
-    // 2. Handle File Upload FIRST
-    if (isset($_FILES['avatar']) && $_FILES['avatar']['error'] !== UPLOAD_ERR_NO_FILE) {
-        if ($_FILES['avatar']['error'] !== UPLOAD_ERR_OK) {
-            // Handle specific PHP upload errors
-            switch ($_FILES['avatar']['error']) {
-                case UPLOAD_ERR_INI_SIZE:
-                case UPLOAD_ERR_FORM_SIZE:
-                    throw new Exception("File is too large. The server's upload limit was exceeded.");
-                default:
-                    throw new Exception("An unknown file upload error occurred.");
-            }
-        }
-
-        $upload_dir = __DIR__ . '/../../public/uploads/avatars/';
-        if (!is_dir($upload_dir) && !mkdir($upload_dir, 0755, true)) {
-            throw new Exception("Server Error: Could not create the avatar directory. Please check permissions.");
-        }
-        if (!is_writable($upload_dir)) {
-            throw new Exception("Permission Error: The uploads directory is not writable by the server.");
-        }
-
-        // Validate file type and size
-        $allowed_ext = ['jpg', 'jpeg', 'png', 'gif'];
-        $file_ext = strtolower(pathinfo($_FILES['avatar']['name'], PATHINFO_EXTENSION));
-        if ($_FILES['avatar']['size'] > 10000000) { throw new Exception("File is too large (Max 10MB)."); }
-        if (!in_array($file_ext, $allowed_ext)) { throw new Exception("Invalid file type. Only JPG, PNG, GIF allowed."); }
-
-        // If all checks pass, move the file
-        $new_file_name = 'alliance_avatar_' . $alliance_id . '_' . time() . '.' . $file_ext;
-        $destination = $upload_dir . $new_file_name;
-
-        if (move_uploaded_file($_FILES['avatar']['tmp_name'], $destination)) {
-            $avatar_path = '/uploads/avatars/' . $new_file_name;
-            $update_messages[] = "Avatar updated.";
-        } else {
-            // This is the error you are seeing now.
-            throw new Exception("Execution Error: Could not move uploaded file.");
-        }
-    }
-
-    // 3. Update Database ONLY if all previous steps succeeded
-    if ($avatar_path) {
-        $sql = "UPDATE alliances SET description = ?, avatar_path = ? WHERE id = ?";
-        $stmt = mysqli_prepare($link, $sql);
-        mysqli_stmt_bind_param($stmt, "ssi", $description, $avatar_path, $alliance_id);
-    } else {
-        $sql = "UPDATE alliances SET description = ? WHERE id = ?";
-        $stmt = mysqli_prepare($link, $sql);
-        mysqli_stmt_bind_param($stmt, "si", $description, $alliance_id);
-    }
-    mysqli_stmt_execute($stmt);
-    $update_messages[] = "Description updated.";
-    mysqli_stmt_close($stmt);
-
-    // 4. Set a single, consolidated success message at the very end
-    if (!empty($update_messages)) {
-        $_SESSION['alliance_message'] = "Alliance profile updated successfully!";
-    }    $redirect_url = '/edit_alliance.php';
-    $alliance_id = (int)$_POST['alliance_id'];
-    $description = trim($_POST['description']);
-    $avatar_path = null;
-
-    if (!($user_info['can_edit_profile'] ?? false) || $user_info['alliance_id'] != $alliance_id) {
-        throw new Exception("You do not have permission to edit this alliance profile.");
-    }
-
-    // --- START: Corrected Avatar Upload Logic ---
-    // Check if a file was submitted for upload
-    if (isset($_FILES['avatar']) && $_FILES['avatar']['error'] !== UPLOAD_ERR_NO_FILE) {
-
-        // First, check for built-in PHP upload errors
-        if ($_FILES['avatar']['error'] !== UPLOAD_ERR_OK) {
-            switch ($_FILES['avatar']['error']) {
-                case UPLOAD_ERR_INI_SIZE:
-                case UPLOAD_ERR_FORM_SIZE:
-                    throw new Exception("File is too large. The server's upload limit was exceeded.");
-                case UPLOAD_ERR_PARTIAL:
-                    throw new Exception("The file was only partially uploaded.");
-                default:
-                    throw new Exception("An unknown upload error occurred. Please try again.");
-            }
-        }
-
-        // If upload is OK, proceed with validation and moving the file
-        $upload_dir = __DIR__ . '/../../public/uploads/avatars/';
-
-        // Check and create directory if it doesn't exist
-        if (!is_dir($upload_dir)) {
-            if (!mkdir($upload_dir, 0755, true)) {
-                throw new Exception("Server Error: Could not create the avatar directory. Please check permissions.");
-            }
-        }
-
-        // Check if the directory is writable
-        if (!is_writable($upload_dir)) {
-            throw new Exception("Permission Error: The uploads directory is not writable by the server.");
-        }
-
-        $allowed_ext = ['jpg', 'jpeg', 'png', 'gif'];
-        $file_ext = strtolower(pathinfo($_FILES['avatar']['name'], PATHINFO_EXTENSION));
-
-        if ($_FILES['avatar']['size'] > 10000000) { // 10MB limit
-             throw new Exception("File is too large. Maximum size is 10MB.");
-        }
-        if (!in_array($file_ext, $allowed_ext)) {
-             throw new Exception("Invalid file type. Only JPG, PNG, and GIF are allowed.");
-        }
-
-        // All checks passed, move the file
-        $new_file_name = 'alliance_avatar_' . $alliance_id . '_' . time() . '.' . $file_ext;
-        $destination = $upload_dir . $new_file_name;
-
-        if (move_uploaded_file($_FILES['avatar']['tmp_name'], $destination)) {
-            // Store the web-accessible, root-relative path for the database
-            $avatar_path = '/uploads/avatars/' . $new_file_name;
-        } else {
-            throw new Exception("Execution Error: Could not move the uploaded file. Please check server permissions.");
-        }
-    }
-    // --- END: Corrected Avatar Upload Logic ---
-
-
-    if ($avatar_path) {
-        $sql = "UPDATE alliances SET description = ?, avatar_path = ? WHERE id = ?";
-        $stmt = mysqli_prepare($link, $sql);
-        mysqli_stmt_bind_param($stmt, "ssi", $description, $avatar_path, $alliance_id);
-    } else {
-        $sql = "UPDATE alliances SET description = ? WHERE id = ?";
-        $stmt = mysqli_prepare($link, $sql);
-        mysqli_stmt_bind_param($stmt, "si", $description, $alliance_id);
-    }
-    mysqli_stmt_execute($stmt);
-    mysqli_stmt_close($stmt);
-
-    $_SESSION['alliance_message'] = "Alliance profile updated successfully!";
-
-// Find this line and make sure your replacement code ends before it:
-// } else if ($action === 'apply_to_alliance') {        $redirect_url = '/edit_alliance.php';
+    } else if ($action === 'edit') {
+        $redirect_url = '/edit_alliance.php';
         $alliance_id = (int)$_POST['alliance_id'];
         $description = trim($_POST['description']);
         $avatar_path = null;
-        $upload_error = null;
 
         if (!($user_info['can_edit_profile'] ?? false) || $user_info['alliance_id'] != $alliance_id) {
             throw new Exception("You do not have permission to edit this alliance profile.");
         }
 
-        if (isset($_FILES['avatar']) && $_FILES['avatar']['error'] === UPLOAD_ERR_OK) {
-            $upload_dir = __DIR__ . '/../../public/uploads/avatars/';
-            
-            if (!is_dir($upload_dir)) {
-                if (!mkdir($upload_dir, 0755, true)) {
-                    $upload_error = "Server Error: Could not create avatar directory.";
+        if (isset($_FILES['avatar']) && $_FILES['avatar']['error'] !== UPLOAD_ERR_NO_FILE) {
+            if ($_FILES['avatar']['error'] !== UPLOAD_ERR_OK) {
+                // Handle specific PHP upload errors
+                switch ($_FILES['avatar']['error']) {
+                    case UPLOAD_ERR_INI_SIZE:
+                    case UPLOAD_ERR_FORM_SIZE:
+                        throw new Exception("File is too large. The server's upload limit was exceeded.");
+                    default:
+                        throw new Exception("An unknown file upload error occurred.");
                 }
+            }
+
+            $upload_dir = __DIR__ . '/../../public/uploads/avatars/';
+            if (!is_dir($upload_dir) && !mkdir($upload_dir, 0755, true)) {
+                throw new Exception("Server Error: Could not create the avatar directory. Please check permissions.");
             }
             if (!is_writable($upload_dir)) {
-                $upload_error = "Permission Error: The directory is not writable by the server.";
+                throw new Exception("Permission Error: The uploads directory is not writable by the server.");
             }
 
-            if ($upload_error === null) {
-                $allowed_ext = ['jpg', 'jpeg', 'png', 'gif'];
-                $file_ext = strtolower(pathinfo($_FILES['avatar']['name'], PATHINFO_EXTENSION));
+            $allowed_ext = ['jpg', 'jpeg', 'png', 'gif'];
+            $file_ext = strtolower(pathinfo($_FILES['avatar']['name'], PATHINFO_EXTENSION));
+            if ($_FILES['avatar']['size'] > 10000000) { throw new Exception("File is too large (Max 10MB)."); }
+            if (!in_array($file_ext, $allowed_ext)) { throw new Exception("Invalid file type. Only JPG, PNG, GIF allowed."); }
 
-                if ($_FILES['avatar']['size'] > 10000000) { $upload_error = "File is too large (Max 10MB)."; }
-                if (!in_array($file_ext, $allowed_ext)) { $upload_error = "Invalid file type. Only JPG, PNG, GIF."; }
-                
-                if ($upload_error === null) {
-                    $new_file_name = 'alliance_avatar_' . $alliance_id . '_' . time() . '.' . $file_ext;
-                    $destination = $upload_dir . $new_file_name;
+            $new_file_name = 'alliance_avatar_' . $alliance_id . '_' . time() . '.' . $file_ext;
+            $destination = $upload_dir . $new_file_name;
 
-                    if (move_uploaded_file($_FILES['avatar']['tmp_name'], $destination)) {
-                        $avatar_path = '/uploads/avatars/' . $new_file_name;
-                    } else {
-                        $upload_error = "Execution Error: Could not move uploaded file.";
-                    }
-                }
+            if (move_uploaded_file($_FILES['avatar']['tmp_name'], $destination)) {
+                $avatar_path = '/uploads/avatars/' . $new_file_name;
+            } else {
+                throw new Exception("Execution Error: Could not move uploaded file.");
             }
-            if ($upload_error) { throw new Exception($upload_error); }
         }
 
         if ($avatar_path) {
@@ -317,7 +172,7 @@ try {
         mysqli_stmt_close($stmt);
 
         $_SESSION['alliance_message'] = "Alliance profile updated successfully!";
-        
+
     } else if ($action === 'apply_to_alliance') {
         if ($user_info['alliance_id']) {
             throw new Exception("You are already in an alliance.");
@@ -442,7 +297,6 @@ try {
         }
 
         // Cascade delete: remove all related data.
-        // Assumes forum_posts have ON DELETE CASCADE foreign key to forum_threads.
         mysqli_query($link, "UPDATE users SET alliance_id = NULL, alliance_role_id = NULL WHERE alliance_id = $alliance_id");
         mysqli_query($link, "DELETE FROM alliance_roles WHERE alliance_id = $alliance_id");
         mysqli_query($link, "DELETE FROM alliance_applications WHERE alliance_id = $alliance_id");
@@ -484,7 +338,6 @@ try {
         $order = (int)$_POST['order'];
         $permissions = $_POST['permissions'] ?? [];
 
-        // Map form checkboxes to database flags
         $can_edit_profile = isset($permissions['can_edit_profile']) ? 1 : 0;
         $can_approve_membership = isset($permissions['can_approve_membership']) ? 1 : 0;
         $can_kick_members = isset($permissions['can_kick_members']) ? 1 : 0;
@@ -566,11 +419,9 @@ try {
             throw new Exception("Not enough credits to donate.");
         }
 
-        // Deduct from user & add to alliance bank
         mysqli_query($link, "UPDATE users SET credits = credits - $amount WHERE id = $user_id");
         mysqli_query($link, "UPDATE alliances SET bank_credits = bank_credits + $amount WHERE id = {$user_info['alliance_id']}");
 
-        // Log transaction
         $log_desc = "Donation from " . $user_info['character_name'];
         $sql_log = "INSERT INTO alliance_bank_logs (alliance_id, user_id, type, amount, description) VALUES (?, ?, 'deposit', ?, ?)";
         $stmt_log = mysqli_prepare($link, $sql_log);
@@ -594,14 +445,12 @@ try {
             throw new Exception("Insufficient credits to cover the transfer and the 2% fee.");
         }
 
-        // 1. Deduct from sender
         $sql_deduct = "UPDATE users SET credits = credits - ? WHERE id = ?";
         $stmt_deduct = mysqli_prepare($link, $sql_deduct);
         mysqli_stmt_bind_param($stmt_deduct, "ii", $total_cost, $user_id);
         mysqli_stmt_execute($stmt_deduct);
         mysqli_stmt_close($stmt_deduct);
 
-        // 2. Add to recipient
         $sql_add = "UPDATE users SET credits = credits + ? WHERE id = ? AND alliance_id = ?";
         $stmt_add = mysqli_prepare($link, $sql_add);
         mysqli_stmt_bind_param($stmt_add, "iii", $amount, $recipient_id, $user_info['alliance_id']);
@@ -611,7 +460,6 @@ try {
         }
         mysqli_stmt_close($stmt_add);
 
-        // 3. Add fee to alliance bank
         $sql_fee = "UPDATE alliances SET bank_credits = bank_credits + ? WHERE id = ?";
         $stmt_fee = mysqli_prepare($link, $sql_fee);
         mysqli_stmt_bind_param($stmt_fee, "ii", $fee, $user_info['alliance_id']);
@@ -639,21 +487,18 @@ try {
             throw new Exception("Insufficient credits to pay the transfer fee of " . number_format($fee) . ".");
         }
 
-        // 1. Deduct fee from sender
         $sql_deduct_fee = "UPDATE users SET credits = credits - ? WHERE id = ?";
         $stmt_deduct_fee = mysqli_prepare($link, $sql_deduct_fee);
         mysqli_stmt_bind_param($stmt_deduct_fee, "ii", $fee, $user_id);
         mysqli_stmt_execute($stmt_deduct_fee);
         mysqli_stmt_close($stmt_deduct_fee);
 
-        // 2. Deduct units from sender
         $sql_deduct_units = "UPDATE users SET `$unit_type` = `$unit_type` - ? WHERE id = ?";
         $stmt_deduct_units = mysqli_prepare($link, $sql_deduct_units);
         mysqli_stmt_bind_param($stmt_deduct_units, "ii", $amount, $user_id);
         mysqli_stmt_execute($stmt_deduct_units);
         mysqli_stmt_close($stmt_deduct_units);
 
-        // 3. Add units to recipient
         $sql_add_units = "UPDATE users SET `$unit_type` = `$unit_type` + ? WHERE id = ? AND alliance_id = ?";
         $stmt_add_units = mysqli_prepare($link, $sql_add_units);
         mysqli_stmt_bind_param($stmt_add_units, "iii", $amount, $recipient_id, $user_info['alliance_id']);
@@ -663,7 +508,6 @@ try {
         }
         mysqli_stmt_close($stmt_add_units);
 
-        // 4. Add fee to alliance bank
         $sql_fee = "UPDATE alliances SET bank_credits = bank_credits + ? WHERE id = ?";
         $stmt_fee = mysqli_prepare($link, $sql_fee);
         mysqli_stmt_bind_param($stmt_fee, "ii", $fee, $user_info['alliance_id']);
@@ -672,11 +516,10 @@ try {
 
         $_SESSION['alliance_message'] = "Successfully transferred " . number_format($amount) . " " . ucfirst($unit_type) . ". A fee of " . number_format($fee) . " credits was paid to the alliance bank.";
         
-    // --- FORUM ACTIONS ---
     } else if ($action === 'create_thread') {
         $title = trim($_POST['title'] ?? '');
         $content = trim($_POST['content'] ?? '');
-        $redirect_url = '/create_thread.php'; // Redirect back to form on error
+        $redirect_url = '/create_thread.php';
 
         if (empty($title) || empty($content)) { throw new Exception("Title and content are required."); }
         if (!$user_info['alliance_id']) { throw new Exception("You are not in an alliance."); }
@@ -772,17 +615,13 @@ try {
         mysqli_stmt_close($stmt_delete);
     }
     
-    // If we reach this point without any exceptions, commit the transaction.
     mysqli_commit($link);
 
 } catch (Exception $e) {
-    // If any exception was thrown, roll back the entire transaction.
     mysqli_rollback($link);
-    // Store the error message in the session to be displayed to the user.
     $_SESSION['alliance_error'] = "Error: " . $e->getMessage();
 }
 
-// Redirect the user back to the appropriate page with a success or error message.
 header("location: " . $redirect_url);
 exit;
 ?>
