@@ -66,11 +66,12 @@ try {
     }
 
     // --- EXECUTE UPDATE ---
+    $experience_gained = rand(2, 5);
     // Use a dynamic column name for the update. This is safe because we validated $db_column 
     // against our own trusted $upgrades array, not user input.
-    $sql_update = "UPDATE users SET credits = credits - ?, `$db_column` = ? WHERE id = ?";
+    $sql_update = "UPDATE users SET credits = credits - ?, `$db_column` = ?, experience = experience + ? WHERE id = ?";
     $stmt = mysqli_prepare($link, $sql_update);
-    mysqli_stmt_bind_param($stmt, "iii", $final_cost, $target_level, $_SESSION["id"]);
+    mysqli_stmt_bind_param($stmt, "iiii", $final_cost, $target_level, $experience_gained, $_SESSION["id"]);
     mysqli_stmt_execute($stmt);
     mysqli_stmt_close($stmt);
 

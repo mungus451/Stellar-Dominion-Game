@@ -59,6 +59,7 @@ try {
     }
 
     $total_cost = 0;
+    $total_items = 0;
     // **FIX:** Calculate charisma discount to apply to server-side cost validation.
     $charisma_discount = 1 - (($user_data['charisma_points'] ?? 0) * 0.01);
 
@@ -68,6 +69,7 @@ try {
         }
         
         $item = $item_details_flat[$item_key];
+        $total_items += $quantity;
 
         // --- Prerequisite Validation ---
         if (isset($item['requires'])) {
@@ -93,10 +95,12 @@ try {
         throw new Exception("Not enough credits. Required: " . number_format($total_cost) . ", You have: " . number_format($user_data['credits']));
     }
 
+    $experience_gained = rand(2 * $total_items, 5 * $total_items);
+
     // Deduct credits
-    $sql_deduct = "UPDATE users SET credits = credits - ? WHERE id = ?";
+    $sql_deduct = "UPDATE users SET credits = credits - ?, experience = experience + ? WHERE id = ?";
     $stmt_deduct = mysqli_prepare($link, $sql_deduct);
-    mysqli_stmt_bind_param($stmt_deduct, "ii", $total_cost, $user_id);
+    mysqli_stmt_bind_param($stmt_deduct, "iii", $total_cost, $experience_gained, $user_id);
     mysqli_stmt_execute($stmt_deduct);
     mysqli_stmt_close($stmt_deduct);
 

@@ -60,16 +60,18 @@ try {
             throw new Exception("Not enough credits.");
         }
 
+        $experience_gained = rand(2 * $total_citizens_needed, 5 * $total_citizens_needed);
+
         $sql_update = "UPDATE users SET 
                         untrained_citizens = untrained_citizens - ?, credits = credits - ?,
                         workers = workers + ?, soldiers = soldiers + ?, guards = guards + ?,
-                        sentries = sentries + ?, spies = spies + ?
+                        sentries = sentries + ?, spies = spies + ?, experience = experience + ?
                        WHERE id = ?";
         $stmt_update = mysqli_prepare($link, $sql_update);
-        mysqli_stmt_bind_param($stmt_update, "iiiiiiii", 
+        mysqli_stmt_bind_param($stmt_update, "iiiiiiiii", 
             $total_citizens_needed, $total_credits_needed,
             $units_to_train['workers'], $units_to_train['soldiers'], $units_to_train['guards'],
-            $units_to_train['sentries'], $units_to_train['spies'],
+            $units_to_train['sentries'], $units_to_train['spies'], $experience_gained,
             $_SESSION["id"]
         );
         mysqli_stmt_execute($stmt_update);
