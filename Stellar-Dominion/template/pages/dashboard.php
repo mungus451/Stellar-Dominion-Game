@@ -162,6 +162,12 @@ $total_economy_bonus_pct = 0;
 for ($i = 1; $i <= $character_data['economy_upgrade_level']; $i++) { $total_economy_bonus_pct += $upgrades['economy']['levels'][$i]['bonuses']['income'] ?? 0; }
 $economy_upgrade_multiplier = 1 + ($total_economy_bonus_pct / 100);
 
+// --- CALCULATE CITIZENS PER TURN ---
+$citizens_per_turn = 1; // Base value
+for ($i = 1; $i <= $character_data['population_level']; $i++) {
+    $citizens_per_turn += $upgrades['population']['levels'][$i]['bonuses']['citizens'] ?? 0;
+}
+
 // --- CALCULATE DERIVED STATS including all bonuses ---
 $strength_bonus = 1 + ($character_data['strength_points'] * 0.01);
 $constitution_bonus = 1 + ($character_data['constitution_points'] * 0.01);
@@ -298,6 +304,7 @@ $active_page = 'dashboard.php';
                         <div class="content-box rounded-lg p-4 space-y-3">
                             <h3 class="font-title text-cyan-400 border-b border-gray-600 pb-2 mb-2 flex items-center"><i data-lucide="users" class="w-5 h-5 mr-2"></i>Population Census</h3>
                             <div class="flex justify-between text-sm"><span>Total Population:</span> <span class="text-white font-semibold"><?php echo number_format($total_population); ?></span></div>
+                            <div class="flex justify-between text-sm"><span>Citizens per Turn:</span> <span class="text-green-400 font-semibold">+<?php echo number_format($citizens_per_turn); ?></span></div>
                             <div class="flex justify-between text-sm"><span>Untrained Citizens:</span> <span class="text-white font-semibold"><?php echo number_format($character_data['untrained_citizens']); ?></span></div>
                             <div class="flex justify-between text-sm"><span>Non-Military (Workers):</span> <span class="text-white font-semibold"><?php echo number_format($character_data['workers']); ?></span></div>
                         </div>
