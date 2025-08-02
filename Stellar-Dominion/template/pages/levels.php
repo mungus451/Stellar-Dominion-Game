@@ -64,9 +64,12 @@ $active_page = 'levels.php';
             <?php include_once __DIR__ . '/../includes/navigation.php'; ?>
 
             <div class="grid grid-cols-1 lg:grid-cols-4 gap-4 p-4">
-                <!-- Left Sidebar -->
                 <aside class="lg:col-span-1 space-y-4">
-            <?php include_once __DIR__ . '/../includes/advisor.php'; ?>
+            <?php 
+                $user_xp = $user_stats['experience'];
+                $user_level = $user_stats['level'];
+                include_once __DIR__ . '/../includes/advisor.php'; 
+            ?>
                     <div class="content-box rounded-lg p-4">
                         <h3 class="font-title text-cyan-400 border-b border-gray-600 pb-2 mb-3">Stats</h3>
                         <ul class="space-y-2 text-sm">
@@ -90,14 +93,12 @@ $active_page = 'levels.php';
                     </div>
                 </aside>
 
-                <!-- Main Content: Spend Points Form -->
                 <main class="lg:col-span-3">
                     <form action="levelup.php" method="POST" class="space-y-4">
                         <div class="content-box rounded-lg p-4 text-center">
                             <p>You currently have <span id="available-points" class="font-bold text-cyan-300 text-lg"><?php echo $user_stats['level_up_points']; ?></span> proficiency points available.</p>
                         </div>
                         <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
-                            <!-- Strength -->
                             <div class="content-box rounded-lg p-4">
                                 <h3 class="font-title text-white">Strength (Offense)</h3>
                                 <p class="text-sm">Current Bonus: <span class="font-bold text-cyan-300"><?php echo $user_stats['strength_points']; ?>%</span></p>
@@ -106,7 +107,6 @@ $active_page = 'levels.php';
                                     <input type="number" name="strength_points" min="0" value="0" class="bg-gray-900 border border-gray-600 rounded-md w-20 text-center p-1 point-input">
                                 </div>
                             </div>
-                            <!-- Constitution -->
                             <div class="content-box rounded-lg p-4">
                                 <h3 class="font-title text-white">Constitution (Defense)</h3>
                                 <p class="text-sm">Current Bonus: <span class="font-bold text-cyan-300"><?php echo $user_stats['constitution_points']; ?>%</span></p>
@@ -115,7 +115,6 @@ $active_page = 'levels.php';
                                     <input type="number" name="constitution_points" min="0" value="0" class="bg-gray-900 border border-gray-600 rounded-md w-20 text-center p-1 point-input">
                                 </div>
                             </div>
-                            <!-- Wealth -->
                             <div class="content-box rounded-lg p-4">
                                 <h3 class="font-title text-white">Wealth (Income)</h3>
                                 <p class="text-sm">Current Bonus: <span class="font-bold text-cyan-300"><?php echo $user_stats['wealth_points']; ?>%</span></p>
@@ -124,7 +123,6 @@ $active_page = 'levels.php';
                                     <input type="number" name="wealth_points" min="0" value="0" class="bg-gray-900 border border-gray-600 rounded-md w-20 text-center p-1 point-input">
                                 </div>
                             </div>
-                            <!-- Dexterity -->
                             <div class="content-box rounded-lg p-4">
                                 <h3 class="font-title text-white">Dexterity (Sentry/Spy)</h3>
                                 <p class="text-sm">Current Bonus: <span class="font-bold text-cyan-300"><?php echo $user_stats['dexterity_points']; ?>%</span></p>
@@ -133,7 +131,6 @@ $active_page = 'levels.php';
                                     <input type="number" name="dexterity_points" min="0" value="0" class="bg-gray-900 border border-gray-600 rounded-md w-20 text-center p-1 point-input">
                                 </div>
                             </div>
-                            <!-- Charisma -->
                             <div class="content-box rounded-lg p-4">
                                 <h3 class="font-title text-white">Charisma (Reduced Prices)</h3>
                                 <p class="text-sm">Current Bonus: <span class="font-bold text-cyan-300"><?php echo $user_stats['charisma_points']; ?>%</span></p>
@@ -152,8 +149,7 @@ $active_page = 'levels.php';
                     </form>
                 </main>
             </div>
-            </div> <!-- This closes the .main-bg div from navigation.php -->
-        </div>
+            </div> </div>
     </div>
     <script src="assets/js/main.js" defer></script>
 </body>

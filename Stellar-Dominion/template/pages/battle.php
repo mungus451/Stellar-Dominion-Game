@@ -71,8 +71,8 @@ if($stmt_check = mysqli_prepare($link, $sql_check)) {
 
 
 // --- DATA FETCHING ---
-// Fetch all necessary user data in one query.
-$sql_resources = "SELECT credits, untrained_citizens, level, attack_turns, last_updated, soldiers, guards, sentries, spies, workers, charisma_points FROM users WHERE id = ?";
+// Fetch all necessary user data in one query, including experience.
+$sql_resources = "SELECT credits, untrained_citizens, level, attack_turns, last_updated, soldiers, guards, sentries, spies, workers, charisma_points, experience FROM users WHERE id = ?";
 if($stmt_resources = mysqli_prepare($link, $sql_resources)){
     mysqli_stmt_bind_param($stmt_resources, "i", $user_id);
     mysqli_stmt_execute($stmt_resources);
@@ -132,14 +132,18 @@ $current_tab = isset($_GET['tab']) && $_GET['tab'] === 'disband' ? 'disband' : '
     <link rel="stylesheet" href="assets/css/style.css">
 </head>
 <body class="text-gray-400 antialiased">
-    <div class="min-h-screen bg-cover bg-center bg-fixed" style="background-image: url('https://images.unsplash.com/photo-1446776811953-b23d57bd21aa?ixlib-rb-4.0.3&ixid=M3wxMjA3fDB8MHxwaG90by1wYWdlfHx8fGVufDB8fHx8fA%3D%3D&auto=format&fit=crop&w=1742&q=80');">
+    <div class="min-h-screen bg-cover bg-center bg-fixed" style="background-image: url('https://images.unsplash.com/photo-1446776811953-b23d57bd21aa?ixlib=rb-4.0.3&ixid=M3wxMjA3fDB8MHxwaG90by1wYWdlfHx8fGVufDB8fHx8fA%3D%3D&auto=format&fit=crop&w=1742&q=80');">
         <div class="container mx-auto p-4 md:p-8">
             
             <?php include_once __DIR__ .  '/../includes/navigation.php'; ?>
 
             <div class="grid grid-cols-1 lg:grid-cols-4 gap-4 p-4">
                 <aside class="lg:col-span-1 space-y-4">
-            <?php include_once __DIR__ . '/../includes/advisor.php'; ?>
+            <?php 
+                $user_xp = $user_data['experience'];
+                $user_level = $user_data['level'];
+                include_once __DIR__ . '/../includes/advisor.php'; 
+            ?>
                     <div class="content-box rounded-lg p-4">
                         <h3 class="font-title text-cyan-400 border-b border-gray-600 pb-2 mb-3">Stats</h3>
                         <ul class="space-y-2 text-sm">

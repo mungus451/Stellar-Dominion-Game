@@ -5,6 +5,9 @@
  *
  * This file generates the advisor box content. It expects a variable
  * named $active_page to be set before it's included.
+ *
+ * It now also expects $user_xp and $user_level to be set to display
+ * the experience bar.
  */
 
 // An array of advice strings, categorized by the page they should appear on.
@@ -73,6 +76,19 @@ $current_advice_list = isset($advice_repository[$active_page]) ? $advice_reposit
 // This makes it easy to pass the data to our JavaScript.
 $advice_json = htmlspecialchars(json_encode($current_advice_list), ENT_QUOTES, 'UTF-8');
 
+// --- XP BAR LOGIC ---
+$xp_for_next_level = 0;
+$xp_progress_pct = 0;
+// Check if the required variables are set by the parent page
+if (isset($user_xp) && isset($user_level)) {
+    // Define the experience curve formula: 1000 * (level ^ 1.5)
+    $xp_for_next_level = floor(1000 * pow($user_level, 1.5));
+    if ($xp_for_next_level > 0) {
+        $xp_progress_pct = min(100, floor(($user_xp / $xp_for_next_level) * 100));
+    } else {
+         $xp_progress_pct = 100;
+    }
+}
 ?>
 
 <div class="content-box rounded-lg p-4">
@@ -80,4 +96,16 @@ $advice_json = htmlspecialchars(json_encode($current_advice_list), ENT_QUOTES, '
     <p id="advisor-text" class="text-sm transition-opacity duration-500" data-advice='<?php echo $advice_json; ?>'>
         <?php echo $current_advice_list[0]; // Display the first piece of advice initially ?>
     </p>
+
+    <?php if (isset($user_xp) && isset($user_level)): ?>
+    <div class="mt-3 pt-3 border-t border-gray-600">
+        <div class="flex justify-between text-xs mb-1">
+            <span class="text-white font-semibold">Level <?php echo $user_level; ?> Progress</span>
+            <span class="text-gray-400"><?php echo number_format($user_xp) . ' / ' . number_format($xp_for_next_level); ?> XP</span>
+        </div>
+        <div class="w-full bg-gray-700 rounded-full h-2.5" title="<?php echo $xp_progress_pct; ?>%">
+            <div class="bg-cyan-500 h-2.5 rounded-full" style="width: <?php echo $xp_progress_pct; ?>%"></div>
+        </div>
+    </div>
+    <?php endif; ?>
 </div>
