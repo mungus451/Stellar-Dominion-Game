@@ -7,15 +7,8 @@
  * outcome, distributing rewards (XP, credits), handling plunder, taxing
  * for the alliance bank, and creating a permanent battle log.
  */
-// START DEBUGGING CODE
-file_put_contents(__DIR__ . '/debug_attack.log', "--- New Attack ---\n", FILE_APPEND);
-file_put_contents(__DIR__ . '/debug_attack.log', "Time: " . date('Y-m-d H:i:s') . "\n", FILE_APPEND);
-file_put_contents(__DIR__ . '/debug_attack.log', "POST Data: " . print_r($_POST, true) . "\n", FILE_APPEND);
-// END DEBUGGING CODE
 
-//session_start(); turned off, index starts session
-
-// Redirect unauthenticated users to the login page.
+// session_start() is handled by the main index.php router
 if(!isset($_SESSION["loggedin"]) || $_SESSION["loggedin"] !== true){
     header("location: index.html");
     exit;
@@ -123,21 +116,13 @@ try {
         $alliance_tax = floor($credits_stolen * 0.10);
         $attacker_net_gain = $credits_stolen - $alliance_tax;
 
-
-
-    if ($attacker['alliance_id'] !== NULL && $alliance_tax > 0) {
-        mysqli_query($link, "UPDATE alliances SET bank_credits = bank_credits + $alliance_tax WHERE id = {$attacker['alliance_id']}");
-
-        // --- START: SECURE CODE FIX ---
-        $log_desc = "Battle tax from " . $attacker['character_name'] . "'s victory against " . $defender['character_name'];
-
-        // Escape the string to handle apostrophes and prevent SQL injection
-        $escaped_log_desc = mysqli_real_escape_string($link, $log_desc);
-
-        // Use the escaped string in the query, wrapped in quotes
-        mysqli_query($link, "INSERT INTO alliance_bank_logs (alliance_id, user_id, type, amount, description) VALUES ({$attacker['alliance_id']}, $attacker_id, 'tax', $alliance_tax, '{$escaped_log_desc}')");
-        // --- END: SECURE CODE FIX ---
-    }
+        if ($attacker['alliance_id'] !== NULL && $alliance_tax > 0) {
+            mysqli_query($link, "UPDATE alliances SET bank_credits = bank_credits + $alliance_tax WHERE id = {$attacker['alliance_id']}");
+            
+            $log_desc = "Battle tax from " . $attacker['character_name'] . "'s victory against " . $defender['character_name'];
+            $escaped_log_desc = mysqli_real_escape_string($link, $log_desc);
+            mysqli_query($link, "INSERT INTO alliance_bank_logs (alliance_id, user_id, type, amount, description) VALUES ({$attacker['alliance_id']}, $attacker_id, 'tax', $alliance_tax, '{$escaped_log_desc}')");
+        }
 
         mysqli_query($link, "UPDATE users SET credits = credits + $attacker_net_gain, experience = experience + $attacker_xp_gained WHERE id = $attacker_id");
         mysqli_query($link, "UPDATE users SET credits = credits - $credits_stolen, experience = experience + $defender_xp_gained WHERE id = $defender_id");
