@@ -123,17 +123,6 @@ try {
         $alliance_tax = floor($credits_stolen * 0.10);
         $attacker_net_gain = $credits_stolen - $alliance_tax;
 
-                // --- NEW DEBUG CODE ---
-                echo "<pre>";
-                echo "Outcome: " . $outcome . "\n";
-                echo "Defender Credits (from script): " . $defender['credits'] . "\n";
-                echo "Attack Turns Used: " . $attack_turns . "\n";
-                echo "Steal Percentage: " . $steal_percentage . "\n";
-                echo "Calculated Plunder (credits_stolen): " . $credits_stolen . "\n";
-                echo "Attacker Net Gain: " . $attacker_net_gain . "\n";
-                echo "</pre>";
-                die("DEBUGGING STOP: Plunder calculation complete. If you see this, the calculation is working. The problem is saving to the database.");
-                // --- END DEBUG CODE ---
 
 
         if ($attacker['alliance_id'] !== NULL && $alliance_tax > 0) {
