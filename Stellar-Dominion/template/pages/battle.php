@@ -15,59 +15,8 @@ date_default_timezone_set('UTC');
 
 $user_id = $_SESSION['id'];
 
-// --- START: CATCH-UP MECHANISM ---
-// This block processes any turns that have passed since the user's last action.
-$sql_check = "SELECT last_updated, workers, wealth_points, economy_upgrade_level, population_level FROM users WHERE id = ?";
-if($stmt_check = mysqli_prepare($link, $sql_check)) {
-    mysqli_stmt_bind_param($stmt_check, "i", $user_id);
-    mysqli_stmt_execute($stmt_check);
-    $result_check = mysqli_stmt_get_result($stmt_check);
-    $user_check_data = mysqli_fetch_assoc($result_check);
-    mysqli_stmt_close($stmt_check);
-
-    if ($user_check_data) {
-        $turn_interval_minutes = 10;
-        $last_updated = new DateTime($user_check_data['last_updated']);
-        $now = new DateTime();
-        $minutes_since_last_update = ($now->getTimestamp() - $last_updated->getTimestamp()) / 60;
-        $turns_to_process = floor($minutes_since_last_update / $turn_interval_minutes);
-
-        if ($turns_to_process > 0) {
-            // Calculate total economic bonus from upgrades
-            $total_economy_bonus_pct = 0;
-            for ($i = 1; $i <= $user_check_data['economy_upgrade_level']; $i++) {
-                $total_economy_bonus_pct += $upgrades['economy']['levels'][$i]['bonuses']['income'] ?? 0;
-            }
-            $economy_upgrade_multiplier = 1 + ($total_economy_bonus_pct / 100);
-
-            // Calculate total population bonus from upgrades
-            $citizens_per_turn = 1; // Base value
-            for ($i = 1; $i <= $user_check_data['population_level']; $i++) {
-                $citizens_per_turn += $upgrades['population']['levels'][$i]['bonuses']['citizens'] ?? 0;
-            }
-
-            // Calculate income per turn
-            $worker_income = $user_check_data['workers'] * 50;
-            $base_income_per_turn = 5000 + $worker_income;
-            $wealth_bonus = 1 + ($user_check_data['wealth_points'] * 0.01);
-            $income_per_turn = floor(($base_income_per_turn * $wealth_bonus) * $economy_upgrade_multiplier);
-            
-            // Calculate total gains
-            $gained_credits = $income_per_turn * $turns_to_process;
-            $gained_attack_turns = $turns_to_process * 2;
-            $gained_citizens = $turns_to_process * $citizens_per_turn;
-            
-            $current_utc_time_str = gmdate('Y-m-d H:i:s');
-            $sql_update = "UPDATE users SET attack_turns = attack_turns + ?, untrained_citizens = untrained_citizens + ?, credits = credits + ?, last_updated = ? WHERE id = ?";
-            if($stmt_update = mysqli_prepare($link, $sql_update)){
-                mysqli_stmt_bind_param($stmt_update, "iiisi", $gained_attack_turns, $gained_citizens, $gained_credits, $current_utc_time_str, $user_id);
-                mysqli_stmt_execute($stmt_update);
-                mysqli_stmt_close($stmt_update);
-            }
-        }
-    }
-}
-// --- END: CATCH-UP MECHANISM ---
+require_once __DIR__ . '/../../src/Game/GameFunctions.php';
+process_offline_turns($link, $_SESSION["id"]);
 
 
 // --- DATA FETCHING ---

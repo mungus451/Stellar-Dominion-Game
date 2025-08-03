@@ -14,46 +14,8 @@ date_default_timezone_set('UTC');
 
 $user_id = $_SESSION['id'];
 
-// --- CATCH-UP MECHANISM ---
-$sql_check = "SELECT last_updated, workers, wealth_points FROM users WHERE id = ?";
-if($stmt_check = mysqli_prepare($link, $sql_check)) {
-    mysqli_stmt_bind_param($stmt_check, "i", $user_id);
-    mysqli_stmt_execute($stmt_check);
-    $result_check = mysqli_stmt_get_result($stmt_check);
-    $user_check_data = mysqli_fetch_assoc($result_check);
-    mysqli_stmt_close($stmt_check);
-
-    if ($user_check_data) {
-        $turn_interval_minutes = 10;
-        $attack_turns_per_turn = 2;
-        $citizens_per_turn = 1;
-        $credits_per_worker = 50;
-        $base_income_per_turn = 5000;
-
-        $last_updated = new DateTime($user_check_data['last_updated']);
-        $now = new DateTime();
-        $minutes_since_last_update = ($now->getTimestamp() - $last_updated->getTimestamp()) / 60;
-        $turns_to_process = floor($minutes_since_last_update / $turn_interval_minutes);
-
-        if ($turns_to_process > 0) {
-            $gained_attack_turns = $turns_to_process * $attack_turns_per_turn;
-            $gained_citizens = $turns_to_process * $citizens_per_turn;
-            $worker_income = $user_check_data['workers'] * $credits_per_worker;
-            $total_base_income = $base_income_per_turn + $worker_income;
-            $wealth_bonus = 1 + ($user_check_data['wealth_points'] * 0.01);
-            $income_per_turn = floor($total_base_income * $wealth_bonus);
-            $gained_credits = $income_per_turn * $turns_to_process;
-            $current_utc_time_str = gmdate('Y-m-d H:i:s');
-
-            $sql_update = "UPDATE users SET attack_turns = attack_turns + ?, untrained_citizens = untrained_citizens + ?, credits = credits + ?, last_updated = ? WHERE id = ?";
-            if($stmt_update = mysqli_prepare($link, $sql_update)){
-                mysqli_stmt_bind_param($stmt_update, "iiisi", $gained_attack_turns, $gained_citizens, $gained_credits, $current_utc_time_str, $user_id);
-                mysqli_stmt_execute($stmt_update);
-                mysqli_stmt_close($stmt_update);
-            }
-        }
-    }
-}
+require_once __DIR__ . '/../../src/Game/GameFunctions.php';
+process_offline_turns($link, $_SESSION["id"]);
 
 // --- DATA FETCHING FOR DISPLAY ---
 // Fetch the current player's stats for the sidebar, including alliance_id and experience
