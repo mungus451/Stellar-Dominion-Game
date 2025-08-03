@@ -14,6 +14,7 @@ require_once __DIR__ . '/../Game/GameData.php'; // Contains the $upgrades array 
 require_once __DIR__ . '/../Game/GameFunctions.php';
 
 // --- INPUT VALIDATION ---
+$action = isset($_POST['action']) ? $_POST['action'] : '';
 $upgrade_type = isset($_POST['upgrade_type']) ? $_POST['upgrade_type'] : '';
 $target_level = isset($_POST['target_level']) ? (int)$_POST['target_level'] : 0;
 
@@ -40,40 +41,58 @@ try {
     $user = mysqli_fetch_assoc(mysqli_stmt_get_result($stmt));
     mysqli_stmt_close($stmt);
 
-    $initial_xp = $user['experience'];
-    
-    // --- SERVER-SIDE VALIDATION ---
-    $current_upgrade_level = $user[$db_column];
-    $charisma_discount = 1 - ($user['charisma_points'] * 0.01);
-    $final_cost = floor($upgrade_details['cost'] * $charisma_discount);
+    if ($action === 'purchase_structure') {
+        $current_upgrade_level = $user[$db_column];
+        $charisma_discount = 1 - ($user['charisma_points'] * 0.01);
+        $final_cost = floor($upgrade_details['cost'] * $charisma_discount);
 
-    if ($current_upgrade_level != $target_level - 1) {
-        throw new Exception("Sequence error. You must build preceding upgrades first.");
-    }
-    if (isset($upgrade_details['level_req']) && $user['level'] < $upgrade_details['level_req']) {
-        throw new Exception("You do not meet the character level requirement.");
-    }
-    if (isset($upgrade_details['fort_req']) && $user['fortification_level'] < $upgrade_details['fort_req']) {
-        throw new Exception("Your empire foundation is not advanced enough.");
-    }
-    if ($user['credits'] < $final_cost) {
-        throw new Exception("Not enough credits. Cost: " . number_format($final_cost));
-    }
+        if ($current_upgrade_level != $target_level - 1) {
+            throw new Exception("Sequence error. You must build preceding upgrades first.");
+        }
+        if (isset($upgrade_details['level_req']) && $user['level'] < $upgrade_details['level_req']) {
+            throw new Exception("You do not meet the character level requirement.");
+        }
+        if (isset($upgrade_details['fort_req']) && $user['fortification_level'] < $upgrade_details['fort_req']) {
+            throw new Exception("Your empire foundation is not advanced enough.");
+        }
+        if ($user['credits'] < $final_cost) {
+            throw new Exception("Not enough credits. Cost: " . number_format($final_cost));
+        }
 
-    // --- EXECUTE UPDATE ---
-    $experience_gained = rand(2, 5);
-    $final_xp = $initial_xp + $experience_gained;
-    
-    $sql_update = "UPDATE users SET credits = credits - ?, `$db_column` = ?, experience = experience + ? WHERE id = ?";
-    $stmt = mysqli_prepare($link, $sql_update);
-    mysqli_stmt_bind_param($stmt, "iiii", $final_cost, $target_level, $experience_gained, $_SESSION["id"]);
-    mysqli_stmt_execute($stmt);
-    mysqli_stmt_close($stmt);
-    
-    check_and_process_levelup($_SESSION["id"], $link);
+        // --- EXECUTE UPDATE ---
+        $sql_update = "UPDATE users SET credits = credits - ?, `$db_column` = ? WHERE id = ?";
+        $stmt = mysqli_prepare($link, $sql_update);
+        mysqli_stmt_bind_param($stmt, "iii", $final_cost, $target_level, $_SESSION["id"]);
+        mysqli_stmt_execute($stmt);
+        mysqli_stmt_close($stmt);
+        
+        $_SESSION['build_message'] = "Upgrade successful: " . $upgrade_details['name'] . " built!";
+
+    } elseif ($action === 'sell_structure') {
+        $current_upgrade_level = $user[$db_column];
+
+        if ($current_upgrade_level != $target_level) {
+            throw new Exception("You can only sell the most recently built structure in this category.");
+        }
+
+        // Calculate refund (50% of original cost)
+        $refund_amount = floor($upgrade_details['cost'] * 0.50);
+        $new_level = $target_level - 1;
+
+        // Execute the downgrade
+        $sql_update = "UPDATE users SET credits = credits + ?, `$db_column` = ? WHERE id = ?";
+        $stmt = mysqli_prepare($link, $sql_update);
+        mysqli_stmt_bind_param($stmt, "iii", $refund_amount, $new_level, $_SESSION["id"]);
+        mysqli_stmt_execute($stmt);
+        mysqli_stmt_close($stmt);
+        
+        $_SESSION['build_message'] = "Structure sold. You have been refunded " . number_format($refund_amount) . " credits.";
+
+    } else {
+        throw new Exception("Invalid action specified.");
+    }
 
     mysqli_commit($link);
-    $_SESSION['build_message'] = "Upgrade successful: " . $upgrade_details['name'] . " built! Gained " . number_format($experience_gained) . " XP (" . number_format($initial_xp) . " -> " . number_format($final_xp) . ").";
 
 } catch (Exception $e) {
     mysqli_rollback($link);

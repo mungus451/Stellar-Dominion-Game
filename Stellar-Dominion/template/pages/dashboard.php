@@ -119,31 +119,6 @@ $losses_as_defender = mysqli_fetch_assoc(mysqli_stmt_get_result($stmt_losses_d))
 mysqli_stmt_close($stmt_losses_d);
 $total_losses = $losses_as_attacker + $losses_as_defender;
 
-
-You're absolutely right to question that calculation. A net worth of nearly 900 million when you have around 35 million credits on hand feels incorrect.
-
-Upon reviewing the code, I've pinpointed the issue.
-
-The Problem
-The current net worth calculation in mungus451/stellar-dominion-game/Stellar-Dominion-Game-recruitment/Stellar-Dominion/template/pages/dashboard.php sums the following:
-
-Credits on hand.
-
-Banked credits.
-
-The liquidation value of all your units (75% of their base cost).
-
-The full purchase price of every structure upgrade you've ever bought.
-
-The last point is the source of the massive inflation. The structure costs in mungus451/stellar-dominion-game/Stellar-Dominion-Game-recruitment/Stellar-Dominion/src/Game/GameData.php are very high (e.g., 'Foundation Outpost' costs 50,000,000 credits, and 'Enhanced Targeting I' costs 150,000,000 credits). Adding these huge sunk costs directly to your net worth gives a misleading picture of your actual economic power.
-
-The Solution
-A much more realistic approach is to treat structures as long-term assets with a heavily depreciated value, rather than counting their full cost. We will adjust the calculation to include only a fraction of the structure costs, representing their contribution to your empire's value without artificially inflating your net worth.
-
-Here is the updated code block for mungus451/stellar-dominion-game/Stellar-Dominion-Game-recruitment/Stellar-Dominion/template/pages/dashboard.php. This change calculates structure value at 10% of its original cost.
-
-PHP
-
 // --- NET WORTH RECALCULATION ---
 $base_unit_costs = ['workers' => 100, 'soldiers' => 250, 'guards' => 250, 'sentries' => 500, 'spies' => 1000];
 $refund_rate = 0.75;

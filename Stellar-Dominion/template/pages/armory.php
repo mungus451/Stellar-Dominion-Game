@@ -51,6 +51,9 @@ foreach ($armory_loadouts as $loadout) {
         $flat_item_details += $category['items'];
     }
 }
+
+// PAGINATION SETUP
+$items_per_page = 10;
 ?>
 <!DOCTYPE html>
 <html lang="en">
@@ -106,11 +109,18 @@ foreach ($armory_loadouts as $loadout) {
                         <form id="armory-form" action="lib/armory_actions.php" method="POST">
                             <input type="hidden" name="action" value="purchase_items">
                             <div class="space-y-6">
-                                <?php foreach($current_loadout['categories'] as $cat_key => $category): ?>
+                                <?php foreach($current_loadout['categories'] as $cat_key => $category): 
+                                    // PAGINATION LOGIC FOR THIS CATEGORY
+                                    $current_page = isset($_GET[$cat_key . '_page']) ? (int)$_GET[$cat_key . '_page'] : 1;
+                                    $total_items = count($category['items']);
+                                    $total_pages = ceil($total_items / $items_per_page);
+                                    $offset = ($current_page - 1) * $items_per_page;
+                                    $paginated_items = array_slice($category['items'], $offset, $items_per_page, true);
+                                ?>
                                 <div class="bg-gray-800 p-4 rounded-lg">
                                     <h5 class="font-semibold text-white"><?php echo htmlspecialchars($category['title']); ?></h5>
                                     <div class="mt-2 space-y-2">
-                                        <?php foreach($category['items'] as $item_key => $item): 
+                                        <?php foreach($paginated_items as $item_key => $item): 
                                             $owned_quantity = $owned_items[$item_key] ?? 0;
                                             $discounted_cost = floor($item['cost'] * $charisma_discount);
                                             
@@ -162,6 +172,23 @@ foreach ($armory_loadouts as $loadout) {
                                         </div>
                                         <?php endforeach; ?>
                                     </div>
+                                    
+                                    <?php // PAGINATION LINKS
+                                    if ($total_pages > 1): ?>
+                                    <nav class="mt-4 flex justify-center items-center space-x-2 text-sm">
+                                        <?php if ($current_page > 1): ?>
+                                            <a href="?loadout=<?php echo $current_tab; ?>&<?php echo $cat_key; ?>_page=<?php echo $current_page - 1; ?>" class="px-3 py-1 bg-gray-700 rounded-md hover:bg-cyan-600">&laquo; Prev</a>
+                                        <?php endif; ?>
+
+                                        <?php for ($i = 1; $i <= $total_pages; $i++): ?>
+                                            <a href="?loadout=<?php echo $current_tab; ?>&<?php echo $cat_key; ?>_page=<?php echo $i; ?>" class="px-3 py-1 <?php echo $i == $current_page ? 'bg-cyan-600 font-bold' : 'bg-gray-700'; ?> rounded-md hover:bg-cyan-600"><?php echo $i; ?></a>
+                                        <?php endfor; ?>
+
+                                        <?php if ($current_page < $total_pages): ?>
+                                            <a href="?loadout=<?php echo $current_tab; ?>&<?php echo $cat_key; ?>_page=<?php echo $current_page + 1; ?>" class="px-3 py-1 bg-gray-700 rounded-md hover:bg-cyan-600">Next &raquo;</a>
+                                        <?php endif; ?>
+                                    </nav>
+                                    <?php endif; ?>
                                 </div>
                                 <?php endforeach; ?>
                             </div>

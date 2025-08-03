@@ -38,6 +38,9 @@ $seconds_remainder = $seconds_until_next_turn % 60;
 $active_page = 'structures.php';
 $current_tab = isset($_GET['tab']) && isset($upgrades[$_GET['tab']]) ? $_GET['tab'] : 'fortifications';
 
+// --- PAGINATION SETUP ---
+$items_per_page = 10;
+$current_page = isset($_GET['page']) ? (int)$_GET['page'] : 1;
 ?>
 <!DOCTYPE html>
 <html lang="en">
@@ -102,6 +105,15 @@ $current_tab = isset($_GET['tab']) && isset($upgrades[$_GET['tab']]) ? $_GET['ta
                             </nav>
                         </div>
 
+                        <?php
+                            $category = $upgrades[$current_tab];
+                            $user_upgrade_level = $user_stats[$category['db_column']];
+                            $total_levels = count($category['levels']);
+                            $total_pages = ceil($total_levels / $items_per_page);
+                            $offset = ($current_page - 1) * $items_per_page;
+                            $paginated_levels = array_slice($category['levels'], $offset, $items_per_page, true);
+                        ?>
+
                         <div class="overflow-x-auto">
                             <table class="w-full text-sm text-left">
                                 <thead class="bg-gray-800">
@@ -114,12 +126,7 @@ $current_tab = isset($_GET['tab']) && isset($upgrades[$_GET['tab']]) ? $_GET['ta
                                     </tr>
                                 </thead>
                                 <tbody>
-                                    <?php 
-                                        $category = $upgrades[$current_tab];
-                                        $user_upgrade_level = $user_stats[$category['db_column']];
-
-                                        foreach($category['levels'] as $level => $details): 
-                                    ?>
+                                    <?php foreach($paginated_levels as $level => $details): ?>
                                     <tr class="border-t border-gray-700">
                                         <td class="p-2 font-bold text-white"><?php echo htmlspecialchars($details['name']); ?></td>
                                         <td class="p-2">
@@ -136,6 +143,14 @@ $current_tab = isset($_GET['tab']) && isset($upgrades[$_GET['tab']]) ? $_GET['ta
                                             <?php
                                             if ($user_upgrade_level >= $level) {
                                                 echo '<span class="font-bold text-green-400">Owned</span>';
+                                                if ($user_upgrade_level == $level) {
+                                                    echo '<form action="lib/perform_upgrade.php" method="POST" class="inline ml-2" onsubmit="return confirm(\'Are you sure you want to sell this structure for a partial refund?\');">';
+                                                    echo '<input type="hidden" name="action" value="sell_structure">';
+                                                    echo '<input type="hidden" name="upgrade_type" value="' . $current_tab . '">';
+                                                    echo '<input type="hidden" name="target_level" value="' . $level . '">';
+                                                    echo '<button type="submit" class="bg-red-800 hover:bg-red-700 text-white font-bold py-1 px-3 rounded-md text-xs">Sell</button>';
+                                                    echo '</form>';
+                                                }
                                             } elseif ($user_upgrade_level == $level - 1) {
                                                 $can_build = true;
                                                 if (isset($details['level_req']) && $user_stats['level'] < $details['level_req']) $can_build = false;
@@ -144,6 +159,7 @@ $current_tab = isset($_GET['tab']) && isset($upgrades[$_GET['tab']]) ? $_GET['ta
                                                 
                                                 if ($can_build) {
                                                     echo '<form action="lib/perform_upgrade.php" method="POST">';
+                                                    echo '<input type="hidden" name="action" value="purchase_structure">';
                                                     echo '<input type="hidden" name="upgrade_type" value="' . $current_tab . '">';
                                                     echo '<input type="hidden" name="target_level" value="' . $level . '">';
                                                     echo '<button type="submit" class="bg-cyan-600 hover:bg-cyan-700 text-white font-bold py-1 px-3 rounded-md text-xs">Build</button>';
@@ -161,6 +177,24 @@ $current_tab = isset($_GET['tab']) && isset($upgrades[$_GET['tab']]) ? $_GET['ta
                                 </tbody>
                             </table>
                         </div>
+
+                        <?php // PAGINATION LINKS
+                        if ($total_pages > 1): ?>
+                        <nav class="mt-4 flex justify-center items-center space-x-2 text-sm">
+                            <?php if ($current_page > 1): ?>
+                                <a href="?tab=<?php echo $current_tab; ?>&page=<?php echo $current_page - 1; ?>" class="px-3 py-1 bg-gray-700 rounded-md hover:bg-cyan-600">&laquo; Prev</a>
+                            <?php endif; ?>
+
+                            <?php for ($i = 1; $i <= $total_pages; $i++): ?>
+                                <a href="?tab=<?php echo $current_tab; ?>&page=<?php echo $i; ?>" class="px-3 py-1 <?php echo $i == $current_page ? 'bg-cyan-600 font-bold' : 'bg-gray-700'; ?> rounded-md hover:bg-cyan-600"><?php echo $i; ?></a>
+                            <?php endfor; ?>
+
+                            <?php if ($current_page < $total_pages): ?>
+                                <a href="?tab=<?php echo $current_tab; ?>&page=<?php echo $current_page + 1; ?>" class="px-3 py-1 bg-gray-700 rounded-md hover:bg-cyan-600">Next &raquo;</a>
+                            <?php endif; ?>
+                        </nav>
+                        <?php endif; ?>
+
                     </div>
                 </main>
             </div>
