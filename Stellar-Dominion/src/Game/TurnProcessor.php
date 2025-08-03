@@ -9,8 +9,12 @@ function write_log($message) {
 }
 
 write_log("Cron job started.");
-require_once "db_config.php";
-require_once "game_data.php"; // Include upgrade and structure definitions
+// --- CORRECTED FILE PATHS ---
+// Path from /src/Game/ up two directories to the project root, then down into /config/
+require_once __DIR__ . '/../../config/config.php';
+
+// Path from /src/Game/ to the GameData file in the same directory
+require_once __DIR__ . '/GameData.php';
 
 // Game Settings
 $turn_interval_minutes = 10;
