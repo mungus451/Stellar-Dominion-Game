@@ -34,6 +34,7 @@ $routes = [
     '/stats.php'            => '../template/pages/stats.php',
     '/inspiration.php'      => '../template/pages/inspiration.php',
     '/tutorial.php'         => '../template/pages/tutorial.php', // This line is the fix
+    '/auto_recruit.php'     => '../template/pages/auto_recruit.php', 
     
     // Alliance Page Views
     '/alliance.php'             => '../template/pages/alliance.php',
@@ -51,6 +52,7 @@ $routes = [
     '/auth.php'                 => '../src/Controllers/AuthController.php',
     '/lib/train.php'            => '../src/Controllers/TrainingController.php',
     '/lib/untrain.php'          => '../src/Controllers/TrainingController.php',
+    '/lib/recruitment_actions.php' => '../src/Controllers/RecruitmentController.php',
     '/lib/process_attack.php'   => '../src/Controllers/AttackController.php',
     '/lib/perform_upgrade.php'  => '../src/Controllers/StructureController.php',
     '/lib/update_profile.php'   => '../src/Controllers/ProfileController.php',
@@ -68,7 +70,7 @@ $authenticated_routes = [
     '/battle_report.php', '/alliance.php', '/create_alliance.php', '/edit_alliance.php',
     '/alliance_bank.php', '/alliance_roles.php', '/alliance_structures.php',
     '/alliance_transfer.php', '/alliance_forum.php', '/create_thread.php', '/view_thread.php',
-    '/armory.php'
+    '/armory.php', '/auto_recruit.php'
 ];
 
 // --- ROUTING LOGIC ---

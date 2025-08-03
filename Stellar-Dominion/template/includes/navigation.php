@@ -43,6 +43,7 @@ $sub_nav_links = [
         'Attack' => '/attack.php',
         'Training' => '/battle.php',
         'Armory' => '/armory.php',
+        'Auto Recruiter' => '/auto_recruit.php',
         'War History' => '/war_history.php'
     ],
     'ALLIANCE' => [
@@ -71,7 +72,7 @@ $sub_nav_links = [
 $active_main_category = 'HOME'; // Default to 'HOME'
 $active_page_path = '/' . $active_page;
 
-if (in_array($active_page, ['battle.php', 'attack.php', 'war_history.php', 'armory.php'])) {
+if (in_array($active_page, ['battle.php', 'attack.php', 'war_history.php', 'armory.php', 'auto_recruit.php'])) { // ADD 'auto_recruit.php' HERE
     $active_main_category = 'BATTLE';
 } elseif (in_array($active_page, ['alliance.php', 'create_alliance.php', 'edit_alliance.php', 'alliance_roles.php', 'alliance_bank.php', 'alliance_transfer.php', 'alliance_structures.php', 'alliance_forum.php', 'create_thread.php', 'view_thread.php'])) { // Added all alliance pages to this check
     $active_main_category = 'ALLIANCE';
