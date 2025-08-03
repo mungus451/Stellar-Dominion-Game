@@ -34,7 +34,8 @@ $db_column = $upgrade_category['db_column'];
 mysqli_begin_transaction($link);
 try {
     // Get all necessary user data, locking the row for the transaction.
-    $sql_get_user = "SELECT experience, level, credits, charisma_points, fortification_level, offense_upgrade_level, defense_upgrade_level, spy_upgrade_level, economy_upgrade_level, population_level FROM users WHERE id = ? FOR UPDATE";
+    // **FIX**: Added 'armory_level' to the SELECT query.
+    $sql_get_user = "SELECT experience, level, credits, charisma_points, fortification_level, offense_upgrade_level, defense_upgrade_level, spy_upgrade_level, economy_upgrade_level, population_level, armory_level FROM users WHERE id = ? FOR UPDATE";
     $stmt = mysqli_prepare($link, $sql_get_user);
     mysqli_stmt_bind_param($stmt, "i", $_SESSION["id"]);
     mysqli_stmt_execute($stmt);
