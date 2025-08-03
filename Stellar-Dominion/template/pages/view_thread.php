@@ -66,7 +66,7 @@ mysqli_close($link);
     <script src="https://unpkg.com/lucide@latest"></script>
 </head>
 <body class="text-gray-400 antialiased">
-<div class="min-h-screen bg-cover bg-center bg-fixed" style="background-image: url('assets/img/background.jpg');">
+<div class="min-h-screen bg-cover bg-center bg-fixed" style="background-image: url('/assets/img/backgroundAlt.avif');">
 <div class="container mx-auto p-4 md:p-8">
             <?php include_once '../includes/navigation.php'; ?>
     <main class="space-y-4">
