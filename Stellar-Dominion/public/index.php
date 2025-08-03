@@ -5,7 +5,10 @@
  * Main entry point and Front Controller for the application.
  */
 session_start();
-
+if (isset($_SESSION['vacation_until']) && new DateTime() < new DateTime($_SESSION['vacation_until'])) {
+    header("location: /auth.php?action=logout");
+    exit;
+}
 // CENTRALIZED DATABASE CONNECTION & CONFIGURATION
 require_once __DIR__ . '/../config/config.php';
 
