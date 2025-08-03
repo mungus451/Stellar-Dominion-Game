@@ -190,6 +190,11 @@ $active_page = 'attack.php';
                 </aside>
 
                 <main class="lg:col-span-3">
+                        <?php if(isset($_SESSION['attack_error'])): ?>
+                             <div class="bg-red-900 border border-red-500/50 text-red-300 p-3 rounded-md text-center mb-4">
+                        <?php echo htmlspecialchars($_SESSION['attack_error']); unset($_SESSION['attack_error']); ?>
+                             </div>
+                        <?php endif; ?>
                     <div class="content-box rounded-lg p-4">
                         <h3 class="font-title text-cyan-400 border-b border-gray-600 pb-2 mb-3">Target List</h3>
                         
