@@ -27,8 +27,14 @@ $attacker_id = $_SESSION["id"];
 $defender_id = isset($_POST['defender_id']) ? (int)$_POST['defender_id'] : 0;
 $attack_turns = isset($_POST['attack_turns']) ? (int)$_POST['attack_turns'] : 0;
 
-// Validate that the defender ID and attack turns are within the legal range.
-if ($defender_id <= 0 || $attack_turns < 1 || $attack_turns > 10) {
+if ($defender_id <= 0) {
+    $_SESSION['attack_error'] = "Invalid target specified.";
+    header("location: /attack.php");
+    exit;
+}
+
+if ($attack_turns < 1 || $attack_turns > 10) {
+    $_SESSION['attack_error'] = "Attack turns must be between 1 and 10.";
     header("location: /attack.php");
     exit;
 }
@@ -55,6 +61,9 @@ try {
     mysqli_stmt_close($stmt_defender);
 
     // --- PRE-BATTLE VALIDATION ---
+    if (!$attacker || !$defender) {
+        throw new Exception("Could not retrieve combatant data.");
+    }
     if ($attacker['alliance_id'] !== NULL && $attacker['alliance_id'] === $defender['alliance_id']) {
         throw new Exception("You cannot attack a member of your own alliance.");
     }
@@ -151,6 +160,7 @@ try {
 
 } catch (Exception $e) {
     mysqli_rollback($link);
+    // Set a user-friendly error message and redirect
     $_SESSION['attack_error'] = "Attack failed: " . $e->getMessage();
     header("location: /attack.php");
     exit;
