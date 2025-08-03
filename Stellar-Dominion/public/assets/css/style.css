@@ -46,7 +46,7 @@ input[type=number]::-webkit-outer-spin-button {
 
 /* --- Battle Report Specific --- */
 .battle-log-bg {
-    background-image: url('https://images.unsplash.com/photo-1534796636912-3b95b3ab5986?auto=format&fit=crop&w=1200&q=80');
+    background-image: url('/assets/img/backgroundMain.avif');
     background-size: cover;
     background-position: center;
 }
@@ -54,7 +54,7 @@ input[type=number]::-webkit-outer-spin-button {
 /* --- Public Page Styles (Landing, Gameplay, etc.) --- */
 .public-body {
     background-color: #000;
-    background-image: url('https://images.unsplash.com/photo-1534796636912-3b95b3ab5986?auto=format&fit=crop&w=1200&q=80');
+    background-image: url('/assets/img/backgroundMain.avif');
     background-size: cover;
     background-position: center;
     background-attachment: fixed;
