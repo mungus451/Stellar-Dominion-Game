@@ -1,48 +1,65 @@
 /**
- * Stellar Dominion - Main JavaScript File
+ * Stellar Dominion - Main JavaScript File (Optimized)
  *
  * This file contains the shared JavaScript logic for the game pages,
- * including timers, icon initialization, and various form helpers.
+ * including optimized timers, icon initialization, and various form helpers.
  */
 document.addEventListener('DOMContentLoaded', () => {
     // Initialize Lucide icons on the page
     lucide.createIcons();
 
-    // --- Next Turn Timer ---
+    // --- Next Turn Timer (Optimized with requestAnimationFrame) ---
     const timerDisplay = document.getElementById('next-turn-timer');
     if (timerDisplay) {
         let totalSeconds = parseInt(timerDisplay.dataset.secondsUntilNextTurn) || 0;
-        const interval = setInterval(() => {
-            if (totalSeconds <= 0) {
-                timerDisplay.textContent = "Processing...";
-                clearInterval(interval);
-                setTimeout(() => {
-                    window.location.href = window.location.pathname + '?t=' + new Date().getTime();
-                }, 1500); 
-                return;
+        let lastTimestamp = 0;
+
+        function updateTimer(timestamp) {
+            if (!lastTimestamp || timestamp - lastTimestamp >= 1000) {
+                lastTimestamp = timestamp;
+
+                if (totalSeconds <= 0) {
+                    timerDisplay.textContent = "Processing...";
+                    setTimeout(() => {
+                        window.location.href = window.location.pathname + '?t=' + new Date().getTime();
+                    }, 1500);
+                    return; // Stop the loop
+                }
+                
+                totalSeconds--;
+                const minutes = Math.floor(totalSeconds / 60);
+                const seconds = totalSeconds % 60;
+                timerDisplay.textContent = `${String(minutes).padStart(2, '0')}:${String(seconds).padStart(2, '0')}`;
             }
-            totalSeconds--;
-            const minutes = Math.floor(totalSeconds / 60);
-            const seconds = totalSeconds % 60;
-            timerDisplay.textContent = `${String(minutes).padStart(2, '0')}:${String(seconds).padStart(2, '0')}`;
-        }, 1000);
+            requestAnimationFrame(updateTimer);
+        }
+        requestAnimationFrame(updateTimer);
     }
 
-    // --- Dominion Time Clock ---
+    // --- Dominion Time Clock (Optimized with requestAnimationFrame) ---
     const timeDisplay = document.getElementById('dominion-time');
     if (timeDisplay) {
         const initialHours = parseInt(timeDisplay.dataset.hours) || 0;
         const initialMinutes = parseInt(timeDisplay.dataset.minutes) || 0;
         const initialSeconds = parseInt(timeDisplay.dataset.seconds) || 0;
+        
         let serverTime = new Date();
         serverTime.setUTCHours(initialHours, initialMinutes, initialSeconds);
-        setInterval(() => {
-            serverTime.setSeconds(serverTime.getSeconds() + 1);
-            const hours = String(serverTime.getUTCHours()).padStart(2, '0');
-            const minutes = String(serverTime.getUTCMinutes()).padStart(2, '0');
-            const seconds = String(serverTime.getUTCSeconds()).padStart(2, '0');
-            timeDisplay.textContent = `${hours}:${minutes}:${seconds}`;
-        }, 1000);
+
+        let lastTimestamp = 0;
+
+        function updateClock(timestamp) {
+            if (!lastTimestamp || timestamp - lastTimestamp >= 1000) {
+                lastTimestamp = timestamp;
+                serverTime.setSeconds(serverTime.getSeconds() + 1);
+                const hours = String(serverTime.getUTCHours()).padStart(2, '0');
+                const minutes = String(serverTime.getUTCMinutes()).padStart(2, '0');
+                const seconds = String(serverTime.getUTCSeconds()).padStart(2, '0');
+                timeDisplay.textContent = `${hours}:${minutes}:${seconds}`;
+            }
+            requestAnimationFrame(updateClock);
+        }
+        requestAnimationFrame(updateClock);
     }
 
     // --- Point Allocation Form Helper (levels.php) ---
@@ -128,34 +145,23 @@ document.addEventListener('DOMContentLoaded', () => {
         const inactiveClasses = ['bg-gray-800', 'hover:bg-gray-700', 'text-gray-400'];
 
         trainTabBtn.addEventListener('click', () => {
-            // Show/hide content
             trainTab.classList.remove('hidden');
             disbandTabContent.classList.add('hidden');
-            
-            // Style active tab
             activeClasses.forEach(c => trainTabBtn.classList.add(c));
             inactiveClasses.forEach(c => trainTabBtn.classList.remove(c));
-            
-            // Style inactive tab
             inactiveClasses.forEach(c => disbandTabBtn.classList.add(c));
             activeClasses.forEach(c => disbandTabBtn.classList.remove(c));
         });
 
         disbandTabBtn.addEventListener('click', () => {
-            // Show/hide content
             disbandTabContent.classList.remove('hidden');
             trainTab.classList.add('hidden');
-            
-            // Style active tab
             activeClasses.forEach(c => disbandTabBtn.classList.add(c));
             inactiveClasses.forEach(c => disbandTabBtn.classList.remove(c));
-
-            // Style inactive tab
             inactiveClasses.forEach(c => trainTabBtn.classList.add(c));
             activeClasses.forEach(c => trainTabBtn.classList.remove(c));
         });
 
-        // Training Calculations
         const trainInputs = trainForm.querySelectorAll('.unit-input-train');
         function updateTrainingCost() {
             let totalCost = 0;
@@ -202,7 +208,6 @@ document.addEventListener('DOMContentLoaded', () => {
             });
         });
 
-        // Disband Calculations
         const disbandInputs = disbandForm.querySelectorAll('.unit-input-disband');
         function updateDisbandRefund() {
             let totalRefund = 0;
