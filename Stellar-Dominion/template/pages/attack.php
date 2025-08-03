@@ -7,14 +7,14 @@
  */
 
 // --- SESSION AND DATABASE SETUP ---
-//session_start();
+// session_start() is handled by the main index.php router
 if(!isset($_SESSION["loggedin"]) || $_SESSION["loggedin"] !== true){ header("location: index.html"); exit; }
 require_once __DIR__ . '/../../config/config.php';
 date_default_timezone_set('UTC');
 
 $user_id = $_SESSION['id'];
 
-// --- CATCH-UP MECHANISM (Same as before, no changes needed here) ---
+// --- CATCH-UP MECHANISM ---
 $sql_check = "SELECT last_updated, workers, wealth_points FROM users WHERE id = ?";
 if($stmt_check = mysqli_prepare($link, $sql_check)) {
     mysqli_stmt_bind_param($stmt_check, "i", $user_id);
@@ -56,7 +56,7 @@ if($stmt_check = mysqli_prepare($link, $sql_check)) {
 }
 
 // --- DATA FETCHING FOR DISPLAY ---
-// Fetch the current player's stats for the sidebar, NOW INCLUDING alliance_id and experience
+// Fetch the current player's stats for the sidebar, including alliance_id and experience
 $sql_user_stats = "SELECT credits, untrained_citizens, level, attack_turns, last_updated, alliance_id, experience FROM users WHERE id = ?";
 $stmt_user_stats = mysqli_prepare($link, $sql_user_stats);
 mysqli_stmt_bind_param($stmt_user_stats, "i", $user_id);
@@ -74,8 +74,7 @@ while ($row = mysqli_fetch_assoc($result_battle_stats)) {
     $battle_stats[$row['attacker_id']] = $row;
 }
 
-
-// Fetch all users to display as potential targets, NOW INCLUDING alliance_id
+// Fetch all users to display as potential targets, including alliance_id
 $sql_targets = "SELECT id, character_name, race, class, avatar_path, credits, level, last_updated, workers, wealth_points, soldiers, guards, sentries, spies, experience, fortification_level, alliance_id FROM users";
 $stmt_targets = mysqli_prepare($link, $sql_targets);
 mysqli_stmt_execute($stmt_targets);
@@ -128,8 +127,7 @@ foreach ($ranked_targets as &$target) {
 }
 unset($target);
 
-
-// --- TIMER & PAGE ID (Same as before) ---
+// --- TIMER & PAGE ID ---
 $turn_interval_minutes = 10;
 $last_updated = new DateTime($user_stats['last_updated'], new DateTimeZone('UTC'));
 $now = new DateTime('now', new DateTimeZone('UTC'));
@@ -158,14 +156,13 @@ $active_page = 'attack.php';
 
             <?php include_once __DIR__ .  '/../includes/navigation.php'; ?>
 
-
             <div class="grid grid-cols-1 lg:grid-cols-4 gap-4 p-4">
                 <aside class="lg:col-span-1 space-y-4">
-            <?php 
-                $user_xp = $user_stats['experience'];
-                $user_level = $user_stats['level'];
-                include_once __DIR__ . '/../includes/advisor.php'; 
-            ?>
+                    <?php 
+                        $user_xp = $user_stats['experience'];
+                        $user_level = $user_stats['level'];
+                        include_once __DIR__ . '/../includes/advisor.php'; 
+                    ?>
                     <div class="content-box rounded-lg p-4">
                         <h3 class="font-title text-cyan-400 border-b border-gray-600 pb-2 mb-3">Stats</h3>
                         <ul class="space-y-2 text-sm">
@@ -190,11 +187,6 @@ $active_page = 'attack.php';
                 </aside>
 
                 <main class="lg:col-span-3">
-                        <?php if(isset($_SESSION['attack_error'])): ?>
-                             <div class="bg-red-900 border border-red-500/50 text-red-300 p-3 rounded-md text-center mb-4">
-                        <?php echo htmlspecialchars($_SESSION['attack_error']); unset($_SESSION['attack_error']); ?>
-                             </div>
-                        <?php endif; ?>
                     <div class="content-box rounded-lg p-4">
                         <h3 class="font-title text-cyan-400 border-b border-gray-600 pb-2 mb-3">Target List</h3>
                         
@@ -221,7 +213,7 @@ $active_page = 'attack.php';
                                 <tbody>
                                     <?php foreach ($ranked_targets as $target): ?>
                                     <?php
-                                        // --- TARGET CREDIT ESTIMATION (Unchanged) ---
+                                        // --- TARGET CREDIT ESTIMATION ---
                                         $target_last_updated = new DateTime($target['last_updated']);
                                         $now_for_target = new DateTime();
                                         $minutes_since_target_update = ($now_for_target->getTimestamp() - $target_last_updated->getTimestamp()) / 60;
@@ -260,7 +252,7 @@ $active_page = 'attack.php';
                                         <td class="p-2"><?php echo $target['level']; ?></td>
                                         <td class="p-2 text-right">
                                              <?php 
-                                                // --- START: NEW LOGIC FOR ACTION BUTTON ---
+                                                // --- Action Button Logic ---
                                                 $is_ally = ($viewer_alliance_id !== null && $viewer_alliance_id == $target['alliance_id']);
                                                 
                                                 if ($target['id'] == $user_id) {
@@ -270,7 +262,6 @@ $active_page = 'attack.php';
                                                 } else {
                                                     echo '<a href="/view_profile.php?id=' . $target['id'] . '" class="bg-cyan-600 hover:bg-cyan-700 text-white font-bold py-1 px-3 rounded-md text-xs">Scout</a>';
                                                 }
-                                                // --- END: NEW LOGIC FOR ACTION BUTTON ---
                                              ?>
                                         </td>
                                     </tr>
