@@ -74,7 +74,7 @@ $active_page = 'attack.php'; // Keep the 'BATTLE' main nav active
     <link rel="stylesheet" href="assets/css/style.css">
 </head>
 <body class="text-gray-400 antialiased">
-    <div class="min-h-screen bg-cover bg-center bg-fixed" style="background-image: url('https://images.unsplash.com/photo-1446776811953-b23d57bd21aa?ixlib-rb-4.0.3&ixid=M3wxMjA3fDB8MHxwaG90by1wYWdlfHx8fGVufDB8fHx8fA%3D%3D&auto=format&fit=crop&w=1742&q=80');">
+    <div class="min-h-screen bg-cover bg-center bg-fixed" style="background-image: url('https://images.unsplash.com/photo-1446776811953-b23d57bd21aa?ixlib=rb-4.0.3&ixid=M3wxMjA3fDB8MHxwaG90by1wYWdlfHx8fGVufDB8fHx8fA%3D%3D&auto=format&fit=crop&w=1742&q=80');">
         <div class="container mx-auto p-4 md:p-8">
 
             <?php if ($is_logged_in): ?>
@@ -123,7 +123,7 @@ $active_page = 'attack.php'; // Keep the 'BATTLE' main nav active
                                     <form action="/lib/process_attack.php" method="POST" class="flex items-center justify-between mt-2">
                                         <input type="hidden" name="defender_id" value="<?php echo $profile_data['id']; ?>">
                                         <div class="text-sm">
-                                            <label for="attack_turns">Attack Turns (1-10):</label>
+                                            <label for="attack_turns" class="font-semibold text-white">Attack Turns (1-10):</label>
                                             <input type="number" id="attack_turns" name="attack_turns" min="1" max="10" value="1" class="bg-gray-900 border border-gray-600 rounded-md w-20 text-center p-1 ml-2">
                                         </div>
                                         <button type="submit" class="bg-red-600 hover:bg-red-700 text-white font-bold py-2 px-6 rounded-lg transition-colors">Launch Attack</button>

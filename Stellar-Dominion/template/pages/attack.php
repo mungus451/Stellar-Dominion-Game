@@ -194,9 +194,9 @@ $active_page = 'attack.php';
                         <h3 class="font-title text-cyan-400 border-b border-gray-600 pb-2 mb-3">Target List</h3>
                         
                         <div class="flex items-center space-x-2 mb-4">
-                            <button class="bg-gray-700/50 text-white font-semibold py-2 px-4 rounded-lg text-sm">Sorted By: Level</button>
+                            <button class="bg-gray-700/50 text-white font-semibold py-2 px-4 rounded-lg text-sm">Sorted By: Rank</button>
                             <div class="bg-gray-700/50 text-white font-semibold py-2 px-4 rounded-lg text-sm">
-                                Your Lvl Rank: <?php echo $current_user_rank; ?>
+                                Your Rank: <?php echo $current_user_rank; ?>
                             </div>
                              <button class="bg-gray-700/50 text-white font-semibold py-2 px-4 rounded-lg text-sm">Go to My Rank</button>
                         </div>

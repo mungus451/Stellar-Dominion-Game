@@ -21,7 +21,6 @@ if ($battle_id > 0) {
 // This check now happens after the variable is defined.
 if (!$log) {
     // If the log isn't found, we can display an error within the page's HTML structure.
-    // This is a more graceful failure than a blank page or a generic error.
     $error_message = "Battle report not found or you do not have permission to view it.";
 } else {
     $is_attacker = ($log['attacker_id'] == $_SESSION['id']);
@@ -65,7 +64,6 @@ if (!$log) {
                                     <?php echo $win ? 'YOU WERE SUCCESSFUL' : 'YOU WERE DEFEATED'; ?>
                                 </p>
                                 <p class="text-xs">Battle ID: <?php echo $log['id']; ?></p>
-                                <a href="war_history.php" class="text-cyan-400 hover:underline text-sm mt-2 inline-block">Back to War History</a>
                             </div>
                             <div class="w-1/3">
                                 <h3 class="font-bold text-xl text-white"><?php echo htmlspecialchars($log['defender_name']); ?></h3>
@@ -82,8 +80,19 @@ if (!$log) {
                             <p class="font-bold mt-2 <?php echo $win ? 'text-green-400' : 'text-red-400'; ?>">
                                 <?php echo $win ? 'You won the battle!' : 'You lost the battle.'; ?>
                             </p>
-                            <p>Credits Plundered: <span class="font-bold text-green-400"><?php echo number_format($log['credits_stolen']); ?></span></p>
+                            <?php if ($log['credits_stolen'] > 0): ?>
+                                <p>Credits Plundered: <span class="font-bold text-green-400"><?php echo number_format($log['credits_stolen']); ?></span></p>
+                            <?php endif; ?>
                         </div>
+                    </div>
+
+                    <div class="text-center mt-6 flex justify-center items-center space-x-4">
+                        <a href="war_history.php" class="bg-gray-600 hover:bg-gray-700 text-white font-bold py-2 px-6 rounded-lg">War History</a>
+                        <?php
+                            $opponent_id = $is_attacker ? $log['defender_id'] : $log['attacker_id'];
+                        ?>
+                        <a href="view_profile.php?id=<?php echo $opponent_id; ?>" class="bg-red-600 hover:bg-red-700 text-white font-bold py-2 px-6 rounded-lg">Attack Again</a>
+                        <a href="attack.php" class="bg-cyan-600 hover:bg-cyan-700 text-white font-bold py-2 px-6 rounded-lg">Find New Target</a>
                     </div>
                 <?php endif; ?>
             </div>
