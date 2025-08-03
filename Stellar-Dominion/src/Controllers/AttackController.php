@@ -7,8 +7,13 @@
  * outcome, distributing rewards (XP, credits), handling plunder, taxing
  * for the alliance bank, and creating a permanent battle log.
  */
+// START DEBUGGING CODE
+file_put_contents(__DIR__ . '/debug_attack.log', "--- New Attack ---\n", FILE_APPEND);
+file_put_contents(__DIR__ . '/debug_attack.log', "Time: " . date('Y-m-d H:i:s') . "\n", FILE_APPEND);
+file_put_contents(__DIR__ . '/debug_attack.log', "POST Data: " . print_r($_POST, true) . "\n", FILE_APPEND);
+// END DEBUGGING CODE
 
-session_start();
+//session_start(); turned off, index starts session
 
 // Redirect unauthenticated users to the login page.
 if(!isset($_SESSION["loggedin"]) || $_SESSION["loggedin"] !== true){
