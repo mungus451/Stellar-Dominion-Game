@@ -39,7 +39,8 @@ $active_page = 'structures.php';
 $current_tab = isset($_GET['tab']) && isset($upgrades[$_GET['tab']]) ? $_GET['tab'] : 'fortifications';
 
 // --- PAGINATION SETUP ---
-$items_per_page = 10;
+$per_page_options = [5, 10, 'All'];
+$items_per_page = isset($_GET['per_page']) && in_array($_GET['per_page'], $per_page_options) ? $_GET['per_page'] : 10;
 $current_page = isset($_GET['page']) ? (int)$_GET['page'] : 1;
 ?>
 <!DOCTYPE html>
@@ -109,9 +110,15 @@ $current_page = isset($_GET['page']) ? (int)$_GET['page'] : 1;
                             $category = $upgrades[$current_tab];
                             $user_upgrade_level = $user_stats[$category['db_column']];
                             $total_levels = count($category['levels']);
-                            $total_pages = ceil($total_levels / $items_per_page);
-                            $offset = ($current_page - 1) * $items_per_page;
-                            $paginated_levels = array_slice($category['levels'], $offset, $items_per_page, true);
+                            
+                            if ($items_per_page === 'All') {
+                                $total_pages = 1;
+                                $paginated_levels = $category['levels'];
+                            } else {
+                                $total_pages = ceil($total_levels / $items_per_page);
+                                $offset = ($current_page - 1) * $items_per_page;
+                                $paginated_levels = array_slice($category['levels'], $offset, $items_per_page, true);
+                            }
                         ?>
 
                         <div class="overflow-x-auto">
@@ -178,23 +185,33 @@ $current_page = isset($_GET['page']) ? (int)$_GET['page'] : 1;
                             </table>
                         </div>
 
-                        <?php // PAGINATION LINKS
-                        if ($total_pages > 1): ?>
-                        <nav class="mt-4 flex justify-center items-center space-x-2 text-sm">
-                            <?php if ($current_page > 1): ?>
-                                <a href="?tab=<?php echo $current_tab; ?>&page=<?php echo $current_page - 1; ?>" class="px-3 py-1 bg-gray-700 rounded-md hover:bg-cyan-600">&laquo; Prev</a>
+                        <div class="mt-4 flex flex-col md:flex-row justify-between items-center space-y-2 md:space-y-0">
+                            <div class="flex items-center space-x-2 text-sm">
+                                <span>Show:</span>
+                                <?php foreach ($per_page_options as $option): ?>
+                                    <a href="?tab=<?php echo $current_tab; ?>&per_page=<?php echo $option; ?>" 
+                                       class="px-3 py-1 <?php echo $items_per_page == $option ? 'bg-cyan-600 font-bold' : 'bg-gray-700'; ?> rounded-md hover:bg-cyan-600">
+                                        <?php echo $option; ?>
+                                    </a>
+                                <?php endforeach; ?>
+                            </div>
+
+                            <?php if ($total_pages > 1): ?>
+                            <nav class="flex justify-center items-center space-x-2 text-sm">
+                                <?php if ($current_page > 1): ?>
+                                    <a href="?tab=<?php echo $current_tab; ?>&per_page=<?php echo $items_per_page; ?>&page=<?php echo $current_page - 1; ?>" class="px-3 py-1 bg-gray-700 rounded-md hover:bg-cyan-600">&laquo; Prev</a>
+                                <?php endif; ?>
+
+                                <?php for ($i = 1; $i <= $total_pages; $i++): ?>
+                                    <a href="?tab=<?php echo $current_tab; ?>&per_page=<?php echo $items_per_page; ?>&page=<?php echo $i; ?>" class="px-3 py-1 <?php echo $i == $current_page ? 'bg-cyan-600 font-bold' : 'bg-gray-700'; ?> rounded-md hover:bg-cyan-600"><?php echo $i; ?></a>
+                                <?php endfor; ?>
+
+                                <?php if ($current_page < $total_pages): ?>
+                                    <a href="?tab=<?php echo $current_tab; ?>&per_page=<?php echo $items_per_page; ?>&page=<?php echo $current_page + 1; ?>" class="px-3 py-1 bg-gray-700 rounded-md hover:bg-cyan-600">Next &raquo;</a>
+                                <?php endif; ?>
+                            </nav>
                             <?php endif; ?>
-
-                            <?php for ($i = 1; $i <= $total_pages; $i++): ?>
-                                <a href="?tab=<?php echo $current_tab; ?>&page=<?php echo $i; ?>" class="px-3 py-1 <?php echo $i == $current_page ? 'bg-cyan-600 font-bold' : 'bg-gray-700'; ?> rounded-md hover:bg-cyan-600"><?php echo $i; ?></a>
-                            <?php endfor; ?>
-
-                            <?php if ($current_page < $total_pages): ?>
-                                <a href="?tab=<?php echo $current_tab; ?>&page=<?php echo $current_page + 1; ?>" class="px-3 py-1 bg-gray-700 rounded-md hover:bg-cyan-600">Next &raquo;</a>
-                            <?php endif; ?>
-                        </nav>
-                        <?php endif; ?>
-
+                        </div>
                     </div>
                 </main>
             </div>
