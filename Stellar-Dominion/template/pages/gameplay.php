@@ -69,6 +69,11 @@ include_once __DIR__ . '/../includes/public_header.php';
                     <li><strong>Charisma:</strong> Reduces the credit cost for training all units.</li>
                 </ul>
             </div>
+            
+            <div class="content-box rounded-lg p-8">
+                <h2 class="font-title text-3xl text-cyan-400 mb-4">About The Game</h2>
+                <p class="text-lg mb-4">Stellar Dominion is a passion project brought to life by a single developer. At 32 years old and based out of Florida, he is dedicated to recapturing the magic of classic browser-based strategy games while adding his own modern twists. This project is a testament to the creativity and dedication of a one-person team, aiming to build a fun and engaging universe for all to enjoy.</p>
+            </div>
         </div>
     </section>
 </main>
