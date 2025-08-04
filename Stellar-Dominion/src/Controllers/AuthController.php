@@ -29,6 +29,16 @@ if ($action === 'login') {
                 mysqli_stmt_bind_result($stmt, $id, $character_name, $hashed_password);
                 if(mysqli_stmt_fetch($stmt)){
                     if(password_verify($password, $hashed_password)){
+                        // --- IP Logger Update ---
+                        $user_ip = $_SERVER['REMOTE_ADDR'];
+                        $update_sql = "UPDATE users SET previous_login_ip = last_login_ip, previous_login_at = last_login_at, last_login_ip = ?, last_login_at = NOW() WHERE id = ?";
+                        if ($stmt_update = mysqli_prepare($link, $update_sql)) {
+                            mysqli_stmt_bind_param($stmt_update, "si", $user_ip, $id);
+                            mysqli_stmt_execute($stmt_update);
+                            mysqli_stmt_close($stmt_update);
+                        }
+                        // --- End IP Logger Update ---
+                        
                         $_SESSION["loggedin"] = true;
                         $_SESSION["id"] = $id;
                         $_SESSION["character_name"] = $character_name;
