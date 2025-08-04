@@ -67,7 +67,7 @@ mysqli_close($link);
                 <input type="hidden" name="alliance_id" value="<?php echo $alliance['id']; ?>">
                 <div>
                     <label class="font-semibold text-white">Current Avatar</label>
-                    <img src="<?php echo htmlspecialchars($alliance['avatar_path'] ?? 'assets/img/default_alliance.png'); ?>" alt="Current Avatar" class="w-32 h-32 rounded-lg mt-1 border-2 border-gray-600 object-cover">
+                    <img src="<?php echo htmlspecialchars($alliance['avatar_path'] ?? 'assets/img/default_alliance.avif'); ?>" alt="Current Avatar" class="w-32 h-32 rounded-lg mt-1 border-2 border-gray-600 object-cover">
                 </div>
                 <div>
                     <label for="avatar" class="font-semibold text-white">New Avatar (Optional)</label>

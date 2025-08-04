@@ -118,7 +118,7 @@ mysqli_close($link);
                 <div class="content-box rounded-lg p-6">
                     <div class="flex flex-col md:flex-row md:items-start md:justify-between">
                         <div class="flex items-center space-x-4">
-                            <img src="<?php echo htmlspecialchars($alliance['avatar_path'] ?? 'assets/img/default_alliance.png'); ?>" alt="Alliance Avatar" class="w-20 h-20 rounded-lg border-2 border-gray-600 object-cover">
+                            <img src="<?php echo htmlspecialchars($alliance['avatar_path'] ?? 'assets/img/default_alliance.avif'); ?>" alt="Alliance Avatar" class="w-20 h-20 rounded-lg border-2 border-gray-600 object-cover">
                             <div>
                                 <h2 class="font-title text-3xl text-white">[<?php echo htmlspecialchars($alliance['tag']); ?>] <?php echo htmlspecialchars($alliance['name']); ?></h2>
                                 <p class="text-sm">Led by <?php echo htmlspecialchars($alliance['leader_name']); ?></p>

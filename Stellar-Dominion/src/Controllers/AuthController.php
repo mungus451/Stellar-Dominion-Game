@@ -55,7 +55,7 @@ if ($action === 'login') {
         die("Please fill all required fields.");
     }
 
-    $avatar_path = 'assets/img/' . strtolower($race) . '.png';
+    $avatar_path = 'assets/img/' . strtolower($race) . '.avif';
     $password_hash = password_hash($password, PASSWORD_DEFAULT);
     $current_time = gmdate('Y-m-d H:i:s');
 

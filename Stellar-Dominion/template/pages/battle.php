@@ -155,7 +155,7 @@ $current_tab = isset($_GET['tab']) && $_GET['tab'] === 'disband' ? 'disband' : '
                                 ?>
                                 <div class="content-box rounded-lg p-3">
                                     <div class="flex items-center space-x-3">
-                                        <img src="assets/img/<?php echo strtolower($unit_names[$unit]); ?>.png" alt="<?php echo $unit_names[$unit]; ?> Icon" class="w-12 h-12 rounded-md flex-shrink-0">
+                                        <img src="assets/img/<?php echo strtolower($unit_names[$unit]); ?>.avif" alt="<?php echo $unit_names[$unit]; ?> Icon" class="w-12 h-12 rounded-md flex-shrink-0">
                                         <div class="flex-grow">
                                             <p class="font-bold text-white"><?php echo $unit_names[$unit]; ?></p>
                                             <p class="text-xs text-yellow-400 font-semibold"><?php echo $unit_descriptions[$unit]; ?></p>
@@ -183,7 +183,7 @@ $current_tab = isset($_GET['tab']) && $_GET['tab'] === 'disband' ? 'disband' : '
                                 <?php foreach($unit_costs as $unit => $cost): ?>
                                 <div class="content-box rounded-lg p-3">
                                     <div class="flex items-center space-x-3">
-                                        <img src="assets/img/<?php echo strtolower($unit_names[$unit]); ?>.png" alt="<?php echo $unit_names[$unit]; ?> Icon" class="w-12 h-12 rounded-md flex-shrink-0">
+                                        <img src="assets/img/<?php echo strtolower($unit_names[$unit]); ?>.avif" alt="<?php echo $unit_names[$unit]; ?> Icon" class="w-12 h-12 rounded-md flex-shrink-0">
                                         <div class="flex-grow">
                                             <p class="font-bold text-white"><?php echo $unit_names[$unit]; ?></p>
                                             <p class="text-xs text-yellow-400 font-semibold"><?php echo $unit_descriptions[$unit]; ?></p>

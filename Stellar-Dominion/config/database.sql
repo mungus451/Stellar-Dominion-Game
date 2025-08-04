@@ -21,7 +21,7 @@ CREATE TABLE `alliances` (
   `tag` varchar(5) NOT NULL,
   `description` text DEFAULT NULL,
   `leader_id` int(11) NOT NULL,
-  `avatar_path` varchar(255) DEFAULT 'assets/img/default_alliance.png',
+  `avatar_path` varchar(255) DEFAULT 'assets/img/default_alliance.avif',
   `bank_credits` bigint(20) NOT NULL DEFAULT 0,
   `created_at` timestamp NOT NULL DEFAULT current_timestamp(),
   PRIMARY KEY (`id`),
