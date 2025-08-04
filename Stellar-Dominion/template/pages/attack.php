@@ -171,7 +171,7 @@ $active_page = 'attack.php';
                                     <tr>
                                         <th class="p-2">Lvl Rank</th>
                                         <th class="p-2">Username</th>
-                                        <th class="p-2">Gold</th>
+                                        <th class="p-2">Credits</th>
                                         <th class="p-2">Army Size</th>
                                         <th class="p-2">Level</th>
                                         <th class="p-2 text-right">Action</th>
