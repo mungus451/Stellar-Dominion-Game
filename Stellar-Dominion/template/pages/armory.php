@@ -16,8 +16,9 @@ date_default_timezone_set('UTC');
 
 $user_id = $_SESSION['id'];
 
-// --- DATA FETCHING ---
-$sql_user = "SELECT credits, level, soldiers, guards, armory_level, charisma_points FROM users WHERE id = ?";
+// --- DATA FETCHING (CORRECTED) ---
+// The SQL query has been updated to select all unit types.
+$sql_user = "SELECT credits, level, soldiers, guards, sentries, spies, workers, armory_level, charisma_points FROM users WHERE id = ?";
 $stmt_user = mysqli_prepare($link, $sql_user);
 mysqli_stmt_bind_param($stmt_user, "i", $user_id);
 mysqli_stmt_execute($stmt_user);
@@ -97,7 +98,7 @@ $items_per_page = 10;
                         <?php endif; ?>
 
                         <div class="border-b border-gray-600 mb-4">
-                            <nav class="-mb-px flex space-x-4" aria-label="Tabs">
+                            <nav class="-mb-px flex flex-wrap gap-x-4 gap-y-2" aria-label="Tabs">
                                 <?php foreach ($armory_loadouts as $key => $loadout): ?>
                                     <a href="?loadout=<?php echo $key; ?>" class="<?php echo ($current_tab == $key) ? 'border-cyan-400 text-white' : 'border-transparent text-gray-400 hover:text-gray-200 hover:border-gray-500'; ?> whitespace-nowrap py-2 px-1 border-b-2 font-medium text-sm">
                                         <?php echo htmlspecialchars($loadout['title']); ?> (<?php echo number_format($user_data[$loadout['unit']]); ?>)
