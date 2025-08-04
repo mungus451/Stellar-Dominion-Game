@@ -60,7 +60,7 @@ $sub_nav_links = [
     'COMMUNITY' => [
         'News' => '/community.php',
         'Leaderboards' => '/stats.php',
-        'Discord' => 'https://discord.com/channels/1397295425777696768/1397295426415235214'
+        'Discord' => 'https://discord.gg/sCKvuxHAqt'
     ]
 ];
 

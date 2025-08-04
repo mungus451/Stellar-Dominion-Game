@@ -122,7 +122,7 @@ if ($is_logged_in) {
                     <div class="content-box rounded-lg p-6 text-center">
                          <h3 class="font-title text-2xl text-cyan-400 mb-2">Join the Community</h3>
                          <p class="mb-4">Connect with other commanders, discuss strategies, and get the latest updates on our official Discord server.</p>
-                         <a href="https://discord.com/channels/13972954257776968/1397295426415235214" target="_blank" class="inline-flex items-center bg-blue-600 hover:bg-blue-700 text-white font-bold py-3 px-8 rounded-lg transition-colors text-lg">
+                         <a href="https://discord.gg/sCKvuxHAqt" target="_blank" class="inline-flex items-center bg-blue-600 hover:bg-blue-700 text-white font-bold py-3 px-8 rounded-lg transition-colors text-lg">
                              <i data-lucide="message-square" class="mr-3"></i>
                              Join Discord
                          </a>
