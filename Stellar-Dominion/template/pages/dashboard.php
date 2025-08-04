@@ -280,6 +280,7 @@ $active_page = 'dashboard.php';
                     
                     <div class="content-box rounded-lg p-4 space-y-3 mt-4">
                         <h3 class="font-title text-cyan-400 border-b border-gray-600 pb-2 mb-2 flex items-center"><i data-lucide="shield-check" class="w-5 h-5 mr-2"></i>Security Information</h3>
+                        <div class="flex justify-between text-sm"><span>Current IP Address:</span> <span class="text-white font-semibold"><?php echo htmlspecialchars($_SERVER['REMOTE_ADDR']); ?></span></div>
                         <?php if (!empty($character_data['previous_login_at'])): ?>
                             <div class="flex justify-between text-sm"><span>Previous Login:</span> <span class="text-white font-semibold"><?php echo date("F j, Y, g:i a", strtotime($character_data['previous_login_at'])); ?> UTC</span></div>
                             <div class="flex justify-between text-sm"><span>Previous IP Address:</span> <span class="text-white font-semibold"><?php echo htmlspecialchars($character_data['previous_login_ip']); ?></span></div>
