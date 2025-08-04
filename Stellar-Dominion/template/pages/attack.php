@@ -7,60 +7,58 @@
  */
 
 // --- SESSION AND DATABASE SETUP ---
-// session_start() is handled by the main index.php router
 if(!isset($_SESSION["loggedin"]) || $_SESSION["loggedin"] !== true){ header("location: index.html"); exit; }
 require_once __DIR__ . '/../../config/config.php';
 date_default_timezone_set('UTC');
 
 $user_id = $_SESSION['id'];
 
+// --- CATCH-UP MECHANISM ---
 require_once __DIR__ . '/../../src/Game/GameFunctions.php';
-process_offline_turns($link, $_SESSION["id"]);
+process_offline_turns($link, $user_id);
 
-// --- DATA FETCHING FOR DISPLAY ---
-// Fetch the current player's stats for the sidebar, including alliance_id and experience
-$sql_user_stats = "SELECT credits, untrained_citizens, level, attack_turns, last_updated, alliance_id, experience FROM users WHERE id = ?";
-$stmt_user_stats = mysqli_prepare($link, $sql_user_stats);
-mysqli_stmt_bind_param($stmt_user_stats, "i", $user_id);
-mysqli_stmt_execute($stmt_user_stats);
-$user_stats_result = mysqli_stmt_get_result($stmt_user_stats);
-$user_stats = mysqli_fetch_assoc($user_stats_result);
-mysqli_stmt_close($stmt_user_stats);
-$viewer_alliance_id = $user_stats['alliance_id']; // Store viewer's alliance ID
+// --- OPTIMIZED DATA FETCHING ---
+$sql_targets = "
+    SELECT 
+        u.id, u.character_name, u.race, u.class, u.avatar_path, u.credits, 
+        u.level, u.last_updated, u.workers, u.wealth_points, u.soldiers, 
+        u.guards, u.sentries, u.spies, u.experience, u.fortification_level, 
+        u.alliance_id, u.attack_turns, u.untrained_citizens,
+        bl.wins, bl.losses
+    FROM users u
+    LEFT JOIN (
+        SELECT 
+            attacker_id, 
+            SUM(CASE WHEN outcome = 'victory' THEN 1 ELSE 0 END) as wins, 
+            SUM(CASE WHEN outcome = 'defeat' THEN 1 ELSE 0 END) as losses 
+        FROM battle_logs 
+        GROUP BY attacker_id
+    ) bl ON u.id = bl.attacker_id
+";
 
-// --- Pre-fetch all battle log stats for efficiency ---
-$sql_battle_stats = "SELECT attacker_id, SUM(CASE WHEN outcome = 'victory' THEN 1 ELSE 0 END) as wins, SUM(CASE WHEN outcome = 'defeat' THEN 1 ELSE 0 END) as losses FROM battle_logs GROUP BY attacker_id";
-$result_battle_stats = mysqli_query($link, $sql_battle_stats);
-$battle_stats = [];
-while ($row = mysqli_fetch_assoc($result_battle_stats)) {
-    $battle_stats[$row['attacker_id']] = $row;
-}
-
-// Fetch all users to display as potential targets, including alliance_id
-$sql_targets = "SELECT id, character_name, race, class, avatar_path, credits, level, last_updated, workers, wealth_points, soldiers, guards, sentries, spies, experience, fortification_level, alliance_id FROM users";
-$stmt_targets = mysqli_prepare($link, $sql_targets);
-mysqli_stmt_execute($stmt_targets);
-$targets_result = mysqli_stmt_get_result($stmt_targets);
+$targets_result = mysqli_query($link, $sql_targets);
 
 $ranked_targets = [];
+$user_stats = null; // This will hold the current user's data once found in the loop
 
 while ($target = mysqli_fetch_assoc($targets_result)) {
+    // Find and set the current user's stats from the full list
+    if ($target['id'] == $user_id) {
+        $user_stats = $target;
+    }
+
     // --- RANK CALCULATION ---
-    // 1. Win/Loss Ratio (fetched from our pre-queried array)
-    $wins = $battle_stats[$target['id']]['wins'] ?? 0;
-    $losses = $battle_stats[$target['id']]['losses'] ?? 0;
+    $wins = $target['wins'] ?? 0;
+    $losses = $target['losses'] ?? 0;
     $win_loss_ratio = ($losses > 0) ? ($wins / $losses) : $wins;
-
-    // 2. Army Size
+    
     $army_size = $target['soldiers'] + $target['guards'] + $target['sentries'] + $target['spies'];
-
-    // 3. Income Per Turn
+    
     $worker_income = $target['workers'] * 50;
     $total_base_income = 5000 + $worker_income;
     $wealth_bonus = 1 + ($target['wealth_points'] * 0.01);
     $income_per_turn = floor($total_base_income * $wealth_bonus);
 
-    // 4. Ranking Score Formula
     $rank_score = ($target['experience'] * 0.1) +
                   ($army_size * 2) +
                   ($win_loss_ratio * 1000) +
@@ -72,6 +70,8 @@ while ($target = mysqli_fetch_assoc($targets_result)) {
     $target['army_size'] = $army_size;
     $ranked_targets[] = $target;
 }
+
+$viewer_alliance_id = $user_stats['alliance_id']; // Store viewer's alliance ID
 
 // Sort targets by rank score
 usort($ranked_targets, function($a, $b) {

@@ -15,7 +15,6 @@ $meta_keywords = 'Stellar Dominion, text-based RPG, sci-fi MMORPG, browser game,
 $og_image = '/assets/img/cyborg.png'; // A default OG image for social sharing
 
 // Page-Specific Meta Overrides
-// The $page_title from your file is used to enhance the meta title
 if (isset($page_title)) {
     $meta_title = 'Stellar Dominion - ' . $page_title;
 }
@@ -36,7 +35,6 @@ if (isset($active_page)) {
             break;
     }
 }
-
 
 // Construct full URLs for canonical and Open Graph tags
 $protocol = isset($_SERVER['HTTPS']) && $_SERVER['HTTPS'] === 'on' ? "https" : "http";
@@ -74,7 +72,9 @@ $og_image_url = $base_url . $og_image;
     <script src="https://cdn.tailwindcss.com"></script>
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-    <link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@700&family=Roboto:wght@400;500;700&display=swap" rel="stylesheet">
+    <link rel="preload" href="https://fonts.googleapis.com/css2?family=Orbitron:wght@700&family=Roboto:wght@400;500;700&display=swap" as="style" onload="this.onload=null;this.rel='stylesheet'">
+    <noscript><link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Orbitron:wght@700&family=Roboto:wght@400;500;700&display=swap"></noscript>
+    
     <script src="https://unpkg.com/lucide@latest"></script>
 
     <style>
@@ -88,7 +88,6 @@ $og_image_url = $base_url . $og_image;
         }
         .font-title { font-family: 'Orbitron', sans-serif; }
         .bg-dark-translucent { background-color: rgba(12, 20, 39, 0.85); }
-        .backdrop-blur-md { backdrop-filter: blur(8px); }
         .text-shadow-glow { text-shadow: 0 0 8px rgba(0, 255, 255, 0.6); }
         .content-box { background-color: #1f2937; border: 1px solid #374151; }
         .nav-link-public {
@@ -103,7 +102,7 @@ $og_image_url = $base_url . $og_image;
     </style>
 </head>
 <body class="text-gray-300 antialiased">
-    <header class="fixed top-0 left-0 right-0 z-50 bg-dark-translucent backdrop-blur-md border-b border-cyan-400/20">
+    <header class="fixed top-0 left-0 right-0 z-50 bg-dark-translucent border-b border-cyan-400/20">
         <div class="container mx-auto px-6 py-4">
             <div class="flex justify-between items-center">
                 <a href="/" class="text-3xl font-bold tracking-wider font-title text-cyan-400">STELLAR DOMINION</a>
