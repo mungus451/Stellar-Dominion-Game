@@ -3,6 +3,7 @@
 //session_start();
 if(!isset($_SESSION["loggedin"]) || $_SESSION["loggedin"] !== true){ header("location: index.html"); exit; }
 require_once __DIR__ . '/../../config/config.php';
+require_once __DIR__ . '/../../src/Game/GameData.php'; // Include for security questions
 date_default_timezone_set('UTC');
 
 $user_id = $_SESSION['id'];
@@ -16,6 +17,15 @@ if($stmt = mysqli_prepare($link, $sql)){
     $user_stats = mysqli_fetch_assoc($result);
     mysqli_stmt_close($stmt);
 }
+
+// Check if security questions are set
+$sql_sq = "SELECT COUNT(id) as sq_count FROM user_security_questions WHERE user_id = ?";
+$stmt_sq = mysqli_prepare($link, $sql_sq);
+mysqli_stmt_bind_param($stmt_sq, "i", $user_id);
+mysqli_stmt_execute($stmt_sq);
+$sq_count = mysqli_fetch_assoc(mysqli_stmt_get_result($stmt_sq))['sq_count'];
+mysqli_stmt_close($stmt_sq);
+
 mysqli_close($link);
 
 // --- TIMER CALCULATIONS ---
@@ -166,6 +176,44 @@ $current_tab = $_GET['tab'] ?? 'general';
                                         <button type="submit" class="w-full bg-green-600 hover:bg-green-700 text-white font-bold py-2 rounded-lg">Verify Phone</button>
                                     </form>
                                     <?php endif; ?>
+                                <?php endif; ?>
+                            </div>
+                            
+                            <div class="content-box rounded-lg p-4 space-y-3">
+                                <h3 class="font-title text-white">Security Question Recovery</h3>
+                                <?php if ($sq_count >= 2): ?>
+                                    <p class="text-green-400">You have set up security questions for account recovery.</p>
+                                    <p class="text-xs text-gray-400">To change them, you must reset them first.</p>
+                                     <form action="/lib/update_settings.php" method="POST" class="mt-2">
+                                        <input type="hidden" name="action" value="reset_security_questions">
+                                        <button type="submit" class="w-full bg-yellow-600 hover:bg-yellow-700 text-white font-bold py-2 rounded-lg">Reset Questions</button>
+                                    </form>
+                                <?php else: ?>
+                                    <p>Set up two security questions as an alternative recovery method. Answers are case-insensitive.</p>
+                                    <form action="/lib/update_settings.php" method="POST" class="space-y-3 mt-2">
+                                        <input type="hidden" name="action" value="set_security_questions">
+                                        <div>
+                                            <label for="question1" class="text-sm">Question 1</label>
+                                            <select id="question1" name="question1" class="w-full bg-gray-900/50 border border-gray-700 rounded-lg px-4 py-2 text-white" required>
+                                                <option value="" disabled selected>Select a question...</option>
+                                                <?php foreach($security_questions as $id => $q): ?>
+                                                    <option value="<?php echo $id; ?>"><?php echo htmlspecialchars($q); ?></option>
+                                                <?php endforeach; ?>
+                                            </select>
+                                            <input type="text" name="answer1" placeholder="Answer 1" class="w-full bg-gray-900/50 border border-gray-700 rounded-lg px-4 py-2 mt-1 text-white" required>
+                                        </div>
+                                        <div>
+                                            <label for="question2" class="text-sm">Question 2</label>
+                                            <select id="question2" name="question2" class="w-full bg-gray-900/50 border border-gray-700 rounded-lg px-4 py-2 text-white" required>
+                                                <option value="" disabled selected>Select a question...</option>
+                                                 <?php foreach($security_questions as $id => $q): ?>
+                                                    <option value="<?php echo $id; ?>"><?php echo htmlspecialchars($q); ?></option>
+                                                <?php endforeach; ?>
+                                            </select>
+                                            <input type="text" name="answer2" placeholder="Answer 2" class="w-full bg-gray-900/50 border border-gray-700 rounded-lg px-4 py-2 mt-1 text-white" required>
+                                        </div>
+                                        <button type="submit" class="w-full bg-cyan-600 hover:bg-cyan-700 text-white font-bold py-2 rounded-lg">Save Security Questions</button>
+                                    </form>
                                 <?php endif; ?>
                             </div>
                         </div>

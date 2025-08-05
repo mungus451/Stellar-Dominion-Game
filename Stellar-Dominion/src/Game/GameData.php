@@ -571,4 +571,14 @@ $armory_loadouts = [
         ]
     ]
 ];
+
+// --- SECURITY QUESTIONS for Account Recovery ---
+$security_questions = [
+    1 => "What was the name of your first pet?",
+    2 => "What city were you born in?",
+    3 => "What is your mother's maiden name?",
+    4 => "What was the model of your first car?",
+    5 => "What is the name of your favorite fictional character?",
+    6 => "What was the name of your elementary school?",
+];
 ?>

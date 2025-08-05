@@ -22,7 +22,12 @@ session_start();
                         <?php echo $_SESSION['recovery_message']; unset($_SESSION['recovery_message']); ?>
                     </div>
                 <?php endif; ?>
-                <p class="text-center mb-4">Enter your email address. If an account with a verified phone number exists, a recovery link will be sent via SMS.</p>
+                 <?php if(isset($_SESSION['recovery_error'])): ?>
+                    <div class="bg-red-900 border border-red-500/50 text-red-300 p-3 rounded-md text-center mb-4">
+                        <?php echo $_SESSION['recovery_error']; unset($_SESSION['recovery_error']); ?>
+                    </div>
+                <?php endif; ?>
+                <p class="text-center mb-4">Enter your email address to begin the recovery process. You will be directed to use SMS or answer security questions based on your account settings.</p>
                 <form action="/auth.php" method="POST" class="space-y-4">
                     <input type="hidden" name="action" value="request_recovery">
                     <div>
@@ -30,7 +35,7 @@ session_start();
                         <input type="email" id="email" name="email" required class="w-full bg-gray-900 border border-gray-600 rounded-md p-2 mt-1">
                     </div>
                     <div class="text-center">
-                        <button type="submit" class="bg-cyan-600 hover:bg-cyan-700 text-white font-bold py-3 px-8 rounded-lg">Send Recovery Link</button>
+                        <button type="submit" class="bg-cyan-600 hover:bg-cyan-700 text-white font-bold py-3 px-8 rounded-lg">Begin Recovery</button>
                     </div>
                     <div class="text-center text-sm">
                         <a href="/" class="text-cyan-400 hover:underline">Back to Login</a>

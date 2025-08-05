@@ -10,6 +10,29 @@ define('DB_USERNAME', 'admin');
 define('DB_PASSWORD', 'password');
 define('DB_NAME', 'users');
 
+// --- SMS Gateway Definitions for Account Recovery ---
+$sms_gateways = [
+    'AT&T' => 'txt.att.net',
+    'T-Mobile' => 'tmomail.net',
+    'Verizon' => 'vtext.com',
+    'Sprint' => 'messaging.sprintpcs.com',
+    'Xfinity Mobile' => 'vtext.com',
+    'Virgin Mobile' => 'vmobl.com',
+    'Tracfone' => 'mmst5.tracfone.com',
+    'Simple Mobile' => 'smtext.com',
+    'Mint Mobile' => 'mailmymobile.net',
+    'Boost Mobile' => 'sms.myboostmobile.com',
+    'Cricket' => 'sms.cricketwireless.net',
+    'Republic Wireless' => 'text.republicwireless.com',
+    'Google Fi' => 'msg.fi.google.com',
+    'U.S. Cellular' => 'email.uscc.net',
+    'Ting' => 'message.ting.com',
+    'Consumer Cellular' => 'mailmymobile.net',
+    'C-Spire' => 'cs-mobile.com',
+    'Page Plus' => 'vtext.com',
+];
+
+
 // --- Modern Error Handling for Connection ---
 try {
     // Attempt to connect to MySQL database

@@ -7,8 +7,10 @@
  * and database connection ($link) are already available.
  */
 
-// --- INCORPORATE SMS GATEWAYS from config ---
+// --- INCORPORATE SMS GATEWAYS and Security Questions from config ---
 require_once __DIR__ . '/../../config/config.php';
+require_once __DIR__ . '/../Game/GameData.php';
+
 
 $action = $_POST['action'] ?? $_GET['action'] ?? '';
 
@@ -114,32 +116,90 @@ if ($action === 'login') {
 
 } elseif ($action === 'request_recovery') {
     $email = trim($_POST['email']);
-    $sql = "SELECT id, phone_number, phone_carrier, phone_verified FROM users WHERE email = ?";
+    if (empty($email) || !filter_var($email, FILTER_VALIDATE_EMAIL)) {
+        $_SESSION['recovery_error'] = "Invalid email address provided.";
+        header("location: /forgot_password.php");
+        exit;
+    }
+
+    // Check user's recovery setup
+    $sql = "
+        SELECT u.id, u.phone_number, u.phone_carrier, u.phone_verified, 
+               (SELECT COUNT(*) FROM user_security_questions WHERE user_id = u.id) as sq_count
+        FROM users u WHERE u.email = ?";
+    
     if($stmt = mysqli_prepare($link, $sql)) {
         mysqli_stmt_bind_param($stmt, "s", $email);
         mysqli_stmt_execute($stmt);
         $result = mysqli_stmt_get_result($stmt);
         $user = mysqli_fetch_assoc($result);
 
-        if($user && $user['phone_verified']) {
-            $token = bin2hex(random_bytes(32));
-            $sql_insert = "INSERT INTO password_resets (email, token) VALUES (?, ?)";
-            if($stmt_insert = mysqli_prepare($link, $sql_insert)) {
-                mysqli_stmt_bind_param($stmt_insert, "ss", $email, $token);
-                mysqli_stmt_execute($stmt_insert);
-                
-                $sms_gateway_email = $user['phone_number'] . '@' . $sms_gateways[$user['phone_carrier']];
-                $recovery_link = "https://" . $_SERVER['HTTP_HOST'] . "/reset_password.php?token=" . $token;
-                
-                // Simulate sending the email/SMS
-                $_SESSION['recovery_message'] = "A password recovery link has been sent to your registered phone number via SMS. (Link: $recovery_link)";
+        if ($user) {
+            // Priority 1: SMS Recovery
+            if ($user['phone_verified']) {
+                $token = bin2hex(random_bytes(32));
+                $sql_insert = "INSERT INTO password_resets (email, token) VALUES (?, ?)";
+                if($stmt_insert = mysqli_prepare($link, $sql_insert)) {
+                    mysqli_stmt_bind_param($stmt_insert, "ss", $email, $token);
+                    mysqli_stmt_execute($stmt_insert);
+                    
+                    $sms_gateway_email = $user['phone_number'] . '@' . $sms_gateways[$user['phone_carrier']];
+                    $recovery_link = "https://" . $_SERVER['HTTP_HOST'] . "/reset_password.php?token=" . $token;
+                    
+                    // Simulate sending the email/SMS
+                    $_SESSION['recovery_message'] = "A password recovery link has been sent to your registered phone number via SMS. (Link: $recovery_link)";
+                    header("location: /forgot_password.php");
+                    exit;
+                }
+            } 
+            // Priority 2: Security Questions
+            elseif ($user['sq_count'] >= 2) {
+                header("location: /security_question_recovery.php?email=" . urlencode($email));
+                exit;
             }
-        } else {
-             $_SESSION['recovery_message'] = "If an account with that email and a verified phone number exists, a recovery link has been sent.";
         }
+        
+        // Generic message if no recovery method is set up or email not found
+        $_SESSION['recovery_message'] = "If an account with that email exists and has a recovery method, instructions have been sent.";
+        header("location: /forgot_password.php");
+        exit;
     }
-    header("location: /forgot_password.php");
-    exit;
+
+} elseif ($action === 'verify_security_questions') {
+    $email = trim($_POST['email']);
+    $answer1 = strtolower(trim($_POST['answer1']));
+    $answer2 = strtolower(trim($_POST['answer2']));
+
+    // Fetch the user's saved question hashes
+    $sql = "
+        SELECT sq.answer_hash
+        FROM user_security_questions sq
+        JOIN users u ON sq.user_id = u.id
+        WHERE u.email = ?
+        ORDER BY sq.id ASC
+        LIMIT 2";
+    $stmt = mysqli_prepare($link, $sql);
+    mysqli_stmt_bind_param($stmt, "s", $email);
+    mysqli_stmt_execute($stmt);
+    $result = mysqli_stmt_get_result($stmt);
+    $hashes = mysqli_fetch_all($result, MYSQLI_ASSOC);
+    mysqli_stmt_close($stmt);
+
+    if (count($hashes) === 2 && password_verify($answer1, $hashes[0]['answer_hash']) && password_verify($answer2, $hashes[1]['answer_hash'])) {
+        // Answers are correct, generate a password reset token
+        $token = bin2hex(random_bytes(32));
+        $sql_insert = "INSERT INTO password_resets (email, token) VALUES (?, ?)";
+        if($stmt_insert = mysqli_prepare($link, $sql_insert)) {
+            mysqli_stmt_bind_param($stmt_insert, "ss", $email, $token);
+            mysqli_stmt_execute($stmt_insert);
+            header("location: /reset_password.php?token=$token");
+            exit;
+        }
+    } else {
+        $_SESSION['recovery_error'] = "One or more answers were incorrect. Please try again.";
+        header("location: /security_question_recovery.php?email=" . urlencode($email));
+        exit;
+    }
 
 } elseif ($action === 'reset_password') {
     $token = $_POST['token'];

@@ -13,6 +13,7 @@ require_once __DIR__ . '/../../config/config.php';
 
 $user_id = $_SESSION['id'];
 $action = isset($_POST['action']) ? $_POST['action'] : '';
+$redirect_tab = ''; // Default redirect tab
 
 // --- TRANSACTIONAL DATABASE UPDATE ---
 mysqli_begin_transaction($link);
@@ -29,6 +30,7 @@ try {
 
     // --- ACTION ROUTING ---
     if ($action === 'change_password') {
+        $redirect_tab = '?tab=recovery';
         $current_password = $_POST['current_password'];
         $new_password = $_POST['new_password'];
         $verify_password = $_POST['verify_password'];
@@ -54,6 +56,7 @@ try {
         $_SESSION['settings_message'] = "Password changed successfully.";
 
     } elseif ($action === 'change_email') {
+        $redirect_tab = '?tab=recovery';
         $new_email = trim($_POST['new_email']);
         if (!filter_var($new_email, FILTER_VALIDATE_EMAIL)) {
             throw new Exception("Invalid email format.");
@@ -68,6 +71,7 @@ try {
         $_SESSION['settings_message'] = "Email updated successfully.";
 
     } elseif ($action === 'add_phone') {
+        $redirect_tab = '?tab=recovery';
         $phone_number = preg_replace('/[^0-9]/', '', $_POST['phone_number']);
         $carrier = trim($_POST['carrier']);
 
@@ -84,6 +88,7 @@ try {
         $_SESSION['settings_message'] = "Verification code sent! Your code is: $sms_code (This would be sent to $sms_gateway_email).";
 
     } elseif ($action === 'verify_phone') {
+        $redirect_tab = '?tab=recovery';
         $sms_code = trim($_POST['sms_code']);
         if(empty($sms_code) || !isset($_SESSION['sms_verification_code']) || $sms_code !== $_SESSION['sms_verification_code']) {
             throw new Exception("Invalid verification code.");
@@ -103,8 +108,40 @@ try {
 
         $_SESSION['settings_message'] = "Phone number verified successfully!";
 
+    } elseif ($action === 'set_security_questions') {
+        $redirect_tab = '?tab=recovery';
+        $q1_id = (int)$_POST['question1'];
+        $q2_id = (int)$_POST['question2'];
+        $ans1 = strtolower(trim($_POST['answer1']));
+        $ans2 = strtolower(trim($_POST['answer2']));
+
+        if ($q1_id == $q2_id) { throw new Exception("You must select two different questions."); }
+        if (empty($ans1) || empty($ans2)) { throw new Exception("Both answers are required."); }
+
+        // Clear any existing questions for the user first
+        mysqli_query($link, "DELETE FROM user_security_questions WHERE user_id = $user_id");
+
+        // Hash answers and insert
+        $ans1_hash = password_hash($ans1, PASSWORD_DEFAULT);
+        $ans2_hash = password_hash($ans2, PASSWORD_DEFAULT);
+
+        $sql = "INSERT INTO user_security_questions (user_id, question_id, answer_hash) VALUES (?, ?, ?)";
+        $stmt = mysqli_prepare($link, $sql);
+        mysqli_stmt_bind_param($stmt, "iis", $user_id, $q1_id, $ans1_hash);
+        mysqli_stmt_execute($stmt);
+        mysqli_stmt_bind_param($stmt, "iis", $user_id, $q2_id, $ans2_hash);
+        mysqli_stmt_execute($stmt);
+        mysqli_stmt_close($stmt);
+
+        $_SESSION['settings_message'] = "Security questions saved successfully.";
+
+    } elseif ($action === 'reset_security_questions') {
+        $redirect_tab = '?tab=recovery';
+        mysqli_query($link, "DELETE FROM user_security_questions WHERE user_id = $user_id");
+        $_SESSION['settings_message'] = "Security questions have been reset.";
 
     } elseif ($action === 'vacation_mode') {
+        $redirect_tab = '?tab=general';
         // Set vacation for 2 weeks from the current UTC time.
         $vacation_end_date = new DateTime('now', new DateTimeZone('UTC'));
         $vacation_end_date->add(new DateInterval('P14D'));
@@ -130,7 +167,6 @@ try {
 }
 
 // Redirect back to the settings page with a success or error message.
-$redirect_tab = in_array($action, ['change_email', 'change_password', 'add_phone', 'verify_phone']) ? '?tab=recovery' : '';
 header("location: /settings.php" . $redirect_tab);
 exit;
 ?>

@@ -258,6 +258,22 @@ CREATE TABLE `users` (
   KEY `alliance_id` (`alliance_id`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
 
+-- --------------------------------------------------------
+
+--
+-- Table structure for table `user_security_questions`
+--
+CREATE TABLE `user_security_questions` (
+  `id` int(11) NOT NULL AUTO_INCREMENT,
+  `user_id` int(11) NOT NULL,
+  `question_id` int(11) NOT NULL,
+  `answer_hash` varchar(255) NOT NULL,
+  PRIMARY KEY (`id`),
+  UNIQUE KEY `user_question_unique` (`user_id`,`question_id`),
+  KEY `user_id` (`user_id`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
+
+
 --
 -- Constraints for dumped tables
 --
@@ -281,5 +297,8 @@ ALTER TABLE `forum_posts`
 
 ALTER TABLE `forum_threads`
   ADD CONSTRAINT `forum_threads_ibfk_1` FOREIGN KEY (`alliance_id`) REFERENCES `alliances` (`id`) ON DELETE CASCADE;
+  
+ALTER TABLE `user_security_questions`
+  ADD CONSTRAINT `user_security_questions_ibfk_1` FOREIGN KEY (`user_id`) REFERENCES `users` (`id`) ON DELETE CASCADE;
 
 COMMIT;
