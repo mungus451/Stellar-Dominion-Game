@@ -92,7 +92,6 @@ foreach ($upgrades as $category_key => $category) {
     }
 }
 
-// **MODIFIED CALCULATION**
 $new_net_worth = $total_unit_value + ($total_upgrade_cost * $structure_depreciation_rate) + $character_data['credits'] + $character_data['banked_credits'];
 
 if ($new_net_worth != $character_data['net_worth']) {
@@ -104,7 +103,7 @@ if ($new_net_worth != $character_data['net_worth']) {
         $character_data['net_worth'] = $new_net_worth;
     }
 }
-mysqli_close($link);
+
 
 // --- CALCULATE CUMULATIVE BONUSES FROM UPGRADES ---
 $total_offense_bonus_pct = 0;
@@ -119,11 +118,36 @@ $total_economy_bonus_pct = 0;
 for ($i = 1; $i <= $character_data['economy_upgrade_level']; $i++) { $total_economy_bonus_pct += $upgrades['economy']['levels'][$i]['bonuses']['income'] ?? 0; }
 $economy_upgrade_multiplier = 1 + ($total_economy_bonus_pct / 100);
 
-// --- CALCULATE CITIZENS PER TURN ---
+// --- START: MODIFIED CITIZEN CALCULATION ---
 $citizens_per_turn = 1; // Base value
+// Add personal bonus from structures
 for ($i = 1; $i <= $character_data['population_level']; $i++) {
     $citizens_per_turn += $upgrades['population']['levels'][$i]['bonuses']['citizens'] ?? 0;
 }
+
+// Add alliance bonuses if applicable
+if ($character_data['alliance_id']) {
+    // 1. Add the base bonus for being in any alliance
+    $citizens_per_turn += 2; // As defined in TurnProcessor.php
+
+    // 2. Fetch and add bonuses from alliance structures
+    $sql_alliance_structures = "SELECT als.structure_key, s.bonuses 
+                                FROM alliance_structures als 
+                                JOIN alliance_structures_definitions s ON als.structure_key = s.structure_key
+                                WHERE als.alliance_id = ?";
+    $stmt_as = mysqli_prepare($link, $sql_alliance_structures);
+    mysqli_stmt_bind_param($stmt_as, "i", $character_data['alliance_id']);
+    mysqli_stmt_execute($stmt_as);
+    $result_as = mysqli_stmt_get_result($stmt_as);
+    while ($structure = mysqli_fetch_assoc($result_as)) {
+        $bonus_data = json_decode($structure['bonuses'], true);
+        if (isset($bonus_data['citizens'])) {
+            $citizens_per_turn += $bonus_data['citizens'];
+        }
+    }
+    mysqli_stmt_close($stmt_as);
+}
+// --- END: MODIFIED CITIZEN CALCULATION ---
 
 // --- CALCULATE DERIVED STATS including all bonuses ---
 $strength_bonus = 1 + ($character_data['strength_points'] * 0.01);
@@ -172,6 +196,8 @@ $offensive_units = $character_data['soldiers'];
 $utility_units = $character_data['spies'];
 $total_military_units = $defensive_units + $offensive_units + $utility_units;
 $total_population = $non_military_units + $total_military_units;
+
+mysqli_close($link);
 
 // --- TIMER CALCULATIONS ---
 $turn_interval_minutes = 10;
