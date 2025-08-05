@@ -55,16 +55,36 @@ if ($action === 'login') {
     exit;
 
 } elseif ($action === 'register') {
+    // --- INPUT GATHERING ---
     $email = trim($_POST['email']);
     $character_name = trim($_POST['characterName']);
     $password = trim($_POST['password']);
     $race = trim($_POST['race']);
     $class = trim($_POST['characterClass']);
 
+    // --- VALIDATION ---
     if(empty($email) || empty($character_name) || empty($password) || empty($race) || empty($class)) {
-        die("Please fill all required fields.");
+        $_SESSION['register_error'] = "Please fill out all required fields.";
+        header("location: /?show=register");
+        exit;
     }
 
+    // --- DUPLICATE CHECK ---
+    $sql_check = "SELECT id FROM users WHERE email = ? OR character_name = ?";
+    if($stmt_check = mysqli_prepare($link, $sql_check)) {
+        mysqli_stmt_bind_param($stmt_check, "ss", $email, $character_name);
+        mysqli_stmt_execute($stmt_check);
+        mysqli_stmt_store_result($stmt_check);
+        if(mysqli_stmt_num_rows($stmt_check) > 0) {
+            $_SESSION['register_error'] = "An account with that email or character name already exists.";
+            mysqli_stmt_close($stmt_check);
+            header("location: /?show=register");
+            exit;
+        }
+        mysqli_stmt_close($stmt_check);
+    }
+
+    // --- USER CREATION ---
     $avatar_path = 'assets/img/' . strtolower($race) . '.avif';
     $password_hash = password_hash($password, PASSWORD_DEFAULT);
     $current_time = gmdate('Y-m-d H:i:s');
@@ -72,7 +92,9 @@ if ($action === 'login') {
     $sql = "INSERT INTO users (email, character_name, password_hash, race, class, avatar_path, last_updated) VALUES (?, ?, ?, ?, ?, ?, ?)";
     if($stmt = mysqli_prepare($link, $sql)){
         mysqli_stmt_bind_param($stmt, "sssssss", $email, $character_name, $password_hash, $race, $class, $avatar_path, $current_time);
+        
         if(mysqli_stmt_execute($stmt)){
+            // Success, log the user in
             $_SESSION["loggedin"] = true;
             $_SESSION["id"] = mysqli_insert_id($link);
             $_SESSION["character_name"] = $character_name;
@@ -81,8 +103,10 @@ if ($action === 'login') {
             exit;
         }
     }
-    // If registration fails
-    header("location: /?error=2"); // Generic registration error
+    
+    // Fallback for generic database insert error
+    $_SESSION['register_error'] = "Something went wrong. Please try again.";
+    header("location: /?show=register");
     exit;
 
 } elseif ($action === 'logout') {
