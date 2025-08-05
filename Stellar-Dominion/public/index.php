@@ -37,8 +37,10 @@ $routes = [
     '/stats.php'            => '../template/pages/stats.php',
     '/inspiration.php'      => '../template/pages/inspiration.php',
     '/tutorial.php'         => '../template/pages/tutorial.php', // This line is the fix
-    '/auto_recruit.php'     => '../template/pages/auto_recruit.php', 
-    
+    '/auto_recruit.php'     => '../template/pages/auto_recruit.php',
+    '/verify.php'           => '../template/pages/verify.php',
+
+
     // Alliance Page Views
     '/alliance.php'             => '../template/pages/alliance.php',
     '/create_alliance.php'      => '../template/pages/create_alliance.php',
