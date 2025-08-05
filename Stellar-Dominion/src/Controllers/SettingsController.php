@@ -65,7 +65,44 @@ try {
         mysqli_stmt_bind_param($stmt, "si", $new_email, $user_id);
         mysqli_stmt_execute($stmt);
         mysqli_stmt_close($stmt);
-        $_SESSION['settings_message'] = "Email updated successfully. (In a real app, a verification email would be sent)";
+        $_SESSION['settings_message'] = "Email updated successfully.";
+
+    } elseif ($action === 'add_phone') {
+        $phone_number = preg_replace('/[^0-9]/', '', $_POST['phone_number']);
+        $carrier = trim($_POST['carrier']);
+
+        if(strlen($phone_number) != 10 || !isset($sms_gateways[$carrier])) {
+            throw new Exception("Invalid phone number or carrier.");
+        }
+        
+        $sms_code = substr(str_shuffle("0123456789"), 0, 6);
+        $_SESSION['phone_to_verify'] = $phone_number;
+        $_SESSION['carrier_to_verify'] = $carrier;
+        $_SESSION['sms_verification_code'] = $sms_code;
+
+        $sms_gateway_email = $phone_number . '@' . $sms_gateways[$carrier];
+        $_SESSION['settings_message'] = "Verification code sent! Your code is: $sms_code (This would be sent to $sms_gateway_email).";
+
+    } elseif ($action === 'verify_phone') {
+        $sms_code = trim($_POST['sms_code']);
+        if(empty($sms_code) || !isset($_SESSION['sms_verification_code']) || $sms_code !== $_SESSION['sms_verification_code']) {
+            throw new Exception("Invalid verification code.");
+        }
+        
+        $phone_number = $_SESSION['phone_to_verify'];
+        $carrier = $_SESSION['carrier_to_verify'];
+
+        $sql = "UPDATE users SET phone_number = ?, phone_carrier = ?, phone_verified = 1 WHERE id = ?";
+        $stmt = mysqli_prepare($link, $sql);
+        mysqli_stmt_bind_param($stmt, "ssi", $phone_number, $carrier, $user_id);
+        mysqli_stmt_execute($stmt);
+        mysqli_stmt_close($stmt);
+        
+        // Clean up session variables
+        unset($_SESSION['phone_to_verify'], $_SESSION['carrier_to_verify'], $_SESSION['sms_verification_code']);
+
+        $_SESSION['settings_message'] = "Phone number verified successfully!";
+
 
     } elseif ($action === 'vacation_mode') {
         // Set vacation for 2 weeks from the current UTC time.
@@ -89,10 +126,11 @@ try {
     // If any error occurred, roll back all database changes.
     mysqli_rollback($link);
     // Store the error message in the session for user feedback.
-    $_SESSION['settings_message'] = "Error: " . $e->getMessage();
+    $_SESSION['settings_error'] = "Error: " . $e->getMessage();
 }
 
 // Redirect back to the settings page with a success or error message.
-header("location: /settings.php");
+$redirect_tab = in_array($action, ['change_email', 'change_password', 'add_phone', 'verify_phone']) ? '?tab=recovery' : '';
+header("location: /settings.php" . $redirect_tab);
 exit;
 ?>
