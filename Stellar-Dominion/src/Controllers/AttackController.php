@@ -101,6 +101,21 @@ try {
     $defender_damage = floor($defender_total_power * (rand(90, 110) / 100)); // Apply +/- 10% variance
 
 
+    // --- UNIT & STRUCTURE DAMAGE CALCULATION ---
+    $damage_difference = $attacker_damage - $defender_damage;
+    $guards_lost = 0;
+    $structure_damage = 0;
+
+    if ($damage_difference > 0) { // Attacker wins
+        // 5% of the damage difference is dealt as direct structure damage
+        $structure_damage = floor($damage_difference * 0.05);
+
+        // For every 500 points of overkill damage, one guard is killed.
+        $guards_lost = floor($damage_difference / 500);
+        $guards_lost = min($defender['guards'], $guards_lost); // Cannot lose more guards than they have
+    }
+
+
     // --- REBALANCED XP CALCULATION ---
     $outcome = ($attacker_damage > $defender_damage) ? 'victory' : 'defeat';
     $credits_stolen = 0;
@@ -125,6 +140,16 @@ try {
         $alliance_tax = floor($credits_stolen * 0.10);
         $attacker_net_gain = $credits_stolen - $alliance_tax;
 
+        mysqli_query($link, "UPDATE users SET credits = credits + $attacker_net_gain, experience = experience + $attacker_xp_gained WHERE id = $attacker_id");
+            
+            // Update defender: lose credits, gain XP, lose guards, and take structure damage
+            mysqli_query($link, "UPDATE users SET credits = credits - $credits_stolen, experience = experience + $defender_xp_gained, guards = guards - $guards_lost, fortification_hitpoints = fortification_hitpoints - $structure_damage WHERE id = $defender_id");
+
+        } else { // Defeat
+            mysqli_query($link, "UPDATE users SET experience = experience + $attacker_xp_gained WHERE id = $attacker_id");
+            mysqli_query($link, "UPDATE users SET experience = experience + $defender_xp_gained WHERE id = $defender_id");
+        }
+        
         if ($attacker['alliance_id'] !== NULL && $alliance_tax > 0) {
             mysqli_query($link, "UPDATE alliances SET bank_credits = bank_credits + $alliance_tax WHERE id = {$attacker['alliance_id']}");
             
@@ -147,9 +172,9 @@ try {
     check_and_process_levelup($defender_id, $link);
 
     // --- BATTLE LOGGING ---
-    $sql_log = "INSERT INTO battle_logs (attacker_id, defender_id, attacker_name, defender_name, outcome, credits_stolen, attack_turns_used, attacker_damage, defender_damage, attacker_xp_gained, defender_xp_gained) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)";
+    $sql_log = "INSERT INTO battle_logs (attacker_id, defender_id, attacker_name, defender_name, outcome, credits_stolen, attack_turns_used, attacker_damage, defender_damage, attacker_xp_gained, defender_xp_gained, guards_lost, structure_damage) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)";
     $stmt_log = mysqli_prepare($link, $sql_log);
-    mysqli_stmt_bind_param($stmt_log, "iisssiiiiii", $attacker_id, $defender_id, $attacker['character_name'], $defender['character_name'], $outcome, $credits_stolen, $attack_turns, $attacker_damage, $defender_damage, $attacker_xp_gained, $defender_xp_gained);
+    mysqli_stmt_bind_param($stmt_log, "iisssiiiiiiii", $attacker_id, $defender_id, $attacker['character_name'], $defender['character_name'], $outcome, $credits_stolen, $attack_turns, $attacker_damage, $defender_damage, $attacker_xp_gained, $defender_xp_gained, $guards_lost, $structure_damage);
     mysqli_stmt_execute($stmt_log);
     $battle_log_id = mysqli_insert_id($link);
     mysqli_stmt_close($stmt_log);

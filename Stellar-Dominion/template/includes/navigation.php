@@ -90,7 +90,7 @@ if (in_array($active_page, ['battle.php', 'attack.php', 'war_history.php', 'armo
 </header>
 
 <div class="main-bg border border-gray-700 rounded-lg shadow-2xl p-1">
-    <nav class="flex justify-center flex-wrap gap-x-4 gap-y-2 md:gap-x-8 bg-gray-900 p-3 rounded-t-md">
+    <nav class="flex justify-center flex-wrap items-center gap-x-2 gap-y-1 md:gap-x-6 bg-gray-900 p-2 rounded-t-md">
         <?php
         // Loop through the main navigation links and generate the HTML for each one.
         foreach ($main_nav_links as $title => $link):
@@ -100,7 +100,7 @@ if (in_array($active_page, ['battle.php', 'attack.php', 'war_history.php', 'armo
                     // Conditionally add the 'active' class if the current link's category
                     // matches the determined active category.
                     echo ($title == $active_main_category) ? 'active font-bold' : 'text-gray-400 hover:text-white';
-                ?> px-3 py-1 transition-all">
+                ?> px-2 md:px-3 py-1 transition-all text-sm md:text-base">
                <?php echo $title; ?>
             </a>
         <?php endforeach; ?>
