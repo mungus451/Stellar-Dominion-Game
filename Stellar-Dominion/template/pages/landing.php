@@ -3,8 +3,6 @@ $page_title = 'A New Era of Idle Sci-Fi RPG';
 $active_page = 'landing.php';
 // This includes the DOCTYPE, head, body opening tag, and the site header.
 include_once __DIR__ . '/../includes/public_header.php';
-// --- INCORPORATE SMS GATEWAYS ---
-require_once __DIR__ . '/../../config/config.php';
 ?>
 
 <main class="container mx-auto px-6 pt-24">
@@ -60,13 +58,6 @@ require_once __DIR__ . '/../../config/config.php';
                 <input type="email" name="email" placeholder="Email Address" class="w-full bg-gray-900/50 border border-gray-700 rounded-lg px-4 py-3 text-white focus:outline-none focus:ring-2 focus:ring-cyan-500" required>
                 <input type="text" name="characterName" placeholder="Character Name" class="w-full bg-gray-900/50 border border-gray-700 rounded-lg px-4 py-3 text-white focus:outline-none focus:ring-2 focus:ring-cyan-500" required>
                 <input type="password" name="password" placeholder="Password" class="w-full bg-gray-900/50 border border-gray-700 rounded-lg px-4 py-3 text-white focus:outline-none focus:ring-2 focus:ring-cyan-500" required>
-                <input type="tel" name="phone_number" placeholder="10-Digit Phone Number" class="w-full bg-gray-900/50 border border-gray-700 rounded-lg px-4 py-3 text-white focus:outline-none focus:ring-2 focus:ring-cyan-500" required pattern="[0-9]{10}">
-                 <select name="carrier" class="w-full bg-gray-900/50 border border-gray-700 rounded-lg px-4 py-3 text-white focus:outline-none focus:ring-2 focus:ring-cyan-500" required>
-                    <option value="" disabled selected>Select Mobile Carrier</option>
-                    <?php foreach ($sms_gateways as $name => $domain): ?>
-                        <option value="<?php echo htmlspecialchars($name); ?>"><?php echo htmlspecialchars($name); ?></option>
-                    <?php endforeach; ?>
-                </select>
                 <select name="race" class="w-full bg-gray-900/50 border border-gray-700 rounded-lg px-4 py-3 text-white focus:outline-none focus:ring-2 focus:ring-cyan-500" required>
                     <option value="" disabled selected>Select a Race</option>
                     <option value="Human">Human</option>

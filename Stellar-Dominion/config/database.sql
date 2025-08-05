@@ -10,24 +10,6 @@ START TRANSACTION;
 SET time_zone = "+00:00";
 
 --
--- Table structure for table `unverified_users`
---
-CREATE TABLE `unverified_users` (
-  `id` int(11) NOT NULL AUTO_INCREMENT,
-  `email` varchar(255) NOT NULL,
-  `character_name` varchar(50) NOT NULL,
-  `password_hash` varchar(255) NOT NULL,
-  `race` varchar(50) NOT NULL,
-  `class` varchar(50) NOT NULL,
-  `phone_number` varchar(20) NOT NULL,
-  `phone_carrier` varchar(50) NOT NULL,
-  `sms_code` varchar(6) NOT NULL,
-  `created_at` timestamp NOT NULL DEFAULT current_timestamp(),
-  PRIMARY KEY (`id`),
-  UNIQUE KEY `email` (`email`)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
-
---
 -- Table structure for table `password_resets`
 --
 CREATE TABLE `password_resets` (

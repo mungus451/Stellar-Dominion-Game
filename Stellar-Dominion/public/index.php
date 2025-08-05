@@ -36,9 +36,11 @@ $routes = [
     '/community.php'        => '../template/pages/community.php',
     '/stats.php'            => '../template/pages/stats.php',
     '/inspiration.php'      => '../template/pages/inspiration.php',
-    '/tutorial.php'         => '../template/pages/tutorial.php', // This line is the fix
+    '/tutorial.php'         => '../template/pages/tutorial.php',
     '/auto_recruit.php'     => '../template/pages/auto_recruit.php',
     '/verify.php'           => '../template/pages/verify.php',
+    '/forgot_password.php'  => '../template/pages/forgot_password.php',
+    '/reset_password.php'   => '../template/pages/reset_password.php',
 
 
     // Alliance Page Views
