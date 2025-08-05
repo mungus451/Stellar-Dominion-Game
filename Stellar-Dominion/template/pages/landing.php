@@ -47,6 +47,11 @@ include_once __DIR__ . '/../includes/public_header.php';
 
             <form id="registerForm" action="/auth.php" method="POST" class="hidden space-y-4">
                 <input type="hidden" name="action" value="register">
+                <?php if(isset($_SESSION['register_error'])): ?>
+                    <div class="bg-red-900 border border-red-500/50 text-red-300 p-3 rounded-md text-center">
+                        <?php echo htmlspecialchars($_SESSION['register_error']); unset($_SESSION['register_error']); ?>
+                    </div>
+                <?php endif; ?>
                 <input type="email" name="email" placeholder="Email Address" class="w-full bg-gray-900/50 border border-gray-700 rounded-lg px-4 py-3 text-white focus:outline-none focus:ring-2 focus:ring-cyan-500" required>
                 <input type="text" name="characterName" placeholder="Character Name" class="w-full bg-gray-900/50 border border-gray-700 rounded-lg px-4 py-3 text-white focus:outline-none focus:ring-2 focus:ring-cyan-500" required>
                 <input type="password" name="password" placeholder="Password" class="w-full bg-gray-900/50 border border-gray-700 rounded-lg px-4 py-3 text-white focus:outline-none focus:ring-2 focus:ring-cyan-500" required>
@@ -82,31 +87,32 @@ document.addEventListener('DOMContentLoaded', () => {
     const registerForm = document.getElementById('registerForm');
     const loginErrorDiv = document.getElementById('loginError');
 
-    // --- MODAL VISIBILITY ---
-    if(launchFleetBtn) {
-        launchFleetBtn.addEventListener('click', () => authModal.classList.remove('hidden'));
-    }
-    if(closeModalBtn) {
-        closeModalBtn.addEventListener('click', () => authModal.classList.add('hidden'));
-    }
-    if(showLoginBtn) {
-        showLoginBtn.addEventListener('click', () => {
-            loginForm.classList.remove('hidden');
-            registerForm.classList.add('hidden');
-        });
-    }
-    if(showRegisterBtn) {
-        showRegisterBtn.addEventListener('click', () => {
+    const setActiveForm = (formToShow) => {
+        if (formToShow === 'register') {
             registerForm.classList.remove('hidden');
             loginForm.classList.add('hidden');
-        });
-    }
+        } else {
+            loginForm.classList.remove('hidden');
+            registerForm.classList.add('hidden');
+        }
+    };
+
+    // --- MODAL VISIBILITY ---
+    if(launchFleetBtn) { launchFleetBtn.addEventListener('click', () => authModal.classList.remove('hidden')); }
+    if(closeModalBtn) { closeModalBtn.addEventListener('click', () => authModal.classList.add('hidden')); }
+    if(showLoginBtn) { showLoginBtn.addEventListener('click', () => setActiveForm('login')); }
+    if(showRegisterBtn) { showRegisterBtn.addEventListener('click', () => setActiveForm('register')); }
     
-    // --- LOGIN ERROR HANDLING ---
+    // --- ERROR HANDLING ---
     const urlParams = new URLSearchParams(window.location.search);
-    if (urlParams.has('error')) {
+    if (urlParams.has('error')) { // For login errors
         authModal.classList.remove('hidden');
         loginErrorDiv.classList.remove('hidden');
+        setActiveForm('login');
+    }
+    if (urlParams.get('show') === 'register') { // For registration errors
+        authModal.classList.remove('hidden');
+        setActiveForm('register');
     }
 });
 </script>
