@@ -8,11 +8,18 @@
  */
 
 // --- SESSION AND DATABASE SETUP ---
-//session_start();
+if (session_status() == PHP_SESSION_NONE) {
+    session_start();
+}
 if (!isset($_SESSION["loggedin"]) || $_SESSION["loggedin"] !== true) { header("location: index.html"); exit; }
+
 require_once __DIR__ . '/../../config/config.php';
+require_once __DIR__ . '/../../config/security.php'; // <-- Added for CSRF functions
 require_once __DIR__ . '/../../src/Game/GameData.php';
 date_default_timezone_set('UTC');
+
+// Generate the CSRF token to be used in the form
+$csrf_token = generate_csrf_token();
 
 $user_id = $_SESSION['id'];
 
@@ -107,8 +114,11 @@ $items_per_page = 10;
                             </nav>
                         </div>
 
-                        <form id="armory-form" action="lib/armory_actions.php" method="POST">
+                        <form id="armory-form" action="src/Controllers/ArmoryController.php" method="POST">
                             <input type="hidden" name="action" value="purchase_items">
+                            <!-- CSRF Token: This hidden input is essential for security -->
+                            <input type="hidden" name="csrf_token" value="<?php echo htmlspecialchars($csrf_token, ENT_QUOTES, 'UTF-8'); ?>">
+                            
                             <div class="space-y-6">
                                 <?php foreach($current_loadout['categories'] as $cat_key => $category): 
                                     // PAGINATION LOGIC FOR THIS CATEGORY

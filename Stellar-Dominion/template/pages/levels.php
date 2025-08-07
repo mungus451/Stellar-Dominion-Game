@@ -6,15 +6,21 @@
  * to increase their five core stats: Strength, Constitution, Wealth, Dexterity,
  * and Charisma. Each point provides a permanent percentage-based bonus.
  *
- * The form submission is handled by 'levelup.php'.
+ * The form submission is handled by 'src/Controllers/LevelUpController.php'.
  */
 
 // --- SESSION AND DATABASE SETUP ---
-//session_start();
+if (session_status() == PHP_SESSION_NONE) {
+    session_start();
+}
 if(!isset($_SESSION["loggedin"]) || $_SESSION["loggedin"] !== true){ header("location: index.html"); exit; }
 require_once __DIR__ . '/../../config/config.php';
+require_once __DIR__ . '/../../config/security.php'; // Include for CSRF functions
 require_once __DIR__ . '/../../src/Game/GameFunctions.php'; // Include the new functions file
 date_default_timezone_set('UTC');
+
+// Generate a CSRF token for the form
+$csrf_token = generate_csrf_token();
 
 $user_id = $_SESSION['id'];
 
@@ -100,7 +106,19 @@ $active_page = 'levels.php';
                 </aside>
 
                 <main class="lg:col-span-3">
-                    <form action="levelup.php" method="POST" class="space-y-4">
+                    <?php if(isset($_SESSION['level_up_message'])): ?>
+                        <div class="bg-cyan-900 border border-cyan-500/50 text-cyan-300 p-3 rounded-md text-center mb-4">
+                            <?php echo htmlspecialchars($_SESSION['level_up_message']); unset($_SESSION['level_up_message']); ?>
+                        </div>
+                    <?php endif; ?>
+                    <?php if(isset($_SESSION['level_up_error'])): ?>
+                        <div class="bg-red-900 border border-red-500/50 text-red-300 p-3 rounded-md text-center mb-4">
+                            <?php echo htmlspecialchars($_SESSION['level_up_error']); unset($_SESSION['level_up_error']); ?>
+                        </div>
+                    <?php endif; ?>
+
+                    <form action="src/Controllers/LevelUpController.php" method="POST" class="space-y-4">
+                        <input type="hidden" name="csrf_token" value="<?php echo htmlspecialchars($csrf_token, ENT_QUOTES, 'UTF-8'); ?>">
                         <div class="content-box rounded-lg p-4 text-center">
                             <p>You currently have <span id="available-points" class="font-bold text-cyan-300 text-lg"><?php echo $user_stats['level_up_points']; ?></span> proficiency points available.</p>
                         </div>

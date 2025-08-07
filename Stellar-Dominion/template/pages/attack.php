@@ -7,9 +7,16 @@
  */
 
 // --- SESSION AND DATABASE SETUP ---
+if (session_status() == PHP_SESSION_NONE) {
+    session_start();
+}
 if(!isset($_SESSION["loggedin"]) || $_SESSION["loggedin"] !== true){ header("location: index.html"); exit; }
 require_once __DIR__ . '/../../config/config.php';
+require_once __DIR__ . '/../../config/security.php'; // Include for CSRF functions
 date_default_timezone_set('UTC');
+
+// Generate a CSRF token for the attack forms
+$csrf_token = generate_csrf_token();
 
 $user_id = $_SESSION['id'];
 
@@ -227,7 +234,15 @@ $active_page = 'attack.php';
                                                 } elseif ($is_ally) {
                                                     echo '<a href="/alliance_transfer.php" class="bg-green-600 hover:bg-green-700 text-white font-bold py-1 px-3 rounded-md text-xs">Make a Transfer</a>';
                                                 } else {
-                                                    echo '<a href="/view_profile.php?id=' . $target['id'] . '" class="bg-cyan-600 hover:bg-cyan-700 text-white font-bold py-1 px-3 rounded-md text-xs">Scout</a>';
+                                             ?>
+                                                <form action="src/Controllers/AttackController.php" method="POST" class="flex items-center justify-end space-x-2">
+                                                    <input type="hidden" name="csrf_token" value="<?php echo htmlspecialchars($csrf_token, ENT_QUOTES, 'UTF-8'); ?>">
+                                                    <input type="hidden" name="defender_id" value="<?php echo $target['id']; ?>">
+                                                    <input type="number" name="attack_turns" value="1" min="1" max="<?php echo min(10, $user_stats['attack_turns']); ?>" class="bg-gray-900 border border-gray-600 rounded-md w-16 text-center text-xs p-1" title="Turns to use">
+                                                    <button type="submit" class="bg-red-600 hover:bg-red-700 text-white font-bold py-1 px-3 rounded-md text-xs">Attack</button>
+                                                    <a href="/view_profile.php?id=<?php echo $target['id']; ?>" class="bg-cyan-600 hover:bg-cyan-700 text-white font-bold py-1 px-3 rounded-md text-xs">Scout</a>
+                                                </form>
+                                             <?php
                                                 }
                                              ?>
                                         </td>

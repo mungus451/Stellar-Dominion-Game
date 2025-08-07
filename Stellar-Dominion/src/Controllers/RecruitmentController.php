@@ -4,10 +4,23 @@
  *
  * Handles the server-side logic for the daily auto-recruiter.
  */
-session_start();
+if (session_status() == PHP_SESSION_NONE) {
+    session_start();
+}
 if (!isset($_SESSION["loggedin"]) || $_SESSION["loggedin"] !== true) { exit; }
 
 require_once __DIR__ . '/../../config/config.php';
+require_once __DIR__ . '/../../config/security.php'; // Include for CSRF functions
+
+// --- CSRF TOKEN VALIDATION ---
+if ($_SERVER['REQUEST_METHOD'] === 'POST') {
+    if (!isset($_POST['csrf_token']) || !validate_csrf_token($_POST['csrf_token'])) {
+        $_SESSION['recruiter_error'] = "A security error occurred (Invalid Token). Please try again.";
+        header("location: /auto_recruit.php");
+        exit;
+    }
+}
+// --- END CSRF VALIDATION ---
 
 $recruiter_id = $_SESSION['id'];
 $recruited_id = isset($_POST['recruited_id']) ? (int)$_POST['recruited_id'] : 0;

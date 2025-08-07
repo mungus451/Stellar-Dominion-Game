@@ -4,13 +4,26 @@
  *
  * Handles logic for purchasing, selling, and repairing structures.
  */
-session_start();
+if (session_status() == PHP_SESSION_NONE) {
+    session_start();
+}
 if (!isset($_SESSION["loggedin"]) || $_SESSION["loggedin"] !== true) { header("location: /index.html"); exit; }
 
 // --- FILE INCLUDES ---
 require_once __DIR__ . '/../../config/config.php';
+require_once __DIR__ . '/../../config/security.php'; // Include for CSRF functions
 require_once __DIR__ . '/../Game/GameData.php';
 require_once __DIR__ . '/../Game/GameFunctions.php';
+
+// --- CSRF TOKEN VALIDATION ---
+if ($_SERVER['REQUEST_METHOD'] === 'POST') {
+    if (!isset($_POST['csrf_token']) || !validate_csrf_token($_POST['csrf_token'])) {
+        $_SESSION['build_message'] = "A security error occurred (Invalid Token). Please try again.";
+        header("location: /structures.php");
+        exit;
+    }
+}
+// --- END CSRF VALIDATION ---
 
 // --- INPUT VALIDATION ---
 $action = isset($_POST['action']) ? $_POST['action'] : '';

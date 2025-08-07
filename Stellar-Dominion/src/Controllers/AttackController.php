@@ -10,6 +10,9 @@
  */
 
 // session_start() is handled by the main index.php router
+if (session_status() == PHP_SESSION_NONE) {
+    session_start();
+}
 if(!isset($_SESSION["loggedin"]) || $_SESSION["loggedin"] !== true){
     header("location: index.html");
     exit;
@@ -17,8 +20,22 @@ if(!isset($_SESSION["loggedin"]) || $_SESSION["loggedin"] !== true){
 
 // --- FILE INCLUDES ---
 require_once __DIR__ . '/../../config/config.php';
+require_once __DIR__ . '/../../config/security.php'; // Include for CSRF functions
 require_once __DIR__ . '/../Game/GameData.php'; // Contains upgrade definitions
 require_once __DIR__ . '/../Game/GameFunctions.php';
+
+// --- CSRF TOKEN VALIDATION ---
+// This check runs for any POST request to this controller.
+if ($_SERVER['REQUEST_METHOD'] === 'POST') {
+    if (!isset($_POST['csrf_token']) || !validate_csrf_token($_POST['csrf_token'])) {
+        // If the token is invalid, set an error and redirect.
+        $_SESSION['attack_error'] = "A security error occurred (Invalid Token). Please try again.";
+        header("location: /attack.php");
+        exit;
+    }
+}
+// --- END CSRF VALIDATION ---
+
 
 // Set the global timezone to UTC for consistency.
 date_default_timezone_set('UTC');

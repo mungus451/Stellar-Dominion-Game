@@ -2,6 +2,10 @@
 //session_start();
 if (!isset($_SESSION["loggedin"]) || $_SESSION["loggedin"] !== true) { header("location: index.html"); exit; }
 require_once __DIR__ . '/../../config/config.php';
+require_once __DIR__ . '/../../config/security.php'; // Include for CSRF functions
+
+// Generate a single CSRF token for all forms on this page
+$csrf_token = generate_csrf_token();
 
 $user_id = $_SESSION['id'];
 $thread_id = isset($_GET['id']) ? (int)$_GET['id'] : 0;
@@ -80,7 +84,8 @@ mysqli_close($link);
             <?php if($user_permissions['can_moderate_forum']): ?>
             <div class="mt-4 p-3 bg-gray-800 rounded-md border border-gray-700">
                 <h3 class="font-semibold text-white mb-2">Moderation Tools</h3>
-                <form action="lib/alliance_actions.php" method="POST" class="flex flex-wrap gap-2">
+                <form action="src/Controllers/AllianceController.php" method="POST" class="flex flex-wrap gap-2">
+                    <input type="hidden" name="csrf_token" value="<?php echo htmlspecialchars($csrf_token, ENT_QUOTES, 'UTF-8'); ?>">
                     <input type="hidden" name="thread_id" value="<?php echo $thread_id; ?>">
                     <?php if($user_permissions['can_sticky_threads']): ?>
                     <button type="submit" name="action" value="<?php echo $thread['is_stickied'] ? 'unsticky_thread' : 'sticky_thread'; ?>" class="bg-yellow-600 hover:bg-yellow-700 text-white font-bold py-1 px-3 rounded text-xs">
@@ -109,7 +114,8 @@ mysqli_close($link);
                     <div class="flex justify-between items-center border-b border-gray-700 pb-2 mb-2">
                         <p class="text-xs text-gray-500">Posted: <?php echo $post['created_at']; ?></p>
                         <?php if($user_permissions['can_delete_posts'] || $post['post_author_id'] == $user_id): ?>
-                        <form action="lib/alliance_actions.php" method="POST" onsubmit="return confirm('Are you sure you want to delete this post?');">
+                        <form action="src/Controllers/AllianceController.php" method="POST" onsubmit="return confirm('Are you sure you want to delete this post?');">
+                            <input type="hidden" name="csrf_token" value="<?php echo htmlspecialchars($csrf_token, ENT_QUOTES, 'UTF-8'); ?>">
                             <input type="hidden" name="post_id" value="<?php echo $post['id']; ?>">
                             <input type="hidden" name="thread_id" value="<?php echo $thread_id; ?>">
                             <button type="submit" name="action" value="delete_post" class="text-red-500 hover:text-red-400">
@@ -129,7 +135,8 @@ mysqli_close($link);
         <?php if(!$thread['is_locked']): ?>
         <div class="content-box rounded-lg p-6">
             <h2 class="font-title text-2xl text-cyan-400 mb-4">Post a Reply</h2>
-            <form action="lib/alliance_actions.php" method="POST" class="space-y-4">
+            <form action="src/Controllers/AllianceController.php" method="POST" class="space-y-4">
+                <input type="hidden" name="csrf_token" value="<?php echo htmlspecialchars($csrf_token, ENT_QUOTES, 'UTF-8'); ?>">
                 <input type="hidden" name="action" value="create_post">
                 <input type="hidden" name="thread_id" value="<?php echo $thread_id; ?>">
                 <div>

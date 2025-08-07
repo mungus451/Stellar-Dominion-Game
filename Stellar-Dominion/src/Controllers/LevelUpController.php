@@ -5,11 +5,24 @@
  * Handles the form submission from the levels.php page for spending proficiency points.
  * Validates that the user has enough points and that no stat exceeds the defined cap.
  */
-session_start();
+if (session_status() == PHP_SESSION_NONE) {
+    session_start();
+}
 if(!isset($_SESSION["loggedin"]) || $_SESSION["loggedin"] !== true){ header("location: index.html"); exit; }
 
 // Correct path from src/Controllers/ to the root config/ folder
 require_once __DIR__ . '/../../config/config.php'; 
+require_once __DIR__ . '/../../config/security.php'; // Include for CSRF functions
+
+// --- CSRF TOKEN VALIDATION ---
+if ($_SERVER['REQUEST_METHOD'] === 'POST') {
+    if (!isset($_POST['csrf_token']) || !validate_csrf_token($_POST['csrf_token'])) {
+        $_SESSION['level_up_error'] = "A security error occurred (Invalid Token). Please try again.";
+        header("location: /levels.php");
+        exit;
+    }
+}
+// --- END CSRF VALIDATION ---
 
 // --- INPUT PROCESSING ---
 // Sanitize all incoming POST data to ensure they are non-negative integers.
@@ -58,13 +71,13 @@ try {
     // --- EXECUTE UPDATE ---
     // If all checks pass, update the user's stats in the database.
     $sql_update = "UPDATE users SET
-                    level_up_points = level_up_points - ?,
-                    strength_points = strength_points + ?,
-                    constitution_points = constitution_points + ?,
-                    wealth_points = wealth_points + ?,
-                    dexterity_points = dexterity_points + ?,
-                    charisma_points = charisma_points + ?
-                   WHERE id = ?";
+                       level_up_points = level_up_points - ?,
+                       strength_points = strength_points + ?,
+                       constitution_points = constitution_points + ?,
+                       wealth_points = wealth_points + ?,
+                       dexterity_points = dexterity_points + ?,
+                       charisma_points = charisma_points + ?
+                       WHERE id = ?";
     $stmt = mysqli_prepare($link, $sql_update);
     mysqli_stmt_bind_param($stmt, "iiiiiii",
         $total_points_to_spend,
@@ -80,13 +93,12 @@ try {
 
     // Commit the transaction to make the changes permanent.
     mysqli_commit($link);
+    $_SESSION['level_up_message'] = "Successfully allocated " . $total_points_to_spend . " proficiency points.";
 
 } catch (Exception $e) {
     // If any error occurred, roll back all database changes.
     mysqli_rollback($link);
-    // A more user-friendly error handling approach would be to use sessions.
-    // For now, we'll stop execution and show the error.
-    die("Error: " . $e->getMessage());
+    $_SESSION['level_up_error'] = "Error: " . $e->getMessage();
 }
 
 // Redirect back to the levels page.

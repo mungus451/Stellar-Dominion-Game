@@ -8,6 +8,9 @@
  */
 
 // session_start() is now handled by the main index.php router, so it's removed from here.
+if (session_status() == PHP_SESSION_NONE) {
+    session_start();
+}
 
 // Ensure the user is logged in before proceeding with any actions.
 if (!isset($_SESSION["loggedin"]) || $_SESSION["loggedin"] !== true) {
@@ -22,13 +25,13 @@ unset($_SESSION['alliance_error']);
 
 // --- FILE INCLUDES ---
 require_once __DIR__ . '/../../config/config.php';
-require_once __DIR__ . '/../Game/GameData.php'; // Required for structure costs and definitions
-require_once __DIR__ . '/../Security.php';     // Include for CSRF validation
+require_once __DIR__ . '/../../src/Game/GameData.php'; // Required for structure costs and definitions
+require_once __DIR__ . '/../../config/security.php';     // Correct path for CSRF validation
 
 // --- CSRF TOKEN VALIDATION ---
 // This must be done for any script that processes form data.
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
-    if (!isset($_POST['csrf_token']) || !validateCsrfToken($_POST['csrf_token'])) {
+    if (!isset($_POST['csrf_token']) || !validate_csrf_token($_POST['csrf_token'])) {
         // If the token is invalid, set an error message and redirect.
         $_SESSION['alliance_error'] = "A security error occurred (Invalid Token). Please try again.";
         header("Location: /alliance.php");
@@ -41,6 +44,12 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 $user_id = $_SESSION['id'];
 $action = $_POST['action'] ?? '';
 $redirect_url = '/alliance.php'; // Set a default redirect URL.
+
+// Only proceed if an action is specified
+if (empty($action)) {
+    header("Location: " . $redirect_url);
+    exit;
+}
 
 // Begin a database transaction to ensure all operations are atomic (all succeed or all fail).
 mysqli_begin_transaction($link);
@@ -632,4 +641,3 @@ try {
 
 header("location: " . $redirect_url);
 exit;
-?>

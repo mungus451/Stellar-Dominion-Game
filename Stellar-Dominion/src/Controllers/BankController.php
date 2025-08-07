@@ -5,11 +5,26 @@
  * Handles deposit and withdraw form submissions from bank.php.
  * It uses transactions to ensure data integrity for all banking operations.
  */
-session_start();
+if (session_status() == PHP_SESSION_NONE) {
+    session_start();
+}
 if (!isset($_SESSION["loggedin"]) || $_SESSION["loggedin"] !== true) { header("location: /index.html"); exit; }
 
 // Correct path from src/Controllers/ to the root config/ folder
 require_once __DIR__ . '/../../config/config.php'; 
+require_once __DIR__ . '/../../config/security.php'; // Include for CSRF functions
+
+// --- CSRF TOKEN VALIDATION ---
+// This check runs for any POST request to this controller.
+if ($_SERVER['REQUEST_METHOD'] === 'POST') {
+    if (!isset($_POST['csrf_token']) || !validate_csrf_token($_POST['csrf_token'])) {
+        // If the token is invalid, set an error and redirect.
+        $_SESSION['bank_error'] = "A security error occurred (Invalid Token). Please try again.";
+        header("location: /bank.php");
+        exit;
+    }
+}
+// --- END CSRF VALIDATION ---
 
 $user_id = $_SESSION['id'];
 $action = isset($_POST['action']) ? $_POST['action'] : '';

@@ -6,11 +6,26 @@
  * Includes advanced error checking for file uploads.
  */
 
-session_start();
+if (session_status() == PHP_SESSION_NONE) {
+    session_start();
+}
 if (!isset($_SESSION["loggedin"]) || $_SESSION["loggedin"] !== true) { header("location: /index.html"); exit; }
 
 // Correct path from src/Controllers/ to the root config/ folder
 require_once __DIR__ . '/../../config/config.php'; 
+require_once __DIR__ . '/../../config/security.php'; // Include for CSRF functions
+
+// --- CSRF TOKEN VALIDATION ---
+if ($_SERVER['REQUEST_METHOD'] === 'POST') {
+    if (!isset($_POST['csrf_token']) || !validate_csrf_token($_POST['csrf_token'])) {
+        $_SESSION['profile_message'] = "A security error occurred (Invalid Token). Please try again.";
+        $_SESSION['profile_message_type'] = 'error';
+        header("location: /profile.php");
+        exit;
+    }
+}
+// --- END CSRF VALIDATION ---
+
 
 $user_id = $_SESSION['id'];
 $biography = isset($_POST['biography']) ? trim($_POST['biography']) : '';

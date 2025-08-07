@@ -11,12 +11,25 @@
  */
 
 // --- SESSION AND DATABASE SETUP ---
-session_start();
+if (session_status() == PHP_SESSION_NONE) {
+    session_start();
+}
 if(!isset($_SESSION["loggedin"]) || $_SESSION["loggedin"] !== true){ header("location: /index.html"); exit; }
 
 // Correct path from src/Controllers/ to the root config/ folder
 require_once __DIR__ . '/../../config/config.php';
+require_once __DIR__ . '/../../config/security.php'; // Include for CSRF functions
 require_once __DIR__ . '/../../src/Game/GameFunctions.php';
+
+// --- CSRF TOKEN VALIDATION ---
+if ($_SERVER['REQUEST_METHOD'] === 'POST') {
+    if (!isset($_POST['csrf_token']) || !validate_csrf_token($_POST['csrf_token'])) {
+        $_SESSION['training_error'] = "A security error occurred (Invalid Token). Please try again.";
+        header("location: /battle.php");
+        exit;
+    }
+}
+// --- END CSRF VALIDATION ---
 
 // --- SHARED DEFINITIONS ---
 $base_unit_costs = [
@@ -66,10 +79,10 @@ try {
         $final_xp = $initial_xp + $experience_gained;
 
         $sql_update = "UPDATE users SET 
-                        untrained_citizens = untrained_citizens - ?, credits = credits - ?,
-                        workers = workers + ?, soldiers = soldiers + ?, guards = guards + ?,
-                        sentries = sentries + ?, spies = spies + ?, experience = experience + ?
-                       WHERE id = ?";
+                            untrained_citizens = untrained_citizens - ?, credits = credits - ?,
+                            workers = workers + ?, soldiers = soldiers + ?, guards = guards + ?,
+                            sentries = sentries + ?, spies = spies + ?, experience = experience + ?
+                           WHERE id = ?";
         $stmt_update = mysqli_prepare($link, $sql_update);
         mysqli_stmt_bind_param($stmt_update, "iiiiiiiii", 
             $total_citizens_needed, $total_credits_needed,
@@ -121,10 +134,10 @@ try {
         $disband_spies = $units_to_disband['spies'] ?? 0;
 
         $sql_update = "UPDATE users SET 
-                        untrained_citizens = untrained_citizens + ?, credits = credits + ?,
-                        workers = workers - ?, soldiers = soldiers - ?, guards = guards - ?,
-                        sentries = sentries - ?, spies = spies - ?
-                       WHERE id = ?";
+                            untrained_citizens = untrained_citizens + ?, credits = credits + ?,
+                            workers = workers - ?, soldiers = soldiers - ?, guards = guards - ?,
+                            sentries = sentries - ?, spies = spies - ?
+                           WHERE id = ?";
         $stmt_update = mysqli_prepare($link, $sql_update);
         mysqli_stmt_bind_param($stmt_update, "iiiiiiii", 
             $total_citizens_to_return, $total_refund,

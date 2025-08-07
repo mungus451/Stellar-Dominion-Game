@@ -5,15 +5,38 @@
  * Handles various form submissions from the settings.php page,
  * including password changes, email updates, and vacation mode activation.
  */
-session_start();
+if (session_status() == PHP_SESSION_NONE) {
+    session_start();
+}
 if (!isset($_SESSION["loggedin"]) || $_SESSION["loggedin"] !== true) { header("location: /index.html"); exit; }
 
 // Correct path from src/Controllers/ to the root config/ folder
 require_once __DIR__ . '/../../config/config.php'; 
+require_once __DIR__ . '/../../config/security.php'; // <-- Added for CSRF functions
+
+// --- CSRF TOKEN VALIDATION ---
+// This check runs for any POST request to this controller.
+// It ensures the request originated from a form on our site.
+if ($_SERVER['REQUEST_METHOD'] === 'POST') {
+    if (!isset($_POST['csrf_token']) || !validate_csrf_token($_POST['csrf_token'])) {
+        // If the token is invalid, set an error and redirect.
+        $_SESSION['settings_error'] = "A security error occurred (Invalid Token). Please try again.";
+        header("location: /settings.php");
+        exit;
+    }
+}
+// --- END CSRF VALIDATION ---
 
 $user_id = $_SESSION['id'];
 $action = isset($_POST['action']) ? $_POST['action'] : '';
 $redirect_tab = ''; // Default redirect tab
+
+// Only proceed if there is an action
+if (empty($action)) {
+    header("location: /settings.php");
+    exit;
+}
+
 
 // --- TRANSACTIONAL DATABASE UPDATE ---
 mysqli_begin_transaction($link);
