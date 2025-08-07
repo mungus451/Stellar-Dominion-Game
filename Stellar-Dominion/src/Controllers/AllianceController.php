@@ -21,13 +21,21 @@ unset($_SESSION['alliance_error']);
 // --- END BUG FIX ---
 
 // --- FILE INCLUDES ---
-// From this file's location (src/Controllers/), we go up two directories (../../) to the project root,
-// then into the 'config' directory.
 require_once __DIR__ . '/../../config/config.php';
-
-// From this file's location (src/Controllers/), we go up one directory (../) to the 'src' directory,
-// then into the 'Game' directory.
 require_once __DIR__ . '/../Game/GameData.php'; // Required for structure costs and definitions
+require_once __DIR__ . '/../Security.php';     // Include for CSRF validation
+
+// --- CSRF TOKEN VALIDATION ---
+// This must be done for any script that processes form data.
+if ($_SERVER['REQUEST_METHOD'] === 'POST') {
+    if (!isset($_POST['csrf_token']) || !validateCsrfToken($_POST['csrf_token'])) {
+        // If the token is invalid, set an error message and redirect.
+        $_SESSION['alliance_error'] = "A security error occurred (Invalid Token). Please try again.";
+        header("Location: /alliance.php");
+        exit;
+    }
+}
+
 
 // Get the user ID from the session and the requested action from the POST data.
 $user_id = $_SESSION['id'];

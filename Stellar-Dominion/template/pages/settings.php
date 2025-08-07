@@ -1,9 +1,10 @@
 <?php
-// --- SESSION AND DATABASE SETUP ---
+// --- SESSION AND SECURITY SETUP ---
 //session_start();
 if(!isset($_SESSION["loggedin"]) || $_SESSION["loggedin"] !== true){ header("location: index.html"); exit; }
 require_once __DIR__ . '/../../config/config.php';
 require_once __DIR__ . '/../../src/Game/GameData.php'; // Include for security questions
+require_once __DIR__ . '/../../src/Security.php'; // Include for CSRF and XSS functions
 date_default_timezone_set('UTC');
 
 $user_id = $_SESSION['id'];
@@ -77,10 +78,10 @@ $current_tab = $_GET['tab'] ?? 'general';
                             <li class="flex justify-between"><span>Untrained Citizens:</span> <span class="text-white font-semibold"><?php echo number_format($user_stats['untrained_citizens']); ?></span></li>
                             <li class="flex justify-between"><span>Level:</span> <span class="text-white font-semibold"><?php echo $user_stats['level']; ?></span></li>
                             <li class="flex justify-between"><span>Attack Turns:</span> <span class="text-white font-semibold"><?php echo $user_stats['attack_turns']; ?></span></li>
-                             <li class="flex justify-between border-t border-gray-600 pt-2 mt-2">
-                                <span>Next Turn In:</span>
-                                <span id="next-turn-timer" class="text-cyan-300 font-bold" data-seconds-until-next-turn="<?php echo $seconds_until_next_turn; ?>"><?php echo sprintf('%02d:%02d', $minutes_until_next_turn, $seconds_remainder); ?></span>
-                            </li>
+                                <li class="flex justify-between border-t border-gray-600 pt-2 mt-2">
+                                    <span>Next Turn In:</span>
+                                    <span id="next-turn-timer" class="text-cyan-300 font-bold" data-seconds-until-next-turn="<?php echo $seconds_until_next_turn; ?>"><?php echo sprintf('%02d:%02d', $minutes_until_next_turn, $seconds_remainder); ?></span>
+                                </li>
                             <li class="flex justify-between">
                                 <span>Dominion Time:</span>
                                 <span id="dominion-time" class="text-white font-semibold" data-hours="<?php echo $now->format('H'); ?>" data-minutes="<?php echo $now->format('i'); ?>" data-seconds="<?php echo $now->format('s'); ?>"><?php echo $now->format('H:i:s'); ?></span>
@@ -95,7 +96,7 @@ $current_tab = $_GET['tab'] ?? 'general';
                             <?php echo $_SESSION['settings_message']; unset($_SESSION['settings_message']); ?>
                         </div>
                     <?php endif; ?>
-                     <?php if(isset($_SESSION['settings_error'])): ?>
+                    <?php if(isset($_SESSION['settings_error'])): ?>
                         <div class="bg-red-900 border border-red-500/50 text-red-300 p-3 rounded-md text-center">
                             <?php echo $_SESSION['settings_error']; unset($_SESSION['settings_error']); ?>
                         </div>
@@ -121,6 +122,7 @@ $current_tab = $_GET['tab'] ?? 'general';
                                     <p class="text-xs text-gray-500">Vacations are limited to once every quarter and last for 2 weeks.</p>
                                     <form action="/lib/update_settings.php" method="POST" class="mt-4">
                                         <input type="hidden" name="action" value="vacation_mode">
+                                        <input type="hidden" name="csrf_token" value="<?= generateCsrfToken(); ?>">
                                         <button type="submit" class="w-full bg-cyan-600 hover:bg-cyan-700 text-white font-bold py-2 rounded-lg">Start Vacation</button>
                                     </form>
                                 <?php endif; ?>
@@ -129,7 +131,8 @@ $current_tab = $_GET['tab'] ?? 'general';
 
                         <div id="recovery-content" class="<?php if($current_tab !== 'recovery') echo 'hidden'; ?> space-y-4">
                             <form action="/lib/update_settings.php" method="POST" class="content-box rounded-lg p-4 space-y-3">
-                                 <input type="hidden" name="action" value="change_email">
+                                <input type="hidden" name="action" value="change_email">
+                                <input type="hidden" name="csrf_token" value="<?= generateCsrfToken(); ?>">
                                 <h3 class="font-title text-white">Change Email</h3>
                                 <div>
                                     <label class="text-xs text-gray-500">Current Email</label>
@@ -141,6 +144,7 @@ $current_tab = $_GET['tab'] ?? 'general';
 
                             <form action="/lib/update_settings.php" method="POST" class="content-box rounded-lg p-4 space-y-3">
                                 <input type="hidden" name="action" value="change_password">
+                                <input type="hidden" name="csrf_token" value="<?= generateCsrfToken(); ?>">
                                 <h3 class="font-title text-white">Change Password</h3>
                                 <input type="password" name="current_password" placeholder="Current Password" class="w-full bg-gray-900/50 border border-gray-700 rounded-lg px-4 py-2 text-white" required>
                                 <input type="password" name="new_password" placeholder="New Password" class="w-full bg-gray-900/50 border border-gray-700 rounded-lg px-4 py-2 text-white" required>
@@ -152,11 +156,12 @@ $current_tab = $_GET['tab'] ?? 'general';
                                 <h3 class="font-title text-white">SMS Recovery</h3>
                                 <?php if($user_stats['phone_verified']): ?>
                                     <p class="text-green-400">Your phone number is verified and can be used for account recovery.</p>
-                                    <p>Current Number: <?php echo '***-***-' . substr($user_stats['phone_number'], -4); ?></p>
+                                    <p>Current Number: <?php echo '***-***-' . htmlspecialchars(substr($user_stats['phone_number'], -4)); ?></p>
                                 <?php else: ?>
                                     <p>Add and verify a phone number to enable SMS-based account recovery.</p>
                                     <form action="/lib/update_settings.php" method="POST" class="space-y-3 mt-2">
                                         <input type="hidden" name="action" value="add_phone">
+                                        <input type="hidden" name="csrf_token" value="<?= generateCsrfToken(); ?>">
                                         <input type="tel" name="phone_number" placeholder="10-Digit Phone Number" class="w-full bg-gray-900/50 border border-gray-700 rounded-lg px-4 py-2 text-white" required pattern="[0-9]{10}">
                                         <select name="carrier" class="w-full bg-gray-900/50 border border-gray-700 rounded-lg px-4 py-2 text-white" required>
                                             <option value="" disabled selected>Select Mobile Carrier</option>
@@ -171,6 +176,7 @@ $current_tab = $_GET['tab'] ?? 'general';
                                     <hr class="border-gray-600">
                                     <form action="/lib/update_settings.php" method="POST" class="space-y-3">
                                         <input type="hidden" name="action" value="verify_phone">
+                                        <input type="hidden" name="csrf_token" value="<?= generateCsrfToken(); ?>">
                                         <p>A code was sent to your phone. Enter it below.</p>
                                         <input type="text" name="sms_code" placeholder="6-Digit Code" class="w-full bg-gray-900/50 border border-gray-700 rounded-lg px-4 py-2 text-white text-center tracking-widest" required>
                                         <button type="submit" class="w-full bg-green-600 hover:bg-green-700 text-white font-bold py-2 rounded-lg">Verify Phone</button>
@@ -178,20 +184,22 @@ $current_tab = $_GET['tab'] ?? 'general';
                                     <?php endif; ?>
                                 <?php endif; ?>
                             </div>
-                            
+                                
                             <div class="content-box rounded-lg p-4 space-y-3">
                                 <h3 class="font-title text-white">Security Question Recovery</h3>
                                 <?php if ($sq_count >= 2): ?>
                                     <p class="text-green-400">You have set up security questions for account recovery.</p>
                                     <p class="text-xs text-gray-400">To change them, you must reset them first.</p>
-                                     <form action="/lib/update_settings.php" method="POST" class="mt-2">
-                                        <input type="hidden" name="action" value="reset_security_questions">
-                                        <button type="submit" class="w-full bg-yellow-600 hover:bg-yellow-700 text-white font-bold py-2 rounded-lg">Reset Questions</button>
-                                    </form>
+                                        <form action="/lib/update_settings.php" method="POST" class="mt-2">
+                                            <input type="hidden" name="action" value="reset_security_questions">
+                                            <input type="hidden" name="csrf_token" value="<?= generateCsrfToken(); ?>">
+                                            <button type="submit" class="w-full bg-yellow-600 hover:bg-yellow-700 text-white font-bold py-2 rounded-lg">Reset Questions</button>
+                                        </form>
                                 <?php else: ?>
                                     <p>Set up two security questions as an alternative recovery method. Answers are case-insensitive.</p>
                                     <form action="/lib/update_settings.php" method="POST" class="space-y-3 mt-2">
                                         <input type="hidden" name="action" value="set_security_questions">
+                                        <input type="hidden" name="csrf_token" value="<?= generateCsrfToken(); ?>">
                                         <div>
                                             <label for="question1" class="text-sm">Question 1</label>
                                             <select id="question1" name="question1" class="w-full bg-gray-900/50 border border-gray-700 rounded-lg px-4 py-2 text-white" required>
@@ -206,7 +214,7 @@ $current_tab = $_GET['tab'] ?? 'general';
                                             <label for="question2" class="text-sm">Question 2</label>
                                             <select id="question2" name="question2" class="w-full bg-gray-900/50 border border-gray-700 rounded-lg px-4 py-2 text-white" required>
                                                 <option value="" disabled selected>Select a question...</option>
-                                                 <?php foreach($security_questions as $id => $q): ?>
+                                                <?php foreach($security_questions as $id => $q): ?>
                                                     <option value="<?php echo $id; ?>"><?php echo htmlspecialchars($q); ?></option>
                                                 <?php endforeach; ?>
                                             </select>
@@ -219,12 +227,12 @@ $current_tab = $_GET['tab'] ?? 'general';
                         </div>
 
                         <div id="danger-content" class="<?php if($current_tab !== 'danger') echo 'hidden'; ?>">
-                             <div class="content-box rounded-lg p-4 space-y-3 border-2 border-red-500/50">
-                                <h3 class="font-title text-red-400">Reset Account</h3>
-                                 <p class="text-sm">This will permanently delete all your progress, units, and stats, resetting your account to its initial state. This action cannot be undone.</p>
-                                 <button class="w-full bg-red-800 hover:bg-red-700 text-white font-bold py-2 rounded-lg cursor-not-allowed" disabled>Reset Account (Disabled)</button>
-                            </div>
-                         </div>
+                                <div class="content-box rounded-lg p-4 space-y-3 border-2 border-red-500/50">
+                                    <h3 class="font-title text-red-400">Reset Account</h3>
+                                    <p class="text-sm">This will permanently delete all your progress, units, and stats, resetting your account to its initial state. This action cannot be undone.</p>
+                                    <button class="w-full bg-red-800 hover:bg-red-700 text-white font-bold py-2 rounded-lg cursor-not-allowed" disabled>Reset Account (Disabled)</button>
+                                </div>
+                        </div>
                     </div>
                 </main>
             </div>

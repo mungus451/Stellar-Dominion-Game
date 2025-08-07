@@ -1,6 +1,6 @@
 <?php
 // --- SESSION SETUP ---
-session_start();
+//session_start();
 $token = $_GET['token'] ?? '';
 if(empty($token)) {
     header("location: /forgot_password.php");

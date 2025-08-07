@@ -12,6 +12,9 @@ if (isset($_SESSION['vacation_until']) && new DateTime() < new DateTime($_SESSIO
 // CENTRALIZED DATABASE CONNECTION & CONFIGURATION
 require_once __DIR__ . '/../config/config.php';
 
+// CENTRALIZED SECURITY PROTOCOL
+require_once __DIR__ . '/../config/security.php';
+
 // Get the requested URL path
 $request_uri = parse_url($_SERVER['REQUEST_URI'], PHP_URL_PATH);
 

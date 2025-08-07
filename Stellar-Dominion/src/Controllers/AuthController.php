@@ -10,9 +10,22 @@
 // --- INCORPORATE SMS GATEWAYS and Security Questions from config ---
 require_once __DIR__ . '/../../config/config.php';
 require_once __DIR__ . '/../Game/GameData.php';
-
+require_once __DIR__ . '/../Security.php'; // Include for CSRF validation
 
 $action = $_POST['action'] ?? $_GET['action'] ?? '';
+
+// --- CSRF TOKEN VALIDATION ---
+// This check runs for any action submitted via POST.
+if ($_SERVER['REQUEST_METHOD'] === 'POST') {
+    if (!isset($_POST['csrf_token']) || !validateCsrfToken($_POST['csrf_token'])) {
+        // If the token is invalid, set a generic error and redirect to the landing page.
+        // This prevents any further processing of the invalid request.
+        $_SESSION['register_error'] = "A security error occurred. Please try again.";
+        header("Location: /?show=register"); // Redirect to a safe default
+        exit;
+    }
+}
+
 
 // --- ACTION ROUTER ---
 
