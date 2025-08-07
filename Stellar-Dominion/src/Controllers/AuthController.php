@@ -13,7 +13,6 @@ if (session_status() == PHP_SESSION_NONE) {
 // --- INCORPORATE SMS GATEWAYS and Security Questions from config ---
 require_once __DIR__ . '/../../config/config.php';
 require_once __DIR__ . '/../Game/GameData.php';
-require_once __DIR__ . '/../../config/security.php'; // Correct path for CSRF validation
 
 $action = $_POST['action'] ?? $_GET['action'] ?? '';
 
