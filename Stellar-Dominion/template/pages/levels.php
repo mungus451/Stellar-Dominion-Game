@@ -35,13 +35,13 @@ if ($_SERVER["REQUEST_METHOD"] == "POST") {
                 throw new Exception("Could not retrieve user data.");
             }
 
-            // Points to spend from the form
+            // Points to spend from the form, keys now match input names
             $points_to_spend = [
-                'strength_points' => (int)($_POST['strength'] ?? 0),
-                'constitution_points' => (int)($_POST['constitution'] ?? 0),
-                'wealth_points' => (int)($_POST['wealth'] ?? 0),
-                'dexterity_points' => (int)($_POST['dexterity'] ?? 0),
-                'charisma_points' => (int)($_POST['charisma'] ?? 0)
+                'strength_points' => (int)($_POST['strength_points'] ?? 0),
+                'constitution_points' => (int)($_POST['constitution_points'] ?? 0),
+                'wealth_points' => (int)($_POST['wealth_points'] ?? 0),
+                'dexterity_points' => (int)($_POST['dexterity_points'] ?? 0),
+                'charisma_points' => (int)($_POST['charisma_points'] ?? 0)
             ];
 
             $total_points_to_spend = array_sum($points_to_spend);
@@ -58,17 +58,18 @@ if ($_SERVER["REQUEST_METHOD"] == "POST") {
             $sql_parts = [];
             foreach ($points_to_spend as $stat => $points) {
                 if ($points > 0) {
+                    // The stat name from the array key is already the correct column name
                     $sql_parts[] = "`$stat` = `$stat` + $points";
                 }
             }
-            
+
             if (!empty($sql_parts)) {
                 $sql_update_query = "UPDATE users SET " . implode(', ', $sql_parts) . ", `level_up_points` = `level_up_points` - $total_points_to_spend WHERE id = ?";
                 $stmt_update = mysqli_prepare($link, $sql_update_query);
                 mysqli_stmt_bind_param($stmt_update, "i", $user_id);
                 mysqli_stmt_execute($stmt_update);
                 mysqli_stmt_close($stmt_update);
-                
+
                 $_SESSION['level_message'] = "Successfully spent " . $total_points_to_spend . " points!";
             }
 
@@ -95,17 +96,6 @@ mysqli_stmt_execute($stmt_fetch);
 $user_stats = mysqli_fetch_assoc(mysqli_stmt_get_result($stmt_fetch));
 mysqli_stmt_close($stmt_fetch);
 
-$current_level = $user_stats['level'];
-$next_level = $current_level + 1;
-$xp_for_next_level = $level_xp_requirements[$next_level] ?? 'Max Level';
-$xp_progress_percent = 0;
-if (is_numeric($xp_for_next_level)) {
-    $xp_needed = $xp_for_next_level - ($level_xp_requirements[$current_level] ?? 0);
-    $xp_gained = $user_stats['experience'] - ($level_xp_requirements[$current_level] ?? 0);
-    if ($xp_needed > 0) {
-        $xp_progress_percent = round(($xp_gained / $xp_needed) * 100);
-    }
-}
 
 // Timer Calculations for Next Turn
 $now = new DateTime('now', new DateTimeZone('UTC'));
@@ -135,14 +125,12 @@ $active_page = 'levels.php';
             
             <div class="grid grid-cols-1 lg:grid-cols-4 gap-4 p-4">
                 <aside class="lg:col-span-1 space-y-4">
-                    <?php include_once __DIR__ . '/../includes/advisor.php'; ?>
-                    <div class="content-box rounded-lg p-4">
-                        <h3 class="font-title text-cyan-400 border-b border-gray-600 pb-2 mb-3">Level Progress</h3>
-                        <div class="w-full bg-gray-700 rounded-full h-4 my-2">
-                            <div class="bg-cyan-500 h-4 rounded-full" style="width: <?php echo $xp_progress_percent; ?>%"></div>
-                        </div>
-                        <p class="text-sm text-center"><?php echo number_format($user_stats['experience']); ?> / <?php echo is_numeric($xp_for_next_level) ? number_format($xp_for_next_level) : 'N/A'; ?> XP</p>
-                    </div>
+                    <?php 
+                        // Define variables needed by the advisor include file, just like on dashboard.php
+                        $user_xp = $user_stats['experience'];
+                        $user_level = $user_stats['level'];
+                        include_once __DIR__ . '/../includes/advisor.php'; 
+                    ?>
                      <div class="content-box rounded-lg p-4">
                         <h3 class="font-title text-cyan-400 border-b border-gray-600 pb-2 mb-3">Stats</h3>
                         <ul class="space-y-2 text-sm">
@@ -181,36 +169,36 @@ $active_page = 'levels.php';
                             <div class="content-box rounded-lg p-4">
                                 <h3 class="font-title text-lg text-red-400">Strength (Offense)</h3>
                                 <p class="text-sm">Current Bonus: <?php echo $user_stats['strength_points']; ?>%</p>
-                                <label for="strength" class="block text-xs mt-2">Add:</label>
-                                <input type="number" name="strength" min="0" value="0" class="w-full bg-gray-900/50 border border-gray-700 rounded-lg px-2 py-1 text-white focus:outline-none focus:ring-1 focus:ring-cyan-500">
+                                <label for="strength_points" class="block text-xs mt-2">Add:</label>
+                                <input type="number" name="strength_points" min="0" value="0" class="w-full bg-gray-900/50 border border-gray-700 rounded-lg px-2 py-1 text-white focus:outline-none focus:ring-1 focus:ring-cyan-500 point-input">
                             </div>
                             <!-- Constitution -->
                             <div class="content-box rounded-lg p-4">
                                 <h3 class="font-title text-lg text-green-400">Constitution (Defense)</h3>
                                 <p class="text-sm">Current Bonus: <?php echo $user_stats['constitution_points']; ?>%</p>
-                                <label for="constitution" class="block text-xs mt-2">Add:</label>
-                                <input type="number" name="constitution" min="0" value="0" class="w-full bg-gray-900/50 border border-gray-700 rounded-lg px-2 py-1 text-white focus:outline-none focus:ring-1 focus:ring-cyan-500">
+                                <label for="constitution_points" class="block text-xs mt-2">Add:</label>
+                                <input type="number" name="constitution_points" min="0" value="0" class="w-full bg-gray-900/50 border border-gray-700 rounded-lg px-2 py-1 text-white focus:outline-none focus:ring-1 focus:ring-cyan-500 point-input">
                             </div>
                             <!-- Wealth -->
                             <div class="content-box rounded-lg p-4">
                                 <h3 class="font-title text-lg text-yellow-400">Wealth (Income)</h3>
                                 <p class="text-sm">Current Bonus: <?php echo $user_stats['wealth_points']; ?>%</p>
-                                <label for="wealth" class="block text-xs mt-2">Add:</label>
-                                <input type="number" name="wealth" min="0" value="0" class="w-full bg-gray-900/50 border border-gray-700 rounded-lg px-2 py-1 text-white focus:outline-none focus:ring-1 focus:ring-cyan-500">
+                                <label for="wealth_points" class="block text-xs mt-2">Add:</label>
+                                <input type="number" name="wealth_points" min="0" value="0" class="w-full bg-gray-900/50 border border-gray-700 rounded-lg px-2 py-1 text-white focus:outline-none focus:ring-1 focus:ring-cyan-500 point-input">
                             </div>
                             <!-- Dexterity -->
                             <div class="content-box rounded-lg p-4">
                                 <h3 class="font-title text-lg text-blue-400">Dexterity (Sentry/Spy)</h3>
                                 <p class="text-sm">Current Bonus: <?php echo $user_stats['dexterity_points']; ?>%</p>
-                                <label for="dexterity" class="block text-xs mt-2">Add:</label>
-                                <input type="number" name="dexterity" min="0" value="0" class="w-full bg-gray-900/50 border border-gray-700 rounded-lg px-2 py-1 text-white focus:outline-none focus:ring-1 focus:ring-cyan-500">
+                                <label for="dexterity_points" class="block text-xs mt-2">Add:</label>
+                                <input type="number" name="dexterity_points" min="0" value="0" class="w-full bg-gray-900/50 border border-gray-700 rounded-lg px-2 py-1 text-white focus:outline-none focus:ring-1 focus:ring-cyan-500 point-input">
                             </div>
                             <!-- Charisma -->
                             <div class="content-box rounded-lg p-4 md:col-span-2">
                                 <h3 class="font-title text-lg text-purple-400">Charisma (Reduced Prices)</h3>
                                 <p class="text-sm">Current Bonus: <?php echo $user_stats['charisma_points']; ?>%</p>
-                                <label for="charisma" class="block text-xs mt-2">Add:</label>
-                                <input type="number" name="charisma" min="0" value="0" class="w-full bg-gray-900/50 border border-gray-700 rounded-lg px-2 py-1 text-white focus:outline-none focus:ring-1 focus:ring-cyan-500">
+                                <label for="charisma_points" class="block text-xs mt-2">Add:</label>
+                                <input type="number" name="charisma_points" min="0" value="0" class="w-full bg-gray-900/50 border border-gray-700 rounded-lg px-2 py-1 text-white focus:outline-none focus:ring-1 focus:ring-cyan-500 point-input">
                             </div>
                         </div>
 
@@ -229,7 +217,7 @@ $active_page = 'levels.php';
     <script>
         // JavaScript to calculate total points to spend in real-time
         document.addEventListener('DOMContentLoaded', function() {
-            const inputs = document.querySelectorAll('input[type="number"][name^="strength"], input[type="number"][name^="constitution"], input[type="number"][name^="wealth"], input[type="number"][name^="dexterity"], input[type="number"][name^="charisma"]');
+            const inputs = document.querySelectorAll('.point-input');
             const totalDisplay = document.getElementById('total-to-spend');
             
             function updateTotal() {
