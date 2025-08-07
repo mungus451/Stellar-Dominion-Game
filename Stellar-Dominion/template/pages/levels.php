@@ -1,61 +1,120 @@
 <?php
-/**
- * levels.php
- *
- * This page allows players to spend their "level up points" (proficiency points)
- * to increase their five core stats: Strength, Constitution, Wealth, Dexterity,
- * and Charisma. Each point provides a permanent percentage-based bonus.
- *
- * The form submission is handled by 'src/Controllers/LevelUpController.php'.
- */
-
 // --- SESSION AND DATABASE SETUP ---
 if (session_status() == PHP_SESSION_NONE) {
     session_start();
 }
-if(!isset($_SESSION["loggedin"]) || $_SESSION["loggedin"] !== true){ header("location: index.html"); exit; }
+if (!isset($_SESSION["loggedin"]) || $_SESSION["loggedin"] !== true) {
+    header("location: /index.php");
+    exit;
+}
 require_once __DIR__ . '/../../config/config.php';
-require_once __DIR__ . '/../../src/Game/GameFunctions.php'; // Include the new functions file
-
-date_default_timezone_set('UTC');
-
-// Generate a CSRF token for the form
-$csrf_token = generate_csrf_token();
+require_once __DIR__ . '/../../src/Game/GameData.php'; // For level up definitions
 
 $user_id = $_SESSION['id'];
 
-// --- FIX: RUN LEVEL-UP CHECK ON PAGE LOAD ---
-// This ensures that any pending level-ups are processed before the page is displayed.
-check_and_process_levelup($user_id, $link);
+// --- FORM SUBMISSION HANDLING ---
+if ($_SERVER["REQUEST_METHOD"] == "POST") {
+    // Protect against CSRF attacks
+    protect_csrf();
 
+    // This action is now for the single "Spend Points" button
+    $action = $_POST['action'] ?? '';
 
-// --- DATA FETCHING ---
-// Fetch all stats related to leveling and the five core proficiency stats.
-// These are needed to display current bonuses and available points.
-$sql = "SELECT credits, untrained_citizens, level, attack_turns, last_updated, experience, level_up_points, strength_points, constitution_points, wealth_points, dexterity_points, charisma_points FROM users WHERE id = ?";
-if($stmt = mysqli_prepare($link, $sql)){
-    mysqli_stmt_bind_param($stmt, "i", $user_id);
-    mysqli_stmt_execute($stmt);
-    $result = mysqli_stmt_get_result($stmt);
-    $user_stats = mysqli_fetch_assoc($result);
-    mysqli_stmt_close($stmt);
+    if ($action === 'spend_points') {
+        mysqli_begin_transaction($link);
+        try {
+            // Get user's current level up points
+            $sql_user = "SELECT level_up_points FROM users WHERE id = ? FOR UPDATE";
+            $stmt_user = mysqli_prepare($link, $sql_user);
+            mysqli_stmt_bind_param($stmt_user, "i", $user_id);
+            mysqli_stmt_execute($stmt_user);
+            $user = mysqli_fetch_assoc(mysqli_stmt_get_result($stmt_user));
+            mysqli_stmt_close($stmt_user);
+
+            if (!$user) {
+                throw new Exception("Could not retrieve user data.");
+            }
+
+            // Points to spend from the form
+            $points_to_spend = [
+                'strength_points' => (int)($_POST['strength'] ?? 0),
+                'constitution_points' => (int)($_POST['constitution'] ?? 0),
+                'wealth_points' => (int)($_POST['wealth'] ?? 0),
+                'dexterity_points' => (int)($_POST['dexterity'] ?? 0),
+                'charisma_points' => (int)($_POST['charisma'] ?? 0)
+            ];
+
+            $total_points_to_spend = array_sum($points_to_spend);
+
+            if ($total_points_to_spend <= 0) {
+                throw new Exception("You did not allocate any points to spend.");
+            }
+
+            if ($total_points_to_spend > $user['level_up_points']) {
+                throw new Exception("You are trying to spend more points than you have available.");
+            }
+
+            // Build the dynamic part of the SQL query
+            $sql_parts = [];
+            foreach ($points_to_spend as $stat => $points) {
+                if ($points > 0) {
+                    $sql_parts[] = "`$stat` = `$stat` + $points";
+                }
+            }
+            
+            if (!empty($sql_parts)) {
+                $sql_update_query = "UPDATE users SET " . implode(', ', $sql_parts) . ", `level_up_points` = `level_up_points` - $total_points_to_spend WHERE id = ?";
+                $stmt_update = mysqli_prepare($link, $sql_update_query);
+                mysqli_stmt_bind_param($stmt_update, "i", $user_id);
+                mysqli_stmt_execute($stmt_update);
+                mysqli_stmt_close($stmt_update);
+                
+                $_SESSION['level_message'] = "Successfully spent " . $total_points_to_spend . " points!";
+            }
+
+            mysqli_commit($link);
+
+        } catch (Exception $e) {
+            mysqli_rollback($link);
+            $_SESSION['level_error'] = "Error: " . $e->getMessage();
+        }
+    }
+
+    // Redirect back to the levels page to prevent form resubmission
+    header("Location: levels.php");
+    exit;
 }
-mysqli_close($link);
+// --- END FORM HANDLING ---
 
-// --- TIMER CALCULATIONS ---
-// This logic calculates the time remaining for the JavaScript countdown timer.
+
+// --- DATA FETCHING FOR PAGE DISPLAY ---
+$sql_fetch = "SELECT level, experience, level_up_points, strength_points, constitution_points, wealth_points, dexterity_points, charisma_points, credits, untrained_citizens, attack_turns, last_updated FROM users WHERE id = ?";
+$stmt_fetch = mysqli_prepare($link, $sql_fetch);
+mysqli_stmt_bind_param($stmt_fetch, "i", $user_id);
+mysqli_stmt_execute($stmt_fetch);
+$user_stats = mysqli_fetch_assoc(mysqli_stmt_get_result($stmt_fetch));
+mysqli_stmt_close($stmt_fetch);
+
+$current_level = $user_stats['level'];
+$next_level = $current_level + 1;
+$xp_for_next_level = $level_xp_requirements[$next_level] ?? 'Max Level';
+$xp_progress_percent = 0;
+if (is_numeric($xp_for_next_level)) {
+    $xp_needed = $xp_for_next_level - ($level_xp_requirements[$current_level] ?? 0);
+    $xp_gained = $user_stats['experience'] - ($level_xp_requirements[$current_level] ?? 0);
+    if ($xp_needed > 0) {
+        $xp_progress_percent = round(($xp_gained / $xp_needed) * 100);
+    }
+}
+
+// Timer Calculations for Next Turn
+$now = new DateTime('now', new DateTimeZone('UTC'));
 $turn_interval_minutes = 10;
 $last_updated = new DateTime($user_stats['last_updated'], new DateTimeZone('UTC'));
-$now = new DateTime('now', new DateTimeZone('UTC'));
-$time_since_last_update = $now->getTimestamp() - $last_updated->getTimestamp();
-$seconds_into_current_turn = $time_since_last_update % ($turn_interval_minutes * 60);
-$seconds_until_next_turn = ($turn_interval_minutes * 60) - $seconds_into_current_turn;
-if ($seconds_until_next_turn < 0) { $seconds_until_next_turn = 0; }
+$seconds_until_next_turn = ($turn_interval_minutes * 60) - (($now->getTimestamp() - $last_updated->getTimestamp()) % ($turn_interval_minutes * 60));
 $minutes_until_next_turn = floor($seconds_until_next_turn / 60);
 $seconds_remainder = $seconds_until_next_turn % 60;
 
-// --- PAGE IDENTIFICATION ---
-// This variable is used by 'navigation.php' to highlight the correct menu item.
 $active_page = 'levels.php';
 ?>
 <!DOCTYPE html>
@@ -63,9 +122,8 @@ $active_page = 'levels.php';
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Stellar Dominion - Levels</title>
+    <title>Stellar Dominion - Commander Level</title>
     <script src="https://cdn.tailwindcss.com"></script>
-    <script src="https://unpkg.com/lucide@latest"></script>
     <link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@700&family=Roboto:wght@400;500;700&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="assets/css/style.css">
 </head>
@@ -74,107 +132,118 @@ $active_page = 'levels.php';
         <div class="container mx-auto p-4 md:p-8">
 
             <?php include_once __DIR__ . '/../includes/navigation.php'; ?>
-
+            
             <div class="grid grid-cols-1 lg:grid-cols-4 gap-4 p-4">
                 <aside class="lg:col-span-1 space-y-4">
-            <?php 
-                $user_xp = $user_stats['experience'];
-                $user_level = $user_stats['level'];
-                include_once __DIR__ . '/../includes/advisor.php'; 
-            ?>
+                    <?php include_once __DIR__ . '/../includes/advisor.php'; ?>
                     <div class="content-box rounded-lg p-4">
+                        <h3 class="font-title text-cyan-400 border-b border-gray-600 pb-2 mb-3">Level Progress</h3>
+                        <div class="w-full bg-gray-700 rounded-full h-4 my-2">
+                            <div class="bg-cyan-500 h-4 rounded-full" style="width: <?php echo $xp_progress_percent; ?>%"></div>
+                        </div>
+                        <p class="text-sm text-center"><?php echo number_format($user_stats['experience']); ?> / <?php echo is_numeric($xp_for_next_level) ? number_format($xp_for_next_level) : 'N/A'; ?> XP</p>
+                    </div>
+                     <div class="content-box rounded-lg p-4">
                         <h3 class="font-title text-cyan-400 border-b border-gray-600 pb-2 mb-3">Stats</h3>
                         <ul class="space-y-2 text-sm">
                             <li class="flex justify-between"><span>Credits:</span> <span class="text-white font-semibold"><?php echo number_format($user_stats['credits']); ?></span></li>
-                            <li class="flex justify-between"><span>Untrained Citizens:</span> <span class="text-white font-semibold"><?php echo number_format($user_stats['untrained_citizens']); ?></span></li>
+                            <li class="flex justify-between"><span>Citizens:</span> <span class="text-white font-semibold"><?php echo number_format($user_stats['untrained_citizens']); ?></span></li>
                             <li class="flex justify-between"><span>Level:</span> <span class="text-white font-semibold"><?php echo $user_stats['level']; ?></span></li>
                             <li class="flex justify-between"><span>Attack Turns:</span> <span class="text-white font-semibold"><?php echo $user_stats['attack_turns']; ?></span></li>
                             <li class="flex justify-between border-t border-gray-600 pt-2 mt-2">
                                 <span>Next Turn In:</span>
-                                <span id="next-turn-timer" class="text-cyan-300 font-bold" data-seconds-until-next-turn="<?php echo $seconds_until_next_turn; ?>">
-                                    <?php echo sprintf('%02d:%02d', $minutes_until_next_turn, $seconds_remainder); ?>
-                                </span>
-                            </li>
-                            <li class="flex justify-between">
-                                <span>Dominion Time:</span>
-                                <span id="dominion-time" class="text-white font-semibold" data-hours="<?php echo $now->format('H'); ?>" data-minutes="<?php echo $now->format('i'); ?>" data-seconds="<?php echo $now->format('s'); ?>">
-                                    <?php echo $now->format('H:i:s'); ?>
-                                </span>
+                                <span id="next-turn-timer" class="text-cyan-300 font-bold" data-seconds-until-next-turn="<?php echo $seconds_until_next_turn; ?>"><?php echo sprintf('%02d:%02d', $minutes_until_next_turn, $seconds_remainder); ?></span>
                             </li>
                         </ul>
                     </div>
                 </aside>
-
-                <main class="lg:col-span-3">
-                    <?php if(isset($_SESSION['level_up_message'])): ?>
-                        <div class="bg-cyan-900 border border-cyan-500/50 text-cyan-300 p-3 rounded-md text-center mb-4">
-                            <?php echo htmlspecialchars($_SESSION['level_up_message']); unset($_SESSION['level_up_message']); ?>
+                
+                <main class="lg:col-span-3 space-y-4">
+                    <?php if(isset($_SESSION['level_message'])): ?>
+                        <div class="bg-cyan-900 border border-cyan-500/50 text-cyan-300 p-3 rounded-md text-center">
+                            <?php echo htmlspecialchars($_SESSION['level_message']); unset($_SESSION['level_message']); ?>
                         </div>
                     <?php endif; ?>
-                    <?php if(isset($_SESSION['level_up_error'])): ?>
-                        <div class="bg-red-900 border border-red-500/50 text-red-300 p-3 rounded-md text-center mb-4">
-                            <?php echo htmlspecialchars($_SESSION['level_up_error']); unset($_SESSION['level_up_error']); ?>
+                    <?php if(isset($_SESSION['level_error'])): ?>
+                         <div class="bg-red-900 border border-red-500/50 text-red-300 p-3 rounded-md text-center">
+                            <?php echo htmlspecialchars($_SESSION['level_error']); unset($_SESSION['level_error']); ?>
                         </div>
                     <?php endif; ?>
 
-                    <form action="src/Controllers/LevelUpController.php" method="POST" class="space-y-4">
-                        <input type="hidden" name="csrf_token" value="<?php echo htmlspecialchars($csrf_token, ENT_QUOTES, 'UTF-8'); ?>">
-                        <div class="content-box rounded-lg p-4 text-center">
-                            <p>You currently have <span id="available-points" class="font-bold text-cyan-300 text-lg"><?php echo $user_stats['level_up_points']; ?></span> proficiency points available.</p>
+                    <form action="" method="POST">
+                        <?php echo csrf_token_field('spend_points'); ?>
+                        <div class="content-box rounded-lg p-4">
+                            <p class="text-center text-lg">You currently have <span class="font-bold text-cyan-400"><?php echo $user_stats['level_up_points']; ?></span> proficiency points available.</p>
                         </div>
-                        <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                        
+                        <div class="grid grid-cols-1 md:grid-cols-2 gap-4 mt-4">
+                            <!-- Strength -->
                             <div class="content-box rounded-lg p-4">
-                                <h3 class="font-title text-white">Strength (Offense)</h3>
-                                <p class="text-sm">Current Bonus: <span class="font-bold text-cyan-300"><?php echo $user_stats['strength_points']; ?>%</span></p>
-                                <div class="flex items-center space-x-2 mt-2">
-                                    <label class="text-sm">Add:</label>
-                                    <input type="number" name="strength_points" min="0" value="0" class="bg-gray-900 border border-gray-600 rounded-md w-20 text-center p-1 point-input">
-                                </div>
+                                <h3 class="font-title text-lg text-red-400">Strength (Offense)</h3>
+                                <p class="text-sm">Current Bonus: <?php echo $user_stats['strength_points']; ?>%</p>
+                                <label for="strength" class="block text-xs mt-2">Add:</label>
+                                <input type="number" name="strength" min="0" value="0" class="w-full bg-gray-900/50 border border-gray-700 rounded-lg px-2 py-1 text-white focus:outline-none focus:ring-1 focus:ring-cyan-500">
                             </div>
+                            <!-- Constitution -->
                             <div class="content-box rounded-lg p-4">
-                                <h3 class="font-title text-white">Constitution (Defense)</h3>
-                                <p class="text-sm">Current Bonus: <span class="font-bold text-cyan-300"><?php echo $user_stats['constitution_points']; ?>%</span></p>
-                                <div class="flex items-center space-x-2 mt-2">
-                                    <label class="text-sm">Add:</label>
-                                    <input type="number" name="constitution_points" min="0" value="0" class="bg-gray-900 border border-gray-600 rounded-md w-20 text-center p-1 point-input">
-                                </div>
+                                <h3 class="font-title text-lg text-green-400">Constitution (Defense)</h3>
+                                <p class="text-sm">Current Bonus: <?php echo $user_stats['constitution_points']; ?>%</p>
+                                <label for="constitution" class="block text-xs mt-2">Add:</label>
+                                <input type="number" name="constitution" min="0" value="0" class="w-full bg-gray-900/50 border border-gray-700 rounded-lg px-2 py-1 text-white focus:outline-none focus:ring-1 focus:ring-cyan-500">
                             </div>
+                            <!-- Wealth -->
                             <div class="content-box rounded-lg p-4">
-                                <h3 class="font-title text-white">Wealth (Income)</h3>
-                                <p class="text-sm">Current Bonus: <span class="font-bold text-cyan-300"><?php echo $user_stats['wealth_points']; ?>%</span></p>
-                                <div class="flex items-center space-x-2 mt-2">
-                                    <label class="text-sm">Add:</label>
-                                    <input type="number" name="wealth_points" min="0" value="0" class="bg-gray-900 border border-gray-600 rounded-md w-20 text-center p-1 point-input">
-                                </div>
+                                <h3 class="font-title text-lg text-yellow-400">Wealth (Income)</h3>
+                                <p class="text-sm">Current Bonus: <?php echo $user_stats['wealth_points']; ?>%</p>
+                                <label for="wealth" class="block text-xs mt-2">Add:</label>
+                                <input type="number" name="wealth" min="0" value="0" class="w-full bg-gray-900/50 border border-gray-700 rounded-lg px-2 py-1 text-white focus:outline-none focus:ring-1 focus:ring-cyan-500">
                             </div>
+                            <!-- Dexterity -->
                             <div class="content-box rounded-lg p-4">
-                                <h3 class="font-title text-white">Dexterity (Sentry/Spy)</h3>
-                                <p class="text-sm">Current Bonus: <span class="font-bold text-cyan-300"><?php echo $user_stats['dexterity_points']; ?>%</span></p>
-                                <div class="flex items-center space-x-2 mt-2">
-                                    <label class="text-sm">Add:</label>
-                                    <input type="number" name="dexterity_points" min="0" value="0" class="bg-gray-900 border border-gray-600 rounded-md w-20 text-center p-1 point-input">
-                                </div>
+                                <h3 class="font-title text-lg text-blue-400">Dexterity (Sentry/Spy)</h3>
+                                <p class="text-sm">Current Bonus: <?php echo $user_stats['dexterity_points']; ?>%</p>
+                                <label for="dexterity" class="block text-xs mt-2">Add:</label>
+                                <input type="number" name="dexterity" min="0" value="0" class="w-full bg-gray-900/50 border border-gray-700 rounded-lg px-2 py-1 text-white focus:outline-none focus:ring-1 focus:ring-cyan-500">
                             </div>
-                            <div class="content-box rounded-lg p-4">
-                                <h3 class="font-title text-white">Charisma (Reduced Prices)</h3>
-                                <p class="text-sm">Current Bonus: <span class="font-bold text-cyan-300"><?php echo $user_stats['charisma_points']; ?>%</span></p>
-                                <div class="flex items-center space-x-2 mt-2">
-                                    <label class="text-sm">Add:</label>
-                                    <input type="number" name="charisma_points" min="0" value="0" class="bg-gray-900 border border-gray-600 rounded-md w-20 text-center p-1 point-input">
-                                </div>
+                            <!-- Charisma -->
+                            <div class="content-box rounded-lg p-4 md:col-span-2">
+                                <h3 class="font-title text-lg text-purple-400">Charisma (Reduced Prices)</h3>
+                                <p class="text-sm">Current Bonus: <?php echo $user_stats['charisma_points']; ?>%</p>
+                                <label for="charisma" class="block text-xs mt-2">Add:</label>
+                                <input type="number" name="charisma" min="0" value="0" class="w-full bg-gray-900/50 border border-gray-700 rounded-lg px-2 py-1 text-white focus:outline-none focus:ring-1 focus:ring-cyan-500">
                             </div>
                         </div>
-                        <div class="content-box rounded-lg p-4 flex justify-between items-center mt-4">
-                            <div>
-                                <p>Total Points to Spend: <span id="total-spent" class="font-bold text-white">0</span></p>
-                            </div>
-                            <button type="submit" class="bg-cyan-600 hover:bg-cyan-700 text-white font-bold py-3 px-8 rounded-lg transition-colors">Spend Points</button>
+
+                        <div class="content-box rounded-lg p-4 mt-4 flex justify-between items-center">
+                            <p>Total Points to Spend: <span id="total-to-spend" class="font-bold text-white">0</span></p>
+                            <button type="submit" name="action" value="spend_points" class="bg-blue-600 hover:bg-blue-700 text-white font-bold py-2 px-4 rounded-lg <?php if($user_stats['level_up_points'] < 1) echo 'opacity-50 cursor-not-allowed'; ?>" <?php if($user_stats['level_up_points'] < 1) echo 'disabled'; ?>>
+                                Spend Points
+                            </button>
                         </div>
                     </form>
                 </main>
             </div>
-            </div> </div>
+
+        </div>
     </div>
-    <script src="assets/js/main.js" defer></script>
+    <script>
+        // JavaScript to calculate total points to spend in real-time
+        document.addEventListener('DOMContentLoaded', function() {
+            const inputs = document.querySelectorAll('input[type="number"][name^="strength"], input[type="number"][name^="constitution"], input[type="number"][name^="wealth"], input[type="number"][name^="dexterity"], input[type="number"][name^="charisma"]');
+            const totalDisplay = document.getElementById('total-to-spend');
+            
+            function updateTotal() {
+                let total = 0;
+                inputs.forEach(input => {
+                    total += parseInt(input.value) || 0;
+                });
+                totalDisplay.textContent = total;
+            }
+
+            inputs.forEach(input => {
+                input.addEventListener('input', updateTotal);
+            });
+        });
+    </script>
 </body>
 </html>
