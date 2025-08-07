@@ -7,7 +7,7 @@
  *
  * @return string The generated CSRF token.
  */
-function generateCsrfToken()
+function generate_csrf_token()
 {
     if (empty($_SESSION['csrf_token'])) {
         $_SESSION['csrf_token'] = bin2hex(random_bytes(32));
@@ -21,7 +21,7 @@ function generateCsrfToken()
  * @param string $token The CSRF token to validate.
  * @return bool True if the token is valid, false otherwise.
  */
-function validateCsrfToken($token)
+function validate_csrf_token($token)
 {
     return isset($_SESSION['csrf_token']) && hash_equals($_SESSION['csrf_token'], $token);
 }
