@@ -1,6 +1,15 @@
 <?php
-//session_start();
+if (session_status() == PHP_SESSION_NONE) {
+    session_start();
+}
 if (!isset($_SESSION["loggedin"]) || $_SESSION["loggedin"] !== true) { header("location: index.html"); exit; }
+
+require_once __DIR__ . '/../../config/config.php';
+require_once __DIR__ . '/../../config/security.php'; // Include for CSRF functions
+
+// Generate a CSRF token for the form
+$csrf_token = generate_csrf_token();
+
 $active_page = 'alliance.php';
 ?>
 <!DOCTYPE html>
@@ -24,7 +33,8 @@ $active_page = 'alliance.php';
             </div>
         <?php endif; ?>
         <p class="text-sm mb-4">Founding a new alliance requires a significant investment of <span class="text-white font-bold">1,000,000 Credits</span>. Choose your name and tag wisely, Commander.</p>
-        <form action="lib/alliance_actions.php" method="POST" class="space-y-4">
+        <form action="src/Controllers/AllianceController.php" method="POST" class="space-y-4">
+            <input type="hidden" name="csrf_token" value="<?php echo htmlspecialchars($csrf_token, ENT_QUOTES, 'UTF-8'); ?>">
             <input type="hidden" name="action" value="create">
             <div>
                 <label for="alliance_name" class="font-semibold text-white">Alliance Name (Max 50 Chars)</label>

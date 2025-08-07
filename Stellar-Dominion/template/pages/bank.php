@@ -1,9 +1,15 @@
 <?php
 // --- SESSION AND DATABASE SETUP ---
-//session_start();
+if (session_status() == PHP_SESSION_NONE) {
+    session_start();
+}
 if(!isset($_SESSION["loggedin"]) || $_SESSION["loggedin"] !== true){ header("location: index.html"); exit; }
 require_once __DIR__ . '/../../config/config.php';
+require_once __DIR__ . '/../../config/security.php'; // Include for CSRF functions
 date_default_timezone_set('UTC');
+
+// Generate a CSRF token for the forms
+$csrf_token = generate_csrf_token();
 
 $user_id = $_SESSION['id'];
 $now = new DateTime('now', new DateTimeZone('UTC'));
@@ -122,7 +128,8 @@ $active_page = 'bank.php';
                     </div>
 
                     <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
-                        <form action="lib/process_banking.php" method="POST" class="content-box rounded-lg p-4 space-y-3">
+                        <form action="src/Controllers/BankController.php" method="POST" class="content-box rounded-lg p-4 space-y-3">
+                            <input type="hidden" name="csrf_token" value="<?php echo htmlspecialchars($csrf_token, ENT_QUOTES, 'UTF-8'); ?>">
                             <input type="hidden" name="action" value="deposit">
                             <h4 class="font-title text-white">Deposit Credits</h4>
                             <p class="text-xs text-gray-400">You can deposit up to 80% of your credits on hand.</p>
@@ -133,7 +140,8 @@ $active_page = 'bank.php';
                             <button type="submit" class="w-full bg-green-600 hover:bg-green-700 text-white font-bold py-2 rounded-lg">Deposit</button>
                         </form>
 
-                        <form action="lib/process_banking.php" method="POST" class="content-box rounded-lg p-4 space-y-3">
+                        <form action="src/Controllers/BankController.php" method="POST" class="content-box rounded-lg p-4 space-y-3">
+                            <input type="hidden" name="csrf_token" value="<?php echo htmlspecialchars($csrf_token, ENT_QUOTES, 'UTF-8'); ?>">
                             <input type="hidden" name="action" value="withdraw">
                             <h4 class="font-title text-white">Withdraw Credits</h4>
                             <p class="text-xs text-gray-400">Withdraw credits to use them for purchases.</p>

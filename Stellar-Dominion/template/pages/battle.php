@@ -7,11 +7,17 @@
  */
 
 // --- SESSION AND DATABASE SETUP ---
-//session_start();
+if (session_status() == PHP_SESSION_NONE) {
+    session_start();
+}
 if(!isset($_SESSION["loggedin"]) || $_SESSION["loggedin"] !== true){ header("location: index.html"); exit; }
 require_once __DIR__ . '/../../config/config.php';
+require_once __DIR__ . '/../../config/security.php'; // Include for CSRF functions
 require_once __DIR__ . '/../../src/Game/GameData.php'; // Added for access to $upgrades array
 date_default_timezone_set('UTC');
+
+// Generate a CSRF token for the forms
+$csrf_token = generate_csrf_token();
 
 $user_id = $_SESSION['id'];
 
@@ -147,7 +153,8 @@ $current_tab = isset($_GET['tab']) && $_GET['tab'] === 'disband' ? 'disband' : '
                     </div>
 
                     <div id="train-tab-content" class="<?php if ($current_tab !== 'train') echo 'hidden'; ?>">
-                        <form id="train-form" action="lib/train.php" method="POST" class="space-y-4" data-charisma-discount="<?php echo $charisma_discount; ?>">
+                        <form id="train-form" action="src/Controllers/TrainingController.php" method="POST" class="space-y-4" data-charisma-discount="<?php echo $charisma_discount; ?>">
+                            <input type="hidden" name="csrf_token" value="<?php echo htmlspecialchars($csrf_token, ENT_QUOTES, 'UTF-8'); ?>">
                             <input type="hidden" name="action" value="train">
                             <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
                                 <?php foreach($unit_costs as $unit => $cost): 
@@ -177,7 +184,8 @@ $current_tab = isset($_GET['tab']) && $_GET['tab'] === 'disband' ? 'disband' : '
                     </div>
                     
                     <div id="disband-tab-content" class="<?php if ($current_tab !== 'disband') echo 'hidden'; ?>">
-                        <form id="disband-form" action="lib/untrain.php" method="POST" class="space-y-4">
+                        <form id="disband-form" action="src/Controllers/TrainingController.php" method="POST" class="space-y-4">
+                             <input type="hidden" name="csrf_token" value="<?php echo htmlspecialchars($csrf_token, ENT_QUOTES, 'UTF-8'); ?>">
                              <input type="hidden" name="action" value="disband">
                              <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
                                 <?php foreach($unit_costs as $unit => $cost): ?>

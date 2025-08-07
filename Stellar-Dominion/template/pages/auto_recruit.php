@@ -1,8 +1,16 @@
 <?php
 // --- SETUP ---
+if (session_status() == PHP_SESSION_NONE) {
+    session_start();
+}
 if(!isset($_SESSION["loggedin"]) || $_SESSION["loggedin"] !== true){ header("location: index.html"); exit; }
 require_once __DIR__ . '/../../config/config.php';
+require_once __DIR__ . '/../../config/security.php'; // Include for CSRF functions
 date_default_timezone_set('UTC');
+
+// Generate a CSRF token for the form
+$csrf_token = generate_csrf_token();
+
 $user_id = $_SESSION['id'];
 $active_page = 'auto_recruit.php';
 $now = new DateTime('now', new DateTimeZone('UTC'));
@@ -101,7 +109,8 @@ $seconds_remainder = $seconds_until_next_turn % 60;
                         <img src="<?php echo htmlspecialchars($target_user['avatar_path'] ?? 'https://via.placeholder.com/150'); ?>" alt="Avatar" class="w-32 h-32 rounded-full border-2 border-gray-600 object-cover mx-auto">
                         <h3 class="font-title text-3xl text-white mt-4"><?php echo htmlspecialchars($target_user['character_name']); ?></h3>
                         <p class="text-lg text-cyan-300">Level: <?php echo $target_user['level']; ?></p>
-                        <form id="recruitForm" action="/lib/recruitment_actions.php" method="POST" class="mt-6">
+                        <form id="recruitForm" action="src/Controllers/RecruitmentController.php" method="POST" class="mt-6">
+                            <input type="hidden" name="csrf_token" value="<?php echo htmlspecialchars($csrf_token, ENT_QUOTES, 'UTF-8'); ?>">
                             <input type="hidden" name="action" value="recruit">
                             <input type="hidden" name="recruited_id" value="<?php echo $target_user['id']; ?>">
                             <input type="hidden" id="autoModeInput" name="auto" value="<?php echo isset($_GET['auto']) ? '1' : '0'; ?>">
