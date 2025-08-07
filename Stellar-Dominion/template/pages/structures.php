@@ -7,11 +7,18 @@
  * Now includes a tab for repairing damaged foundations.
  */
 
-// --- SESSION AND DATABASE SETUP ---
+// --- SESSION AND SECURITY SETUP ---
+if (session_status() == PHP_SESSION_NONE) {
+    session_start();
+}
 if(!isset($_SESSION["loggedin"]) || $_SESSION["loggedin"] !== true){ header("location: index.html"); exit; }
 require_once __DIR__ . '/../../config/config.php';
+require_once __DIR__ . '/../../config/security.php'; // Include for CSRF functions
 require_once __DIR__ . '/../../src/Game/GameData.php';
 date_default_timezone_set('UTC');
+
+// Generate a CSRF token to be used in all forms on this page.
+$_SESSION['csrf_token'] = generate_csrf_token();
 
 $user_id = $_SESSION['id'];
 
@@ -134,8 +141,9 @@ $current_page = isset($_GET['page']) ? (int)$_GET['page'] : 1;
                                 
                                 <p class="mb-4 text-lg">Total Repair Cost: <span class="font-bold text-yellow-300"><?php echo number_format($repair_cost); ?> Credits</span></p>
                                 
-                                <form action="lib/perform_upgrade.php" method="POST">
+                                <form action="/src/Controllers/StructureController.php" method="POST">
                                     <input type="hidden" name="action" value="repair_structure">
+                                    <input type="hidden" name="csrf_token" value="<?php echo htmlspecialchars($_SESSION['csrf_token']); ?>">
                                     <button type="submit" class="bg-green-600 hover:bg-green-700 text-white font-bold py-3 px-8 rounded-lg disabled:bg-gray-600 disabled:cursor-not-allowed" <?php if ($user_stats['credits'] < $repair_cost || $current_hp >= $max_hp) echo 'disabled'; ?>>
                                         <?php 
                                             if ($current_hp >= $max_hp) echo 'Fully Repaired';
@@ -147,8 +155,8 @@ $current_page = isset($_GET['page']) ? (int)$_GET['page'] : 1;
                             </div>
                         <?php } else { ?>
                              <div class="content-box rounded-lg p-6 text-center">
-                                <p>You do not have any foundations built yet. Visit the 'Empire Foundations' tab to begin.</p>
-                            </div>
+                                 <p>You do not have any foundations built yet. Visit the 'Empire Foundations' tab to begin.</p>
+                             </div>
                         <?php } ?>
                         <?php else: 
                             $category = $upgrades[$current_tab];
@@ -194,8 +202,9 @@ $current_page = isset($_GET['page']) ? (int)$_GET['page'] : 1;
                                                 if ($user_upgrade_level >= $level) {
                                                     echo '<span class="font-bold text-green-400">Owned</span>';
                                                     if ($user_upgrade_level == $level) {
-                                                        echo '<form action="lib/perform_upgrade.php" method="POST" class="inline ml-2" onsubmit="return confirm(\'Are you sure you want to sell this structure for a partial refund?\');">';
+                                                        echo '<form action="/src/Controllers/StructureController.php" method="POST" class="inline ml-2" onsubmit="return confirm(\'Are you sure you want to sell this structure for a partial refund?\');">';
                                                         echo '<input type="hidden" name="action" value="sell_structure">';
+                                                        echo '<input type="hidden" name="csrf_token" value="' . htmlspecialchars($_SESSION['csrf_token']) . '">';
                                                         echo '<input type="hidden" name="upgrade_type" value="' . $current_tab . '">';
                                                         echo '<input type="hidden" name="target_level" value="' . $level . '">';
                                                         echo '<button type="submit" class="bg-red-800 hover:bg-red-700 text-white font-bold py-1 px-3 rounded-md text-xs">Sell</button>';
@@ -214,8 +223,9 @@ $current_page = isset($_GET['page']) ? (int)$_GET['page'] : 1;
                                                     if ($user_stats['credits'] < $details['cost']) $can_build = false;
                                                     
                                                     if ($can_build) {
-                                                        echo '<form action="lib/perform_upgrade.php" method="POST">';
+                                                        echo '<form action="/src/Controllers/StructureController.php" method="POST">';
                                                         echo '<input type="hidden" name="action" value="purchase_structure">';
+                                                        echo '<input type="hidden" name="csrf_token" value="' . htmlspecialchars($_SESSION['csrf_token']) . '">';
                                                         echo '<input type="hidden" name="upgrade_type" value="' . $current_tab . '">';
                                                         echo '<input type="hidden" name="target_level" value="' . $level . '">';
                                                         echo '<button type="submit" class="bg-cyan-600 hover:bg-cyan-700 text-white font-bold py-1 px-3 rounded-md text-xs">Build</button>';

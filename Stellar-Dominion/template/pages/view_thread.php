@@ -1,5 +1,8 @@
 <?php
-//session_start();
+// --- SESSION AND SECURITY SETUP ---
+if (session_status() == PHP_SESSION_NONE) {
+    session_start();
+}
 if (!isset($_SESSION["loggedin"]) || $_SESSION["loggedin"] !== true) { header("location: index.html"); exit; }
 require_once __DIR__ . '/../../config/config.php';
 require_once __DIR__ . '/../../config/security.php'; // Include for CSRF functions

@@ -1,8 +1,14 @@
 <?php
-// --- SESSION AND DATABASE SETUP ---
-//session_start();
+// --- SESSION AND SECURITY SETUP ---
+if (session_status() == PHP_SESSION_NONE) {
+    session_start();
+}
 require_once __DIR__ . '/../../config/config.php';
+require_once __DIR__ . '/../../config/security.php'; // Include for CSRF functions
 date_default_timezone_set('UTC');
+
+// Generate the CSRF token for the form.
+$_SESSION['csrf_token'] = generate_csrf_token();
 
 $is_logged_in = isset($_SESSION["loggedin"]) && $_SESSION["loggedin"] === true;
 $viewer_id = $is_logged_in ? $_SESSION['id'] : 0;
@@ -49,7 +55,6 @@ $can_attack = $is_logged_in && ($viewer_id != $profile_id) && !$is_same_alliance
 $minutes_until_next_turn = 0;
 $seconds_remainder = 0;
 $now = new DateTime('now', new DateTimeZone('UTC'));
-// **FIX:** Added a check for !empty($viewer_data['last_updated'])
 if($viewer_data && !empty($viewer_data['last_updated'])) {
     $turn_interval_minutes = 10;
     $last_updated = new DateTime($viewer_data['last_updated'], new DateTimeZone('UTC'));
@@ -104,7 +109,6 @@ $active_page = 'attack.php'; // Keep the 'BATTLE' main nav active
 
                 <main class="<?php echo $is_logged_in ? 'lg:col-span-3' : 'col-span-1'; ?> space-y-6">
                     <?php 
-                        // --- START: NEW LOGIC FOR ACTION BOX ---
                         if ($is_logged_in && $viewer_id != $profile_id) {
                             if ($is_same_alliance) {
                     ?>
@@ -120,8 +124,11 @@ $active_page = 'attack.php'; // Keep the 'BATTLE' main nav active
                     ?>
                                 <div class="content-box rounded-lg p-4 bg-red-900/20 border-red-500/50">
                                     <h3 class="font-title text-lg text-red-400">Engage Target</h3>
-                                    <form action="/lib/process_attack.php" method="POST" class="flex items-center justify-between mt-2">
+                                    <form action="/src/Controllers/AttackController.php" method="POST" class="flex items-center justify-between mt-2">
+                                        <input type="hidden" name="action" value="attack">
                                         <input type="hidden" name="defender_id" value="<?php echo $profile_data['id']; ?>">
+                                        <!-- CSRF Token Added -->
+                                        <input type="hidden" name="csrf_token" value="<?php echo htmlspecialchars($_SESSION['csrf_token']); ?>">
                                         <div class="text-sm">
                                             <label for="attack_turns" class="font-semibold text-white">Attack Turns (1-10):</label>
                                             <input type="number" id="attack_turns" name="attack_turns" min="1" max="10" value="1" class="bg-gray-900 border border-gray-600 rounded-md w-20 text-center p-1 ml-2">
@@ -132,7 +139,6 @@ $active_page = 'attack.php'; // Keep the 'BATTLE' main nav active
                     <?php
                             }
                         }
-                        // --- END: NEW LOGIC FOR ACTION BOX ---
                     ?>
 
                     <div class="content-box rounded-lg p-6">
