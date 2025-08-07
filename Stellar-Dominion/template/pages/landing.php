@@ -3,9 +3,9 @@
 if (session_status() == PHP_SESSION_NONE) {
     session_start();
 }
-require_once __DIR__ . '/../../config/security.php'; // Include for CSRF functions
-
-// Generate the CSRF token for the forms.
+// The security file is now included via the main index.php router,
+// but we still need to generate the token here for the forms on this page.
+// Assuming the router makes the function available.
 $_SESSION['csrf_token'] = generate_csrf_token();
 
 $page_title = 'A New Era of Idle Sci-Fi RPG';
@@ -46,7 +46,7 @@ include_once __DIR__ . '/../includes/public_header.php';
                 <button id="showRegisterBtn" class="flex-1 py-2 text-lg font-title text-cyan-400 hover:text-white focus:outline-none focus:border-b-2 focus:border-cyan-400">Register</button>
             </div>
 
-            <form id="loginForm" action="/src/Controllers/AuthController.php" method="POST" class="space-y-6">
+            <form id="loginForm" action="/auth.php" method="POST" class="space-y-6">
                 <input type="hidden" name="action" value="login">
                 <!-- CSRF Token Added -->
                 <input type="hidden" name="csrf_token" value="<?php echo htmlspecialchars($_SESSION['csrf_token']); ?>">
@@ -59,7 +59,7 @@ include_once __DIR__ . '/../includes/public_header.php';
                     </div>
             </form>
 
-            <form id="registerForm" action="/src/Controllers/AuthController.php" method="POST" class="hidden space-y-4">
+            <form id="registerForm" action="/auth.php" method="POST" class="hidden space-y-4">
                 <input type="hidden" name="action" value="register">
                 <!-- CSRF Token Added -->
                 <input type="hidden" name="csrf_token" value="<?php echo htmlspecialchars($_SESSION['csrf_token']); ?>">
