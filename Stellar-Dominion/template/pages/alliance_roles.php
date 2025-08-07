@@ -1,8 +1,15 @@
 <?php
 // alliance_roles.php
-//session_start();
+if (session_status() == PHP_SESSION_NONE) {
+    session_start();
+}
 if (!isset($_SESSION["loggedin"]) || $_SESSION["loggedin"] !== true) { header("location: index.html"); exit; }
 require_once __DIR__ . '/../../config/config.php';
+require_once __DIR__ . '/../../config/security.php'; // Include for CSRF functions
+
+// Generate a single CSRF token for all forms on this page
+$csrf_token = generate_csrf_token();
+
 $user_id = $_SESSION['id'];
 $active_page = 'alliance_roles.php';
 
@@ -72,7 +79,8 @@ mysqli_close($link);
 
                 <div class="space-y-4">
                     <?php foreach($roles as $role): ?>
-                        <form action="lib/alliance_actions.php" method="POST" class="bg-gray-800 p-4 rounded-lg">
+                        <form action="src/Controllers/AllianceController.php" method="POST" class="bg-gray-800 p-4 rounded-lg">
+                            <input type="hidden" name="csrf_token" value="<?php echo htmlspecialchars($csrf_token, ENT_QUOTES, 'UTF-8'); ?>">
                             <input type="hidden" name="role_id" value="<?php echo $role['id']; ?>">
                             <div class="grid grid-cols-1 md:grid-cols-3 gap-4 items-center">
                                 <div class="md:col-span-1">
@@ -106,7 +114,8 @@ mysqli_close($link);
                 <hr class="border-gray-600 my-6">
 
                 <h2 class="font-title text-2xl text-cyan-400 mb-3">Create New Role</h2>
-                <form action="lib/alliance_actions.php" method="POST" class="bg-gray-800 p-4 rounded-lg">
+                <form action="src/Controllers/AllianceController.php" method="POST" class="bg-gray-800 p-4 rounded-lg">
+                    <input type="hidden" name="csrf_token" value="<?php echo htmlspecialchars($csrf_token, ENT_QUOTES, 'UTF-8'); ?>">
                     <input type="hidden" name="action" value="create_role">
                     <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
                         <div>

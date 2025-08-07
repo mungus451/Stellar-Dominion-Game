@@ -1,8 +1,16 @@
 <?php
 // alliance.php
-//session_start();
+if (session_status() == PHP_SESSION_NONE) {
+    session_start();
+}
 if (!isset($_SESSION["loggedin"]) || $_SESSION["loggedin"] !== true) { header("location: index.html"); exit; }
-require_once __DIR__ . '/../../config/config.php';$user_id = $_SESSION['id'];
+require_once __DIR__ . '/../../config/config.php';
+require_once __DIR__ . '/../../config/security.php'; // Include for CSRF functions
+
+// Generate a single CSRF token for all forms on this page
+$csrf_token = generate_csrf_token();
+
+$user_id = $_SESSION['id'];
 $active_page = 'alliance.php';
 
 // Fetch user's alliance status and role permissions
@@ -133,7 +141,8 @@ mysqli_close($link);
                         <?php if ($user_permissions['can_edit_profile']): ?>
                             <a href="edit_alliance.php" class="bg-blue-600 hover:bg-blue-700 text-white font-bold py-2 px-4 rounded-lg text-sm">Edit Profile</a>
                         <?php endif; ?>
-                        <form action="lib/alliance_actions.php" method="POST" onsubmit="return confirm('Are you sure you want to leave this alliance?');">
+                        <form action="src/Controllers/AllianceController.php" method="POST" onsubmit="return confirm('Are you sure you want to leave this alliance?');">
+                            <input type="hidden" name="csrf_token" value="<?php echo htmlspecialchars($csrf_token, ENT_QUOTES, 'UTF-8'); ?>">
                             <input type="hidden" name="action" value="leave">
                             <button type="submit" class="bg-red-600 hover:bg-red-700 text-white font-bold py-2 px-4 rounded-lg text-sm">Leave Alliance</button>
                         </form>
@@ -173,7 +182,8 @@ mysqli_close($link);
                                     <td class="p-2"><?php echo (time() - strtotime($member['last_updated']) < 900) ? '<span class="text-green-400">Online</span>' : '<span class="text-gray-500">Offline</span>'; ?></td>
                                     <?php if ($user_permissions['can_kick_members'] && $member['id'] !== $user_id && $alliance['leader_id'] != $member['id']): ?>
                                         <td class="p-2 text-right">
-                                            <form action="lib/alliance_actions.php" method="POST" class="inline-flex items-center space-x-2">
+                                            <form action="src/Controllers/AllianceController.php" method="POST" class="inline-flex items-center space-x-2">
+                                                <input type="hidden" name="csrf_token" value="<?php echo htmlspecialchars($csrf_token, ENT_QUOTES, 'UTF-8'); ?>">
                                                 <input type="hidden" name="member_id" value="<?php echo $member['id']; ?>">
                                                 <select name="role_id" class="bg-gray-900 border border-gray-600 rounded-md p-1 text-xs">
                                                     <?php foreach($roles as $role): ?>
@@ -210,12 +220,14 @@ mysqli_close($link);
                                         <td class="p-2"><?php echo $app['level']; ?></td>
                                         <td class="p-2"><?php echo number_format($app['net_worth']); ?></td>
                                         <td class="p-2 text-right">
-                                            <form action="lib/alliance_actions.php" method="POST" class="inline-block">
+                                            <form action="src/Controllers/AllianceController.php" method="POST" class="inline-block">
+                                                <input type="hidden" name="csrf_token" value="<?php echo htmlspecialchars($csrf_token, ENT_QUOTES, 'UTF-8'); ?>">
                                                 <input type="hidden" name="application_id" value="<?php echo $app['id']; ?>">
                                                 <button type="submit" name="action" value="approve_application" class="text-green-400 hover:text-green-300 text-xs font-bold">Approve</button>
                                             </form>
                                             <span class="text-gray-600 mx-1">|</span>
-                                            <form action="lib/alliance_actions.php" method="POST" class="inline-block">
+                                            <form action="src/Controllers/AllianceController.php" method="POST" class="inline-block">
+                                                <input type="hidden" name="csrf_token" value="<?php echo htmlspecialchars($csrf_token, ENT_QUOTES, 'UTF-8'); ?>">
                                                 <input type="hidden" name="application_id" value="<?php echo $app['id']; ?>">
                                                 <button type="submit" name="action" value="deny_application" class="text-red-400 hover:text-red-300 text-xs font-bold">Deny</button>
                                             </form>
@@ -249,7 +261,8 @@ mysqli_close($link);
                                     <?php elseif($row['member_count'] >= 100): ?>
                                         <span class="text-red-400 text-xs italic">Full</span>
                                     <?php else: ?>
-                                        <form action="lib/alliance_actions.php" method="POST">
+                                        <form action="src/Controllers/AllianceController.php" method="POST">
+                                            <input type="hidden" name="csrf_token" value="<?php echo htmlspecialchars($csrf_token, ENT_QUOTES, 'UTF-8'); ?>">
                                             <input type="hidden" name="action" value="apply_to_alliance">
                                             <input type="hidden" name="alliance_id" value="<?php echo $row['id']; ?>">
                                             <button type="submit" class="bg-cyan-600 hover:bg-cyan-700 text-white font-bold py-1 px-3 rounded-md text-xs">Apply</button>

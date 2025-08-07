@@ -1,9 +1,15 @@
 <?php
-//session_start();
+if (session_status() == PHP_SESSION_NONE) {
+    session_start();
+}
 if (!isset($_SESSION["loggedin"]) || $_SESSION["loggedin"] !== true) { header("location: index.html"); exit; }
 
 require_once __DIR__ . '/../../config/config.php';
+require_once __DIR__ . '/../../config/security.php'; // Include for CSRF functions
 require_once __DIR__ . '/../../src/Game/GameData.php'; // Corrected path to GameData
+
+// Generate a CSRF token for the purchase forms
+$csrf_token = generate_csrf_token();
 
 $user_id = $_SESSION['id'];
 $active_page = 'alliance_structures.php'; // Keep main nav category as 'ALLIANCE'
@@ -112,7 +118,8 @@ mysqli_close($link);
                                 <?php if (isset($owned_structures[$key])): ?>
                                     <p class="font-bold text-green-400 text-center py-2">BUILT (Level <?php echo $owned_structures[$key]['level']; ?>)</p>
                                 <?php elseif ($user_permissions['can_manage_structures'] == 1): ?>
-                                    <form action="lib/alliance_actions.php" method="POST" onsubmit="return confirm('Purchase <?php echo htmlspecialchars($structure['name']); ?> for <?php echo number_format($structure['cost']); ?> credits?');">
+                                    <form action="src/Controllers/AllianceController.php" method="POST" onsubmit="return confirm('Purchase <?php echo htmlspecialchars($structure['name']); ?> for <?php echo number_format($structure['cost']); ?> credits?');">
+                                        <input type="hidden" name="csrf_token" value="<?php echo htmlspecialchars($csrf_token, ENT_QUOTES, 'UTF-8'); ?>">
                                         <input type="hidden" name="action" value="purchase_structure">
                                         <input type="hidden" name="structure_key" value="<?php echo $key; ?>">
                                         <button type="submit" class="w-full bg-cyan-600 hover:bg-cyan-700 text-white font-bold py-2 rounded-lg"

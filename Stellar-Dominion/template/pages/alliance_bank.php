@@ -1,8 +1,16 @@
 <?php
-//session_start();
+if (session_status() == PHP_SESSION_NONE) {
+    session_start();
+}
 if (!isset($_SESSION["loggedin"]) || $_SESSION["loggedin"] !== true) { header("location: index.html"); exit; }
 
-require_once __DIR__ . '/../../config/config.php';$user_id = $_SESSION['id'];
+require_once __DIR__ . '/../../config/config.php';
+require_once __DIR__ . '/../../config/security.php'; // Include for CSRF functions
+
+// Generate a CSRF token for the donation form
+$csrf_token = generate_csrf_token();
+
+$user_id = $_SESSION['id'];
 $active_page = 'alliance_bank.php'; // Keep main nav category as 'ALLIANCE'
 $alliance_id = null;
 $alliance = null;
@@ -87,7 +95,8 @@ mysqli_close($link);
             <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
                 <div class="md:col-span-1 content-box rounded-lg p-6">
                     <h3 class="font-title text-xl text-cyan-400 border-b border-gray-600 pb-2 mb-3">Donate Credits</h3>
-                    <form action="lib/alliance_actions.php" method="POST" class="space-y-3">
+                    <form action="src/Controllers/AllianceController.php" method="POST" class="space-y-3">
+                        <input type="hidden" name="csrf_token" value="<?php echo htmlspecialchars($csrf_token, ENT_QUOTES, 'UTF-8'); ?>">
                         <input type="hidden" name="action" value="donate_credits">
                         <div>
                             <label for="donation_amount" class="font-semibold text-white">Amount to Donate</label>
