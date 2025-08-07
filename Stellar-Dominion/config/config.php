@@ -4,40 +4,6 @@ ini_set('display_errors', 1);
 ini_set('display_startup_errors', 1);
 error_reporting(E_ALL);
 
-// --- SERVER PATH DIAGNOSTIC TOOL ---
-// This block will help diagnose if the issue is a file path or a permissions problem.
-// It will stop the script after printing the debug info.
-echo "<h1>Path/Permission Debugging</h1>";
-echo "<hr>";
-
-$projectRoot = dirname(__DIR__);
-$srcDir = $projectRoot . '/src';
-$securityDir = $srcDir . '/Security';
-$loggerFile = $securityDir . '/CSRFLogger.php';
-$protectionFile = $securityDir . '/CSRFProtection.php';
-
-echo "<strong>Project Root Path:</strong> " . $projectRoot . "<br>";
-echo "<strong>Checking 'src' Directory:</strong> " . $srcDir . " -> " . (is_dir($srcDir) ? '<span style="color:green;">Found</span>' : '<span style="color:red;">NOT FOUND</span>') . "<br>";
-echo "<strong>Checking 'Security' Directory:</strong> " . $securityDir . " -> " . (is_dir($securityDir) ? '<span style="color:green;">Found</span>' : '<span style="color:red;">NOT FOUND</span>') . "<br>";
-echo "<hr>";
-echo "<strong>Checking Logger File:</strong> " . $loggerFile . "<br>";
-echo " - File Exists? -> " . (file_exists($loggerFile) ? '<span style="color:green;">Yes</span>' : '<span style="color:red;">No</span>') . "<br>";
-if (file_exists($loggerFile)) {
-    echo " - Is Readable? -> " . (is_readable($loggerFile) ? '<span style="color:green;">Yes</span>' : '<span style="color:red;">No (Check Permissions!)</span>') . "<br>";
-}
-echo "<br>";
-echo "<strong>Checking Protection File:</strong> " . $protectionFile . "<br>";
-echo " - File Exists? -> " . (file_exists($protectionFile) ? '<span style="color:green;">Yes</span>' : '<span style="color:red;">No</span>') . "<br>";
-if (file_exists($protectionFile)) {
-    echo " - Is Readable? -> " . (is_readable($protectionFile) ? '<span style="color:green;">Yes</span>' : '<span style="color:red;">No (Check Permissions!)</span>') . "<br>";
-}
-echo "<hr>";
-echo "<strong>Next Steps:</strong> If a directory or file is 'NOT FOUND', check your FTP to ensure it was uploaded to the correct location. If a file is 'Not Readable', you need to change its permissions (CHMOD) on the server, typically to 644.";
-
-die(); // Stop the script here to show debug info. Remove this line after fixing the issue.
-// --- END DIAGNOSTIC TOOL ---
-
-
 // Start the session if it's not already started. This is crucial for CSRF protection.
 if (session_status() == PHP_SESSION_NONE) {
     session_start();
@@ -50,12 +16,12 @@ define('DB_PASSWORD', 'password');
 define('DB_NAME', 'users');
 
 // Define the project root directory based on the location of this config file.
-// This is the most robust method for ensuring correct paths.
 if (!defined('PROJECT_ROOT')) {
     define('PROJECT_ROOT', dirname(__DIR__));
 }
 
-// Include CSRF Protection using the defined PROJECT_ROOT.
+// Include the new, secure CSRF Protection system.
+// We no longer need the old config/security.php file.
 require_once PROJECT_ROOT . '/src/Security/CSRFLogger.php';
 require_once PROJECT_ROOT . '/src/Security/CSRFProtection.php';
 
