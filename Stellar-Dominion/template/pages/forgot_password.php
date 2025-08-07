@@ -5,9 +5,6 @@ if (session_status() == PHP_SESSION_NONE) {
     session_start();
 }
 
-// Include security functions to generate the token.
-require_once __DIR__ . '/../../config/security.php'; 
-
 // Generate and store the CSRF token in the session.
 $_SESSION['csrf_token'] = generate_csrf_token();
 ?>

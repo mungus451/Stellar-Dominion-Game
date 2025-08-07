@@ -7,7 +7,6 @@ if (session_status() == PHP_SESSION_NONE) {
 if (!isset($_SESSION["loggedin"]) || $_SESSION["loggedin"] !== true) { header("location: index.html"); exit; }
 
 require_once __DIR__ . '/../../config/config.php';
-require_once __DIR__ . '/../../config/security.php'; // Include security functions to generate the token.
 
 // Generate and store the CSRF token in the session.
 $_SESSION['csrf_token'] = generate_csrf_token();

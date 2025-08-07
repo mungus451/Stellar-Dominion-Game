@@ -12,7 +12,6 @@ if(!isset($_SESSION["loggedin"]) || $_SESSION["loggedin"] !== true){ header("loc
 
 // Correct path from src/Controllers/ to the root config/ folder
 require_once __DIR__ . '/../../config/config.php'; 
-require_once __DIR__ . '/../../config/security.php'; // Include for CSRF functions
 
 // --- CSRF TOKEN VALIDATION ---
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {

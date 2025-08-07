@@ -5,7 +5,6 @@ if (session_status() == PHP_SESSION_NONE) {
 }
 if (!isset($_SESSION["loggedin"]) || $_SESSION["loggedin"] !== true) { header("location: index.html"); exit; }
 require_once __DIR__ . '/../../config/config.php';
-require_once __DIR__ . '/../../config/security.php'; // Include for CSRF functions
 
 // Generate a single CSRF token for all forms on this page
 $csrf_token = generate_csrf_token();

@@ -3,7 +3,6 @@
 if (session_status() == PHP_SESSION_NONE) {
     session_start();
 }
-require_once __DIR__ . '/../../config/security.php'; // Include for CSRF functions
 
 // Generate the CSRF token for the form.
 $_SESSION['csrf_token'] = generate_csrf_token();

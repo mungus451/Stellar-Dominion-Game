@@ -10,7 +10,6 @@ if (session_status() == PHP_SESSION_NONE) {
 if (!isset($_SESSION["loggedin"]) || $_SESSION["loggedin"] !== true) { exit; }
 
 require_once __DIR__ . '/../../config/config.php';
-require_once __DIR__ . '/../../config/security.php'; // Include for CSRF functions
 
 // --- CSRF TOKEN VALIDATION ---
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {

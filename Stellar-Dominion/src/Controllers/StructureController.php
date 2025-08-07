@@ -11,7 +11,6 @@ if (!isset($_SESSION["loggedin"]) || $_SESSION["loggedin"] !== true) { header("l
 
 // --- FILE INCLUDES ---
 require_once __DIR__ . '/../../config/config.php';
-require_once __DIR__ . '/../../config/security.php'; // Include for CSRF functions
 require_once __DIR__ . '/../Game/GameData.php';
 require_once __DIR__ . '/../Game/GameFunctions.php';
 

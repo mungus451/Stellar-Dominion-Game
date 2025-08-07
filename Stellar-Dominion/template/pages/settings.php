@@ -6,7 +6,7 @@ if (session_status() == PHP_SESSION_NONE) {
 if(!isset($_SESSION["loggedin"]) || $_SESSION["loggedin"] !== true){ header("location: index.html"); exit; }
 require_once __DIR__ . '/../../config/config.php';
 require_once __DIR__ . '/../../src/Game/GameData.php'; // Include for security questions
-require_once __DIR__ . '/../../config/security.php'; // Correct path for CSRF functions
+
 date_default_timezone_set('UTC');
 
 // Generate a single CSRF token to be used on all forms on this page.

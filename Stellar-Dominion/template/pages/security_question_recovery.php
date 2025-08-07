@@ -4,7 +4,6 @@ if (session_status() == PHP_SESSION_NONE) {
     session_start();
 }
 require_once __DIR__ . '/../../config/config.php';
-require_once __DIR__ . '/../../config/security.php'; // Include for CSRF functions
 require_once __DIR__ . '/../../src/Game/GameData.php';
 
 // Generate the CSRF token for the form.

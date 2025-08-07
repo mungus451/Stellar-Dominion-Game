@@ -19,7 +19,6 @@ if (!isset($_SESSION["loggedin"]) || $_SESSION["loggedin"] !== true) {
 
 // Include necessary configuration and function files
 require_once __DIR__ . '/../../config/config.php';
-require_once __DIR__ . '/../../config/security.php'; // <-- Added for CSRF functions
 require_once __DIR__ . '/../Game/GameData.php';
 require_once __DIR__ . '/../Game/GameFunctions.php';
 
