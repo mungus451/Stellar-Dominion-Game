@@ -1,9 +1,15 @@
 <?php
-// --- SESSION AND DATABASE SETUP ---
-//session_start();
+// --- SESSION AND SECURITY SETUP ---
+if (session_status() == PHP_SESSION_NONE) {
+    session_start();
+}
 if(!isset($_SESSION["loggedin"]) || $_SESSION["loggedin"] !== true){ header("location: index.html"); exit; }
 require_once __DIR__ . '/../../config/config.php';
+require_once __DIR__ . '/../../config/security.php'; // Include for CSRF functions
 date_default_timezone_set('UTC');
+
+// Generate the CSRF token for the form.
+$_SESSION['csrf_token'] = generate_csrf_token();
 
 $user_id = $_SESSION['id'];
 
@@ -70,7 +76,11 @@ $active_page = 'profile.php';
                 </aside>
 
                 <main class="lg:col-span-3">
-                    <form action="lib/update_profile.php" method="POST" enctype="multipart/form-data" class="space-y-4">
+                    <form action="/src/Controllers/ProfileController.php" method="POST" enctype="multipart/form-data" class="space-y-4">
+                        <!-- CSRF Token Added -->
+                        <input type="hidden" name="csrf_token" value="<?php echo htmlspecialchars($_SESSION['csrf_token']); ?>">
+                        <input type="hidden" name="action" value="update_profile">
+
                         <?php if(isset($_SESSION['profile_message'])): ?>
                             <?php
                                 // Determine message style based on success or error type

@@ -1,7 +1,16 @@
 <?php
-//session_start();
+// --- SESSION AND DATABASE SETUP ---
+// Use the recommended session start method to avoid conflicts.
+if (session_status() == PHP_SESSION_NONE) {
+    session_start();
+}
 if (!isset($_SESSION["loggedin"]) || $_SESSION["loggedin"] !== true) { header("location: index.html"); exit; }
+
 require_once __DIR__ . '/../../config/config.php';
+require_once __DIR__ . '/../../config/security.php'; // Include security functions to generate the token.
+
+// Generate and store the CSRF token in the session.
+$_SESSION['csrf_token'] = generate_csrf_token();
 
 $user_id = $_SESSION['id'];
 $active_page = 'alliance.php'; // Corrected active page identifier
@@ -62,7 +71,10 @@ mysqli_close($link);
                     <?php echo htmlspecialchars($_SESSION['alliance_error']); unset($_SESSION['alliance_error']); ?>
                 </div>
             <?php endif; ?>
-            <form action="lib/alliance_actions.php" method="POST" enctype="multipart/form-data" class="space-y-4">
+            <!-- Form now correctly points to the AllianceController -->
+            <form action="/src/Controllers/AllianceController.php" method="POST" enctype="multipart/form-data" class="space-y-4">
+                <!-- Hidden CSRF token field to be sent with the form -->
+                <input type="hidden" name="csrf_token" value="<?php echo htmlspecialchars($_SESSION['csrf_token']); ?>">
                 <input type="hidden" name="action" value="edit">
                 <input type="hidden" name="alliance_id" value="<?php echo $alliance['id']; ?>">
                 <div>
@@ -88,7 +100,10 @@ mysqli_close($link);
             <h2 class="font-title text-2xl text-red-400">Danger Zone</h2>
             <p class="text-sm mt-2">Disbanding the alliance is permanent and cannot be undone. All members will be removed, and the alliance name and tag will be lost forever.</p>
             <div class="text-right mt-4">
-                <form action="lib/alliance_actions.php" method="POST" onsubmit="return confirm('Are you absolutely sure you want to disband this alliance? This action cannot be undone.');">
+                 <!-- Form now correctly points to the AllianceController -->
+                <form action="/src/Controllers/AllianceController.php" method="POST" onsubmit="return confirm('Are you absolutely sure you want to disband this alliance? This action cannot be undone.');">
+                    <!-- Hidden CSRF token field to be sent with the form -->
+                    <input type="hidden" name="csrf_token" value="<?php echo htmlspecialchars($_SESSION['csrf_token']); ?>">
                     <input type="hidden" name="action" value="disband">
                     <input type="hidden" name="alliance_id" value="<?php echo $alliance['id']; ?>">
                     <button type="submit" class="bg-red-800 hover:bg-red-700 text-white font-bold py-3 px-8 rounded-lg">Disband Alliance</button>

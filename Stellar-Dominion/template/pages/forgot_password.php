@@ -1,6 +1,15 @@
 <?php
-// --- SESSION SETUP ---
-//session_start();
+// --- SESSION AND SECURITY SETUP ---
+// Use the recommended session start method to avoid conflicts.
+if (session_status() == PHP_SESSION_NONE) {
+    session_start();
+}
+
+// Include security functions to generate the token.
+require_once __DIR__ . '/../../config/security.php'; 
+
+// Generate and store the CSRF token in the session.
+$_SESSION['csrf_token'] = generate_csrf_token();
 ?>
 <!DOCTYPE html>
 <html lang="en">
@@ -19,17 +28,20 @@
                 <h1 class="font-title text-3xl text-cyan-400 border-b border-gray-600 pb-2 mb-4 text-center">Account Recovery</h1>
                 <?php if(isset($_SESSION['recovery_message'])): ?>
                     <div class="bg-cyan-900 border border-cyan-500/50 text-cyan-300 p-3 rounded-md text-center mb-4">
-                        <?php echo $_SESSION['recovery_message']; unset($_SESSION['recovery_message']); ?>
+                        <?php echo htmlspecialchars($_SESSION['recovery_message']); unset($_SESSION['recovery_message']); ?>
                     </div>
                 <?php endif; ?>
                  <?php if(isset($_SESSION['recovery_error'])): ?>
                     <div class="bg-red-900 border border-red-500/50 text-red-300 p-3 rounded-md text-center mb-4">
-                        <?php echo $_SESSION['recovery_error']; unset($_SESSION['recovery_error']); ?>
+                        <?php echo htmlspecialchars($_SESSION['recovery_error']); unset($_SESSION['recovery_error']); ?>
                     </div>
                 <?php endif; ?>
                 <p class="text-center mb-4">Enter your email address to begin the recovery process. You will be directed to use SMS or answer security questions based on your account settings.</p>
-                <form action="/auth.php" method="POST" class="space-y-4">
+                <!-- The form now points to the correct controller and includes the CSRF token -->
+                <form action="/src/Controllers/AuthController.php" method="POST" class="space-y-4">
                     <input type="hidden" name="action" value="request_recovery">
+                    <!-- Hidden CSRF token field to be sent with the form -->
+                    <input type="hidden" name="csrf_token" value="<?php echo htmlspecialchars($_SESSION['csrf_token']); ?>">
                     <div>
                         <label for="email" class="font-semibold text-white">Email Address</label>
                         <input type="email" id="email" name="email" required class="w-full bg-gray-900 border border-gray-600 rounded-md p-2 mt-1">

@@ -1,6 +1,13 @@
 <?php
-// --- SESSION SETUP ---
-//session_start();
+// --- SESSION AND SECURITY SETUP ---
+if (session_status() == PHP_SESSION_NONE) {
+    session_start();
+}
+require_once __DIR__ . '/../../config/security.php'; // Include for CSRF functions
+
+// Generate the CSRF token for the form.
+$_SESSION['csrf_token'] = generate_csrf_token();
+
 $token = $_GET['token'] ?? '';
 if(empty($token)) {
     header("location: /forgot_password.php");
@@ -24,12 +31,14 @@ if(empty($token)) {
                 <h1 class="font-title text-3xl text-cyan-400 border-b border-gray-600 pb-2 mb-4 text-center">Reset Your Password</h1>
                 <?php if(isset($_SESSION['reset_error'])): ?>
                     <div class="bg-red-900 border border-red-500/50 text-red-300 p-3 rounded-md text-center mb-4">
-                        <?php echo $_SESSION['reset_error']; unset($_SESSION['reset_error']); ?>
+                        <?php echo htmlspecialchars($_SESSION['reset_error']); unset($_SESSION['reset_error']); ?>
                     </div>
                 <?php endif; ?>
-                <form action="/auth.php" method="POST" class="space-y-4">
+                <form action="/src/Controllers/AuthController.php" method="POST" class="space-y-4">
                     <input type="hidden" name="action" value="reset_password">
                     <input type="hidden" name="token" value="<?php echo htmlspecialchars($token); ?>">
+                    <!-- CSRF Token Added -->
+                    <input type="hidden" name="csrf_token" value="<?php echo htmlspecialchars($_SESSION['csrf_token']); ?>">
                     <div>
                         <label for="new_password" class="font-semibold text-white">New Password</label>
                         <input type="password" id="new_password" name="new_password" required class="w-full bg-gray-900 border border-gray-600 rounded-md p-2 mt-1">

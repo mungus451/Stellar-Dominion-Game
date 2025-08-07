@@ -1,7 +1,12 @@
 <?php
 // --- SESSION AND SECURITY SETUP ---
-//session_start();
-//require_once __DIR__ . '/../../src/Security.php'; // Include for CSRF functions
+if (session_status() == PHP_SESSION_NONE) {
+    session_start();
+}
+require_once __DIR__ . '/../../config/security.php'; // Include for CSRF functions
+
+// Generate the CSRF token for the forms.
+$_SESSION['csrf_token'] = generate_csrf_token();
 
 $page_title = 'A New Era of Idle Sci-Fi RPG';
 $active_page = 'landing.php';
@@ -41,10 +46,10 @@ include_once __DIR__ . '/../includes/public_header.php';
                 <button id="showRegisterBtn" class="flex-1 py-2 text-lg font-title text-cyan-400 hover:text-white focus:outline-none focus:border-b-2 focus:border-cyan-400">Register</button>
             </div>
 
-            <form id="loginForm" action="/auth.php" method="POST" class="space-y-6">
+            <form id="loginForm" action="/src/Controllers/AuthController.php" method="POST" class="space-y-6">
                 <input type="hidden" name="action" value="login">
                 <!-- CSRF Token Added -->
-                <input type="hidden" name="csrf_token" value="<?= generateCsrfToken(); ?>">
+                <input type="hidden" name="csrf_token" value="<?php echo htmlspecialchars($_SESSION['csrf_token']); ?>">
                 <div id="loginError" class="hidden bg-red-900 border border-red-500/50 text-red-300 p-3 rounded-md text-center">Invalid email or password.</div>
                 <input type="email" name="email" placeholder="Email Address" class="w-full bg-gray-900/50 border border-gray-700 rounded-lg px-4 py-3 text-white focus:outline-none focus:ring-2 focus:ring-cyan-500" required>
                 <input type="password" name="password" placeholder="Password" class="w-full bg-gray-900/50 border border-gray-700 rounded-lg px-4 py-3 text-white focus:outline-none focus:ring-2 focus:ring-cyan-500" required>
@@ -54,10 +59,10 @@ include_once __DIR__ . '/../includes/public_header.php';
                     </div>
             </form>
 
-            <form id="registerForm" action="/auth.php" method="POST" class="hidden space-y-4">
+            <form id="registerForm" action="/src/Controllers/AuthController.php" method="POST" class="hidden space-y-4">
                 <input type="hidden" name="action" value="register">
                 <!-- CSRF Token Added -->
-                <input type="hidden" name="csrf_token" value="<?= generateCsrfToken(); ?>">
+                <input type="hidden" name="csrf_token" value="<?php echo htmlspecialchars($_SESSION['csrf_token']); ?>">
                 <?php if(isset($_SESSION['register_error'])): ?>
                     <div class="bg-red-900 border border-red-500/50 text-red-300 p-3 rounded-md text-center">
                         <?php echo htmlspecialchars($_SESSION['register_error']); unset($_SESSION['register_error']); ?>
