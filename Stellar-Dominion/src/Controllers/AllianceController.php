@@ -7,7 +7,7 @@
  * bank and unit transfers, and a full suite of forum actions.
  */
 
-// session_start() is now handled by the main index.php router, so it's removed from here.
+// session_start() is now handled by the main index.php router or config, so it's removed from here.
 if (session_status() == PHP_SESSION_NONE) {
     session_start();
 }
@@ -26,19 +26,11 @@ unset($_SESSION['alliance_error']);
 // --- FILE INCLUDES ---
 require_once __DIR__ . '/../../config/config.php';
 require_once __DIR__ . '/../../src/Game/GameData.php'; // Required for structure costs and definitions
-require_once __DIR__ . '/../../config/security.php';     // Correct path for CSRF validation
 
-// --- CSRF TOKEN VALIDATION ---
-// This must be done for any script that processes form data.
-if ($_SERVER['REQUEST_METHOD'] === 'POST') {
-    if (!isset($_POST['csrf_token']) || !validate_csrf_token($_POST['csrf_token'])) {
-        // If the token is invalid, set an error message and redirect.
-        $_SESSION['alliance_error'] = "A security error occurred (Invalid Token). Please try again.";
-        header("Location: /alliance.php");
-        exit;
-    }
-}
-
+// --- CSRF PROTECTION ---
+// This single function call validates the CSRF token for all POST requests
+// and will halt the script with an error if validation fails.
+protect_csrf();
 
 // Get the user ID from the session and the requested action from the POST data.
 $user_id = $_SESSION['id'];
