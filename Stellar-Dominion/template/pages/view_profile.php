@@ -1,9 +1,23 @@
 <?php
-// --- SESSION AND SECURITY SETUP ---
-if (session_status() == PHP_SESSION_NONE) {
-    session_start();
+/**
+ * view_profile.php
+ *
+ * Displays a public or private view of a user's profile.
+ * The redundant setup code has been removed, as the main index.php
+ * router now handles all configuration and session management.
+ * The attack form action has been corrected to use the proper route.
+ */
+
+// The main router (index.php) handles session, config, and security.
+
+// If this page is processing a form submission, route it to the controller.
+if ($_SERVER['REQUEST_METHOD'] === 'POST') {
+    // The form on this page submits to /attack, which is handled by attack.php.
+    // However, as a fallback, if a form were to post here, we'd process it.
+    // In this specific case, the form action is /attack, so this block is a safeguard.
+    require_once __DIR__ . '/../../src/Controllers/AttackController.php';
+    exit;
 }
-require_once __DIR__ . '/../../config/config.php';
 
 date_default_timezone_set('UTC');
 
@@ -40,7 +54,8 @@ if ($is_logged_in) {
     mysqli_stmt_close($stmt_viewer);
 }
 
-mysqli_close($link);
+// NOTE: The database connection is now managed by the router (index.php)
+// and should not be closed here.
 
 // --- DERIVED STATS & CALCULATIONS for viewed profile ---
 $army_size = $profile_data['soldiers'] + $profile_data['guards'] + $profile_data['sentries'] + $profile_data['spies'];
@@ -76,7 +91,7 @@ $active_page = 'attack.php'; // Keep the 'BATTLE' main nav active
     <script src="https://cdn.tailwindcss.com"></script>
     <script src="https://unpkg.com/lucide@latest"></script>
     <link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@700&family=Roboto:wght@400;500;700&display=swap" rel="stylesheet">
-    <link rel="stylesheet" href="assets/css/style.css">
+    <link rel="stylesheet" href="/assets/css/style.css">
 </head>
 <body class="text-gray-400 antialiased">
     <div class="min-h-screen bg-cover bg-center bg-fixed" style="background-image: url('/assets/img/backgroundAlt.avif');">
@@ -124,7 +139,8 @@ $active_page = 'attack.php'; // Keep the 'BATTLE' main nav active
                     ?>
                                 <div class="content-box rounded-lg p-4 bg-red-900/20 border-red-500/50">
                                     <h3 class="font-title text-lg text-red-400">Engage Target</h3>
-                                    <form action="/src/Controllers/AttackController.php" method="POST" class="flex items-center justify-between mt-2">
+                                    <!-- The form action now points to the correct, routed URL -->
+                                    <form action="/attack" method="POST" class="flex items-center justify-between mt-2">
                                         <input type="hidden" name="action" value="attack">
                                         <input type="hidden" name="defender_id" value="<?php echo $profile_data['id']; ?>">
                                         <!-- CSRF Token Added -->
@@ -177,6 +193,6 @@ $active_page = 'attack.php'; // Keep the 'BATTLE' main nav active
 
         </div>
     </div>
-    <script src="assets/js/main.js" defer></script>
+    <script src="/assets/js/main.js" defer></script>
 </body>
 </html>

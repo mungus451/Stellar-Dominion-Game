@@ -10,10 +10,8 @@ if (isset($_SESSION['vacation_until']) && new DateTime() < new DateTime($_SESSIO
     exit;
 }
 // CENTRALIZED DATABASE CONNECTION & CONFIGURATION
+// config.php is responsible for loading all its own dependencies, including security.
 require_once __DIR__ . '/../config/config.php';
-
-// CENTRALIZED SECURITY PROTOCOL
-require_once __DIR__ . '/../config/security.php';
 
 // Get the requested URL path
 $request_uri = parse_url($_SERVER['REQUEST_URI'], PHP_URL_PATH);
@@ -24,7 +22,9 @@ $routes = [
     '/'                     => '../template/pages/landing.php',
     '/index.php'            => '../template/pages/landing.php',
     '/dashboard.php'        => '../template/pages/dashboard.php',
+    '/attack'               => '../template/pages/attack.php',
     '/attack.php'           => '../template/pages/attack.php',
+    '/battle'               => '../template/pages/battle.php', // Added clean URL route
     '/battle.php'           => '../template/pages/battle.php',
     '/armory.php'           => '../template/pages/armory.php',
     '/bank.php'             => '../template/pages/bank.php',
@@ -47,35 +47,35 @@ $routes = [
 
 
     // Alliance Page Views
-    '/alliance.php'             => '../template/pages/alliance.php',
-    '/create_alliance.php'      => '../template/pages/create_alliance.php',
-    '/edit_alliance.php'        => '../template/pages/edit_alliance.php',
-    '/alliance_bank.php'        => '../template/pages/alliance_bank.php',
-    '/alliance_roles.php'       => '../template/pages/alliance_roles.php',
-    '/alliance_structures.php'  => '../template/pages/alliance_structures.php',
-    '/alliance_transfer.php'    => '../template/pages/alliance_transfer.php',
-    '/alliance_forum.php'       => '../template/pages/alliance_forum.php',
-    '/create_thread.php'        => '../template/pages/create_thread.php',
-    '/view_thread.php'          => '../template/pages/view_thread.php',
+    '/alliance.php'            => '../template/pages/alliance.php',
+    '/create_alliance.php'     => '../template/pages/create_alliance.php',
+    '/edit_alliance.php'       => '../template/pages/edit_alliance.php',
+    '/alliance_bank.php'       => '../template/pages/alliance_bank.php',
+    '/alliance_roles.php'      => '../template/pages/alliance_roles.php',
+    '/alliance_structures.php' => '../template/pages/alliance_structures.php',
+    '/alliance_transfer.php'   => '../template/pages/alliance_transfer.php',
+    '/alliance_forum.php'      => '../template/pages/alliance_forum.php',
+    '/create_thread.php'       => '../template/pages/create_thread.php',
+    '/view_thread.php'         => '../template/pages/view_thread.php',
 
     // Action Handlers
-    '/auth.php'                 => '../src/Controllers/AuthController.php',
-    '/lib/train.php'            => '../src/Controllers/TrainingController.php',
-    '/lib/untrain.php'          => '../src/Controllers/TrainingController.php',
+    '/auth.php'                  => '../src/Controllers/AuthController.php',
+    '/lib/train.php'             => '../src/Controllers/TrainingController.php',
+    '/lib/untrain.php'           => '../src/Controllers/TrainingController.php',
     '/lib/recruitment_actions.php' => '../src/Controllers/RecruitmentController.php',
-    '/lib/process_attack.php'   => '../src/Controllers/AttackController.php',
-    '/lib/perform_upgrade.php'  => '../src/Controllers/StructureController.php',
-    '/lib/update_profile.php'   => '../src/Controllers/ProfileController.php',
-    '/lib/update_settings.php'  => '../src/Controllers/SettingsController.php',
-    '/lib/process_banking.php'  => '../src/Controllers/BankController.php',
-    '/lib/alliance_actions.php' => '../src/Controllers/AllianceController.php',
-    '/lib/armory_actions.php'   => '../src/Controllers/ArmoryController.php',
-    '/levelup.php'              => '../src/Controllers/LevelUpController.php',
+    '/lib/process_attack.php'    => '../src/Controllers/AttackController.php',
+    '/lib/perform_upgrade.php'   => '../src/Controllers/StructureController.php',
+    '/lib/update_profile.php'    => '../src/Controllers/ProfileController.php',
+    '/lib/update_settings.php'   => '../src/Controllers/SettingsController.php',
+    '/lib/process_banking.php'   => '../src/Controllers/BankController.php',
+    '/lib/alliance_actions.php'  => '../src/Controllers/AllianceController.php',
+    '/lib/armory_actions.php'    => '../src/Controllers/ArmoryController.php',
+    '/levelup.php'               => '../src/Controllers/LevelUpController.php',
 ];
 
 // Define which routes require the user to be logged in
 $authenticated_routes = [
-    '/dashboard.php', '/attack.php', '/battle.php', '/bank.php', '/levels.php',
+    '/dashboard.php', '/attack', '/attack.php', '/battle', '/battle.php', '/bank.php', '/levels.php',
     '/profile.php', '/settings.php', '/structures.php', '/war_history.php',
     '/battle_report.php', '/alliance.php', '/create_alliance.php', '/edit_alliance.php',
     '/alliance_bank.php', '/alliance_roles.php', '/alliance_structures.php',
@@ -92,11 +92,9 @@ if (array_key_exists($request_uri, $routes)) {
             exit;
         }
     }
-    // --- START CORRECTION ---
     // This path construction correctly navigates from /public up to the project root
     // and then into the template or src directories as defined in the $routes array.
     require_once __DIR__ . '/' . $routes[$request_uri];
-    // --- END CORRECTION ---
 } else {
     http_response_code(404);
     require_once __DIR__ . '/404.php';

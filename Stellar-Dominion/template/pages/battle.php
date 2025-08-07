@@ -4,26 +4,29 @@
  *
  * This page is where players train their military and economic units. It displays
  * the player's current resources and provides forms to train or disband units.
+ * The logic has been updated to work with the central router.
  */
 
-// --- SESSION AND DATABASE SETUP ---
-if (session_status() == PHP_SESSION_NONE) {
-    session_start();
+// --- FORM SUBMISSION HANDLING ---
+// If the page is accessed via a POST request, it means a form was submitted.
+// We include the controller to process the training/disbanding logic and then exit.
+if ($_SERVER['REQUEST_METHOD'] === 'POST') {
+    require_once __DIR__ . '/../../src/Controllers/TrainingController.php';
+    exit;
 }
-if(!isset($_SESSION["loggedin"]) || $_SESSION["loggedin"] !== true){ header("location: index.html"); exit; }
-require_once __DIR__ . '/../../config/config.php';
-require_once __DIR__ . '/../../src/Game/GameData.php'; // Added for access to $upgrades array
 
+// --- PAGE DISPLAY LOGIC (GET REQUEST) ---
+// The main router (index.php) has already handled session, config, and security.
+
+require_once __DIR__ . '/../../src/Game/GameData.php'; // Added for access to $upgrades array
 date_default_timezone_set('UTC');
 
 // Generate a CSRF token for the forms
 $csrf_token = generate_csrf_token();
-
 $user_id = $_SESSION['id'];
 
 require_once __DIR__ . '/../../src/Game/GameFunctions.php';
 process_offline_turns($link, $_SESSION["id"]);
-
 
 // --- DATA FETCHING ---
 // Fetch all necessary user data in one query, including experience.
@@ -35,8 +38,7 @@ if($stmt_resources = mysqli_prepare($link, $sql_resources)){
     $user_data = mysqli_fetch_assoc($result);
     mysqli_stmt_close($stmt_resources);
 }
-mysqli_close($link);
-
+// The database connection is managed by the router and should not be closed here.
 
 // --- GAME DATA ---
 // Define the base credit cost for each trainable unit.
@@ -58,7 +60,6 @@ $unit_descriptions = [
 
 // --- CHARISMA DISCOUNT ---
 $charisma_discount = 1 - ($user_data['charisma_points'] * 0.01);
-
 
 // --- TIMER CALCULATIONS ---
 $turn_interval_minutes = 10;
@@ -84,7 +85,7 @@ $current_tab = isset($_GET['tab']) && $_GET['tab'] === 'disband' ? 'disband' : '
     <script src="https://cdn.tailwindcss.com"></script>
     <script src="https://unpkg.com/lucide@latest"></script>
     <link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@700&family=Roboto:wght@400;500;700&display=swap" rel="stylesheet">
-    <link rel="stylesheet" href="assets/css/style.css">
+    <link rel="stylesheet" href="/assets/css/style.css">
 </head>
 <body class="text-gray-400 antialiased">
     <div class="min-h-screen bg-cover bg-center bg-fixed" style="background-image: url('/assets/img/backgroundAlt.avif');">
@@ -153,7 +154,7 @@ $current_tab = isset($_GET['tab']) && $_GET['tab'] === 'disband' ? 'disband' : '
                     </div>
 
                     <div id="train-tab-content" class="<?php if ($current_tab !== 'train') echo 'hidden'; ?>">
-                        <form id="train-form" action="src/Controllers/TrainingController.php" method="POST" class="space-y-4" data-charisma-discount="<?php echo $charisma_discount; ?>">
+                        <form id="train-form" action="/battle" method="POST" class="space-y-4" data-charisma-discount="<?php echo $charisma_discount; ?>">
                             <input type="hidden" name="csrf_token" value="<?php echo htmlspecialchars($csrf_token, ENT_QUOTES, 'UTF-8'); ?>">
                             <input type="hidden" name="action" value="train">
                             <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
@@ -162,7 +163,7 @@ $current_tab = isset($_GET['tab']) && $_GET['tab'] === 'disband' ? 'disband' : '
                                 ?>
                                 <div class="content-box rounded-lg p-3">
                                     <div class="flex items-center space-x-3">
-                                        <img src="assets/img/<?php echo strtolower($unit_names[$unit]); ?>.avif" alt="<?php echo $unit_names[$unit]; ?> Icon" class="w-12 h-12 rounded-md flex-shrink-0">
+                                        <img src="/assets/img/<?php echo strtolower($unit_names[$unit]); ?>.avif" alt="<?php echo $unit_names[$unit]; ?> Icon" class="w-12 h-12 rounded-md flex-shrink-0">
                                         <div class="flex-grow">
                                             <p class="font-bold text-white"><?php echo $unit_names[$unit]; ?></p>
                                             <p class="text-xs text-yellow-400 font-semibold"><?php echo $unit_descriptions[$unit]; ?></p>
@@ -184,14 +185,14 @@ $current_tab = isset($_GET['tab']) && $_GET['tab'] === 'disband' ? 'disband' : '
                     </div>
                     
                     <div id="disband-tab-content" class="<?php if ($current_tab !== 'disband') echo 'hidden'; ?>">
-                        <form id="disband-form" action="src/Controllers/TrainingController.php" method="POST" class="space-y-4">
+                        <form id="disband-form" action="/battle" method="POST" class="space-y-4">
                              <input type="hidden" name="csrf_token" value="<?php echo htmlspecialchars($csrf_token, ENT_QUOTES, 'UTF-8'); ?>">
                              <input type="hidden" name="action" value="disband">
                              <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
                                 <?php foreach($unit_costs as $unit => $cost): ?>
                                 <div class="content-box rounded-lg p-3">
                                     <div class="flex items-center space-x-3">
-                                        <img src="assets/img/<?php echo strtolower($unit_names[$unit]); ?>.avif" alt="<?php echo $unit_names[$unit]; ?> Icon" class="w-12 h-12 rounded-md flex-shrink-0">
+                                        <img src="/assets/img/<?php echo strtolower($unit_names[$unit]); ?>.avif" alt="<?php echo $unit_names[$unit]; ?> Icon" class="w-12 h-12 rounded-md flex-shrink-0">
                                         <div class="flex-grow">
                                             <p class="font-bold text-white"><?php echo $unit_names[$unit]; ?></p>
                                             <p class="text-xs text-yellow-400 font-semibold"><?php echo $unit_descriptions[$unit]; ?></p>
@@ -216,6 +217,6 @@ $current_tab = isset($_GET['tab']) && $_GET['tab'] === 'disband' ? 'disband' : '
             </div>
         </div>
     </div>
-    <script src="assets/js/main.js" defer></script>
+    <script src="/assets/js/main.js" defer></script>
 </body>
 </html>
