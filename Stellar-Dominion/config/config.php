@@ -10,6 +10,11 @@ define('DB_USERNAME', 'admin');
 define('DB_PASSWORD', 'password');
 define('DB_NAME', 'users');
 
+// Include CSRF Protection
+require_once BASE_PATH . 'src/Security/CSRFLogger.php';
+require_once BASE_PATH . 'src/Security/CSRFProtection.php';
+
+
 // --- SMS Gateway Definitions for Account Recovery ---
 $sms_gateways = [
     'AT&T' => 'txt.att.net',
@@ -31,6 +36,7 @@ $sms_gateways = [
     'C-Spire' => 'cs-mobile.com',
     'Page Plus' => 'vtext.com',
 ];
+
 
 
 // --- Modern Error Handling for Connection ---
