@@ -3,30 +3,143 @@
 if (session_status() == PHP_SESSION_NONE) {
     session_start();
 }
-if(!isset($_SESSION["loggedin"]) || $_SESSION["loggedin"] !== true){ header("location: index.html"); exit; }
+if(!isset($_SESSION["loggedin"]) || $_SESSION["loggedin"] !== true){ header("location: /index.php"); exit; }
 require_once __DIR__ . '/../../config/config.php';
 
 date_default_timezone_set('UTC');
-
-// Generate a CSRF token for the forms
-$csrf_token = generate_csrf_token();
-
 $user_id = $_SESSION['id'];
+
+// --- FORM SUBMISSION HANDLING ---
+// This block now processes the form data when submitted.
+if ($_SERVER["REQUEST_METHOD"] == "POST") {
+    // Use the central CSRF protection function. It will stop the script if the token is invalid.
+    protect_csrf();
+
+    $action = $_POST['action'] ?? '';
+    $amount = isset($_POST['amount']) ? (int)$_POST['amount'] : 0;
+
+    // Use a transaction to ensure all database operations succeed or none do.
+    mysqli_begin_transaction($link);
+
+    try {
+        // Get the latest user data inside the transaction to prevent race conditions
+        $sql_user = "SELECT credits, banked_credits, level, deposits_today FROM users WHERE id = ? FOR UPDATE";
+        $stmt_user = mysqli_prepare($link, $sql_user);
+        mysqli_stmt_bind_param($stmt_user, "i", $user_id);
+        mysqli_stmt_execute($stmt_user);
+        $user = mysqli_fetch_assoc(mysqli_stmt_get_result($stmt_user));
+        mysqli_stmt_close($stmt_user);
+
+        if (!$user) {
+            throw new Exception("Could not retrieve user data.");
+        }
+
+        if ($action === 'deposit') {
+            $max_deposits = min(10, 3 + floor($user['level'] / 10));
+            $deposits_available = $max_deposits - $user['deposits_today'];
+            $max_deposit_amount = floor($user['credits'] * 0.80);
+
+            if ($amount <= 0) throw new Exception("Invalid deposit amount.");
+            if ($amount > $user['credits']) throw new Exception("You cannot deposit more credits than you have.");
+            if ($amount > $max_deposit_amount) throw new Exception("You can only deposit up to 80% of your credits at a time.");
+            if ($deposits_available <= 0) throw new Exception("You have no daily deposits remaining.");
+
+            // Update user credits and deposit count
+            $sql_update = "UPDATE users SET credits = credits - ?, banked_credits = banked_credits + ?, deposits_today = deposits_today + 1, last_deposit_timestamp = NOW() WHERE id = ?";
+            $stmt_update = mysqli_prepare($link, $sql_update);
+            mysqli_stmt_bind_param($stmt_update, "iii", $amount, $amount, $user_id);
+            mysqli_stmt_execute($stmt_update);
+            mysqli_stmt_close($stmt_update);
+
+            // Log transaction
+            $sql_log = "INSERT INTO bank_transactions (user_id, transaction_type, amount) VALUES (?, 'deposit', ?)";
+            $stmt_log = mysqli_prepare($link, $sql_log);
+            mysqli_stmt_bind_param($stmt_log, "ii", $user_id, $amount);
+            mysqli_stmt_execute($stmt_log);
+            mysqli_stmt_close($stmt_log);
+
+            $_SESSION['bank_message'] = "Successfully deposited " . number_format($amount) . " credits.";
+
+        } elseif ($action === 'withdraw') {
+            if ($amount <= 0) throw new Exception("Invalid withdrawal amount.");
+            if ($amount > $user['banked_credits']) throw new Exception("You cannot withdraw more credits than you have in the bank.");
+
+            // Update user credits
+            $sql_update = "UPDATE users SET credits = credits + ?, banked_credits = banked_credits - ? WHERE id = ?";
+            $stmt_update = mysqli_prepare($link, $sql_update);
+            mysqli_stmt_bind_param($stmt_update, "iii", $amount, $amount, $user_id);
+            mysqli_stmt_execute($stmt_update);
+            mysqli_stmt_close($stmt_update);
+
+            // Log transaction
+            $sql_log = "INSERT INTO bank_transactions (user_id, transaction_type, amount) VALUES (?, 'withdraw', ?)";
+            $stmt_log = mysqli_prepare($link, $sql_log);
+            mysqli_stmt_bind_param($stmt_log, "ii", $user_id, $amount);
+            mysqli_stmt_execute($stmt_log);
+            mysqli_stmt_close($stmt_log);
+
+            $_SESSION['bank_message'] = "Successfully withdrew " . number_format($amount) . " credits.";
+        
+        } elseif ($action === 'transfer') {
+            $target_id = isset($_POST['target_id']) ? (int)$_POST['target_id'] : 0;
+            if ($amount <= 0 || $target_id <= 0) throw new Exception("Invalid amount or target Commander.");
+            if ($target_id == $user_id) throw new Exception("You cannot transfer credits to yourself.");
+            if ($amount > $user['credits']) throw new Exception("You do not have enough credits to make this transfer.");
+
+            // Verify target user exists
+            $sql_target = "SELECT id FROM users WHERE id = ? FOR UPDATE";
+            $stmt_target = mysqli_prepare($link, $sql_target);
+            mysqli_stmt_bind_param($stmt_target, "i", $target_id);
+            mysqli_stmt_execute($stmt_target);
+            if (mysqli_stmt_get_result($stmt_target)->num_rows == 0) {
+                throw new Exception("Target Commander not found.");
+            }
+            mysqli_stmt_close($stmt_target);
+            
+            // Perform transfer
+            $sql_debit = "UPDATE users SET credits = credits - ? WHERE id = ?";
+            $stmt_debit = mysqli_prepare($link, $sql_debit);
+            mysqli_stmt_bind_param($stmt_debit, "ii", $amount, $user_id);
+            mysqli_stmt_execute($stmt_debit);
+            mysqli_stmt_close($stmt_debit);
+
+            $sql_credit = "UPDATE users SET credits = credits + ? WHERE id = ?";
+            $stmt_credit = mysqli_prepare($link, $sql_credit);
+            mysqli_stmt_bind_param($stmt_credit, "ii", $amount, $target_id);
+            mysqli_stmt_execute($stmt_credit);
+            mysqli_stmt_close($stmt_credit);
+            
+            $_SESSION['bank_message'] = "Successfully transferred " . number_format($amount) . " credits.";
+        }
+
+        mysqli_commit($link);
+
+    } catch (Exception $e) {
+        mysqli_rollback($link);
+        $_SESSION['bank_error'] = "Error: " . $e->getMessage();
+    }
+
+    // Redirect back to the same page to prevent form re-submission on refresh
+    header("Location: bank.php");
+    exit;
+}
+// --- END FORM HANDLING ---
+
+
+// --- DATA FETCHING FOR PAGE DISPLAY ---
 $now = new DateTime('now', new DateTimeZone('UTC'));
 
-// --- DEPOSIT RESET LOGIC ---
-// Check if the last deposit was more than 24 hours ago and reset the daily count if so.
+// Deposit reset logic (can stay here)
 $sql_check_deposit = "SELECT last_deposit_timestamp FROM users WHERE id = ?";
 $stmt_check = mysqli_prepare($link, $sql_check_deposit);
 mysqli_stmt_bind_param($stmt_check, "i", $user_id);
 mysqli_stmt_execute($stmt_check);
-$result_check = mysqli_stmt_get_result($stmt_check);
-$deposit_data = mysqli_fetch_assoc($result_check);
+$deposit_data = mysqli_fetch_assoc(mysqli_stmt_get_result($stmt_check));
 mysqli_stmt_close($stmt_check);
 
 if ($deposit_data && $deposit_data['last_deposit_timestamp']) {
     $last_deposit_time = new DateTime($deposit_data['last_deposit_timestamp'], new DateTimeZone('UTC'));
-    if ($now->getTimestamp() - $last_deposit_time->getTimestamp() > 86400) { // 24 hours in seconds
+    if ($now->getTimestamp() - $last_deposit_time->getTimestamp() > 86400) {
         $sql_reset_deposits = "UPDATE users SET deposits_today = 0 WHERE id = ?";
         $stmt_reset = mysqli_prepare($link, $sql_reset_deposits);
         mysqli_stmt_bind_param($stmt_reset, "i", $user_id);
@@ -35,15 +148,13 @@ if ($deposit_data && $deposit_data['last_deposit_timestamp']) {
     }
 }
 
-// --- DATA FETCHING ---
+// Fetch user stats for display
 $sql = "SELECT credits, banked_credits, untrained_citizens, level, attack_turns, last_updated, deposits_today FROM users WHERE id = ?";
-if($stmt = mysqli_prepare($link, $sql)){
-    mysqli_stmt_bind_param($stmt, "i", $user_id);
-    mysqli_stmt_execute($stmt);
-    $result = mysqli_stmt_get_result($stmt);
-    $user_stats = mysqli_fetch_assoc($result);
-    mysqli_stmt_close($stmt);
-}
+$stmt = mysqli_prepare($link, $sql);
+mysqli_stmt_bind_param($stmt, "i", $user_id);
+mysqli_stmt_execute($stmt);
+$user_stats = mysqli_fetch_assoc(mysqli_stmt_get_result($stmt));
+mysqli_stmt_close($stmt);
 
 // Fetch last 5 transactions
 $sql_transactions = "SELECT transaction_type, amount, transaction_time FROM bank_transactions WHERE user_id = ? ORDER BY transaction_time DESC LIMIT 5";
@@ -128,21 +239,21 @@ $active_page = 'bank.php';
                     </div>
 
                     <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
-                        <form action="src/Controllers/BankController.php" method="POST" class="content-box rounded-lg p-4 space-y-3">
-                            <input type="hidden" name="csrf_token" value="<?php echo htmlspecialchars($csrf_token, ENT_QUOTES, 'UTF-8'); ?>">
-                            <input type="hidden" name="action" value="deposit">
+                        <!-- Deposit Form: action is now empty to submit to the same page -->
+                        <form action="" method="POST" class="content-box rounded-lg p-4 space-y-3">
+                            <?php echo csrf_token_field('bank_deposit'); ?>
                             <h4 class="font-title text-white">Deposit Credits</h4>
                             <p class="text-xs text-gray-400">You can deposit up to 80% of your credits on hand.</p>
                             <input type="number" id="deposit-amount" name="amount" min="1" max="<?php echo $max_deposit_amount; ?>" placeholder="0" class="w-full bg-gray-900/50 border border-gray-700 rounded-lg px-4 py-2 text-white focus:outline-none focus:ring-2 focus:ring-cyan-500" required>
                             <div class="flex justify-between text-sm">
                                 <button type="button" class="bank-percent-btn text-cyan-400" data-action="deposit" data-percent="0.80">80%</button>
                             </div>
-                            <button type="submit" class="w-full bg-green-600 hover:bg-green-700 text-white font-bold py-2 rounded-lg">Deposit</button>
+                            <button type="submit" name="action" value="deposit" class="w-full bg-green-600 hover:bg-green-700 text-white font-bold py-2 rounded-lg">Deposit</button>
                         </form>
 
-                        <form action="src/Controllers/BankController.php" method="POST" class="content-box rounded-lg p-4 space-y-3">
-                            <input type="hidden" name="csrf_token" value="<?php echo htmlspecialchars($csrf_token, ENT_QUOTES, 'UTF-8'); ?>">
-                            <input type="hidden" name="action" value="withdraw">
+                        <!-- Withdraw Form: action is now empty to submit to the same page -->
+                        <form action="" method="POST" class="content-box rounded-lg p-4 space-y-3">
+                            <?php echo csrf_token_field('bank_withdraw'); ?>
                             <h4 class="font-title text-white">Withdraw Credits</h4>
                             <p class="text-xs text-gray-400">Withdraw credits to use them for purchases.</p>
                             <input type="number" id="withdraw-amount" name="amount" min="1" max="<?php echo $user_stats['banked_credits']; ?>" placeholder="0" class="w-full bg-gray-900/50 border border-gray-700 rounded-lg px-4 py-2 text-white focus:outline-none focus:ring-2 focus:ring-cyan-500" required>
@@ -152,9 +263,28 @@ $active_page = 'bank.php';
                                 <button type="button" class="bank-percent-btn text-cyan-400" data-action="withdraw" data-percent="0.75">75%</button>
                                 <button type="button" class="bank-percent-btn text-cyan-400" data-action="withdraw" data-percent="1">MAX</button>
                             </div>
-                            <button type="submit" class="w-full bg-blue-600 hover:bg-blue-700 text-white font-bold py-2 rounded-lg">Withdraw</button>
+                            <button type="submit" name="action" value="withdraw" class="w-full bg-blue-600 hover:bg-blue-700 text-white font-bold py-2 rounded-lg">Withdraw</button>
                         </form>
                     </div>
+                    
+                    <!-- Transfer Form: action is now empty to submit to the same page -->
+                    <div class="content-box rounded-lg p-4">
+                         <h3 class="font-title text-cyan-400 border-b border-gray-600 pb-2 mb-3">Transfer to Another Commander</h3>
+                         <p class="text-xs text-gray-400 mb-3">Send credits directly to another player. A small fee may apply.</p>
+                        <form action="" method="POST" class="space-y-3">
+                            <?php echo csrf_token_field('bank_transfer'); ?>
+                            <div class="form-group">
+                                <label for="transfer-id" class="block text-sm font-medium text-gray-300">Target Commander ID</label>
+                                <input type="number" id="transfer-id" name="target_id" placeholder="Enter Player ID" class="mt-1 w-full bg-gray-900/50 border border-gray-700 rounded-lg px-4 py-2 text-white focus:outline-none focus:ring-2 focus:ring-cyan-500" required>
+                            </div>
+                            <div class="form-group">
+                                <label for="transfer-amount" class="block text-sm font-medium text-gray-300">Amount to Transfer</label>
+                                <input type="number" id="transfer-amount" name="amount" min="1" placeholder="e.g., 2500" class="mt-1 w-full bg-gray-900/50 border border-gray-700 rounded-lg px-4 py-2 text-white focus:outline-none focus:ring-2 focus:ring-cyan-500" required>
+                            </div>
+                            <button type="submit" name="action" value="transfer" class="w-full bg-purple-600 hover:bg-purple-700 text-white font-bold py-2 rounded-lg">Transfer Credits</button>
+                        </form>
+                    </div>
+
 
                     <div class="content-box rounded-lg p-4">
                         <h3 class="font-title text-cyan-400 border-b border-gray-600 pb-2 mb-3">Recent Transactions</h3>
