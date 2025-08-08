@@ -101,6 +101,7 @@ function process_offline_turns(mysqli $link, int $user_id): void {
                 $gained_attack_turns = $turns_to_process * 2;
                 $gained_citizens = $turns_to_process * $citizens_per_turn;
                 
+                // --- FIX: Corrected the date format string to use colons for time ---
                 $current_utc_time_str = gmdate('Y-m-d H:i:s');
                 $sql_update = "UPDATE users SET attack_turns = attack_turns + ?, untrained_citizens = untrained_citizens + ?, credits = credits + ?, last_updated = ? WHERE id = ?";
                 if($stmt_update = mysqli_prepare($link, $sql_update)){

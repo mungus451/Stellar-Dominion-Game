@@ -24,13 +24,17 @@ $csrf_token = generate_csrf_token();
 
 $user_id = $_SESSION['id'];
 
+// --- CATCH-UP MECHANISM ---
+require_once __DIR__ . '/../../src/Game/GameFunctions.php';
+process_offline_turns($link, $user_id);
+
 // --- DATA FETCHING (CORRECTED) ---
-// The SQL query has been updated to select all unit types.
-$sql_user = "SELECT credits, level, soldiers, guards, sentries, spies, workers, armory_level, charisma_points FROM users WHERE id = ?";
+// The SQL query has been updated to select all unit types and experience.
+$sql_user = "SELECT credits, level, experience, soldiers, guards, sentries, spies, workers, armory_level, charisma_points, last_updated, attack_turns, untrained_citizens FROM users WHERE id = ?";
 $stmt_user = mysqli_prepare($link, $sql_user);
 mysqli_stmt_bind_param($stmt_user, "i", $user_id);
 mysqli_stmt_execute($stmt_user);
-$user_data = mysqli_fetch_assoc(mysqli_stmt_get_result($stmt_user));
+$user_stats = mysqli_fetch_assoc(mysqli_stmt_get_result($stmt_user));
 mysqli_stmt_close($stmt_user);
 
 // Fetch user's current armory inventory
@@ -50,8 +54,8 @@ mysqli_stmt_close($stmt_armory);
 $active_page = 'armory.php';
 $current_tab = isset($_GET['loadout']) && isset($armory_loadouts[$_GET['loadout']]) ? $_GET['loadout'] : 'soldier';
 $current_loadout = $armory_loadouts[$current_tab];
-$unit_count = $user_data[$current_loadout['unit']] ?? 0;
-$charisma_discount = 1 - ($user_data['charisma_points'] * 0.01);
+$unit_count = $user_stats[$current_loadout['unit']] ?? 0;
+$charisma_discount = 1 - ($user_stats['charisma_points'] * 0.01);
 
 // Flatten all item details to easily find required item names
 $flat_item_details = [];
@@ -60,6 +64,16 @@ foreach ($armory_loadouts as $loadout) {
         $flat_item_details += $category['items'];
     }
 }
+
+// --- TIMER CALCULATIONS ---
+$turn_interval_minutes = 10;
+$last_updated = new DateTime($user_stats['last_updated'], new DateTimeZone('UTC'));
+$now = new DateTime('now', new DateTimeZone('UTC'));
+$seconds_until_next_turn = ($turn_interval_minutes * 60) - (($now->getTimestamp() - $last_updated->getTimestamp()) % ($turn_interval_minutes * 60));
+if ($seconds_until_next_turn < 0) { $seconds_until_next_turn = 0; }
+$minutes_until_next_turn = floor($seconds_until_next_turn / 60);
+$seconds_remainder = $seconds_until_next_turn % 60;
+
 
 // PAGINATION SETUP
 $items_per_page = 10;
@@ -82,6 +96,11 @@ $items_per_page = 10;
             
             <div class="grid grid-cols-1 lg:grid-cols-4 gap-4 p-4">
                 <aside class="lg:col-span-1 space-y-4">
+                    <?php 
+                        $user_xp = $user_stats['experience'];
+                        $user_level = $user_stats['level'];
+                        include_once __DIR__ . '/../includes/advisor.php'; 
+                    ?>
                     <div id="armory-summary" class="content-box rounded-lg p-4 sticky top-4">
                         <h3 class="font-title text-cyan-400 border-b border-gray-600 pb-2 mb-3">Purchase Summary</h3>
                         <div id="summary-items" class="space-y-2 text-sm">
@@ -89,7 +108,7 @@ $items_per_page = 10;
                         </div>
                         <div class="border-t border-gray-600 mt-3 pt-3">
                             <p class="flex justify-between"><span>Grand Total:</span> <span id="grand-total" class="font-bold text-yellow-300">0</span></p>
-                            <p class="flex justify-between text-xs"><span>Your Credits:</span> <span data-amount="<?php echo $user_data['credits']; ?>"><?php echo number_format($user_data['credits']); ?></span></p>
+                            <p class="flex justify-between text-xs"><span>Your Credits:</span> <span data-amount="<?php echo $user_stats['credits']; ?>"><?php echo number_format($user_stats['credits']); ?></span></p>
                         </div>
                     </div>
                 </aside>
@@ -109,7 +128,7 @@ $items_per_page = 10;
                             <nav class="-mb-px flex flex-wrap gap-x-4 gap-y-2" aria-label="Tabs">
                                 <?php foreach ($armory_loadouts as $key => $loadout): ?>
                                     <a href="?loadout=<?php echo $key; ?>" class="<?php echo ($current_tab == $key) ? 'border-cyan-400 text-white' : 'border-transparent text-gray-400 hover:text-gray-200 hover:border-gray-500'; ?> whitespace-nowrap py-2 px-1 border-b-2 font-medium text-sm">
-                                        <?php echo htmlspecialchars($loadout['title']); ?> (<?php echo number_format($user_data[$loadout['unit']]); ?>)
+                                        <?php echo htmlspecialchars($loadout['title']); ?> (<?php echo number_format($user_stats[$loadout['unit']]); ?>)
                                     </a>
                                 <?php endforeach; ?>
                             </nav>
@@ -147,7 +166,7 @@ $items_per_page = 10;
                                                 }
                                             }
                                             if (isset($item['armory_level_req'])) {
-                                                if ($user_data['armory_level'] < $item['armory_level_req']) {
+                                                if ($user_stats['armory_level'] < $item['armory_level_req']) {
                                                     $is_locked = true;
                                                     $requirements[] = 'Requires Armory Lvl ' . $item['armory_level_req'];
                                                 }

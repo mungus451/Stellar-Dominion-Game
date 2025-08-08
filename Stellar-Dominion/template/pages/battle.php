@@ -35,7 +35,7 @@ if($stmt_resources = mysqli_prepare($link, $sql_resources)){
     mysqli_stmt_bind_param($stmt_resources, "i", $user_id);
     mysqli_stmt_execute($stmt_resources);
     $result = mysqli_stmt_get_result($stmt_resources);
-    $user_data = mysqli_fetch_assoc($result);
+    $user_stats = mysqli_fetch_assoc($result);
     mysqli_stmt_close($stmt_resources);
 }
 // The database connection is managed by the router and should not be closed here.
@@ -59,11 +59,11 @@ $unit_descriptions = [
 ];
 
 // --- CHARISMA DISCOUNT ---
-$charisma_discount = 1 - ($user_data['charisma_points'] * 0.01);
+$charisma_discount = 1 - ($user_stats['charisma_points'] * 0.01);
 
 // --- TIMER CALCULATIONS ---
 $turn_interval_minutes = 10;
-$last_updated = new DateTime($user_data['last_updated'], new DateTimeZone('UTC'));
+$last_updated = new DateTime($user_stats['last_updated'], new DateTimeZone('UTC'));
 $now = new DateTime('now', new DateTimeZone('UTC'));
 $time_since_last_update = $now->getTimestamp() - $last_updated->getTimestamp();
 $seconds_into_current_turn = $time_since_last_update % ($turn_interval_minutes * 60);
@@ -94,27 +94,12 @@ $current_tab = isset($_GET['tab']) && $_GET['tab'] === 'disband' ? 'disband' : '
             <?php include_once __DIR__ .  '/../includes/navigation.php'; ?>
 
             <div class="grid grid-cols-1 lg:grid-cols-4 gap-4 p-4">
-                <aside class="lg:col-span-1 space-y-4">
-            <?php 
-                $user_xp = $user_data['experience'];
-                $user_level = $user_data['level'];
-                include_once __DIR__ . '/../includes/advisor.php'; 
-            ?>
-                    <div class="content-box rounded-lg p-4">
-                        <h3 class="font-title text-cyan-400 border-b border-gray-600 pb-2 mb-3">Stats</h3>
-                        <ul class="space-y-2 text-sm">
-                            <li class="flex justify-between"><span>Credits:</span> <span class="text-white font-semibold"><?php echo number_format($user_data['credits']); ?></span></li>
-                            <li class="flex justify-between"><span>Untrained Citizens:</span> <span id="available-citizens" data-amount="<?php echo $user_data['untrained_citizens']; ?>" class="text-white font-semibold"><?php echo number_format($user_data['untrained_citizens']); ?></span></li>
-                            <li class="flex justify-between"><span>Level:</span> <span class="text-white font-semibold"><?php echo $user_data['level']; ?></span></li>
-                            <li class="flex justify-between"><span>Attack Turns:</span> <span class="text-white font-semibold"><?php echo $user_data['attack_turns']; ?></span></li>
-                            <li class="flex justify-between border-t border-gray-600 pt-2 mt-2">
-                                <span>Next Turn In:</span>
-                                <span id="next-turn-timer" class="text-cyan-300 font-bold" data-seconds-until-next-turn="<?php echo $seconds_until_next_turn; ?>">
-                                    <?php echo sprintf('%02d:%02d', $minutes_until_next_turn, $seconds_remainder); ?>
-                                </span>
-                            </li>
-                        </ul>
-                    </div>
+                <aside class="lg-col-span-1 space-y-4">
+                    <?php 
+                        $user_xp = $user_stats['experience'];
+                        $user_level = $user_stats['level'];
+                        include_once __DIR__ . '/../includes/advisor.php'; 
+                    ?>
                 </aside>
 
                 <main class="lg:col-span-3 space-y-4">
@@ -131,8 +116,8 @@ $current_tab = isset($_GET['tab']) && $_GET['tab'] === 'disband' ? 'disband' : '
 
                     <div class="content-box rounded-lg p-4">
                         <div class="grid grid-cols-2 md:grid-cols-4 gap-4 text-center">
-                            <div><p class="text-xs uppercase">Citizens</p><p class="text-lg font-bold text-white"><?php echo number_format($user_data['untrained_citizens']); ?></p></div>
-                            <div><p class="text-xs uppercase">Credits</p><p id="available-credits" data-amount="<?php echo $user_data['credits']; ?>" class="text-lg font-bold text-white"><?php echo number_format($user_data['credits']); ?></p></div>
+                            <div><p class="text-xs uppercase">Citizens</p><p class="text-lg font-bold text-white"><?php echo number_format($user_stats['untrained_citizens']); ?></p></div>
+                            <div><p class="text-xs uppercase">Credits</p><p id="available-credits" data-amount="<?php echo $user_stats['credits']; ?>" class="text-lg font-bold text-white"><?php echo number_format($user_stats['credits']); ?></p></div>
                             <div><p class="text-xs uppercase">Total Cost</p><p id="total-build-cost" class="text-lg font-bold text-yellow-400">0</p></div>
                             <div><p class="text-xs uppercase">Total Refund</p><p id="total-refund-value" class="text-lg font-bold text-green-400">0</p></div>
                         </div>
@@ -168,7 +153,7 @@ $current_tab = isset($_GET['tab']) && $_GET['tab'] === 'disband' ? 'disband' : '
                                             <p class="font-bold text-white"><?php echo $unit_names[$unit]; ?></p>
                                             <p class="text-xs text-yellow-400 font-semibold"><?php echo $unit_descriptions[$unit]; ?></p>
                                             <p class="text-xs">Cost: <?php echo number_format($discounted_cost); ?> Credits</p>
-                                            <p class="text-xs">Owned: <?php echo number_format($user_data[$unit]); ?></p>
+                                            <p class="text-xs">Owned: <?php echo number_format($user_stats[$unit]); ?></p>
                                         </div>
                                         <div class="flex items-center space-x-2">
                                             <input type="number" name="<?php echo $unit; ?>" min="0" placeholder="0" data-cost="<?php echo $cost; ?>" class="unit-input-train bg-gray-900 border border-gray-600 rounded-md w-24 text-center p-1">
@@ -197,10 +182,10 @@ $current_tab = isset($_GET['tab']) && $_GET['tab'] === 'disband' ? 'disband' : '
                                             <p class="font-bold text-white"><?php echo $unit_names[$unit]; ?></p>
                                             <p class="text-xs text-yellow-400 font-semibold"><?php echo $unit_descriptions[$unit]; ?></p>
                                             <p class="text-xs">Refund: <?php echo number_format($cost * 0.75); ?> Credits</p>
-                                            <p class="text-xs">Owned: <?php echo number_format($user_data[$unit]); ?></p>
+                                            <p class="text-xs">Owned: <?php echo number_format($user_stats[$unit]); ?></p>
                                         </div>
                                         <div class="flex items-center space-x-2">
-                                            <input type="number" name="<?php echo $unit; ?>" min="0" max="<?php echo $user_data[$unit]; ?>" placeholder="0" data-cost="<?php echo $cost; ?>" class="unit-input-disband bg-gray-900 border border-gray-600 rounded-md w-24 text-center p-1">
+                                            <input type="number" name="<?php echo $unit; ?>" min="0" max="<?php echo $user_stats[$unit]; ?>" placeholder="0" data-cost="<?php echo $cost; ?>" class="unit-input-disband bg-gray-900 border border-gray-600 rounded-md w-24 text-center p-1">
                                             <button type="button" class="disband-max-btn text-xs bg-red-800 hover:bg-red-700 text-white font-semibold py-1 px-2 rounded-md">Max</button>
                                         </div>
                                     </div>

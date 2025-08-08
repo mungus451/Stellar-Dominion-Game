@@ -26,12 +26,15 @@ $now = new DateTime('now', new DateTimeZone('UTC'));
 
 // --- DATA FETCHING ---
 // Fetch user stats for sidebar
-$sql_user_stats = "SELECT credits, untrained_citizens, level, attack_turns, last_updated FROM users WHERE id = ?";
-$stmt_user_stats = mysqli_prepare($link, $sql_user_stats);
-mysqli_stmt_bind_param($stmt_user_stats, "i", $user_id);
-mysqli_stmt_execute($stmt_user_stats);
-$user_stats = mysqli_fetch_assoc(mysqli_stmt_get_result($stmt_user_stats));
-mysqli_stmt_close($stmt_user_stats);
+// Fetch all necessary user data in one query, including experience.
+$sql_resources = "SELECT credits, untrained_citizens, level, attack_turns, last_updated, soldiers, guards, sentries, spies, workers, charisma_points, experience FROM users WHERE id = ?";
+if($stmt_resources = mysqli_prepare($link, $sql_resources)){
+    mysqli_stmt_bind_param($stmt_resources, "i", $user_id);
+    mysqli_stmt_execute($stmt_resources);
+    $result = mysqli_stmt_get_result($stmt_resources);
+    $user_stats = mysqli_fetch_assoc($result);
+    mysqli_stmt_close($stmt_resources);
+}
 
 // Fetch recruitment stats
 $sql_total = "SELECT SUM(recruit_count) as total_recruits FROM daily_recruits WHERE recruiter_id = ? AND recruit_date = CURDATE()";
@@ -81,19 +84,13 @@ $seconds_remainder = $seconds_until_next_turn % 60;
         <?php include_once __DIR__ . '/../includes/navigation.php'; ?>
         <div class="grid grid-cols-1 lg:grid-cols-4 gap-4 p-4">
             <aside class="lg:col-span-1 space-y-4">
-                <div class="content-box rounded-lg p-4">
-                    <h3 class="font-title text-cyan-400 border-b border-gray-600 pb-2 mb-3">Stats</h3>
-                    <ul class="space-y-2 text-sm">
-                        <li class="flex justify-between"><span>Credits:</span> <span class="text-white font-semibold"><?php echo number_format($user_stats['credits']); ?></span></li>
-                        <li class="flex justify-between"><span>Citizens:</span> <span class="text-white font-semibold"><?php echo number_format($user_stats['untrained_citizens']); ?></span></li>
-                        <li class="flex justify-between"><span>Level:</span> <span class="text-white font-semibold"><?php echo $user_stats['level']; ?></span></li>
-                        <li class="flex justify-between"><span>Attack Turns:</span> <span class="text-white font-semibold"><?php echo $user_stats['attack_turns']; ?></span></li>
-                        <li class="flex justify-between border-t border-gray-600 pt-2 mt-2">
-                            <span>Next Turn In:</span>
-                            <span id="next-turn-timer" class="text-cyan-300 font-bold" data-seconds-until-next-turn="<?php echo $seconds_until_next_turn; ?>"><?php echo sprintf('%02d:%02d', $minutes_until_next_turn, $seconds_remainder); ?></span>
-                        </li>
-                    </ul>
-                </div>
+                <?php 
+                    $user_xp = $user_stats['experience'];
+                    $user_level = $user_stats['level'];
+                    include_once __DIR__ . '/../includes/advisor.php'; 
+                ?>
+
+                
             </aside>
             <main class="lg:col-span-3 space-y-4">
                 <div class="content-box rounded-lg p-6">
