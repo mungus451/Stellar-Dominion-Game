@@ -1,10 +1,19 @@
 <?php
-// alliance.php
-if (session_status() == PHP_SESSION_NONE) {
-    session_start();
+/**
+ * alliance.php
+ *
+ * This page handles all alliance-related views and actions.
+ * It has been updated to work with the central routing system.
+ */
+
+// --- FORM SUBMISSION HANDLING ---
+if ($_SERVER['REQUEST_METHOD'] === 'POST') {
+    require_once __DIR__ . '/../../src/Controllers/AllianceController.php';
+    exit;
 }
-if (!isset($_SESSION["loggedin"]) || $_SESSION["loggedin"] !== true) { header("location: index.html"); exit; }
-require_once __DIR__ . '/../../config/config.php';
+
+// --- PAGE DISPLAY LOGIC (GET REQUEST) ---
+// The main router (index.php) handles all initial setup.
 
 // Generate a single CSRF token for all forms on this page
 $csrf_token = generate_csrf_token();
@@ -29,7 +38,7 @@ mysqli_stmt_close($stmt_user);
 // Defensive check in case user data is not found
 if (!$user_alliance_data) {
     session_destroy();
-    header("location: index.html?error=userdata");
+    header("location: /?error=userdata");
     exit;
 }
 
@@ -92,14 +101,14 @@ if ($alliance_id) {
     mysqli_stmt_execute($stmt_alliances);
     $alliances_list = mysqli_stmt_get_result($stmt_alliances);
 }
-mysqli_close($link);
+// The database connection is managed by the router and should not be closed here.
 ?>
 <!DOCTYPE html>
 <html lang="en">
 <head>
     <meta charset="UTF-8">
     <title>Stellar Dominion - Alliance</title>
-    <link rel="stylesheet" href="assets/css/style.css">
+    <link rel="stylesheet" href="/assets/css/style.css">
     <script src="https://cdn.tailwindcss.com"></script>
     <script src="https://unpkg.com/lucide@latest"></script>
     <link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@700&family=Roboto:wght@400;500;700&display=swap" rel="stylesheet">
@@ -125,7 +134,7 @@ mysqli_close($link);
                 <div class="content-box rounded-lg p-6">
                     <div class="flex flex-col md:flex-row md:items-start md:justify-between">
                         <div class="flex items-center space-x-4">
-                            <img src="<?php echo htmlspecialchars($alliance['avatar_path'] ?? 'assets/img/default_alliance.avif'); ?>" alt="Alliance Avatar" class="w-20 h-20 rounded-lg border-2 border-gray-600 object-cover">
+                            <img src="<?php echo htmlspecialchars($alliance['avatar_path'] ?? '/assets/img/default_alliance.avif'); ?>" alt="Alliance Avatar" class="w-20 h-20 rounded-lg border-2 border-gray-600 object-cover">
                             <div>
                                 <h2 class="font-title text-3xl text-white">[<?php echo htmlspecialchars($alliance['tag']); ?>] <?php echo htmlspecialchars($alliance['name']); ?></h2>
                                 <p class="text-sm">Led by <?php echo htmlspecialchars($alliance['leader_name']); ?></p>
@@ -138,9 +147,9 @@ mysqli_close($link);
                     </div>
                      <div class="mt-4 pt-4 border-t border-gray-700 flex flex-wrap gap-2">
                         <?php if ($user_permissions['can_edit_profile']): ?>
-                            <a href="edit_alliance.php" class="bg-blue-600 hover:bg-blue-700 text-white font-bold py-2 px-4 rounded-lg text-sm">Edit Profile</a>
+                            <a href="/edit_alliance" class="bg-blue-600 hover:bg-blue-700 text-white font-bold py-2 px-4 rounded-lg text-sm">Edit Profile</a>
                         <?php endif; ?>
-                        <form action="src/Controllers/AllianceController.php" method="POST" onsubmit="return confirm('Are you sure you want to leave this alliance?');">
+                        <form action="/alliance" method="POST" onsubmit="return confirm('Are you sure you want to leave this alliance?');">
                             <input type="hidden" name="csrf_token" value="<?php echo htmlspecialchars($csrf_token, ENT_QUOTES, 'UTF-8'); ?>">
                             <input type="hidden" name="action" value="leave">
                             <button type="submit" class="bg-red-600 hover:bg-red-700 text-white font-bold py-2 px-4 rounded-lg text-sm">Leave Alliance</button>
@@ -181,7 +190,7 @@ mysqli_close($link);
                                     <td class="p-2"><?php echo (time() - strtotime($member['last_updated']) < 900) ? '<span class="text-green-400">Online</span>' : '<span class="text-gray-500">Offline</span>'; ?></td>
                                     <?php if ($user_permissions['can_kick_members'] && $member['id'] !== $user_id && $alliance['leader_id'] != $member['id']): ?>
                                         <td class="p-2 text-right">
-                                            <form action="src/Controllers/AllianceController.php" method="POST" class="inline-flex items-center space-x-2">
+                                            <form action="/alliance" method="POST" class="inline-flex items-center space-x-2">
                                                 <input type="hidden" name="csrf_token" value="<?php echo htmlspecialchars($csrf_token, ENT_QUOTES, 'UTF-8'); ?>">
                                                 <input type="hidden" name="member_id" value="<?php echo $member['id']; ?>">
                                                 <select name="role_id" class="bg-gray-900 border border-gray-600 rounded-md p-1 text-xs">
@@ -219,13 +228,13 @@ mysqli_close($link);
                                         <td class="p-2"><?php echo $app['level']; ?></td>
                                         <td class="p-2"><?php echo number_format($app['net_worth']); ?></td>
                                         <td class="p-2 text-right">
-                                            <form action="src/Controllers/AllianceController.php" method="POST" class="inline-block">
+                                            <form action="/alliance" method="POST" class="inline-block">
                                                 <input type="hidden" name="csrf_token" value="<?php echo htmlspecialchars($csrf_token, ENT_QUOTES, 'UTF-8'); ?>">
                                                 <input type="hidden" name="application_id" value="<?php echo $app['id']; ?>">
                                                 <button type="submit" name="action" value="approve_application" class="text-green-400 hover:text-green-300 text-xs font-bold">Approve</button>
                                             </form>
                                             <span class="text-gray-600 mx-1">|</span>
-                                            <form action="src/Controllers/AllianceController.php" method="POST" class="inline-block">
+                                            <form action="/alliance" method="POST" class="inline-block">
                                                 <input type="hidden" name="csrf_token" value="<?php echo htmlspecialchars($csrf_token, ENT_QUOTES, 'UTF-8'); ?>">
                                                 <input type="hidden" name="application_id" value="<?php echo $app['id']; ?>">
                                                 <button type="submit" name="action" value="deny_application" class="text-red-400 hover:text-red-300 text-xs font-bold">Deny</button>
@@ -243,7 +252,7 @@ mysqli_close($link);
                 <div class="content-box rounded-lg p-6 text-center">
                     <h1 class="font-title text-3xl text-white">Forge Your Allegiance</h1>
                     <p class="mt-2">You are currently unaligned. Apply to an existing alliance or spend 1,000,000 Credits to forge your own.</p>
-                    <a href="create_alliance.php" class="mt-4 inline-block bg-green-600 hover:bg-green-700 text-white font-bold py-3 px-8 rounded-lg">Create Alliance</a>
+                    <a href="/create_alliance" class="mt-4 inline-block bg-green-600 hover:bg-green-700 text-white font-bold py-3 px-8 rounded-lg">Create Alliance</a>
                 </div>
                 <div class="content-box rounded-lg p-4 overflow-x-auto">
                     <h3 class="font-title text-cyan-400 border-b border-gray-600 pb-2 mb-3">Join an Alliance</h3>
@@ -260,7 +269,7 @@ mysqli_close($link);
                                     <?php elseif($row['member_count'] >= 100): ?>
                                         <span class="text-red-400 text-xs italic">Full</span>
                                     <?php else: ?>
-                                        <form action="src/Controllers/AllianceController.php" method="POST">
+                                        <form action="/alliance" method="POST">
                                             <input type="hidden" name="csrf_token" value="<?php echo htmlspecialchars($csrf_token, ENT_QUOTES, 'UTF-8'); ?>">
                                             <input type="hidden" name="action" value="apply_to_alliance">
                                             <input type="hidden" name="alliance_id" value="<?php echo $row['id']; ?>">

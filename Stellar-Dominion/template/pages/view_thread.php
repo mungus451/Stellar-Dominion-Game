@@ -1,10 +1,19 @@
 <?php
-// --- SESSION AND SECURITY SETUP ---
-if (session_status() == PHP_SESSION_NONE) {
-    session_start();
+/**
+ * view_thread.php
+ *
+ * This page displays a forum thread and its posts.
+ * It has been updated to work with the central routing system.
+ */
+
+// --- FORM SUBMISSION HANDLING ---
+if ($_SERVER['REQUEST_METHOD'] === 'POST') {
+    require_once __DIR__ . '/../../src/Controllers/AllianceController.php';
+    exit;
 }
-if (!isset($_SESSION["loggedin"]) || $_SESSION["loggedin"] !== true) { header("location: index.html"); exit; }
-require_once __DIR__ . '/../../config/config.php';
+
+// --- PAGE DISPLAY LOGIC (GET REQUEST) ---
+// The main router (index.php) handles all initial setup.
 
 // Generate a single CSRF token for all forms on this page
 $csrf_token = generate_csrf_token();
@@ -14,7 +23,7 @@ $thread_id = isset($_GET['id']) ? (int)$_GET['id'] : 0;
 $active_page = 'view_thread.php'; // For nav highlighting
 
 if ($thread_id <= 0) {
-    header("location: alliance_forum.php");
+    header("location: /alliance_forum");
     exit;
 }
 
@@ -42,7 +51,7 @@ mysqli_stmt_close($stmt_thread);
 // If thread not found or doesn't belong to the alliance, redirect
 if (!$thread) {
     $_SESSION['alliance_error'] = "Thread not found or you do not have permission to view it.";
-    header("location: alliance_forum.php");
+    header("location: /alliance_forum");
     exit;
 }
 
@@ -60,21 +69,21 @@ mysqli_stmt_bind_param($stmt_posts, "i", $thread_id);
 mysqli_stmt_execute($stmt_posts);
 $posts_result = mysqli_stmt_get_result($stmt_posts);
 
-mysqli_close($link);
+// The database connection is managed by the router and should not be closed here.
 ?>
 <!DOCTYPE html>
 <html lang="en">
 <head>
     <meta charset="UTF-8">
     <title>Stellar Dominion - <?php echo htmlspecialchars($thread['title']); ?></title>
-    <link rel="stylesheet" href="assets/css/style.css">
+    <link rel="stylesheet" href="/assets/css/style.css">
     <script src="https://cdn.tailwindcss.com"></script>
     <script src="https://unpkg.com/lucide@latest"></script>
 </head>
 <body class="text-gray-400 antialiased">
 <div class="min-h-screen bg-cover bg-center bg-fixed" style="background-image: url('/assets/img/backgroundAlt.avif');">
 <div class="container mx-auto p-4 md:p-8">
-            <?php include_once '../includes/navigation.php'; ?>
+            <?php include_once __DIR__ . '/../includes/navigation.php'; ?>
     <main class="space-y-4">
         <div class="content-box rounded-lg p-6">
             <h1 class="font-title text-3xl text-white break-words">
@@ -86,7 +95,7 @@ mysqli_close($link);
             <?php if($user_permissions['can_moderate_forum']): ?>
             <div class="mt-4 p-3 bg-gray-800 rounded-md border border-gray-700">
                 <h3 class="font-semibold text-white mb-2">Moderation Tools</h3>
-                <form action="src/Controllers/AllianceController.php" method="POST" class="flex flex-wrap gap-2">
+                <form action="/view_thread?id=<?php echo $thread_id; ?>" method="POST" class="flex flex-wrap gap-2">
                     <input type="hidden" name="csrf_token" value="<?php echo htmlspecialchars($csrf_token, ENT_QUOTES, 'UTF-8'); ?>">
                     <input type="hidden" name="thread_id" value="<?php echo $thread_id; ?>">
                     <?php if($user_permissions['can_sticky_threads']): ?>
@@ -116,7 +125,7 @@ mysqli_close($link);
                     <div class="flex justify-between items-center border-b border-gray-700 pb-2 mb-2">
                         <p class="text-xs text-gray-500">Posted: <?php echo $post['created_at']; ?></p>
                         <?php if($user_permissions['can_delete_posts'] || $post['post_author_id'] == $user_id): ?>
-                        <form action="src/Controllers/AllianceController.php" method="POST" onsubmit="return confirm('Are you sure you want to delete this post?');">
+                        <form action="/view_thread?id=<?php echo $thread_id; ?>" method="POST" onsubmit="return confirm('Are you sure you want to delete this post?');">
                             <input type="hidden" name="csrf_token" value="<?php echo htmlspecialchars($csrf_token, ENT_QUOTES, 'UTF-8'); ?>">
                             <input type="hidden" name="post_id" value="<?php echo $post['id']; ?>">
                             <input type="hidden" name="thread_id" value="<?php echo $thread_id; ?>">
@@ -137,7 +146,7 @@ mysqli_close($link);
         <?php if(!$thread['is_locked']): ?>
         <div class="content-box rounded-lg p-6">
             <h2 class="font-title text-2xl text-cyan-400 mb-4">Post a Reply</h2>
-            <form action="src/Controllers/AllianceController.php" method="POST" class="space-y-4">
+            <form action="/view_thread?id=<?php echo $thread_id; ?>" method="POST" class="space-y-4">
                 <input type="hidden" name="csrf_token" value="<?php echo htmlspecialchars($csrf_token, ENT_QUOTES, 'UTF-8'); ?>">
                 <input type="hidden" name="action" value="create_post">
                 <input type="hidden" name="thread_id" value="<?php echo $thread_id; ?>">

@@ -1,10 +1,19 @@
 <?php
-if (session_status() == PHP_SESSION_NONE) {
-    session_start();
-}
-if (!isset($_SESSION["loggedin"]) || $_SESSION["loggedin"] !== true) { header("location: index.html"); exit; }
+/**
+ * alliance_bank.php
+ *
+ * This page handles all alliance bank interactions.
+ * It has been updated to work with the central routing system.
+ */
 
-require_once __DIR__ . '/../../config/config.php';
+// --- FORM SUBMISSION HANDLING ---
+if ($_SERVER['REQUEST_METHOD'] === 'POST') {
+    require_once __DIR__ . '/../../src/Controllers/AllianceController.php';
+    exit;
+}
+
+// --- PAGE DISPLAY LOGIC (GET REQUEST) ---
+// The main router (index.php) handles all initial setup.
 
 // Generate a CSRF token for the donation form
 $csrf_token = generate_csrf_token();
@@ -29,7 +38,7 @@ $user_credits = $user_data['credits'] ?? 0;
 // If user is not in an alliance, they can't be here.
 if (!$alliance_id) {
     $_SESSION['alliance_error'] = "You must be in an alliance to access the bank.";
-    header("location: /alliance.php");
+    header("location: /alliance");
     exit;
 }
 
@@ -52,14 +61,14 @@ while($row = mysqli_fetch_assoc($result_logs)){
 }
 mysqli_stmt_close($stmt_logs);
 
-mysqli_close($link);
+// The database connection is managed by the router and should not be closed here.
 ?>
 <!DOCTYPE html>
 <html lang="en">
 <head>
     <meta charset="UTF-8">
     <title>Stellar Dominion - Alliance Bank</title>
-    <link rel="stylesheet" href="assets/css/style.css">
+    <link rel="stylesheet" href="/assets/css/style.css">
     <script src="https://cdn.tailwindcss.com"></script>
     <script src="https://unpkg.com/lucide@latest"></script>
     <link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@700&family=Roboto:wght@400;500;700&display=swap" rel="stylesheet">
@@ -87,14 +96,14 @@ mysqli_close($link);
                     <p class="text-sm mt-2">Use the bank to fund alliance structures or transfer resources between members.</p>
                 </div>
                 <div class="text-right">
-                     <a href="alliance_transfer.php" class="bg-purple-600 hover:bg-purple-700 text-white font-bold py-3 px-6 rounded-lg">Member Transfers</a>
+                     <a href="/alliance_transfer" class="bg-purple-600 hover:bg-purple-700 text-white font-bold py-3 px-6 rounded-lg">Member Transfers</a>
                 </div>
             </div>
 
             <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
                 <div class="md:col-span-1 content-box rounded-lg p-6">
                     <h3 class="font-title text-xl text-cyan-400 border-b border-gray-600 pb-2 mb-3">Donate Credits</h3>
-                    <form action="src/Controllers/AllianceController.php" method="POST" class="space-y-3">
+                    <form action="/alliance_bank" method="POST" class="space-y-3">
                         <input type="hidden" name="csrf_token" value="<?php echo htmlspecialchars($csrf_token, ENT_QUOTES, 'UTF-8'); ?>">
                         <input type="hidden" name="action" value="donate_credits">
                         <div>

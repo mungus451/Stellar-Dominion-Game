@@ -1,17 +1,27 @@
 <?php
-if (session_status() == PHP_SESSION_NONE) {
-    session_start();
-}
-if (!isset($_SESSION["loggedin"]) || $_SESSION["loggedin"] !== true) { header("location: index.html"); exit; }
+/**
+ * alliance_transfer.php
+ *
+ * This page allows players to transfer resources to other alliance members.
+ * It has been updated to work with the central routing system.
+ */
 
-require_once __DIR__ . '/../../config/config.php';
-require_once __DIR__ . '/../../src/Game/GameData.php'; // Corrected path to GameData
+// --- FORM SUBMISSION HANDLING ---
+if ($_SERVER['REQUEST_METHOD'] === 'POST') {
+    require_once __DIR__ . '/../../src/Controllers/AllianceController.php';
+    exit;
+}
+
+// --- PAGE DISPLAY LOGIC (GET REQUEST) ---
+// The main router (index.php) handles all initial setup.
+
+require_once __DIR__ . '/../../src/Game/GameData.php';
 
 // Generate a CSRF token for the forms
 $csrf_token = generate_csrf_token();
 
 $user_id = $_SESSION['id'];
-$active_page = 'alliance_bank.php';
+$active_page = 'alliance_bank.php'; // Keep main nav category as 'ALLIANCE'
 
 // Fetch user's alliance and credits
 $sql_user = "SELECT alliance_id, credits, workers, soldiers, guards, sentries, spies FROM users WHERE id = ?";
@@ -24,7 +34,7 @@ mysqli_stmt_close($stmt_user);
 $alliance_id = $user_data['alliance_id'] ?? null;
 if (!$alliance_id) {
     $_SESSION['alliance_error'] = "You must be in an alliance to transfer resources.";
-    header("location: /alliance.php");
+    header("location: /alliance");
     exit;
 }
 
@@ -38,7 +48,7 @@ $members = [];
 while($row = mysqli_fetch_assoc($result_members)){ $members[] = $row; }
 mysqli_stmt_close($stmt_members);
 
-mysqli_close($link);
+// The database connection is managed by the router and should not be closed here.
 
 $unit_costs = ['workers' => 100, 'soldiers' => 250, 'guards' => 250, 'sentries' => 500, 'spies' => 1000];
 ?>
@@ -47,7 +57,7 @@ $unit_costs = ['workers' => 100, 'soldiers' => 250, 'guards' => 250, 'sentries' 
 <head>
     <meta charset="UTF-8">
     <title>Stellar Dominion - Alliance Transfers</title>
-    <link rel="stylesheet" href="assets/css/style.css">
+    <link rel="stylesheet" href="/assets/css/style.css">
     <script src="https://cdn.tailwindcss.com"></script>
     <link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@700&family=Roboto:wght@400;500;700&display=swap" rel="stylesheet">
 </head>
@@ -71,7 +81,7 @@ $unit_costs = ['workers' => 100, 'soldiers' => 250, 'guards' => 250, 'sentries' 
             <h1 class="font-title text-3xl text-cyan-400 border-b border-gray-600 pb-2 mb-4">Member-to-Member Transfers</h1>
             <p class="text-sm mb-4">Transfer credits or units to another member of your alliance. A 2% fee is applied to all transfers and contributed to the alliance bank.</p>
 
-            <form action="src/Controllers/AllianceController.php" method="POST" class="bg-gray-800 p-4 rounded-lg mb-4">
+            <form action="/alliance_transfer" method="POST" class="bg-gray-800 p-4 rounded-lg mb-4">
                 <h2 class="font-title text-xl text-white mb-2">Transfer Credits</h2>
                 <input type="hidden" name="csrf_token" value="<?php echo htmlspecialchars($csrf_token, ENT_QUOTES, 'UTF-8'); ?>">
                 <input type="hidden" name="action" value="transfer_credits">
@@ -96,7 +106,7 @@ $unit_costs = ['workers' => 100, 'soldiers' => 250, 'guards' => 250, 'sentries' 
                 </div>
             </form>
 
-            <form action="src/Controllers/AllianceController.php" method="POST" class="bg-gray-800 p-4 rounded-lg">
+            <form action="/alliance_transfer" method="POST" class="bg-gray-800 p-4 rounded-lg">
                  <h2 class="font-title text-xl text-white mb-2">Transfer Units</h2>
                  <input type="hidden" name="csrf_token" value="<?php echo htmlspecialchars($csrf_token, ENT_QUOTES, 'UTF-8'); ?>">
                  <input type="hidden" name="action" value="transfer_units">
@@ -124,7 +134,7 @@ $unit_costs = ['workers' => 100, 'soldiers' => 250, 'guards' => 250, 'sentries' 
                         <label for="unit_amount" class="font-semibold text-white">Amount</label>
                         <input type="number" id="unit_amount" name="amount" min="1" class="w-full bg-gray-900 border border-gray-600 rounded-md p-2 mt-1" required>
                     </div>
-                </div>
+                 </div>
                  <div class="text-right mt-4">
                     <button type="submit" class="bg-cyan-600 hover:bg-cyan-700 text-white font-bold py-2 px-6 rounded-lg">Transfer Units</button>
                 </div>

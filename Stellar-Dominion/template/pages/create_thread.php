@@ -1,9 +1,19 @@
 <?php
-if (session_status() == PHP_SESSION_NONE) {
-    session_start();
+/**
+ * create_thread.php
+ *
+ * This page allows a player to create a new forum thread in their alliance forum.
+ * It has been updated to work with the central routing system.
+ */
+
+// --- FORM SUBMISSION HANDLING ---
+if ($_SERVER['REQUEST_METHOD'] === 'POST') {
+    require_once __DIR__ . '/../../src/Controllers/AllianceController.php';
+    exit;
 }
-if (!isset($_SESSION["loggedin"]) || $_SESSION["loggedin"] !== true) { header("location: index.html"); exit; }
-require_once __DIR__ . '/../../config/config.php';
+
+// --- PAGE DISPLAY LOGIC (GET REQUEST) ---
+// The main router (index.php) handles all initial setup.
 
 // Generate a CSRF token for the form
 $csrf_token = generate_csrf_token();
@@ -21,24 +31,24 @@ mysqli_stmt_close($stmt_user);
 
 if (!$user_data['alliance_id']) {
     $_SESSION['alliance_error'] = "You must be in an alliance to create a thread.";
-    header("location: /alliance.php");
+    header("location: /alliance");
     exit;
 }
-mysqli_close($link);
+// The database connection is managed by the router and should not be closed here.
 ?>
 <!DOCTYPE html>
 <html lang="en">
 <head>
     <meta charset="UTF-8">
     <title>Stellar Dominion - Create Forum Thread</title>
-    <link rel="stylesheet" href="assets/css/style.css">
+    <link rel="stylesheet" href="/assets/css/style.css">
     <script src="https://cdn.tailwindcss.com"></script>
     <script src="https://unpkg.com/lucide@latest"></script>
 </head>
 <body class="text-gray-400 antialiased">
 <div class="min-h-screen bg-cover bg-center bg-fixed" style="background-image: url('/assets/img/backgroundAlt.avif');">
 <div class="container mx-auto p-4 md:p-8">
-            <?php include_once __DIR__ . '/../includes/navigation.php'; // CORRECTED PATH ?>
+            <?php include_once __DIR__ . '/../includes/navigation.php'; ?>
     <main class="content-box rounded-lg p-6 mt-4 max-w-4xl mx-auto">
         <h1 class="font-title text-3xl text-cyan-400 border-b border-gray-600 pb-2 mb-4">Create New Forum Thread</h1>
         
@@ -48,7 +58,7 @@ mysqli_close($link);
             </div>
         <?php endif; ?>
 
-        <form action="src/Controllers/AllianceController.php" method="POST" class="space-y-4">
+        <form action="/create_thread" method="POST" class="space-y-4">
             <input type="hidden" name="csrf_token" value="<?php echo htmlspecialchars($csrf_token, ENT_QUOTES, 'UTF-8'); ?>">
             <input type="hidden" name="action" value="create_thread">
             <div>
@@ -60,7 +70,7 @@ mysqli_close($link);
                 <textarea id="content" name="content" rows="10" required class="w-full bg-gray-900 border border-gray-600 rounded-md p-2 mt-1 focus:ring-cyan-500 focus:border-cyan-500"></textarea>
             </div>
             <div class="flex justify-end space-x-4">
-                <a href="alliance_forum.php" class="bg-gray-600 hover:bg-gray-700 text-white font-bold py-2 px-6 rounded-lg">Cancel</a>
+                <a href="/alliance_forum" class="bg-gray-600 hover:bg-gray-700 text-white font-bold py-2 px-6 rounded-lg">Cancel</a>
                 <button type="submit" class="bg-green-600 hover:bg-green-700 text-white font-bold py-2 px-6 rounded-lg">Post Thread</button>
             </div>
         </form>

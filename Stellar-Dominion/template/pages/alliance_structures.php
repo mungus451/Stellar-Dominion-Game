@@ -1,10 +1,20 @@
 <?php
-if (session_status() == PHP_SESSION_NONE) {
-    session_start();
-}
-if (!isset($_SESSION["loggedin"]) || $_SESSION["loggedin"] !== true) { header("location: index.html"); exit; }
+/**
+ * alliance_structures.php
+ *
+ * This page allows players to purchase and view alliance structures.
+ * It has been updated to work with the central routing system.
+ */
 
-require_once __DIR__ . '/../../config/config.php';
+// --- FORM SUBMISSION HANDLING ---
+if ($_SERVER['REQUEST_METHOD'] === 'POST') {
+    require_once __DIR__ . '/../../src/Controllers/AllianceController.php';
+    exit;
+}
+
+// --- PAGE DISPLAY LOGIC (GET REQUEST) ---
+// The main router (index.php) handles all initial setup.
+
 require_once __DIR__ . '/../../src/Game/GameData.php'; // Corrected path to GameData
 
 // Generate a CSRF token for the purchase forms
@@ -35,7 +45,7 @@ $alliance_id = $user_permissions['alliance_id'] ?? null;
 // If user is not in an alliance, they can't be here.
 if (!$alliance_id) {
     $_SESSION['alliance_error'] = "You must be in an alliance to view structures.";
-    header("location: /alliance.php");
+    header("location: /alliance");
     exit;
 }
 
@@ -69,14 +79,14 @@ while($row = mysqli_fetch_assoc($result_logs)){
 }
 mysqli_stmt_close($stmt_logs);
 
-mysqli_close($link);
+// The database connection is managed by the router and should not be closed here.
 ?>
 <!DOCTYPE html>
 <html lang="en">
 <head>
     <meta charset="UTF-8">
     <title>Stellar Dominion - Alliance Structures</title>
-    <link rel="stylesheet" href="assets/css/style.css">
+    <link rel="stylesheet" href="/assets/css/style.css">
     <script src="https://cdn.tailwindcss.com"></script>
     <script src="https://unpkg.com/lucide@latest"></script>
     <link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@700&family=Roboto:wght@400;500;700&display=swap" rel="stylesheet">
@@ -117,7 +127,7 @@ mysqli_close($link);
                                 <?php if (isset($owned_structures[$key])): ?>
                                     <p class="font-bold text-green-400 text-center py-2">BUILT (Level <?php echo $owned_structures[$key]['level']; ?>)</p>
                                 <?php elseif ($user_permissions['can_manage_structures'] == 1): ?>
-                                    <form action="src/Controllers/AllianceController.php" method="POST" onsubmit="return confirm('Purchase <?php echo htmlspecialchars($structure['name']); ?> for <?php echo number_format($structure['cost']); ?> credits?');">
+                                    <form action="/alliance_structures" method="POST" onsubmit="return confirm('Purchase <?php echo htmlspecialchars($structure['name']); ?> for <?php echo number_format($structure['cost']); ?> credits?');">
                                         <input type="hidden" name="csrf_token" value="<?php echo htmlspecialchars($csrf_token, ENT_QUOTES, 'UTF-8'); ?>">
                                         <input type="hidden" name="action" value="purchase_structure">
                                         <input type="hidden" name="structure_key" value="<?php echo $key; ?>">

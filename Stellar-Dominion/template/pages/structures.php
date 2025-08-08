@@ -4,17 +4,19 @@
  *
  * This page allows players to build and upgrade permanent structures that provide
  * passive bonuses to their empire, such as increased income or defensive capabilities.
- * Now includes a tab for repairing damaged foundations.
+ * It has been updated to work with the central routing system.
  */
 
-// --- SESSION AND SECURITY SETUP ---
-if (session_status() == PHP_SESSION_NONE) {
-    session_start();
+// --- FORM SUBMISSION HANDLING ---
+if ($_SERVER['REQUEST_METHOD'] === 'POST') {
+    require_once __DIR__ . '/../../src/Controllers/StructureController.php';
+    exit;
 }
-if(!isset($_SESSION["loggedin"]) || $_SESSION["loggedin"] !== true){ header("location: index.html"); exit; }
-require_once __DIR__ . '/../../config/config.php';
-require_once __DIR__ . '/../../src/Game/GameData.php';
 
+// --- PAGE DISPLAY LOGIC (GET REQUEST) ---
+// The main router (index.php) handles all initial setup.
+
+require_once __DIR__ . '/../../src/Game/GameData.php';
 date_default_timezone_set('UTC');
 
 // Generate a CSRF token to be used in all forms on this page.
@@ -31,7 +33,7 @@ if($stmt = mysqli_prepare($link, $sql)){
     $user_stats = mysqli_fetch_assoc(mysqli_stmt_get_result($stmt));
     mysqli_stmt_close($stmt);
 }
-mysqli_close($link);
+// The database connection is managed by the router and should not be closed here.
 
 // --- TIMER CALCULATIONS ---
 $turn_interval_minutes = 10;
@@ -61,7 +63,7 @@ $current_page = isset($_GET['page']) ? (int)$_GET['page'] : 1;
     <script src="https://cdn.tailwindcss.com"></script>
     <script src="https://unpkg.com/lucide@latest"></script>
     <link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@700&family=Roboto:wght@400;500;700&display=swap" rel="stylesheet">
-    <link rel="stylesheet" href="assets/css/style.css">
+    <link rel="stylesheet" href="/assets/css/style.css">
 </head>
 <body class="text-gray-400 antialiased">
     <div class="min-h-screen bg-cover bg-center bg-fixed" style="background-image: url('/assets/img/backgroundAlt.avif');">
@@ -141,7 +143,7 @@ $current_page = isset($_GET['page']) ? (int)$_GET['page'] : 1;
                                 
                                 <p class="mb-4 text-lg">Total Repair Cost: <span class="font-bold text-yellow-300"><?php echo number_format($repair_cost); ?> Credits</span></p>
                                 
-                                <form action="/src/Controllers/StructureController.php" method="POST">
+                                <form action="/structures" method="POST">
                                     <input type="hidden" name="action" value="repair_structure">
                                     <input type="hidden" name="csrf_token" value="<?php echo htmlspecialchars($_SESSION['csrf_token']); ?>">
                                     <button type="submit" class="bg-green-600 hover:bg-green-700 text-white font-bold py-3 px-8 rounded-lg disabled:bg-gray-600 disabled:cursor-not-allowed" <?php if ($user_stats['credits'] < $repair_cost || $current_hp >= $max_hp) echo 'disabled'; ?>>
@@ -202,7 +204,7 @@ $current_page = isset($_GET['page']) ? (int)$_GET['page'] : 1;
                                                 if ($user_upgrade_level >= $level) {
                                                     echo '<span class="font-bold text-green-400">Owned</span>';
                                                     if ($user_upgrade_level == $level) {
-                                                        echo '<form action="/src/Controllers/StructureController.php" method="POST" class="inline ml-2" onsubmit="return confirm(\'Are you sure you want to sell this structure for a partial refund?\');">';
+                                                        echo '<form action="/structures" method="POST" class="inline ml-2" onsubmit="return confirm(\'Are you sure you want to sell this structure for a partial refund?\');">';
                                                         echo '<input type="hidden" name="action" value="sell_structure">';
                                                         echo '<input type="hidden" name="csrf_token" value="' . htmlspecialchars($_SESSION['csrf_token']) . '">';
                                                         echo '<input type="hidden" name="upgrade_type" value="' . $current_tab . '">';
@@ -223,7 +225,7 @@ $current_page = isset($_GET['page']) ? (int)$_GET['page'] : 1;
                                                     if ($user_stats['credits'] < $details['cost']) $can_build = false;
                                                     
                                                     if ($can_build) {
-                                                        echo '<form action="/src/Controllers/StructureController.php" method="POST">';
+                                                        echo '<form action="/structures" method="POST">';
                                                         echo '<input type="hidden" name="action" value="purchase_structure">';
                                                         echo '<input type="hidden" name="csrf_token" value="' . htmlspecialchars($_SESSION['csrf_token']) . '">';
                                                         echo '<input type="hidden" name="upgrade_type" value="' . $current_tab . '">';
@@ -276,6 +278,6 @@ $current_page = isset($_GET['page']) ? (int)$_GET['page'] : 1;
             </div>
         </div>
     </div>
-    <script src="assets/js/main.js" defer></script>
+    <script src="/assets/js/main.js" defer></script>
 </body>
 </html>

@@ -4,16 +4,18 @@
  *
  * This page allows players to purchase multiple items for their units
  * from different categories simultaneously, following a tiered progression.
- * It now supports multiple loadouts via a tabbed interface.
+ * It now supports multiple loadouts via a tabbed interface and works with the central router.
  */
 
-// --- SESSION AND DATABASE SETUP ---
-if (session_status() == PHP_SESSION_NONE) {
-    session_start();
+// --- FORM SUBMISSION HANDLING ---
+if ($_SERVER['REQUEST_METHOD'] === 'POST') {
+    require_once __DIR__ . '/../../src/Controllers/ArmoryController.php';
+    exit;
 }
-if (!isset($_SESSION["loggedin"]) || $_SESSION["loggedin"] !== true) { header("location: index.html"); exit; }
 
-require_once __DIR__ . '/../../config/config.php';
+// --- PAGE DISPLAY LOGIC (GET REQUEST) ---
+// The main router (index.php) has already handled session, config, and security.
+
 require_once __DIR__ . '/../../src/Game/GameData.php';
 date_default_timezone_set('UTC');
 
@@ -42,7 +44,7 @@ while($row = mysqli_fetch_assoc($armory_result)) {
     $owned_items[$row['item_key']] = $row['quantity'];
 }
 mysqli_stmt_close($stmt_armory);
-mysqli_close($link);
+// The database connection is managed by the router and should not be closed here.
 
 // --- PAGE AND TAB LOGIC ---
 $active_page = 'armory.php';
@@ -69,7 +71,7 @@ $items_per_page = 10;
     <title>Stellar Dominion - Armory</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@700&family=Roboto:wght@400;500;700&display=swap" rel="stylesheet">
-    <link rel="stylesheet" href="assets/css/style.css">
+    <link rel="stylesheet" href="/assets/css/style.css">
     <script src="https://unpkg.com/lucide@latest"></script>
 </head>
 <body class="text-gray-400 antialiased">
@@ -113,7 +115,7 @@ $items_per_page = 10;
                             </nav>
                         </div>
 
-                        <form id="armory-form" action="src/Controllers/ArmoryController.php" method="POST">
+                        <form id="armory-form" action="/armory" method="POST">
                             <input type="hidden" name="action" value="purchase_items">
                             <!-- CSRF Token: This hidden input is essential for security -->
                             <input type="hidden" name="csrf_token" value="<?php echo htmlspecialchars($csrf_token, ENT_QUOTES, 'UTF-8'); ?>">
@@ -211,7 +213,7 @@ $items_per_page = 10;
             </div>
         </div>
     </div>
-    <script src="assets/js/main.js" defer></script>
+    <script src="/assets/js/main.js" defer></script>
     <script>lucide.createIcons();</script>
 </body>
 </html>

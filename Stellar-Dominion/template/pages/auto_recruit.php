@@ -1,10 +1,19 @@
 <?php
-// --- SETUP ---
-if (session_status() == PHP_SESSION_NONE) {
-    session_start();
+/**
+ * auto_recruit.php
+ *
+ * This page allows players to automatically recruit citizens.
+ * It has been updated to work with the central routing system.
+ */
+
+// --- FORM SUBMISSION HANDLING ---
+if ($_SERVER['REQUEST_METHOD'] === 'POST') {
+    require_once __DIR__ . '/../../src/Controllers/RecruitmentController.php';
+    exit;
 }
-if(!isset($_SESSION["loggedin"]) || $_SESSION["loggedin"] !== true){ header("location: index.html"); exit; }
-require_once __DIR__ . '/../../config/config.php';
+
+// --- PAGE DISPLAY LOGIC (GET REQUEST) ---
+// The main router (index.php) handles all initial setup.
 
 date_default_timezone_set('UTC');
 
@@ -63,7 +72,7 @@ $seconds_remainder = $seconds_until_next_turn % 60;
     <meta charset="UTF-8">
     <title>Stellar Dominion - Auto Recruiter</title>
     <script src="https://cdn.tailwindcss.com"></script>
-    <link rel="stylesheet" href="assets/css/style.css">
+    <link rel="stylesheet" href="/assets/css/style.css">
     <link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@700&family=Roboto:wght@400;500;700&display=swap" rel="stylesheet">
 </head>
 <body class="text-gray-400 antialiased">
@@ -109,7 +118,7 @@ $seconds_remainder = $seconds_until_next_turn % 60;
                         <img src="<?php echo htmlspecialchars($target_user['avatar_path'] ?? 'https://via.placeholder.com/150'); ?>" alt="Avatar" class="w-32 h-32 rounded-full border-2 border-gray-600 object-cover mx-auto">
                         <h3 class="font-title text-3xl text-white mt-4"><?php echo htmlspecialchars($target_user['character_name']); ?></h3>
                         <p class="text-lg text-cyan-300">Level: <?php echo $target_user['level']; ?></p>
-                        <form id="recruitForm" action="src/Controllers/RecruitmentController.php" method="POST" class="mt-6">
+                        <form id="recruitForm" action="/auto_recruit" method="POST" class="mt-6">
                             <input type="hidden" name="csrf_token" value="<?php echo htmlspecialchars($csrf_token, ENT_QUOTES, 'UTF-8'); ?>">
                             <input type="hidden" name="action" value="recruit">
                             <input type="hidden" name="recruited_id" value="<?php echo $target_user['id']; ?>">
@@ -119,9 +128,9 @@ $seconds_remainder = $seconds_until_next_turn % 60;
                     </div>
                 <?php elseif ($recruits_remaining <= 0): ?>
                      <div class="content-box rounded-lg p-6 text-center">
-                        <h3 class="font-title text-2xl text-yellow-300">Daily Limit Reached</h3>
-                        <p>You have recruited your maximum of 250 citizens for today. Check back tomorrow for more.</p>
-                    </div>
+                         <h3 class="font-title text-2xl text-yellow-300">Daily Limit Reached</h3>
+                         <p>You have recruited your maximum of 250 citizens for today. Check back tomorrow for more.</p>
+                     </div>
                 <?php else: ?>
                     <div class="content-box rounded-lg p-6 text-center">
                         <h3 class="font-title text-2xl text-yellow-300">No Targets Available</h3>
@@ -137,7 +146,7 @@ $seconds_remainder = $seconds_until_next_turn % 60;
         </div>
     </div>
 </div>
-<script src="assets/js/main.js" defer></script>
+<script src="/assets/js/main.js" defer></script>
 <script>
 document.addEventListener('DOMContentLoaded', () => {
     const startBtn = document.getElementById('startRecruitingBtn');

@@ -1,10 +1,19 @@
 <?php
-if (session_status() == PHP_SESSION_NONE) {
-    session_start();
-}
-if (!isset($_SESSION["loggedin"]) || $_SESSION["loggedin"] !== true) { header("location: index.html"); exit; }
+/**
+ * create_alliance.php
+ *
+ * This page allows a player to create a new alliance.
+ * It has been updated to work with the central routing system.
+ */
 
-require_once __DIR__ . '/../../config/config.php';
+// --- FORM SUBMISSION HANDLING ---
+if ($_SERVER['REQUEST_METHOD'] === 'POST') {
+    require_once __DIR__ . '/../../src/Controllers/AllianceController.php';
+    exit;
+}
+
+// --- PAGE DISPLAY LOGIC (GET REQUEST) ---
+// The main router (index.php) handles all initial setup.
 
 // Generate a CSRF token for the form
 $csrf_token = generate_csrf_token();
@@ -16,14 +25,14 @@ $active_page = 'alliance.php';
 <head>
     <meta charset="UTF-8">
     <title>Stellar Dominion - Create Alliance</title>
-    <link rel="stylesheet" href="assets/css/style.css">
+    <link rel="stylesheet" href="/assets/css/style.css">
     <script src="https://cdn.tailwindcss.com"></script>
     <link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@700&family=Roboto:wght@400;500;700&display=swap" rel="stylesheet">
 </head>
 <body class="text-gray-400 antialiased">
 <div class="min-h-screen bg-cover bg-center bg-fixed" style="background-image: url('/assets/img/backgroundAlt.avif');">
 <div class="container mx-auto p-4 md:p-8">
-            <?php include_once __DIR__ . '/../includes/navigation.php'; // CORRECTED PATH ?>
+            <?php include_once __DIR__ . '/../includes/navigation.php'; ?>
     <main class="content-box rounded-lg p-6 mt-4 max-w-2xl mx-auto">
         <h1 class="font-title text-3xl text-cyan-400 border-b border-gray-600 pb-2 mb-4">Found a New Alliance</h1>
         <?php if(isset($_SESSION['alliance_error'])): ?>
@@ -32,7 +41,7 @@ $active_page = 'alliance.php';
             </div>
         <?php endif; ?>
         <p class="text-sm mb-4">Founding a new alliance requires a significant investment of <span class="text-white font-bold">1,000,000 Credits</span>. Choose your name and tag wisely, Commander.</p>
-        <form action="src/Controllers/AllianceController.php" method="POST" class="space-y-4">
+        <form action="/create_alliance" method="POST" class="space-y-4">
             <input type="hidden" name="csrf_token" value="<?php echo htmlspecialchars($csrf_token, ENT_QUOTES, 'UTF-8'); ?>">
             <input type="hidden" name="action" value="create">
             <div>

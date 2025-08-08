@@ -1,10 +1,19 @@
 <?php
-// alliance_roles.php
-if (session_status() == PHP_SESSION_NONE) {
-    session_start();
+/**
+ * alliance_roles.php
+ *
+ * This page allows permitted members to manage alliance roles and permissions.
+ * It has been updated to work with the central routing system.
+ */
+
+// --- FORM SUBMISSION HANDLING ---
+if ($_SERVER['REQUEST_METHOD'] === 'POST') {
+    require_once __DIR__ . '/../../src/Controllers/AllianceController.php';
+    exit;
 }
-if (!isset($_SESSION["loggedin"]) || $_SESSION["loggedin"] !== true) { header("location: index.html"); exit; }
-require_once __DIR__ . '/../../config/config.php';
+
+// --- PAGE DISPLAY LOGIC (GET REQUEST) ---
+// The main router (index.php) handles all initial setup.
 
 // Generate a single CSRF token for all forms on this page
 $csrf_token = generate_csrf_token();
@@ -28,7 +37,7 @@ mysqli_stmt_close($stmt_user_role);
 // Permission check: User must be in an alliance and have the 'can_manage_roles' permission.
 if (!$user_role_data || $user_role_data['can_manage_roles'] != 1) {
     $_SESSION['alliance_error'] = "You do not have permission to manage roles.";
-    header("location: /alliance.php");
+    header("location: /alliance");
     exit;
 }
 
@@ -44,14 +53,14 @@ $roles = [];
 while($row = mysqli_fetch_assoc($result_roles)){ $roles[] = $row; }
 mysqli_stmt_close($stmt_roles);
 
-mysqli_close($link);
+// The database connection is managed by the router and should not be closed here.
 ?>
 <!DOCTYPE html>
 <html lang="en">
 <head>
     <meta charset="UTF-8">
     <title>Stellar Dominion - Manage Roles</title>
-    <link rel="stylesheet" href="assets/css/style.css">
+    <link rel="stylesheet" href="/assets/css/style.css">
     <script src="https://cdn.tailwindcss.com"></script>
     <script src="https://unpkg.com/lucide@latest"></script>
     <link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@700&family=Roboto:wght@400;500;700&display=swap" rel="stylesheet">
@@ -78,7 +87,7 @@ mysqli_close($link);
 
                 <div class="space-y-4">
                     <?php foreach($roles as $role): ?>
-                        <form action="src/Controllers/AllianceController.php" method="POST" class="bg-gray-800 p-4 rounded-lg">
+                        <form action="/alliance_roles" method="POST" class="bg-gray-800 p-4 rounded-lg">
                             <input type="hidden" name="csrf_token" value="<?php echo htmlspecialchars($csrf_token, ENT_QUOTES, 'UTF-8'); ?>">
                             <input type="hidden" name="role_id" value="<?php echo $role['id']; ?>">
                             <div class="grid grid-cols-1 md:grid-cols-3 gap-4 items-center">
@@ -113,7 +122,7 @@ mysqli_close($link);
                 <hr class="border-gray-600 my-6">
 
                 <h2 class="font-title text-2xl text-cyan-400 mb-3">Create New Role</h2>
-                <form action="src/Controllers/AllianceController.php" method="POST" class="bg-gray-800 p-4 rounded-lg">
+                <form action="/alliance_roles" method="POST" class="bg-gray-800 p-4 rounded-lg">
                     <input type="hidden" name="csrf_token" value="<?php echo htmlspecialchars($csrf_token, ENT_QUOTES, 'UTF-8'); ?>">
                     <input type="hidden" name="action" value="create_role">
                     <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
