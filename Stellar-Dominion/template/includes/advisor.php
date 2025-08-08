@@ -1,13 +1,18 @@
 <?php
 /**
- * test
- * Stellar Dominion - A.I. Advisor Module
+ * Stellar Dominion - A.I. Advisor & Stats Module
  *
- * This file generates the advisor box content. It expects a variable
- * named $active_page to be set before it's included.
+ * This file generates the complete sidebar content, including the advisor
+ * and the player's primary stats.
  *
- * It now also expects $user_xp and $user_level to be set to display
- * the experience bar.
+ * It expects the following variables to be set by the parent page:
+ * - $active_page: (string) The filename of the current page for contextual advice.
+ * - $user_stats: (array) An associative array with the user's data (credits, level, etc.).
+ * - $user_xp: (int) The user's current experience points.
+ * - $user_level: (int) The user's current level.
+ * - $minutes_until_next_turn: (int) For the countdown timer.
+ * - $seconds_remainder: (int) For the countdown timer.
+ * - $now: (DateTime object) The current UTC time for the Dominion clock.
  */
 
 // An array of advice strings, categorized by the page they should appear on.
@@ -89,6 +94,13 @@ if (isset($user_xp) && isset($user_level)) {
          $xp_progress_pct = 100;
     }
 }
+
+// Timer calculations for viewer
+$seconds_until_next_turn = 0;
+if (isset($minutes_until_next_turn) && isset($seconds_remainder)) {
+    $seconds_until_next_turn = ($minutes_until_next_turn * 60) + $seconds_remainder;
+}
+
 ?>
 
 <div class="content-box rounded-lg p-4">
@@ -108,4 +120,40 @@ if (isset($user_xp) && isset($user_level)) {
         </div>
     </div>
     <?php endif; ?>
+</div>
+
+<div class="content-box rounded-lg p-4">
+    <h3 class="font-title text-cyan-400 border-b border-gray-600 pb-2 mb-3">Stats</h3>
+    <ul class="space-y-2 text-sm">
+        <?php if(isset($user_stats['credits'])): ?>
+            <li class="flex justify-between"><span>Credits:</span> <span class="text-white font-semibold"><?php echo number_format($user_stats['credits']); ?></span></li>
+        <?php endif; ?>
+        <?php if(isset($user_stats['banked_credits'])): ?>
+            <li class="flex justify-between"><span>Banked Credits:</span> <span class="text-white font-semibold"><?php echo number_format($user_stats['banked_credits']); ?></span></li>
+        <?php endif; ?>
+        <?php if(isset($user_stats['untrained_citizens'])): ?>
+            <li class="flex justify-between"><span>Citizens:</span> <span class="text-white font-semibold"><?php echo number_format($user_stats['untrained_citizens']); ?></span></li>
+        <?php endif; ?>
+        <?php if(isset($user_stats['level'])): ?>
+            <li class="flex justify-between"><span>Level:</span> <span class="text-white font-semibold"><?php echo $user_stats['level']; ?></span></li>
+        <?php endif; ?>
+        <?php if(isset($user_stats['attack_turns'])): ?>
+            <li class="flex justify-between"><span>Attack Turns:</span> <span class="text-white font-semibold"><?php echo $user_stats['attack_turns']; ?></span></li>
+        <?php endif; ?>
+        
+        <li class="flex justify-between border-t border-gray-600 pt-2 mt-2">
+            <span>Next Turn In:</span>
+            <span id="next-turn-timer" class="text-cyan-300 font-bold" data-seconds-until-next-turn="<?php echo $seconds_until_next_turn; ?>">
+                <?php echo sprintf('%02d:%02d', ($minutes_until_next_turn ?? 0), ($seconds_remainder ?? 0)); ?>
+            </span>
+        </li>
+        <?php if(isset($now)): ?>
+        <li class="flex justify-between">
+            <span>Dominion Time:</span>
+            <span id="dominion-time" class="text-white font-semibold" data-hours="<?php echo $now->format('H'); ?>" data-minutes="<?php echo $now->format('i'); ?>" data-seconds="<?php echo $now->format('s'); ?>">
+                <?php echo $now->format('H:i:s'); ?>
+            </span>
+        </li>
+        <?php endif; ?>
+    </ul>
 </div>
