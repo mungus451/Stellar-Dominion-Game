@@ -1,175 +1,151 @@
-/* General Body and Layout Styles */
-body {
-    font-family: 'Arial', sans-serif;
-    background-color: #1a1a1a;
-    color: #f0f0f0;
-    margin: 0;
-    padding: 0;
-    background-image: url('../img/backgroundMain.avif');
+/* -----------------------------------------------------------------------------
+ * Stellar Dominion - Unified Stylesheet (Optimized)
+ * ----------------------------------------------------------------------------- */
+
+/* --- Base Styles & Fonts --- */
+body { 
+    font-family: 'Roboto', sans-serif; 
+    background-color: #0c1427; 
+}
+
+.font-title { 
+    font-family: 'Orbitron', sans-serif; 
+}
+
+/* --- In-Game Layout & Backgrounds --- */
+.main-bg { 
+    background-color: #111827; 
+}
+
+.content-box { 
+    background-color: #1f2937; 
+    border: 1px solid #374151; 
+}
+
+/* --- In-Game Navigation --- */
+.nav-link { 
+    border-bottom: 2px solid transparent; 
+}
+
+.nav-link.active, 
+.nav-link:hover { 
+    border-bottom-color: #06b6d4; 
+    color: #fff; 
+}
+
+/* --- Form Elements --- */
+input[type=number] { 
+    -moz-appearance: textfield; 
+}
+
+input[type=number]::-webkit-inner-spin-button, 
+input[type=number]::-webkit-outer-spin-button { 
+  -webkit-appearance: none; 
+  margin: 0; 
+}
+
+/* --- Battle Report Specific --- */
+.battle-log-bg {
+    background-image: url('/assets/img/backgroundMain.avif');
     background-size: cover;
-    background-attachment: fixed;
+    background-position: center;
 }
 
-.container {
-    width: 80%;
-    margin: auto;
-    overflow: hidden;
-    padding: 20px 0;
+/* --- Public Page Styles (Landing, Gameplay, etc.) --- */
+/* OPTIMIZATION: Removed 'background-attachment: fixed' */
+.public-body {
+    background-color: #000;
+    background-image: url('/assets/img/backgroundMain.avif');
+    background-size: cover;
+    background-position: center;
+    color: #e5e7eb;
 }
 
-/* Header and Navigation */
-header {
-    background: #333;
-    color: #fff;
-    padding: 1rem 0;
-    border-bottom: #0779e4 3px solid;
+.public-header {
+    padding: 1.5rem 0;
 }
 
-header a {
-    color: #fff;
-    text-decoration: none;
-    text-transform: uppercase;
-    font-size: 16px;
+/* Class for the translucent header background */
+/* OPTIMIZATION: Removed 'backdrop-filter' and '-webkit-backdrop-filter' */
+.public-header-bg {
+    background-color: rgba(10, 25, 47, 0.85); /* A translucent dark blue */
+    border-bottom: 1px solid rgba(107, 114, 128, 0.2);
 }
 
-header ul {
-    padding: 0;
-    list-style: none;
+.public-header nav a {
+    color: #d1d5db;
+    font-size: 1rem;
+    padding-bottom: 4px;
+    border-bottom: 2px solid transparent;
+    transition: color 0.3s ease, border-color 0.3s ease;
 }
 
-header li {
-    display: inline;
-    padding: 0 20px 0 20px;
+.public-header nav a:hover {
+    color: #ffffff;
+    border-color: #ffffff;
 }
 
-header #branding {
-    float: left;
+.text-shadow-glow {
+    text-shadow: 0 0 15px rgba(255, 255, 255, 0.5), 0 0 5px rgba(255, 255, 255, 0.8);
 }
 
-header #branding h1 {
+/* --- Error Page Styles (from error.css) --- */
+.error-page-body {
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    min-height: 100vh;
     margin: 0;
 }
 
-header nav {
-    float: right;
-    margin-top: 10px;
-}
-
-/* Main Content Area */
-.main-content {
-    padding: 20px;
-    background: rgba(0, 0, 0, 0.7);
-    border-radius: 5px;
-    margin-top: 20px;
-}
-
-/* Forms */
-.form-group {
-    margin-bottom: 15px;
-}
-
-.form-group label {
-    display: block;
-    margin-bottom: 5px;
-}
-
-.form-group input[type="text"],
-.form-group input[type="password"],
-.form-group input[type="email"],
-.form-group select {
-    width: 100%;
-    padding: 8px;
-    border-radius: 5px;
-    border: 1px solid #ddd;
-}
-
-.btn {
-    display: inline-block;
-    background: #0779e4;
-    color: #fff;
-    padding: 10px 20px;
-    border: none;
-    border-radius: 5px;
-    cursor: pointer;
-    text-decoration: none;
-}
-
-.btn:hover {
-    background: #055aab;
-}
-
-/* Tables */
-table {
-    width: 100%;
-    border-collapse: collapse;
-    margin-top: 20px;
-}
-
-table, th, td {
-    border: 1px solid #555;
-}
-
-th, td {
-    padding: 12px;
-    text-align: left;
-}
-
-th {
-    background-color: #333;
-}
-
-tr:nth-child(even) {
-    background-color: rgba(255, 255, 255, 0.05);
-}
-
-/* Advisor Panel */
-.advisor-container {
-    background: rgba(0, 0, 0, 0.5);
-    padding: 15px;
-    margin-top: 20px;
-    border-left: 5px solid #0779e4;
-    border-radius: 5px;
-    position: relative; /* Establishes a positioning context for the button */
-}
-
-.advisor-container h4 {
-    margin-top: 0;
-    color: #0779e4;
-}
-
-/* Footer */
-footer {
+.error-container {
+    max-width: 600px;
     text-align: center;
-    padding: 20px;
-    margin-top: 20px;
-    color: #aaa;
-    background: #333;
+    padding: 40px;
+    background-color: rgba(17, 24, 39, 0.85); /* OPTIMIZATION: Removed backdrop-filter */
+    border: 1px solid #374151;
+    border-radius: 0.5rem;
+    box-shadow: 0 10px 25px rgba(0, 0, 0, 0.5);
 }
 
-/* Utility Classes */
-.text-center {
-    text-align: center;
+.error-code {
+    font-size: 6rem;
+    font-weight: 700;
+    color: #ef4444;
+    text-shadow: 0 0 15px rgba(239, 68, 68, 0.5);
+}
+
+.error-title {
+    font-size: 2.25rem;
+    color: #e5e7eb;
+    margin-top: -1rem;
+    margin-bottom: 1rem;
+    text-shadow: 0 0 8px rgba(0, 255, 255, 0.6);
 }
 
 .error-message {
-    color: #ff4d4d;
-    background: rgba(255, 77, 77, 0.2);
-    padding: 10px;
-    border-radius: 5px;
-    border: 1px solid #ff4d4d;
-    margin-bottom: 15px;
+    font-size: 1.125rem;
+    margin-bottom: 2rem;
+    line-height: 1.6;
 }
 
-.success-message {
-    color: #4dff4d;
-    background: rgba(77, 255, 77, 0.2);
-    padding: 10px;
-    border-radius: 5px;
-    border: 1px solid #4dff4d;
-    margin-bottom: 15px;
+.home-button {
+    display: inline-block;
+    padding: 12px 24px;
+    background-color: #0891b2;
+    color: #ffffff;
+    font-weight: bold;
+    text-decoration: none;
+    border-radius: 0.375rem;
+    transition: background-color 0.3s ease, transform 0.2s ease;
 }
 
-/* Advisor Mobile Toggle Styles */
+.home-button:hover {
+    background-color: #06b6d4;
+    transform: scale(1.05);
+}
+
+/* --- Advisor Mobile Toggle Styles --- */
 .mobile-only-button {
     display: none; /* Hide the button by default on desktop */
     position: absolute;
@@ -187,13 +163,14 @@ footer {
     z-index: 10;
 }
 
-/* Media query for mobile devices */
+/* Media query for mobile devices (screens 768px or less) */
 @media (max-width: 768px) {
     .mobile-only-button {
         display: block; /* Show the button on mobile */
     }
 
-    .advisor-minimized #advisor-content {
-        display: none; /* Hide content when minimized */
+    /* When the advisor container has this class, its content will be hidden */
+    .advisor-container.advisor-minimized #advisor-content {
+        display: none; 
     }
 }
