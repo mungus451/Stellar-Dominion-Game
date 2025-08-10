@@ -1,153 +1,194 @@
-# Stellar Dominion - A PHP & MySQL Web Game
+# Stellar Dominion
 
-Stellar Dominion is a persistent, turn-based, multiplayer strategy game built with PHP and MySQL. Inspired by classic browser-based empire-building games, it allows players to register, manage resources, train a military, and attack other players to plunder credits and gain experience. The game operates on a server-side cron job that processes "turns" every 10 minutes, ensuring that the game world evolves and players generate resources even while they are offline.
+**Live Site:** [www.stellar-dominion.com](https://www.stellar-dominion.com)
 
-This project features a comprehensive Alliance system, allowing players to form groups, manage roles and permissions, share resources, purchase collaborative structures, and engage in private forum discussions.
-
----
-
-## Core Game Mechanics
-
-### The Turn System
-
-* The universe of Stellar Dominion is persistent and ever-evolving. Time progresses in automated **10-minute turns**.
-* Each turn, every commander in the galaxy is granted a baseline of resources: **2 Attack Turns** and a base of **1 Untrained Citizen** per turn, which can be increased with upgrades.
-* Players also receive a foundational income of **Credits**.
-
-### Economy & Income
-
-* A thriving economy is the bedrock of galactic conquest. Your income is calculated based on a base income, the number of workers you have, and various percentage-based bonuses from stats and upgrades.
-* **Base Income**: 5,000 credits per turn.
-* **Worker Income**: Each 'Worker' unit adds 50 credits to your income per turn.
-* **Wealth Proficiency**: Investing points into your 'Wealth' stat grants a cumulative 1% bonus to your total income for every point allocated.
-* **Economic Upgrades**: Building structures like the 'Trade Hub' provides stacking percentage-based bonuses to your income.
-* **Alliance Bonuses**: Being a member of an alliance provides a base credit bonus and can be further enhanced by building alliance structures like the 'Command Nexus'.
-
-### Unit Training & Disbanding
-
-* Your population begins as 'Untrained Citizens,' which can be transformed into specialized units on the `Training` page.
-* A high 'Charisma' stat reduces the credit cost of all units.
-* **Unit Types**:
-    * **Workers**: Generate a steady stream of credits.
-    * **Soldiers**: Form your attack fleet.
-    * **Guards**: Protect your resources.
-    * **Sentries**: Increase your fortification strength.
-    * **Spies**: Enhance infiltration capabilities.
-* Units can be disbanded to reclaim a portion of their cost (75%) and return them to the 'Untrained Citizens' pool.
-
-### Combat & Plunder
-
-* From the `Attack` page, you can launch assaults against other commanders.
-* Your 'Offense Power' is derived from your Soldiers, their equipment from the Armory, your 'Strength' proficiency, and offense-boosting structures.
-* The 'Defense Rating' is calculated from Guards, their Armory equipment, 'Constitution' proficiency, and defense-boosting structures.
-* A successful attack allows you to steal a percentage of the defender's on-hand (not banked) credits. The amount stolen increases with the number of attack turns used.
-* A 10% tax on all plunder is automatically contributed to the attacker's alliance bank.
-* Every battle, win or lose, grants experience points (XP) to both commanders.
-
-### Leveling & Proficiency System
-
-* As you gain experience from combat, you will level up, granting you a **Proficiency Point**.
-* These points can be spent on the `Levels` page to enhance your core stats, with each point providing a +1% bonus up to a maximum of 75.
-* **Stats**:
-    * **Strength**: Increases Offense Power.
-    * **Constitution**: Bolsters Defense Rating.
-    * **Wealth**: Increases credit income.
-    * **Dexterity**: Improves Sentry and Spy effectiveness.
-    * **Charisma**: Reduces the credit cost for training units and purchasing items/structures.
-
-### Alliances
-
-* Players can create or join alliances.
-* Creating an alliance costs **1,000,000 Credits**.
-* Alliances feature:
-    * **Role and Permission Management**: Leaders can create custom roles with specific permissions for managing members, editing the alliance profile, approving applications, and moderating the forum.
-    * **Shared Bank & Resource Transfers**: Members can donate to an alliance bank. A 2% fee on member-to-member transfers of credits and units is contributed to the bank.
-    * **Alliance Structures**: Purchase structures that provide passive global bonuses to all members, such as increased income, offense/defense power, and citizen growth.
-    * **Forums**: A private, built-in forum for alliance members to create threads and posts for strategic discussions.
-    * **Application System**: Players can apply to join alliances, and members with permission can approve or deny these applications.
-
-### Armory & Equipment
-
-* The `Armory` allows players to purchase tiered equipment for their units.
-* Access to higher tiers of weapons and armor is unlocked by upgrading the 'Armory' structure on the `Structures` page.
-* Items have prerequisites; for instance, you must own the Tier 1 item before you can purchase the Tier 2 item in the same category.
-* Equipment provides direct bonuses to attack or defense power.
+A persistent, text-based, massively multiplayer online strategy game set in a futuristic sci-fi universe. Players assume the role of a commander, building their empire, developing a powerful fleet, and engaging in strategic warfare with other players.
 
 ---
 
-## 🚀 Deployment Guide
+## Table of Contents
 
-### Requirements
+- [Core Gameplay Mechanics](#core-gameplay-mechanics)
+- [Key Features](#key-features)
+- [Technical Implementation](#technical-implementation)
+  - [Technology Stack](#technology-stack)
+  - [Application Architecture](#application-architecture)
+  - [Security](#security)
+  - [Database Schema](#database-schema)
+- [Installation and Setup](#installation-and-setup)
 
-* An Apache web server.
-* PHP version 7.4 or higher with the `mysqli` extension enabled.
-* A MySQL or MariaDB database server.
+---
 
-### Step 1: Database Setup
+## Core Gameplay Mechanics
 
-1.  **Create a Database**: In your MySQL server, create a new database (e.g., `users`).
-2.  **Create a User**: Create a dedicated database user and grant it full permissions to the new database.
-3.  **Import the Schema**: Run the `config/database.sql` script in your new database. This will set up all the necessary tables (`users`, `alliances`, `battle_logs`, etc.).
+Stellar Dominion is a turn-based strategy game where players manage resources, construct buildings, and build a fleet to expand their power.
 
-### Step 2: File Configuration
+-   **Turn-Based System:** The game progresses in turns. Each turn, players receive resources, and their structures perform their designated functions. The core game loop is managed by the `TurnProcessor.php` script, which calculates income, applies bonuses, and updates the state of all players' empires.
 
-1.  **Upload Files**: Upload the entire `Stellar-Dominion` directory to your web server's document root.
-2.  **Configure Database Connection**: Open the `config/config.php` file and update the `DB_SERVER`, `DB_USERNAME`, `DB_PASSWORD`, and `DB_NAME` constants with the credentials you created in Step 1.
-3.  **Set Server Permissions**: The application needs to be able to write to the `public/uploads/` directory to handle avatar uploads. Ensure the web server user (e.g., `www-data`) has write permissions to this directory.
+-   **Resource Management:** The primary resources are **credits**. Credits are generated each turn by **Worker** units. Players must balance their spending between developing infrastructure, recruiting units, and maintaining their army.
 
-    ```bash
-    mkdir -p public/uploads/avatars
-    sudo chown -R www-data:www-data public/uploads
-    sudo chmod -R 755 public/uploads
+-   **Empire Building:** Players can construct various **structures** that provide unique bonuses. These include increasing resource income, boosting defensive capabilities, or unlocking new units and technologies.
+
+-   **Combat:** Players can attack each other to gain experience, steal resources, and weaken their rivals. The combat is resolved based on the attack and defense values of the units involved, with detailed **battle reports** generated after each conflict.
+
+---
+
+## Key Features
+
+The application is built with a rich set of features to provide a deep and engaging strategic experience.
+
+-   **User Authentication:** Secure user registration and login system with password hashing (`password_hash`) and email verification. Includes a "Forgot Password" feature using security questions for account recovery.
+-   **Dashboard:** The main interface for players, providing a snapshot of their empire, including resource counts, fleet size, recent events, and an advisor with game tips.
+-   **Recruitment:** Players can recruit various types of units, each with specific stats (attack, defense) and purposes.
+    -   **Offensive Units:** Soldier, Guard, Sentry
+    -   **Defensive Units:** Shade, Spy
+    -   **Special Units:** Worker (generates income), Mutant, Cyborg
+-   **Armory:** A central page to view the player's entire fleet, including the total number of units and their combined attack and defense scores.
+-   **Structures:** Players can build and upgrade structures that provide passive bonuses to their empire, such as increased income or unit effectiveness.
+-   **Banking:** Players can deposit and withdraw credits from a bank to protect them from being stolen during attacks. The bank charges a small fee for transactions.
+-   **Player Progression:** Players gain experience (XP) from battles and other actions, allowing them to level up. Leveling up grants skill points that can be used to improve attack strength, defense, or other attributes.
+-   **Attack System:** A comprehensive attack page where players can search for targets and launch attacks. The system includes a detailed battle resolution mechanism (`AttackController.php`) and logs all conflicts.
+-   **Alliances:** A core feature for multiplayer interaction.
+    -   **Creation & Management:** Players can create or join alliances. Alliance leaders can manage members, set roles, and edit the alliance profile.
+    -   **Alliance Bank:** A shared bank for alliance members to pool resources for common goals.
+    -   **Alliance Forum:** A private forum for alliance members to communicate and strategize.
+    -   **Alliance Structures:** Alliances can build shared structures that provide benefits to all members.
+-   **Community & Profiles:**
+    -   **Player Profiles:** Each player has a public profile displaying their stats, level, race, and alliance affiliation.
+    -   **Community Page:** A global ranking/leaderboard page to see top players.
+-   **Settings:** Players can change their password, update their profile description, and set a new avatar.
+
+---
+
+## Technical Implementation
+
+The application is built using a classic PHP and MySQL stack with a custom-built, MVC-like architecture.
+
+### Technology Stack
+
+-   **Backend:** PHP
+-   **Database:** MySQL
+-   **Frontend:** HTML, CSS, JavaScript (for client-side interactions like CSRF token fetching)
+
+### Application Architecture
+
+The project follows a separation of concerns, loosely based on the Model-View-Controller (MVC) pattern.
+
+-   **`public/` (Entry Point & Assets):** This is the web server's document root.
+    -   `index.php`: The main entry point for the application. It acts as a router, parsing the URL to determine which page/controller to load.
+    -   `assets/`: Contains all static files like CSS stylesheets, JavaScript files, and images.
+-   **`src/` (Core Logic):**
+    -   `Controllers/`: Contains the business logic for each feature. For example, `AllianceController.php` handles all actions related to alliances (creating, joining, managing). These controllers process user input, interact with the database, and prepare data to be displayed.
+    -   `Game/`: Holds the core game mechanics.
+        -   `GameData.php`: Defines static game data like unit stats, structure costs, and level-up requirements.
+        -   `GameFunctions.php`: A collection of helper functions used throughout the application for common calculations.
+        -   `TurnProcessor.php`: A critical script that processes the game turns, updating all player resources and states. This is likely run on a cron job.
+    -   `Security/`: Manages security-related functionality.
+        -   `CSRFProtection.php`: Implements CSRF token generation and validation to prevent cross-site request forgery attacks.
+-   **`template/` (Views):**
+    -   `pages/`: Contains the HTML templates for each page of the application (e.g., `dashboard.php`, `attack.php`). These files are responsible for presenting the data prepared by the controllers.
+    -   `includes/`: Reusable template parts like the header, footer, and navigation menu.
+-   **`config/` (Configuration):**
+    -   `config.php`: Stores database credentials and other site-wide settings.
+    -   `database.sql`: The complete SQL schema for setting up the database.
+    -   `security.php`: Contains security-related configurations.
+
+### Security
+
+-   **CSRF Protection:** All forms that perform state-changing actions (e.g., training units, sending money) are protected by CSRF tokens. A token is fetched via JavaScript (`csrf.js`) and submitted with the form. The server validates this token before processing the request.
+-   **Password Hashing:** User passwords are not stored in plaintext. They are securely hashed using PHP's native `password_hash()` and `password_verify()` functions.
+-   **Prepared Statements:** Database queries are executed using prepared statements (PDO) to prevent SQL injection vulnerabilities.
+
+### Database Schema
+
+The database is the backbone of the game, storing all persistent data for players, alliances, and game state. The full schema is in `config/database.sql`. Below are the key tables and their functions.
+
+-   **`users`**: Stores all player account information.
+    ```sql
+    CREATE TABLE `users` (
+      `id` int(11) NOT NULL AUTO_INCREMENT,
+      `username` varchar(50) NOT NULL,
+      `password` varchar(255) NOT NULL,
+      `email` varchar(100) NOT NULL,
+      `race` varchar(50) NOT NULL,
+      `credits` bigint(20) NOT NULL DEFAULT 1000,
+      `xp` int(11) NOT NULL DEFAULT 0,
+      `level` int(11) NOT NULL DEFAULT 1,
+      /* ... and many more columns for stats, units, etc. */
+      PRIMARY KEY (`id`)
+    );
     ```
 
-### Step 3: Web Server Configuration (`.htaccess`)
+-   **`alliances`**: Stores information about player-created alliances.
+    ```sql
+    CREATE TABLE `alliances` (
+      `id` int(11) NOT NULL AUTO_INCREMENT,
+      `name` varchar(100) NOT NULL,
+      `tag` varchar(10) NOT NULL,
+      `leader_id` int(11) NOT NULL,
+      `description` text,
+      `credits` bigint(20) NOT NULL DEFAULT 0,
+      PRIMARY KEY (`id`)
+    );
+    ```
 
-Ensure your Apache server is configured to allow `.htaccess` overrides. The provided `public/.htaccess` file routes all requests through `index.php` and sets custom error pages.
+-   **`structures`**: Tracks the level of each structure for every player.
+    ```sql
+    CREATE TABLE `structures` (
+      `id` int(11) NOT NULL AUTO_INCREMENT,
+      `user_id` int(11) NOT NULL,
+      `structure_name` varchar(100) NOT NULL,
+      `level` int(11) NOT NULL DEFAULT 0,
+      PRIMARY KEY (`id`),
+      KEY `user_id` (`user_id`),
+      CONSTRAINT `structures_ibfk_1` FOREIGN KEY (`user_id`) REFERENCES `users` (`id`) ON DELETE CASCADE
+    );
+    ```
 
-```apache
-# public/.htaccess
-RewriteEngine On
+-   **`battle_logs`**: Records the results of every attack that occurs between players.
+    ```sql
+    CREATE TABLE `battle_logs` (
+      `id` int(11) NOT NULL AUTO_INCREMENT,
+      `attacker_id` int(11) NOT NULL,
+      `defender_id` int(11) NOT NULL,
+      `winner_id` int(11) NOT NULL,
+      `attacker_xp_gain` int(11) NOT NULL,
+      `defender_xp_gain` int(11) NOT NULL,
+      `credits_stolen` bigint(20) NOT NULL,
+      `log_details` text NOT NULL,
+      `timestamp` timestamp NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      PRIMARY KEY (`id`)
+    );
+    ```
 
-RewriteCond %{REQUEST_FILENAME} !-f
-RewriteCond %{REQUEST_FILENAME} !-d
-RewriteRule ^ index.php [QSA,L]
+-   **`alliance_forum_threads`** & **`alliance_forum_posts`**: Power the alliance forum functionality.
 
-ErrorDocument 404 /404.php
-ErrorDocument 403 /403.php
-ErrorDocument 500 /500.php
+---
 
-```
+## Installation and Setup
 
-### Step 4: Cron Job Setup
-The game's turn processing relies on a script that must be run automatically every 10 minutes.
+To run a local instance of Stellar Dominion, follow these steps:
 
-Log into your server via SSH and open the crontab editor:
+1.  **Clone the Repository:**
+    ```bash
+    git clone [https://github.com/mungus451/stellar-dominion-game.git](https://github.com/mungus451/stellar-dominion-game.git)
+    cd stellar-dominion-game/Stellar-Dominion
+    ```
 
-crontab -e
-Add the following line, replacing the path with the absolute path to your TurnProcessor.php file:
+2.  **Web Server Setup:**
+    -   Set up a local web server environment (e.g., XAMPP, WAMP, MAMP, or a standalone Apache/Nginx server) with PHP support.
+    -   Configure the server's document root to point to the `/public` directory of the project.
 
-*/10 * * * * /usr/bin/php /path/to/your/Stellar-Dominion/src/Game/TurnProcessor.php >> /path/to/your/Stellar-Dominion/src/Game/cron_log.txt 2>&1
-This command executes the turn processor script every 10 minutes and logs its output.
+3.  **Database Setup:**
+    -   Create a new MySQL database.
+    -   Import the database schema using the `config/database.sql` file. You can do this via a tool like phpMyAdmin or the command line:
+        ```bash
+        mysql -u your_username -p your_database_name < config/database.sql
+        ```
 
-### 📂 File Structure & Purpose
-/config/: Contains the database connection configuration (config.php) and the database schema (database.sql).
+4.  **Configure the Application:**
+    -   Open `config/config.php`.
+    -   Update the database credentials (`DB_HOST`, `DB_NAME`, `DB_USER`, `DB_PASS`) to match your local setup.
 
-/public/: The web server's document root. Contains the front controller (index.php), assets (CSS, JS, images), and user-facing error pages.
-
-/src/: Contains the core application logic.
-
-/Controllers/: PHP scripts that handle server-side logic for attacks, training, banking, profile updates, etc.
-
-/Game/: Core game data files (GameData.php) and the main turn processing script (TurnProcessor.php).
-
-/template/: Contains all the HTML/PHP view files (pages and reusable includes).
-
-/includes/: Reusable components like the navigation menu and AI advisor.
-
-/pages/: The individual pages of the game that the user sees.
-
-.gitignore: Specifies files and directories to be ignored by version control, such as the configuration file and user uploads.
-
-
-
+5.  **Run the Application:**
+    -   Navigate to your local server's address in a web browser. You should see the Stellar Dominion landing page.
