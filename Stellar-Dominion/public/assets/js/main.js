@@ -5,12 +5,14 @@
  * including optimized timers, icon initialization, and various form helpers.
  */
 document.addEventListener('DOMContentLoaded', () => {
-    // Initialize Lucide icons on the page
-    lucide.createIcons();
+    // This check is a placeholder for a real icon library like Lucide
+    if (typeof lucide !== 'undefined') {
+        lucide.createIcons();
+    }
 
     // --- Next Turn Timer (Optimized with requestAnimationFrame) ---
     const timerDisplay = document.getElementById('next-turn-timer');
-    if (timerDisplay) {
+    if (timerDisplay && timerDisplay.dataset.secondsUntilNextTurn) {
         let totalSeconds = parseInt(timerDisplay.dataset.secondsUntilNextTurn) || 0;
         let lastTimestamp = 0;
 
@@ -21,6 +23,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 if (totalSeconds <= 0) {
                     timerDisplay.textContent = "Processing...";
                     setTimeout(() => {
+                        // Append a timestamp to prevent caching issues on reload
                         window.location.href = window.location.pathname + '?t=' + new Date().getTime();
                     }, 1500);
                     return; // Stop the loop
@@ -38,7 +41,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
     // --- Dominion Time Clock (Optimized with requestAnimationFrame) ---
     const timeDisplay = document.getElementById('dominion-time');
-    if (timeDisplay) {
+    if (timeDisplay && timeDisplay.dataset.hours) {
         const initialHours = parseInt(timeDisplay.dataset.hours) || 0;
         const initialMinutes = parseInt(timeDisplay.dataset.minutes) || 0;
         const initialSeconds = parseInt(timeDisplay.dataset.seconds) || 0;
@@ -84,7 +87,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
     // --- A.I. Advisor Text Rotator ---
     const advisorTextEl = document.getElementById('advisor-text');
-    if (advisorTextEl) {
+    if (advisorTextEl && advisorTextEl.dataset.advice) {
         const adviceList = JSON.parse(advisorTextEl.dataset.advice || '[]');
         let currentAdviceIndex = 0;
         if (adviceList.length > 1) {
@@ -147,19 +150,19 @@ document.addEventListener('DOMContentLoaded', () => {
         trainTabBtn.addEventListener('click', () => {
             trainTab.classList.remove('hidden');
             disbandTabContent.classList.add('hidden');
-            activeClasses.forEach(c => trainTabBtn.classList.add(c));
-            inactiveClasses.forEach(c => trainTabBtn.classList.remove(c));
-            inactiveClasses.forEach(c => disbandTabBtn.classList.add(c));
-            activeClasses.forEach(c => disbandTabBtn.classList.remove(c));
+            trainTabBtn.classList.add(...activeClasses);
+            trainTabBtn.classList.remove(...inactiveClasses);
+            disbandTabBtn.classList.add(...inactiveClasses);
+            disbandTabBtn.classList.remove(...activeClasses);
         });
 
         disbandTabBtn.addEventListener('click', () => {
             disbandTabContent.classList.remove('hidden');
             trainTab.classList.add('hidden');
-            activeClasses.forEach(c => disbandTabBtn.classList.add(c));
-            inactiveClasses.forEach(c => disbandTabBtn.classList.remove(c));
-            inactiveClasses.forEach(c => trainTabBtn.classList.add(c));
-            activeClasses.forEach(c => trainTabBtn.classList.remove(c));
+            disbandTabBtn.classList.add(...activeClasses);
+            disbandTabBtn.classList.remove(...inactiveClasses);
+            trainTabBtn.classList.add(...inactiveClasses);
+            trainTabBtn.classList.remove(...activeClasses);
         });
 
         const trainInputs = trainForm.querySelectorAll('.unit-input-train');
@@ -284,5 +287,20 @@ document.addEventListener('DOMContentLoaded', () => {
         });
         
         updateArmoryCost();
+    }
+
+    // --- Advisor Mobile Toggle ---
+    const toggleButton = document.getElementById('toggle-advisor-btn');
+    const advisorContainer = document.querySelector('.advisor-container');
+
+    if (toggleButton && advisorContainer) {
+        toggleButton.addEventListener('click', function() {
+            advisorContainer.classList.toggle('advisor-minimized');
+            if (advisorContainer.classList.contains('advisor-minimized')) {
+                toggleButton.textContent = '+';
+            } else {
+                toggleButton.textContent = '-';
+            }
+        });
     }
 });
