@@ -20,6 +20,7 @@ body {
 .content-box { 
     background-color: #1f2937; 
     border: 1px solid #374151; 
+    position: relative; /* This is the key change */
 }
 
 /* --- In-Game Navigation --- */
@@ -172,5 +173,9 @@ input[type=number]::-webkit-outer-spin-button {
     /* When the advisor container has this class, its content will be hidden */
     .advisor-container.advisor-minimized #advisor-content {
         display: none; 
+    }
+
+    .stats-container.stats-minimized #stats-content {
+        display: none;
     }
 }

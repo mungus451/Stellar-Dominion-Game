@@ -130,38 +130,41 @@ if (isset($minutes_until_next_turn) && isset($seconds_remainder)) {
     </div>
 </div>
 
-<div class="content-box rounded-lg p-4">
+<div class="content-box rounded-lg p-4 stats-container">
     <h3 class="font-title text-cyan-400 border-b border-gray-600 pb-2 mb-3">Stats</h3>
-    <ul class="space-y-2 text-sm">
-        <?php if(isset($user_stats['credits'])): ?>
-            <li class="flex justify-between"><span>Credits:</span> <span class="text-white font-semibold"><?php echo number_format($user_stats['credits']); ?></span></li>
-        <?php endif; ?>
-        <?php if(isset($user_stats['banked_credits'])): ?>
-            <li class="flex justify-between"><span>Banked Credits:</span> <span class="text-white font-semibold"><?php echo number_format($user_stats['banked_credits']); ?></span></li>
-        <?php endif; ?>
-        <?php if(isset($user_stats['untrained_citizens'])): ?>
-            <li class="flex justify-between"><span>Citizens:</span> <span class="text-white font-semibold"><?php echo number_format($user_stats['untrained_citizens']); ?></span></li>
-        <?php endif; ?>
-        <?php if(isset($user_stats['level'])): ?>
-            <li class="flex justify-between"><span>Level:</span> <span class="text-white font-semibold"><?php echo $user_stats['level']; ?></span></li>
-        <?php endif; ?>
-        <?php if(isset($user_stats['attack_turns'])): ?>
-            <li class="flex justify-between"><span>Attack Turns:</span> <span class="text-white font-semibold"><?php echo $user_stats['attack_turns']; ?></span></li>
-        <?php endif; ?>
-        
-        <li class="flex justify-between border-t border-gray-600 pt-2 mt-2">
-            <span>Next Turn In:</span>
-            <span id="next-turn-timer" class="text-cyan-300 font-bold" data-seconds-until-next-turn="<?php echo $seconds_until_next_turn; ?>">
-                <?php echo sprintf('%02d:%02d', ($minutes_until_next_turn ?? 0), ($seconds_remainder ?? 0)); ?>
-            </span>
-        </li>
-        <?php if(isset($now)): ?>
-        <li class="flex justify-between">
-            <span>Dominion Time:</span>
-            <span id="dominion-time" class="text-white font-semibold" data-hours="<?php echo $now->format('H'); ?>" data-minutes="<?php echo $now->format('i'); ?>" data-seconds="<?php echo $now->format('s'); ?>">
-                <?php echo $now->format('H:i:s'); ?>
-            </span>
-        </li>
-        <?php endif; ?>
-    </ul>
+    <button id="toggle-stats-btn" class="mobile-only-button">-</button>
+    <div id="stats-content">
+        <ul class="space-y-2 text-sm">
+            <?php if(isset($user_stats['credits'])): ?>
+                <li class="flex justify-between"><span>Credits:</span> <span class="text-white font-semibold"><?php echo number_format($user_stats['credits']); ?></span></li>
+            <?php endif; ?>
+            <?php if(isset($user_stats['banked_credits'])): ?>
+                <li class="flex justify-between"><span>Banked Credits:</span> <span class="text-white font-semibold"><?php echo number_format($user_stats['banked_credits']); ?></span></li>
+            <?php endif; ?>
+            <?php if(isset($user_stats['untrained_citizens'])): ?>
+                <li class="flex justify-between"><span>Citizens:</span> <span class="text-white font-semibold"><?php echo number_format($user_stats['untrained_citizens']); ?></span></li>
+            <?php endif; ?>
+            <?php if(isset($user_stats['level'])): ?>
+                <li class="flex justify-between"><span>Level:</span> <span class="text-white font-semibold"><?php echo $user_stats['level']; ?></span></li>
+            <?php endif; ?>
+            <?php if(isset($user_stats['attack_turns'])): ?>
+                <li class="flex justify-between"><span>Attack Turns:</span> <span class="text-white font-semibold"><?php echo $user_stats['attack_turns']; ?></span></li>
+            <?php endif; ?>
+            
+            <li class="flex justify-between border-t border-gray-600 pt-2 mt-2">
+                <span>Next Turn In:</span>
+                <span id="next-turn-timer" class="text-cyan-300 font-bold" data-seconds-until-next-turn="<?php echo $seconds_until_next_turn; ?>">
+                    <?php echo sprintf('%02d:%02d', ($minutes_until_next_turn ?? 0), ($seconds_remainder ?? 0)); ?>
+                </span>
+            </li>
+            <?php if(isset($now)): ?>
+            <li class="flex justify-between">
+                <span>Dominion Time:</span>
+                <span id="dominion-time" class="text-white font-semibold" data-hours="<?php echo $now->format('H'); ?>" data-minutes="<?php echo $now->format('i'); ?>" data-seconds="<?php echo $now->format('s'); ?>">
+                    <?php echo $now->format('H:i:s'); ?>
+                </span>
+            </li>
+            <?php endif; ?>
+        </ul>
+    </div>
 </div>

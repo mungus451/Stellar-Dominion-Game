@@ -303,4 +303,19 @@ document.addEventListener('DOMContentLoaded', () => {
             }
         });
     }
+
+    // --- Stats Mobile Toggle ---
+    const statsToggleButton = document.getElementById('toggle-stats-btn');
+    const statsContainer = document.querySelector('.stats-container');
+
+    if (statsToggleButton && statsContainer) {
+        statsToggleButton.addEventListener('click', function() {
+            statsContainer.classList.toggle('stats-minimized');
+            if (statsContainer.classList.contains('stats-minimized')) {
+                statsToggleButton.textContent = '+';
+            } else {
+                statsToggleButton.textContent = '-';
+            }
+        });
+    }
 });
