@@ -2,6 +2,10 @@
 
 RewriteEngine On
 
+# Force HTTPS, but check for Cloudflare's forwarded protocol header
+RewriteCond %{HTTP:X-Forwarded-Proto} =http
+RewriteRule ^ https://%{HTTP_HOST}%{REQUEST_URI} [L,R=301]
+
 # Redirect all requests to non-existent files/directories to index.php
 RewriteCond %{REQUEST_FILENAME} !-f
 RewriteCond %{REQUEST_FILENAME} !-d
