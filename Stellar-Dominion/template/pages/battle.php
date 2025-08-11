@@ -116,7 +116,7 @@ $current_tab = isset($_GET['tab']) && $_GET['tab'] === 'disband' ? 'disband' : '
 
                     <div class="content-box rounded-lg p-4">
                         <div class="grid grid-cols-2 md:grid-cols-4 gap-4 text-center">
-                            <div><p class="text-xs uppercase">Citizens</p><p class="text-lg font-bold text-white"><?php echo number_format($user_stats['untrained_citizens']); ?></p></div>
+                            <div><p class="text-xs uppercase">Citizens</p><p id="available-citizens" data-amount="<?php echo $user_stats['untrained_citizens']; ?>" class="text-lg font-bold text-white"><?php echo number_format($user_stats['untrained_citizens']); ?></p></div>
                             <div><p class="text-xs uppercase">Credits</p><p id="available-credits" data-amount="<?php echo $user_stats['credits']; ?>" class="text-lg font-bold text-white"><?php echo number_format($user_stats['credits']); ?></p></div>
                             <div><p class="text-xs uppercase">Total Cost</p><p id="total-build-cost" class="text-lg font-bold text-yellow-400">0</p></div>
                             <div><p class="text-xs uppercase">Total Refund</p><p id="total-refund-value" class="text-lg font-bold text-green-400">0</p></div>

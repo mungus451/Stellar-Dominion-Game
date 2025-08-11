@@ -183,33 +183,36 @@ document.addEventListener('DOMContentLoaded', () => {
         }
         trainInputs.forEach(input => input.addEventListener('input', updateTrainingCost));
         
-        trainForm.querySelectorAll('.train-max-btn').forEach(btn => {
-            btn.addEventListener('click', e => {
-                const clickedInput = e.currentTarget.previousElementSibling;
-                let otherInputsCost = 0;
-                let otherInputsCitizens = 0;
-                trainInputs.forEach(input => {
-                    if (input !== clickedInput) {
-                        const amount = parseInt(input.value) || 0;
-                        otherInputsCitizens += amount;
-                        if (amount > 0) {
-                            const baseCost = parseInt(input.dataset.cost);
-                            otherInputsCost += amount * Math.floor(baseCost * charismaDiscount);
-                        }
+            trainForm.querySelectorAll('.train-max-btn').forEach(btn => {
+        btn.addEventListener('click', e => {
+            const clickedInput = e.currentTarget.previousElementSibling;
+            let otherInputsCost = 0;
+            let otherInputsCitizens = 0;
+            trainInputs.forEach(input => {
+                if (input !== clickedInput) {
+                    const amount = parseInt(input.value) || 0;
+                    otherInputsCitizens += amount;
+                    if (amount > 0) {
+                        const baseCost = parseInt(input.dataset.cost);
+                        otherInputsCost += amount * Math.floor(baseCost * charismaDiscount);
                     }
-                });
-
-                const remainingCredits = availableCredits - otherInputsCost;
-                const remainingCitizens = availableCitizens - otherInputsCitizens;
-                const baseCost = parseInt(clickedInput.dataset.cost);
-                const discountedCost = Math.floor(baseCost * charismaDiscount);
-                const maxByCredits = discountedCost > 0 ? Math.floor(remainingCredits / discountedCost) : Infinity;
-                const maxForThisUnit = Math.max(0, Math.min(maxByCredits, remainingCitizens));
-                
-                clickedInput.value = maxForThisUnit;
-                updateTrainingCost();
+                }
             });
+
+            const remainingCredits = availableCredits - otherInputsCost;
+            const remainingCitizens = availableCitizens - otherInputsCitizens;
+            const baseCost = parseInt(clickedInput.dataset.cost);
+            const discountedCost = Math.floor(baseCost * charismaDiscount);
+
+            // Ensure we don't divide by zero if a unit is free
+            const maxByCredits = discountedCost > 0 ? Math.floor(remainingCredits / discountedCost) : remainingCitizens;
+
+            const maxForThisUnit = Math.max(0, Math.min(maxByCredits, remainingCitizens));
+
+            clickedInput.value = maxForThisUnit;
+            updateTrainingCost();
         });
+    });
 
         const disbandInputs = disbandForm.querySelectorAll('.unit-input-disband');
         function updateDisbandRefund() {
