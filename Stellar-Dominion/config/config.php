@@ -4,17 +4,6 @@ ini_set('display_errors', 1);
 ini_set('display_startup_errors', 1);
 error_reporting(E_ALL);
 
-// --- Secure Session Configuration ---
-// This tells the browser how to handle the session cookie, improving security and compatibility.
-session_set_cookie_params([
-    'lifetime' => 86400, // Session lifetime in seconds (e.g., 24 hours)
-    'path' => '/',
-    'domain' => 'stellar-dominion.com', // Set this to your actual domain
-    'secure' => true, // Only send the cookie over HTTPS
-    'httponly' => true, // Prevent JavaScript from accessing the cookie
-    'samesite' => 'Lax' // Helps prevent CSRF attacks
-]);
-
 // Start the session if it's not already started. This is crucial for CSRF protection.
 if (session_status() == PHP_SESSION_NONE) {
     session_start();
