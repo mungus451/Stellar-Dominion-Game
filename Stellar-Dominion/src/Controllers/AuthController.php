@@ -105,7 +105,12 @@ if ($action === 'login') {
     }
 
     // --- USER CREATION ---
-    $avatar_path = 'assets/img/' . strtolower($race) . '.avif';
+    // BUG FIX: Handle 'The Shade' race name for avatar path
+    $race_filename = strtolower($race);
+    if ($race_filename === 'the shade') {
+        $race_filename = 'shade';
+    }
+    $avatar_path = 'assets/img/' . $race_filename . '.avif';
     $password_hash = password_hash($password, PASSWORD_DEFAULT);
     $current_time = gmdate('Y-m-d H:i:s');
 
@@ -267,3 +272,4 @@ if ($action === 'login') {
 // Fallback for invalid action
 header("location: /");
 exit;
+?>
