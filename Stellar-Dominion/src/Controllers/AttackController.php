@@ -127,14 +127,44 @@ try {
     if ($outcome === 'victory') {
         $steal_percentage = min(0.1 * $attack_turns, 1.0);
         $credits_stolen = floor($defender['credits'] * $steal_percentage);
+        
+        // --- NEW LOAN REPAYMENT LOGIC ---
+        $loan_repayment = 0;
+        if ($attacker['alliance_id'] !== NULL) {
+            $sql_loan = "SELECT id, amount_to_repay FROM alliance_loans WHERE user_id = ? AND status = 'active' FOR UPDATE";
+            $stmt_loan = mysqli_prepare($link, $sql_loan);
+            mysqli_stmt_bind_param($stmt_loan, "i", $attacker_id);
+            mysqli_stmt_execute($stmt_loan);
+            $active_loan = mysqli_fetch_assoc(mysqli_stmt_get_result($stmt_loan));
+            mysqli_stmt_close($stmt_loan);
+
+            if ($active_loan) {
+                $repayment_from_plunder = floor($credits_stolen * 0.5); // 50% of plunder goes to loan
+                $loan_repayment = min($repayment_from_plunder, $active_loan['amount_to_repay']);
+                
+                if ($loan_repayment > 0) {
+                    $new_repay_amount = $active_loan['amount_to_repay'] - $loan_repayment;
+                    $new_status = ($new_repay_amount <= 0) ? 'paid' : 'active';
+                    
+                    mysqli_query($link, "UPDATE alliance_loans SET amount_to_repay = $new_repay_amount, status = '$new_status' WHERE id = {$active_loan['id']}");
+                    mysqli_query($link, "UPDATE alliances SET bank_credits = bank_credits + $loan_repayment WHERE id = {$attacker['alliance_id']}");
+                    
+                    $log_desc_repay = "Loan repayment from " . $attacker['character_name'] . "'s attack plunder.";
+                    $escaped_log_desc_repay = mysqli_real_escape_string($link, $log_desc_repay);
+                    mysqli_query($link, "INSERT INTO alliance_bank_logs (alliance_id, user_id, type, amount, description) VALUES ({$attacker['alliance_id']}, $attacker_id, 'loan_repaid', $loan_repayment, '{$escaped_log_desc_repay}')");
+                }
+            }
+        }
+        // --- END LOAN REPAYMENT LOGIC ---
+
         $alliance_tax = floor($credits_stolen * 0.10);
-        $attacker_net_gain = $credits_stolen - $alliance_tax;
+        $attacker_net_gain = $credits_stolen - $alliance_tax - $loan_repayment;
 
         if ($attacker['alliance_id'] !== NULL && $alliance_tax > 0) {
             mysqli_query($link, "UPDATE alliances SET bank_credits = bank_credits + $alliance_tax WHERE id = {$attacker['alliance_id']}");
-            $log_desc = "Battle tax from " . $attacker['character_name'] . "'s victory against " . $defender['character_name'];
-            $escaped_log_desc = mysqli_real_escape_string($link, $log_desc);
-            mysqli_query($link, "INSERT INTO alliance_bank_logs (alliance_id, user_id, type, amount, description) VALUES ({$attacker['alliance_id']}, $attacker_id, 'tax', $alliance_tax, '{$escaped_log_desc}')");
+            $log_desc_tax = "Battle tax from " . $attacker['character_name'] . "'s victory against " . $defender['character_name'];
+            $escaped_log_desc_tax = mysqli_real_escape_string($link, $log_desc_tax);
+            mysqli_query($link, "INSERT INTO alliance_bank_logs (alliance_id, user_id, type, amount, description) VALUES ({$attacker['alliance_id']}, $attacker_id, 'tax', $alliance_tax, '{$escaped_log_desc_tax}')");
         }
 
         mysqli_query($link, "UPDATE users SET credits = credits + {$attacker_net_gain}, experience = experience + {$attacker_xp_gained} WHERE id = {$attacker_id}");

@@ -14,7 +14,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
 // --- PAGE DISPLAY LOGIC (GET REQUEST) ---
 // The main router (index.php) handles all initial setup.
-
+require_once __DIR__ . '/../../config/config.php';
 // Generate a single CSRF token for all forms on this page
 $csrf_token = generate_csrf_token();
 
@@ -105,6 +105,8 @@ mysqli_stmt_close($stmt_roles);
                                         <label class="flex items-center"><input type="checkbox" name="permissions[can_approve_membership]" value="1" <?php echo $role['can_approve_membership'] ? 'checked' : ''; ?> class="mr-2"> Approve Members</label>
                                         <label class="flex items-center"><input type="checkbox" name="permissions[can_kick_members]" value="1" <?php echo $role['can_kick_members'] ? 'checked' : ''; ?> class="mr-2"> Kick Members</label>
                                         <label class="flex items-center"><input type="checkbox" name="permissions[can_manage_roles]" value="1" <?php echo $role['can_manage_roles'] ? 'checked' : ''; ?> class="mr-2"> Manage Roles</label>
+                                        <label class="flex items-center"><input type="checkbox" name="permissions[can_manage_structures]" value="1" <?php echo $role['can_manage_structures'] ? 'checked' : ''; ?> class="mr-2"> Manage Structures</label>
+                                        <label class="flex items-center"><input type="checkbox" name="permissions[can_manage_treasury]" value="1" <?php echo $role['can_manage_treasury'] ? 'checked' : ''; ?> class="mr-2"> Manage Treasury</label>
                                         <label class="flex items-center"><input type="checkbox" name="permissions[can_moderate_forum]" value="1" <?php echo $role['can_moderate_forum'] ? 'checked' : ''; ?> class="mr-2"> Moderate Forum</label>
                                     </div>
                                 </div>

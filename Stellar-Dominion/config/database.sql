@@ -70,13 +70,34 @@ CREATE TABLE `alliance_bank_logs` (
   `id` int(11) NOT NULL AUTO_INCREMENT,
   `alliance_id` int(11) NOT NULL,
   `user_id` int(11) DEFAULT NULL,
-  `type` enum('deposit','withdrawal','purchase','tax','transfer_fee') NOT NULL,
+  `type` enum('deposit','withdrawal','purchase','tax','transfer_fee','loan_given','loan_repaid') NOT NULL,
   `amount` bigint(20) NOT NULL,
   `description` varchar(255) DEFAULT NULL,
+  `comment` varchar(255) DEFAULT NULL,
   `timestamp` timestamp NOT NULL DEFAULT current_timestamp(),
   PRIMARY KEY (`id`),
   KEY `alliance_id` (`alliance_id`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
+
+-- --------------------------------------------------------
+
+--
+-- Table structure for table `alliance_loans`
+--
+CREATE TABLE `alliance_loans` (
+  `id` int(11) NOT NULL AUTO_INCREMENT,
+  `alliance_id` int(11) NOT NULL,
+  `user_id` int(11) NOT NULL,
+  `amount_loaned` bigint(20) NOT NULL,
+  `amount_to_repay` bigint(20) NOT NULL,
+  `status` enum('pending','active','paid','denied') NOT NULL DEFAULT 'pending',
+  `request_date` timestamp NOT NULL DEFAULT current_timestamp(),
+  `approval_date` timestamp NULL DEFAULT NULL,
+  PRIMARY KEY (`id`),
+  KEY `alliance_id` (`alliance_id`),
+  KEY `user_id` (`user_id`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
+
 
 -- --------------------------------------------------------
 
@@ -95,6 +116,7 @@ CREATE TABLE `alliance_roles` (
   `can_kick_members` tinyint(1) NOT NULL DEFAULT 0,
   `can_manage_roles` tinyint(1) NOT NULL DEFAULT 0,
   `can_manage_structures` tinyint(1) NOT NULL DEFAULT 0,
+  `can_manage_treasury` tinyint(1) NOT NULL DEFAULT 0,
   `can_moderate_forum` tinyint(1) NOT NULL DEFAULT 0,
   `can_sticky_threads` tinyint(1) NOT NULL DEFAULT 0,
   `can_lock_threads` tinyint(1) NOT NULL DEFAULT 0,
@@ -239,6 +261,7 @@ CREATE TABLE `users` (
   `population_level` int(11) NOT NULL DEFAULT 0,
   `armory_level` int(11) NOT NULL DEFAULT 0,
   `net_worth` bigint(20) NOT NULL DEFAULT 0,
+  `credit_rating` varchar(3) NOT NULL DEFAULT 'C',
   `avatar_path` varchar(255) DEFAULT NULL,
   `biography` text DEFAULT NULL,
   `vacation_until` timestamp NULL DEFAULT NULL,

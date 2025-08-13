@@ -52,8 +52,10 @@ try {
     $sql_user_info = "
         SELECT 
             u.credits, u.character_name, u.alliance_id, u.alliance_role_id, 
-            u.workers, u.soldiers, u.guards, u.sentries, u.spies, 
+            u.workers, u.soldiers, u.guards, u.sentries, u.spies, u.credit_rating,
+            a.leader_id,
             ar.* FROM users u 
+        LEFT JOIN alliances a ON u.alliance_id = a.id
         LEFT JOIN alliance_roles ar ON u.alliance_role_id = ar.id 
         WHERE u.id = ? FOR UPDATE";
     $stmt_info = mysqli_prepare($link, $sql_user_info);
@@ -97,15 +99,15 @@ try {
 
         // 3. Create default roles, now including all forum permissions.
         $default_roles = [
-            // name, order, deletable, edit_profile, approve, kick, manage_roles, manage_structures, mod_forum, sticky, lock, delete_posts
-            ['Supreme Commander', 0, 0, 1, 1, 1, 1, 1, 1, 1, 1, 1],
-            ['Recruit', 1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0]
+            // name, order, deletable, edit_profile, approve, kick, manage_roles, manage_structures, manage_treasury, mod_forum, sticky, lock, delete_posts
+            ['Supreme Commander', 0, 0, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1],
+            ['Recruit', 1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]
         ];
-        $sql_role = "INSERT INTO alliance_roles (alliance_id, name, `order`, is_deletable, can_edit_profile, can_approve_membership, can_kick_members, can_manage_roles, can_manage_structures, can_moderate_forum, can_sticky_threads, can_lock_threads, can_delete_posts) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)";
+        $sql_role = "INSERT INTO alliance_roles (alliance_id, name, `order`, is_deletable, can_edit_profile, can_approve_membership, can_kick_members, can_manage_roles, can_manage_structures, can_manage_treasury, can_moderate_forum, can_sticky_threads, can_lock_threads, can_delete_posts) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)";
         $stmt_role = mysqli_prepare($link, $sql_role);
         $sc_role_id = null;
         foreach ($default_roles as $role) {
-            mysqli_stmt_bind_param($stmt_role, "isiiiiiiiiiii", $alliance_id, $role[0], $role[1], $role[2], $role[3], $role[4], $role[5], $role[6], $role[7], $role[8], $role[9], $role[10], $role[11]);
+            mysqli_stmt_bind_param($stmt_role, "isiiiiiiiiiiii", $alliance_id, $role[0], $role[1], $role[2], $role[3], $role[4], $role[5], $role[6], $role[7], $role[8], $role[9], $role[10], $role[11], $role[12]);
             mysqli_stmt_execute($stmt_role);
             if ($role[0] === 'Supreme Commander') {
                 $sc_role_id = mysqli_insert_id($link);
@@ -352,14 +354,15 @@ try {
         $can_kick_members = isset($permissions['can_kick_members']) ? 1 : 0;
         $can_manage_roles = isset($permissions['can_manage_roles']) ? 1 : 0;
         $can_manage_structures = isset($permissions['can_manage_structures']) ? 1 : 0;
+        $can_manage_treasury = isset($permissions['can_manage_treasury']) ? 1 : 0;
         $can_moderate_forum = isset($permissions['can_moderate_forum']) ? 1 : 0;
         $can_sticky_threads = isset($permissions['can_sticky_threads']) ? 1 : 0;
         $can_lock_threads = isset($permissions['can_lock_threads']) ? 1 : 0;
         $can_delete_posts = isset($permissions['can_delete_posts']) ? 1 : 0;
 
-        $sql = "UPDATE alliance_roles SET name = ?, `order` = ?, can_edit_profile = ?, can_approve_membership = ?, can_kick_members = ?, can_manage_roles = ?, can_manage_structures = ?, can_moderate_forum = ?, can_sticky_threads = ?, can_lock_threads = ?, can_delete_posts = ? WHERE id = ? AND alliance_id = ?";
+        $sql = "UPDATE alliance_roles SET name = ?, `order` = ?, can_edit_profile = ?, can_approve_membership = ?, can_kick_members = ?, can_manage_roles = ?, can_manage_structures = ?, can_manage_treasury = ?, can_moderate_forum = ?, can_sticky_threads = ?, can_lock_threads = ?, can_delete_posts = ? WHERE id = ? AND alliance_id = ?";
         $stmt = mysqli_prepare($link, $sql);
-        mysqli_stmt_bind_param($stmt, "siiiiiiiiiiii", $name, $order, $can_edit_profile, $can_approve_membership, $can_kick_members, $can_manage_roles, $can_manage_structures, $can_moderate_forum, $can_sticky_threads, $can_lock_threads, $can_delete_posts, $role_id, $user_info['alliance_id']);
+        mysqli_stmt_bind_param($stmt, "siiiiiiiiiiiii", $name, $order, $can_edit_profile, $can_approve_membership, $can_kick_members, $can_manage_roles, $can_manage_structures, $can_manage_treasury, $can_moderate_forum, $can_sticky_threads, $can_lock_threads, $can_delete_posts, $role_id, $user_info['alliance_id']);
         mysqli_stmt_execute($stmt);
         mysqli_stmt_close($stmt);
         $_SESSION['alliance_message'] = "Role '" . htmlspecialchars($name) . "' updated successfully.";
@@ -419,8 +422,9 @@ try {
         $_SESSION['alliance_message'] = "Successfully purchased " . $structure_details['name'] . "!";
 
     } else if ($action === 'donate_credits') {
-        $redirect_url = '/alliance_bank.php';
+        $redirect_url = '/alliance_bank.php?tab=main';
         $amount = (int)($_POST['amount'] ?? 0);
+        $comment = trim($_POST['comment'] ?? '');
         if ($amount <= 0) {
             throw new Exception("Invalid donation amount.");
         }
@@ -432,13 +436,104 @@ try {
         mysqli_query($link, "UPDATE alliances SET bank_credits = bank_credits + $amount WHERE id = {$user_info['alliance_id']}");
 
         $log_desc = "Donation from " . $user_info['character_name'];
-        $sql_log = "INSERT INTO alliance_bank_logs (alliance_id, user_id, type, amount, description) VALUES (?, ?, 'deposit', ?, ?)";
+        $sql_log = "INSERT INTO alliance_bank_logs (alliance_id, user_id, type, amount, description, comment) VALUES (?, ?, 'deposit', ?, ?, ?)";
+        $stmt_log = mysqli_prepare($link, $sql_log);
+        mysqli_stmt_bind_param($stmt_log, "iiiss", $user_info['alliance_id'], $user_id, $amount, $log_desc, $comment);
+        mysqli_stmt_execute($stmt_log);
+        mysqli_stmt_close($stmt_log);
+
+        $_SESSION['alliance_message'] = "Successfully donated " . number_format($amount) . " credits to the alliance bank.";
+
+    } else if ($action === 'leader_withdraw') {
+        $redirect_url = '/alliance_bank.php?tab=main';
+        $amount = (int)($_POST['amount'] ?? 0);
+        
+        if ($user_info['leader_id'] != $user_id) { throw new Exception("Only the alliance leader can perform this action."); }
+        if ($amount <= 0) { throw new Exception("Invalid withdrawal amount."); }
+
+        $sql_bank = "SELECT bank_credits FROM alliances WHERE id = ? FOR UPDATE";
+        $stmt_bank = mysqli_prepare($link, $sql_bank);
+        mysqli_stmt_bind_param($stmt_bank, "i", $user_info['alliance_id']);
+        mysqli_stmt_execute($stmt_bank);
+        $bank_credits = mysqli_fetch_assoc(mysqli_stmt_get_result($stmt_bank))['bank_credits'];
+        mysqli_stmt_close($stmt_bank);
+
+        if ($bank_credits < $amount) { throw new Exception("Not enough credits in the alliance bank."); }
+
+        mysqli_query($link, "UPDATE alliances SET bank_credits = bank_credits - $amount WHERE id = {$user_info['alliance_id']}");
+        mysqli_query($link, "UPDATE users SET banked_credits = banked_credits + $amount WHERE id = $user_id");
+
+        $log_desc = "Leader withdrawal by " . $user_info['character_name'];
+        $sql_log = "INSERT INTO alliance_bank_logs (alliance_id, user_id, type, amount, description) VALUES (?, ?, 'withdrawal', ?, ?)";
         $stmt_log = mysqli_prepare($link, $sql_log);
         mysqli_stmt_bind_param($stmt_log, "iiis", $user_info['alliance_id'], $user_id, $amount, $log_desc);
         mysqli_stmt_execute($stmt_log);
         mysqli_stmt_close($stmt_log);
 
-        $_SESSION['alliance_message'] = "Successfully donated " . number_format($amount) . " credits to the alliance bank.";
+        $_SESSION['alliance_message'] = "Successfully withdrew " . number_format($amount) . " credits.";
+
+    } else if ($action === 'request_loan') {
+        $redirect_url = '/alliance_bank.php?tab=loans';
+        $amount = (int)($_POST['amount'] ?? 0);
+        
+        $credit_rating_map = ['A++' => 50000000, 'A+' => 25000000, 'A' => 10000000, 'B' => 5000000, 'C' => 1000000, 'D' => 500000, 'F' => 0];
+        $max_loan = $credit_rating_map[$user_info['credit_rating']] ?? 0;
+
+        if ($amount <= 0 || $amount > $max_loan) { throw new Exception("Invalid loan amount or exceeds your credit rating limit."); }
+
+        $sql_check = "SELECT id FROM alliance_loans WHERE user_id = ? AND status IN ('pending', 'active')";
+        $stmt_check = mysqli_prepare($link, $sql_check);
+        mysqli_stmt_bind_param($stmt_check, "i", $user_id);
+        mysqli_stmt_execute($stmt_check);
+        if (mysqli_stmt_get_result($stmt_check)->num_rows > 0) { throw new Exception("You already have an active or pending loan."); }
+        mysqli_stmt_close($stmt_check);
+        
+        $repay_amount = floor($amount * 1.30);
+        $sql_insert = "INSERT INTO alliance_loans (alliance_id, user_id, amount_loaned, amount_to_repay) VALUES (?, ?, ?, ?)";
+        $stmt_insert = mysqli_prepare($link, $sql_insert);
+        mysqli_stmt_bind_param($stmt_insert, "iiii", $user_info['alliance_id'], $user_id, $amount, $repay_amount);
+        mysqli_stmt_execute($stmt_insert);
+        mysqli_stmt_close($stmt_insert);
+
+        $_SESSION['alliance_message'] = "Loan request for " . number_format($amount) . " credits has been submitted for approval.";
+
+    } else if ($action === 'approve_loan' || $action === 'deny_loan') {
+        $redirect_url = '/alliance_bank.php?tab=loans';
+        $loan_id = (int)($_POST['loan_id'] ?? 0);
+        
+        if (!($user_info['can_manage_treasury'] ?? false)) { throw new Exception("You do not have permission to manage loans."); }
+
+        $sql_loan = "SELECT * FROM alliance_loans WHERE id = ? AND alliance_id = ? AND status = 'pending' FOR UPDATE";
+        $stmt_loan = mysqli_prepare($link, $sql_loan);
+        mysqli_stmt_bind_param($stmt_loan, "ii", $loan_id, $user_info['alliance_id']);
+        mysqli_stmt_execute($stmt_loan);
+        $loan = mysqli_fetch_assoc(mysqli_stmt_get_result($stmt_loan));
+        mysqli_stmt_close($stmt_loan);
+
+        if (!$loan) { throw new Exception("Loan not found or already processed."); }
+
+        if ($action === 'approve_loan') {
+            $sql_bank = "SELECT bank_credits FROM alliances WHERE id = ? FOR UPDATE";
+            $stmt_bank = mysqli_prepare($link, $sql_bank);
+            mysqli_stmt_bind_param($stmt_bank, "i", $user_info['alliance_id']);
+            mysqli_stmt_execute($stmt_bank);
+            $bank_credits = mysqli_fetch_assoc(mysqli_stmt_get_result($stmt_bank))['bank_credits'];
+            mysqli_stmt_close($stmt_bank);
+
+            if ($bank_credits < $loan['amount_loaned']) { throw new Exception("Not enough credits in the alliance bank to approve this loan."); }
+
+            mysqli_query($link, "UPDATE alliances SET bank_credits = bank_credits - {$loan['amount_loaned']} WHERE id = {$user_info['alliance_id']}");
+            mysqli_query($link, "UPDATE users SET credits = credits + {$loan['amount_loaned']} WHERE id = {$loan['user_id']}");
+            mysqli_query($link, "UPDATE alliance_loans SET status = 'active', approval_date = NOW() WHERE id = $loan_id");
+            
+            $log_desc = "Loan of " . number_format($loan['amount_loaned']) . " approved for user ID " . $loan['user_id'] . " by " . $user_info['character_name'];
+            mysqli_query($link, "INSERT INTO alliance_bank_logs (alliance_id, user_id, type, amount, description) VALUES ({$user_info['alliance_id']}, {$user_id}, 'loan_given', {$loan['amount_loaned']}, '$log_desc')");
+            
+            $_SESSION['alliance_message'] = "Loan approved.";
+        } else { // Deny loan
+            mysqli_query($link, "UPDATE alliance_loans SET status = 'denied' WHERE id = $loan_id");
+            $_SESSION['alliance_message'] = "Loan denied.";
+        }
 
     } else if ($action === 'transfer_credits') {
         $redirect_url = '/alliance_transfer.php';
