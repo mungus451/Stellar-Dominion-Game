@@ -124,7 +124,7 @@ if ($action === 'login') {
             $_SESSION["id"] = mysqli_insert_id($link);
             $_SESSION["character_name"] = $character_name;
             session_write_close();
-            header("location: /dashboard.php");
+            header("location: /tutorial.php");
             exit;
         }
     }
