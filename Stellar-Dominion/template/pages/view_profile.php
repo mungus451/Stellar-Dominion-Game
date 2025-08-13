@@ -176,8 +176,6 @@ $active_page = 'attack.php'; // Keep the 'BATTLE' main nav active
                                 <h3 class="font-title text-cyan-400 mb-2">Fleet Composition</h3>
                                 <ul class="space-y-1 text-sm">
                                     <li class="flex justify-between"><span>Total Army Size:</span> <span class="text-white font-semibold"><?php echo number_format($army_size); ?></span></li>
-                                    <li class="flex justify-between"><span>Soldiers:</span> <span class="text-white font-semibold"><?php echo number_format($profile_data['soldiers']); ?></span></li>
-                                    <li class="flex justify-between"><span>Guards:</span> <span class="text-white font-semibold"><?php echo number_format($profile_data['guards']); ?></span></li>
                                 </ul>
                             </div>
                             <div>
