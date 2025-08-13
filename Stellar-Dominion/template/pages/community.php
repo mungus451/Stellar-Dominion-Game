@@ -69,9 +69,9 @@ if ($is_logged_in) {
                 <?php if ($is_logged_in && $user_stats): ?>
                 <aside class="lg:col-span-1 space-y-4">
             <?php 
-                include_once __DIR__ . '/../includes/advisor.php'; 
                 $user_xp = $user_stats['experience'];
                 $user_level = $user_stats['level'];                
+                include_once __DIR__ . '/../includes/advisor.php'; 
             ?>
                    
                 </aside>
@@ -81,6 +81,18 @@ if ($is_logged_in) {
                     <div class="content-box rounded-lg p-6">
                         <h3 class="font-title text-2xl text-cyan-400 mb-4 border-b border-gray-600 pb-2">Development Newsfeed</h3>
                         
+                        <div class="mb-8 pb-4 border-b border-gray-700">
+                            <h4 class="font-title text-xl text-yellow-400">Alliance Hub Overhaul & Recruitment Drive</h4>
+                            <p class="text-xs text-gray-500 mb-2">Posted: 2025-08-13</p>
+                            <p class="text-gray-300">Commanders, a major update to the Alliance Hub is now live, focusing on recruitment and management. Here's what's new:</p>
+                            <ul class="list-disc list-inside space-y-2 mt-2 text-gray-300">
+                                <li><strong>Alliance Search:</strong> Unaligned players can now search for alliances by name or tag, making it easier to find the perfect fit.</li>
+                                <li><strong>Application & Invitation System:</strong> To streamline recruitment, players may now only have one pending application OR one pending invitation at a time. You can now cancel your application if you change your mind.</li>
+                                <li><strong>Invite Players:</strong> Members with the 'Invite Members' permission can now invite unaligned players directly from their profile page.</li>
+                                <li><strong>Leader Controls:</strong> Alliance Leaders can now edit their alliance's name, tag, and description from the 'Edit Alliance' page.</li>
+                            </ul>
+                        </div>
+
                         <div class="mb-8 pb-4 border-b border-gray-700">
                             <h4 class="font-title text-xl text-yellow-400">Patch Notes: The Balancing Act</h4>
                             <p class="text-xs text-gray-500 mb-2">Posted: 2025-08-02</p>
@@ -104,6 +116,16 @@ if ($is_logged_in) {
                             <p class="text-xs text-gray-500 mb-2">Posted: 2025-07-28</p>
                             <p class="text-gray-300">Today marks the single largest update to Stellar Dominion with the release of the Alliance Initiative. Commanders can now form powerful Alliances, complete with a shared bank, collaborative structures that benefit all members, and a private forum for strategic discussions. The new Roles & Permissions system allows leaders to create a detailed hierarchy to manage their members. Forge new bonds, share resources, and dominate the galaxy together!</p>
                         </div>
+                    </div>
+
+                    <div class="content-box rounded-lg p-6">
+                        <h3 class="font-title text-2xl text-cyan-400 mb-4 border-b border-gray-600 pb-2">Upcoming Features</h3>
+                        <p class="text-gray-300 mb-4">The universe is always expanding. Here's a glimpse of what our engineers are working on:</p>
+                        <ul class="list-disc list-inside space-y-3 text-gray-300">
+                            <li><strong>Interactive Tutorial:</strong> A guided, hands-on tutorial is in development to help new commanders learn the ropes and get a head start on building their empire.</li>
+                            <li><strong>Espionage & Counter-Intel:</strong> The Spy and Sentry units are slated for a major update. Soon, they will unlock new gameplay mechanics, allowing for intelligence gathering, sabotage, and advanced defensive measures.</li>
+                            <li><strong>Profile Customization:</strong> We're working on new ways for you to customize your commander's public profile, allowing you to better express your identity and achievements in the galaxy.</li>
+                        </ul>
                     </div>
 
                     <div class="content-box rounded-lg p-6 text-center">
