@@ -12,17 +12,19 @@
 
 // If this page is processing a form submission, route it to the controller.
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
-    // The form on this page submits to /attack, which is handled by attack.php.
-    // However, as a fallback, if a form were to post here, we'd process it.
-    // In this specific case, the form action is /attack, so this block is a safeguard.
-    require_once __DIR__ . '/../../src/Controllers/AttackController.php';
+    // The forms on this page can submit to different controllers
+    if (isset($_POST['action']) && $_POST['action'] === 'invite_to_alliance') {
+        require_once __DIR__ . '/../../src/Controllers/AllianceController.php';
+    } else {
+        require_once __DIR__ . '/../../src/Controllers/AttackController.php';
+    }
     exit;
 }
 
 date_default_timezone_set('UTC');
 
 // Generate the CSRF token for the form.
-$_SESSION['csrf_token'] = generate_csrf_token();
+$csrf_token = generate_csrf_token();
 
 $is_logged_in = isset($_SESSION["loggedin"]) && $_SESSION["loggedin"] === true;
 $viewer_id = $is_logged_in ? $_SESSION['id'] : 0;
@@ -45,17 +47,21 @@ if (!$profile_data) { header("location: /attack.php"); exit; } // Target not fou
 
 // Fetch viewer's data to check for alliance match and for sidebar stats
 $viewer_data = null;
+$viewer_permissions = ['can_invite_members' => 0];
 if ($is_logged_in) {
-    $sql_viewer = "SELECT credits, untrained_citizens, level, attack_turns, last_updated, alliance_id FROM users WHERE id = ?";
+    $sql_viewer = "
+        SELECT u.credits, u.untrained_citizens, u.level, u.attack_turns, u.last_updated, u.alliance_id,
+               ar.can_invite_members
+        FROM users u
+        LEFT JOIN alliance_roles ar ON u.alliance_role_id = ar.id
+        WHERE u.id = ?";
     $stmt_viewer = mysqli_prepare($link, $sql_viewer);
     mysqli_stmt_bind_param($stmt_viewer, "i", $viewer_id);
     mysqli_stmt_execute($stmt_viewer);
     $viewer_data = mysqli_fetch_assoc(mysqli_stmt_get_result($stmt_viewer));
+    $viewer_permissions['can_invite_members'] = $viewer_data['can_invite_members'] ?? 0;
     mysqli_stmt_close($stmt_viewer);
 }
-
-// NOTE: The database connection is now managed by the router (index.php)
-// and should not be closed here.
 
 // --- DERIVED STATS & CALCULATIONS for viewed profile ---
 $army_size = $profile_data['soldiers'] + $profile_data['guards'] + $profile_data['sentries'] + $profile_data['spies'];
@@ -65,6 +71,7 @@ $is_online = (time() - $last_seen_ts) < 900; // 15 minute online threshold
 // Determine if the attack interface should be shown
 $is_same_alliance = ($viewer_data && $profile_data['alliance_id'] && $viewer_data['alliance_id'] === $profile_data['alliance_id']);
 $can_attack = $is_logged_in && ($viewer_id != $profile_id) && !$is_same_alliance;
+$can_invite = $is_logged_in && $viewer_data['alliance_id'] && !$profile_data['alliance_id'] && $viewer_permissions['can_invite_members'];
 
 // Timer calculations for viewer
 $minutes_until_next_turn = 0;
@@ -106,23 +113,27 @@ $active_page = 'attack.php'; // Keep the 'BATTLE' main nav active
             <div class="grid grid-cols-1 <?php if ($is_logged_in) echo 'lg:grid-cols-4'; ?> gap-4 <?php if ($is_logged_in) echo 'p-4'; else echo 'pt-20'; ?>">
                 <?php if ($is_logged_in && $viewer_data): ?>
                 <aside class="lg:col-span-1 space-y-4">
-                    <?php include_once __DIR__ . '/../includes/advisor.php'; ?>
-                    <div class="content-box rounded-lg p-4">
-                        <h3 class="font-title text-cyan-400 border-b border-gray-600 pb-2 mb-3">Your Stats</h3>
-                        <ul class="space-y-2 text-sm">
-                            <li class="flex justify-between"><span>Credits:</span> <span class="text-white font-semibold"><?php echo number_format($viewer_data['credits']); ?></span></li>
-                            <li class="flex justify-between"><span>Untrained Citizens:</span> <span class="text-white font-semibold"><?php echo number_format($viewer_data['untrained_citizens']); ?></span></li>
-                            <li class="flex justify-between"><span>Attack Turns:</span> <span class="text-white font-semibold"><?php echo $viewer_data['attack_turns']; ?></span></li>
-                            <li class="flex justify-between border-t border-gray-600 pt-2 mt-2">
-                                <span>Next Turn In:</span>
-                                <span id="next-turn-timer" class="text-cyan-300 font-bold" data-seconds-until-next-turn="<?php echo $seconds_until_next_turn; ?>"><?php echo sprintf('%02d:%02d', $minutes_until_next_turn, $seconds_remainder); ?></span>
-                            </li>
-                        </ul>
-                    </div>
+                    <?php 
+                        $user_stats = $viewer_data; // Pass viewer's stats to the advisor
+                        $user_xp = 0; // XP is not fetched here, can be added if needed
+                        $user_level = $viewer_data['level'];
+                        include_once __DIR__ . '/../includes/advisor.php'; 
+                    ?>
                 </aside>
                 <?php endif; ?>
 
                 <main class="<?php echo $is_logged_in ? 'lg:col-span-3' : 'col-span-1'; ?> space-y-6">
+                    <?php if(isset($_SESSION['alliance_message'])): ?>
+                        <div class="bg-cyan-900 border border-cyan-500/50 text-cyan-300 p-3 rounded-md text-center">
+                            <?php echo htmlspecialchars($_SESSION['alliance_message']); unset($_SESSION['alliance_message']); ?>
+                        </div>
+                    <?php endif; ?>
+                    <?php if(isset($_SESSION['alliance_error'])): ?>
+                        <div class="bg-red-900 border border-red-500/50 text-red-300 p-3 rounded-md text-center">
+                            <?php echo htmlspecialchars($_SESSION['alliance_error']); unset($_SESSION['alliance_error']); ?>
+                        </div>
+                    <?php endif; ?>
+
                     <?php 
                         if ($is_logged_in && $viewer_id != $profile_id) {
                             if ($is_same_alliance) {
@@ -135,16 +146,29 @@ $active_page = 'attack.php'; // Keep the 'BATTLE' main nav active
                                     </div>
                                 </div>
                     <?php
-                            } else { // This implies $can_attack is true
+                            }
+                            if ($can_invite) {
+                    ?>
+                                <div class="content-box rounded-lg p-4 bg-blue-900/20 border-blue-500/50">
+                                    <h3 class="font-title text-lg text-blue-400">Recruitment</h3>
+                                    <form action="/view_profile?id=<?php echo $profile_id; ?>" method="POST" class="flex items-center justify-between mt-2">
+                                        <input type="hidden" name="action" value="invite_to_alliance">
+                                        <input type="hidden" name="invitee_id" value="<?php echo $profile_data['id']; ?>">
+                                        <input type="hidden" name="csrf_token" value="<?php echo htmlspecialchars($csrf_token); ?>">
+                                        <p class="text-sm">Invite this commander to your alliance.</p>
+                                        <button type="submit" class="bg-blue-600 hover:bg-blue-700 text-white font-bold py-2 px-6 rounded-lg transition-colors">Send Invite</button>
+                                    </form>
+                                </div>
+                    <?php
+                            }
+                            if ($can_attack) {
                     ?>
                                 <div class="content-box rounded-lg p-4 bg-red-900/20 border-red-500/50">
                                     <h3 class="font-title text-lg text-red-400">Engage Target</h3>
-                                    <!-- The form action now points to the correct, routed URL -->
                                     <form action="/attack" method="POST" class="flex items-center justify-between mt-2">
                                         <input type="hidden" name="action" value="attack">
                                         <input type="hidden" name="defender_id" value="<?php echo $profile_data['id']; ?>">
-                                        <!-- CSRF Token Added -->
-                                        <input type="hidden" name="csrf_token" value="<?php echo htmlspecialchars($_SESSION['csrf_token']); ?>">
+                                        <input type="hidden" name="csrf_token" value="<?php echo htmlspecialchars($csrf_token); ?>">
                                         <div class="text-sm">
                                             <label for="attack_turns" class="font-semibold text-white">Attack Turns (1-10):</label>
                                             <input type="number" id="attack_turns" name="attack_turns" min="1" max="10" value="1" class="bg-gray-900 border border-gray-600 rounded-md w-20 text-center p-1 ml-2">

@@ -107,6 +107,7 @@ mysqli_stmt_close($stmt_roles);
                                         <label class="flex items-center"><input type="checkbox" name="permissions[can_manage_roles]" value="1" <?php echo $role['can_manage_roles'] ? 'checked' : ''; ?> class="mr-2"> Manage Roles</label>
                                         <label class="flex items-center"><input type="checkbox" name="permissions[can_manage_structures]" value="1" <?php echo $role['can_manage_structures'] ? 'checked' : ''; ?> class="mr-2"> Manage Structures</label>
                                         <label class="flex items-center"><input type="checkbox" name="permissions[can_manage_treasury]" value="1" <?php echo $role['can_manage_treasury'] ? 'checked' : ''; ?> class="mr-2"> Manage Treasury</label>
+                                        <label class="flex items-center"><input type="checkbox" name="permissions[can_invite_members]" value="1" <?php echo $role['can_invite_members'] ? 'checked' : ''; ?> class="mr-2"> Invite Members</label>
                                         <label class="flex items-center"><input type="checkbox" name="permissions[can_moderate_forum]" value="1" <?php echo $role['can_moderate_forum'] ? 'checked' : ''; ?> class="mr-2"> Moderate Forum</label>
                                     </div>
                                 </div>

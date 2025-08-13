@@ -56,7 +56,24 @@ CREATE TABLE `alliance_applications` (
   `status` enum('pending','approved','denied') NOT NULL DEFAULT 'pending',
   `applied_at` timestamp NOT NULL DEFAULT current_timestamp(),
   PRIMARY KEY (`id`),
-  KEY `user_id` (`user_id`),
+  UNIQUE KEY `user_id_pending_unique` (`user_id`, `status`),
+  KEY `alliance_id` (`alliance_id`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
+
+-- --------------------------------------------------------
+
+--
+-- Table structure for table `alliance_invitations`
+--
+CREATE TABLE `alliance_invitations` (
+  `id` int(11) NOT NULL AUTO_INCREMENT,
+  `alliance_id` int(11) NOT NULL,
+  `inviter_id` int(11) NOT NULL,
+  `invitee_id` int(11) NOT NULL,
+  `status` enum('pending','accepted','declined') NOT NULL DEFAULT 'pending',
+  `created_at` timestamp NOT NULL DEFAULT current_timestamp(),
+  PRIMARY KEY (`id`),
+  UNIQUE KEY `invitee_id` (`invitee_id`),
   KEY `alliance_id` (`alliance_id`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
 
@@ -117,6 +134,7 @@ CREATE TABLE `alliance_roles` (
   `can_manage_roles` tinyint(1) NOT NULL DEFAULT 0,
   `can_manage_structures` tinyint(1) NOT NULL DEFAULT 0,
   `can_manage_treasury` tinyint(1) NOT NULL DEFAULT 0,
+  `can_invite_members` tinyint(1) NOT NULL DEFAULT 0,
   `can_moderate_forum` tinyint(1) NOT NULL DEFAULT 0,
   `can_sticky_threads` tinyint(1) NOT NULL DEFAULT 0,
   `can_lock_threads` tinyint(1) NOT NULL DEFAULT 0,
@@ -304,6 +322,11 @@ CREATE TABLE `user_security_questions` (
 ALTER TABLE `alliance_applications`
   ADD CONSTRAINT `alliance_applications_ibfk_1` FOREIGN KEY (`user_id`) REFERENCES `users` (`id`) ON DELETE CASCADE,
   ADD CONSTRAINT `alliance_applications_ibfk_2` FOREIGN KEY (`alliance_id`) REFERENCES `alliances` (`id`) ON DELETE CASCADE;
+
+ALTER TABLE `alliance_invitations`
+  ADD CONSTRAINT `alliance_invitations_ibfk_1` FOREIGN KEY (`alliance_id`) REFERENCES `alliances` (`id`) ON DELETE CASCADE,
+  ADD CONSTRAINT `alliance_invitations_ibfk_2` FOREIGN KEY (`inviter_id`) REFERENCES `users` (`id`) ON DELETE CASCADE,
+  ADD CONSTRAINT `alliance_invitations_ibfk_3` FOREIGN KEY (`invitee_id`) REFERENCES `users` (`id`) ON DELETE CASCADE;
 
 ALTER TABLE `alliance_roles`
   ADD CONSTRAINT `alliance_roles_ibfk_1` FOREIGN KEY (`alliance_id`) REFERENCES `alliances` (`id`) ON DELETE CASCADE;

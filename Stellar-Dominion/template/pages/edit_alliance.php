@@ -15,7 +15,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 }
 
 // Generate and store the CSRF token in the session.
-$_SESSION['csrf_token'] = generate_csrf_token();
+$csrf_token = generate_csrf_token();
 
 $user_id = $_SESSION['id'];
 $active_page = 'alliance.php'; // Corrected active page identifier
@@ -79,9 +79,19 @@ mysqli_close($link);
             <!-- Form now correctly points to the routed URL -->
             <form action="/edit_alliance" method="POST" enctype="multipart/form-data" class="space-y-4">
                 <!-- Hidden CSRF token field to be sent with the form -->
-                <input type="hidden" name="csrf_token" value="<?php echo htmlspecialchars($_SESSION['csrf_token']); ?>">
+                <input type="hidden" name="csrf_token" value="<?php echo htmlspecialchars($csrf_token); ?>">
                 <input type="hidden" name="action" value="edit">
                 <input type="hidden" name="alliance_id" value="<?php echo $alliance['id']; ?>">
+                
+                <div>
+                    <label for="alliance_name" class="font-semibold text-white">Alliance Name (Max 50 Chars)</label>
+                    <input type="text" id="alliance_name" name="alliance_name" maxlength="50" required class="w-full bg-gray-900 border border-gray-600 rounded-md p-2 mt-1" value="<?php echo htmlspecialchars($alliance['name']); ?>">
+                </div>
+                <div>
+                    <label for="alliance_tag" class="font-semibold text-white">Alliance Tag (Max 5 Chars)</label>
+                    <input type="text" id="alliance_tag" name="alliance_tag" maxlength="5" required class="w-full bg-gray-900 border border-gray-600 rounded-md p-2 mt-1" value="<?php echo htmlspecialchars($alliance['tag']); ?>">
+                </div>
+
                 <div>
                     <label class="font-semibold text-white">Current Avatar</label>
                     <img src="<?php echo htmlspecialchars($alliance['avatar_path'] ?? 'assets/img/default_alliance.avif'); ?>" alt="Current Avatar" class="w-32 h-32 rounded-lg mt-1 border-2 border-gray-600 object-cover">
@@ -108,7 +118,7 @@ mysqli_close($link);
                  <!-- Form now correctly points to the routed URL -->
                 <form action="/edit_alliance" method="POST" onsubmit="return confirm('Are you absolutely sure you want to disband this alliance? This action cannot be undone.');">
                     <!-- Hidden CSRF token field to be sent with the form -->
-                    <input type="hidden" name="csrf_token" value="<?php echo htmlspecialchars($_SESSION['csrf_token']); ?>">
+                    <input type="hidden" name="csrf_token" value="<?php echo htmlspecialchars($csrf_token); ?>">
                     <input type="hidden" name="action" value="disband">
                     <input type="hidden" name="alliance_id" value="<?php echo $alliance['id']; ?>">
                     <button type="submit" class="bg-red-800 hover:bg-red-700 text-white font-bold py-3 px-8 rounded-lg">Disband Alliance</button>

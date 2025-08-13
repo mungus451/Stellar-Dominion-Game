@@ -99,15 +99,15 @@ try {
 
         // 3. Create default roles, now including all forum permissions.
         $default_roles = [
-            // name, order, deletable, edit_profile, approve, kick, manage_roles, manage_structures, manage_treasury, mod_forum, sticky, lock, delete_posts
-            ['Supreme Commander', 0, 0, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1],
-            ['Recruit', 1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]
+            // name, order, deletable, edit_profile, approve, kick, manage_roles, manage_structures, manage_treasury, invite_members, mod_forum, sticky, lock, delete_posts
+            ['Supreme Commander', 0, 0, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1],
+            ['Recruit', 1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]
         ];
-        $sql_role = "INSERT INTO alliance_roles (alliance_id, name, `order`, is_deletable, can_edit_profile, can_approve_membership, can_kick_members, can_manage_roles, can_manage_structures, can_manage_treasury, can_moderate_forum, can_sticky_threads, can_lock_threads, can_delete_posts) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)";
+        $sql_role = "INSERT INTO alliance_roles (alliance_id, name, `order`, is_deletable, can_edit_profile, can_approve_membership, can_kick_members, can_manage_roles, can_manage_structures, can_manage_treasury, can_invite_members, can_moderate_forum, can_sticky_threads, can_lock_threads, can_delete_posts) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)";
         $stmt_role = mysqli_prepare($link, $sql_role);
         $sc_role_id = null;
         foreach ($default_roles as $role) {
-            mysqli_stmt_bind_param($stmt_role, "isiiiiiiiiiiii", $alliance_id, $role[0], $role[1], $role[2], $role[3], $role[4], $role[5], $role[6], $role[7], $role[8], $role[9], $role[10], $role[11], $role[12]);
+            mysqli_stmt_bind_param($stmt_role, "isiiiiiiiiiiiii", $alliance_id, $role[0], $role[1], $role[2], $role[3], $role[4], $role[5], $role[6], $role[7], $role[8], $role[9], $role[10], $role[11], $role[12], $role[13]);
             mysqli_stmt_execute($stmt_role);
             if ($role[0] === 'Supreme Commander') {
                 $sc_role_id = mysqli_insert_id($link);
@@ -129,10 +129,16 @@ try {
         $redirect_url = '/edit_alliance.php';
         $alliance_id = (int)$_POST['alliance_id'];
         $description = trim($_POST['description']);
+        $name = trim($_POST['alliance_name']);
+        $tag = trim($_POST['alliance_tag']);
         $avatar_path = null;
 
-        if (!($user_info['can_edit_profile'] ?? false) || $user_info['alliance_id'] != $alliance_id) {
+        if ($user_info['leader_id'] != $user_id || $user_info['alliance_id'] != $alliance_id) {
             throw new Exception("You do not have permission to edit this alliance profile.");
+        }
+        
+        if (empty($name) || empty($tag)) {
+            throw new Exception("Alliance name and tag are required.");
         }
 
         if (isset($_FILES['avatar']) && $_FILES['avatar']['error'] !== UPLOAD_ERR_NO_FILE) {
@@ -170,15 +176,22 @@ try {
             }
         }
 
+        $sql_parts = ["description = ?", "name = ?", "tag = ?"];
+        $params = [$description, $name, $tag];
+        $types = "sss";
+
         if ($avatar_path) {
-            $sql = "UPDATE alliances SET description = ?, avatar_path = ? WHERE id = ?";
-            $stmt = mysqli_prepare($link, $sql);
-            mysqli_stmt_bind_param($stmt, "ssi", $description, $avatar_path, $alliance_id);
-        } else {
-            $sql = "UPDATE alliances SET description = ? WHERE id = ?";
-            $stmt = mysqli_prepare($link, $sql);
-            mysqli_stmt_bind_param($stmt, "si", $description, $alliance_id);
+            $sql_parts[] = "avatar_path = ?";
+            $params[] = $avatar_path;
+            $types .= "s";
         }
+        
+        $params[] = $alliance_id;
+        $types .= "i";
+
+        $sql = "UPDATE alliances SET " . implode(", ", $sql_parts) . " WHERE id = ?";
+        $stmt = mysqli_prepare($link, $sql);
+        mysqli_stmt_bind_param($stmt, $types, ...$params);
         mysqli_stmt_execute($stmt);
         mysqli_stmt_close($stmt);
 
@@ -190,6 +203,16 @@ try {
         }
         $alliance_id = (int)$_POST['alliance_id'];
 
+        // Check for existing application
+        $sql_check_app = "SELECT id FROM alliance_applications WHERE user_id = ? AND status = 'pending'";
+        $stmt_check_app = mysqli_prepare($link, $sql_check_app);
+        mysqli_stmt_bind_param($stmt_check_app, "i", $user_id);
+        mysqli_stmt_execute($stmt_check_app);
+        if (mysqli_stmt_get_result($stmt_check_app)->num_rows > 0) {
+            throw new Exception("You already have a pending application to an alliance.");
+        }
+        mysqli_stmt_close($stmt_check_app);
+
         $sql_count = "SELECT COUNT(*) as member_count FROM users WHERE alliance_id = ?";
         $stmt_count = mysqli_prepare($link, $sql_count);
         mysqli_stmt_bind_param($stmt_count, "i", $alliance_id);
@@ -199,21 +222,110 @@ try {
             throw new Exception("This alliance is full and cannot accept new members.");
         }
 
-        $sql_check = "SELECT id FROM alliance_applications WHERE user_id = ? AND alliance_id = ? AND status = 'pending'";
-        $stmt_check = mysqli_prepare($link, $sql_check);
-        mysqli_stmt_bind_param($stmt_check, "ii", $user_id, $alliance_id);
-        mysqli_stmt_execute($stmt_check);
-        if (mysqli_stmt_get_result($stmt_check)->num_rows > 0) {
-            throw new Exception("You have already applied to this alliance.");
-        }
-        mysqli_stmt_close($stmt_check);
-
         $sql = "INSERT INTO alliance_applications (user_id, alliance_id) VALUES (?, ?)";
         $stmt = mysqli_prepare($link, $sql);
         mysqli_stmt_bind_param($stmt, "ii", $user_id, $alliance_id);
         mysqli_stmt_execute($stmt);
         mysqli_stmt_close($stmt);
         $_SESSION['alliance_message'] = "Application sent successfully.";
+
+    } else if ($action === 'cancel_application') {
+        $sql_delete = "DELETE FROM alliance_applications WHERE user_id = ? AND status = 'pending'";
+        $stmt_delete = mysqli_prepare($link, $sql_delete);
+        mysqli_stmt_bind_param($stmt_delete, "i", $user_id);
+        mysqli_stmt_execute($stmt_delete);
+        mysqli_stmt_close($stmt_delete);
+        $_SESSION['alliance_message'] = "Your application has been cancelled.";
+
+    } else if ($action === 'invite_to_alliance') {
+        $invitee_id = (int)$_POST['invitee_id'];
+        $redirect_url = "/view_profile.php?id=$invitee_id";
+
+        if (!($user_info['can_invite_members'] ?? false)) {
+            throw new Exception("You do not have permission to invite members.");
+        }
+        if ($user_id == $invitee_id) {
+            throw new Exception("You cannot invite yourself.");
+        }
+
+        // Check if invitee is already in an alliance or has a pending invite/application
+        $sql_check_invitee = "SELECT alliance_id FROM users WHERE id = ?";
+        $stmt_check_invitee = mysqli_prepare($link, $sql_check_invitee);
+        mysqli_stmt_bind_param($stmt_check_invitee, "i", $invitee_id);
+        mysqli_stmt_execute($stmt_check_invitee);
+        $invitee = mysqli_fetch_assoc(mysqli_stmt_get_result($stmt_check_invitee));
+        mysqli_stmt_close($stmt_check_invitee);
+
+        if ($invitee['alliance_id']) {
+            throw new Exception("This player is already in an alliance.");
+        }
+        
+        // Check for existing invitation or application for the invitee
+        $sql_check_pending = "SELECT (SELECT COUNT(*) FROM alliance_invitations WHERE invitee_id = ? AND status = 'pending') as invite_count, (SELECT COUNT(*) FROM alliance_applications WHERE user_id = ? AND status = 'pending') as app_count";
+        $stmt_check_pending = mysqli_prepare($link, $sql_check_pending);
+        mysqli_stmt_bind_param($stmt_check_pending, "ii", $invitee_id, $invitee_id);
+        mysqli_stmt_execute($stmt_check_pending);
+        $pending_counts = mysqli_fetch_assoc(mysqli_stmt_get_result($stmt_check_pending));
+        mysqli_stmt_close($stmt_check_pending);
+
+        if ($pending_counts['invite_count'] > 0 || $pending_counts['app_count'] > 0) {
+            throw new Exception("This player already has a pending invitation or application.");
+        }
+
+        $sql_invite = "INSERT INTO alliance_invitations (alliance_id, inviter_id, invitee_id) VALUES (?, ?, ?)";
+        $stmt_invite = mysqli_prepare($link, $sql_invite);
+        mysqli_stmt_bind_param($stmt_invite, "iii", $user_info['alliance_id'], $user_id, $invitee_id);
+        mysqli_stmt_execute($stmt_invite);
+        mysqli_stmt_close($stmt_invite);
+        $_SESSION['alliance_message'] = "Invitation sent successfully.";
+
+    } else if ($action === 'accept_invite') {
+        $invite_id = (int)$_POST['invite_id'];
+        
+        $sql_invite = "SELECT alliance_id FROM alliance_invitations WHERE id = ? AND invitee_id = ? AND status = 'pending'";
+        $stmt_invite = mysqli_prepare($link, $sql_invite);
+        mysqli_stmt_bind_param($stmt_invite, "ii", $invite_id, $user_id);
+        mysqli_stmt_execute($stmt_invite);
+        $invite = mysqli_fetch_assoc(mysqli_stmt_get_result($stmt_invite));
+        mysqli_stmt_close($stmt_invite);
+
+        if (!$invite) {
+            throw new Exception("Invalid or expired invitation.");
+        }
+
+        $alliance_id_to_join = $invite['alliance_id'];
+        
+        // Use the same logic as approving an application
+        $sql_role = "SELECT id FROM alliance_roles WHERE alliance_id = ? AND name = 'Recruit'";
+        $stmt_role = mysqli_prepare($link, $sql_role);
+        mysqli_stmt_bind_param($stmt_role, "i", $alliance_id_to_join);
+        mysqli_stmt_execute($stmt_role);
+        $role = mysqli_fetch_assoc(mysqli_stmt_get_result($stmt_role));
+        mysqli_stmt_close($stmt_role);
+        if (!$role) {
+            throw new Exception("Default 'Recruit' role not found for this alliance.");
+        }
+
+        $sql_update_user = "UPDATE users SET alliance_id = ?, alliance_role_id = ? WHERE id = ?";
+        $stmt_update = mysqli_prepare($link, $sql_update_user);
+        mysqli_stmt_bind_param($stmt_update, "iii", $alliance_id_to_join, $role['id'], $user_id);
+        mysqli_stmt_execute($stmt_update);
+        mysqli_stmt_close($stmt_update);
+
+        // Delete all pending applications and invitations for this user
+        mysqli_query($link, "DELETE FROM alliance_applications WHERE user_id = $user_id");
+        mysqli_query($link, "DELETE FROM alliance_invitations WHERE invitee_id = $user_id");
+
+        $_SESSION['alliance_message'] = "Invitation accepted. Welcome to the alliance!";
+
+    } else if ($action === 'decline_invite') {
+        $invite_id = (int)$_POST['invite_id'];
+        $sql_delete = "DELETE FROM alliance_invitations WHERE id = ? AND invitee_id = ?";
+        $stmt_delete = mysqli_prepare($link, $sql_delete);
+        mysqli_stmt_bind_param($stmt_delete, "ii", $invite_id, $user_id);
+        mysqli_stmt_execute($stmt_delete);
+        mysqli_stmt_close($stmt_delete);
+        $_SESSION['alliance_message'] = "Invitation declined.";
 
     } else if ($action === 'approve_application') {
         $redirect_url = '/alliance.php?tab=applications';
@@ -232,6 +344,8 @@ try {
             throw new Exception("Application not found or does not belong to your alliance.");
         }
 
+        $applicant_id = $app['user_id'];
+
         $sql_role = "SELECT id FROM alliance_roles WHERE alliance_id = ? AND name = 'Recruit'";
         $stmt_role = mysqli_prepare($link, $sql_role);
         mysqli_stmt_bind_param($stmt_role, "i", $app['alliance_id']);
@@ -244,15 +358,13 @@ try {
 
         $sql_update_user = "UPDATE users SET alliance_id = ?, alliance_role_id = ? WHERE id = ?";
         $stmt_update = mysqli_prepare($link, $sql_update_user);
-        mysqli_stmt_bind_param($stmt_update, "iii", $app['alliance_id'], $role['id'], $app['user_id']);
+        mysqli_stmt_bind_param($stmt_update, "iii", $app['alliance_id'], $role['id'], $applicant_id);
         mysqli_stmt_execute($stmt_update);
         mysqli_stmt_close($stmt_update);
 
-        $sql_delete_app = "DELETE FROM alliance_applications WHERE id = ?";
-        $stmt_delete = mysqli_prepare($link, $sql_delete_app);
-        mysqli_stmt_bind_param($stmt_delete, "i", $application_id);
-        mysqli_stmt_execute($stmt_delete);
-        mysqli_stmt_close($stmt_delete);
+        // Delete all pending applications and invitations for this user now that they've joined
+        mysqli_query($link, "DELETE FROM alliance_applications WHERE user_id = $applicant_id");
+        mysqli_query($link, "DELETE FROM alliance_invitations WHERE invitee_id = $applicant_id");
 
         $_SESSION['alliance_message'] = "Member approved.";
 
@@ -355,14 +467,15 @@ try {
         $can_manage_roles = isset($permissions['can_manage_roles']) ? 1 : 0;
         $can_manage_structures = isset($permissions['can_manage_structures']) ? 1 : 0;
         $can_manage_treasury = isset($permissions['can_manage_treasury']) ? 1 : 0;
+        $can_invite_members = isset($permissions['can_invite_members']) ? 1 : 0;
         $can_moderate_forum = isset($permissions['can_moderate_forum']) ? 1 : 0;
         $can_sticky_threads = isset($permissions['can_sticky_threads']) ? 1 : 0;
         $can_lock_threads = isset($permissions['can_lock_threads']) ? 1 : 0;
         $can_delete_posts = isset($permissions['can_delete_posts']) ? 1 : 0;
 
-        $sql = "UPDATE alliance_roles SET name = ?, `order` = ?, can_edit_profile = ?, can_approve_membership = ?, can_kick_members = ?, can_manage_roles = ?, can_manage_structures = ?, can_manage_treasury = ?, can_moderate_forum = ?, can_sticky_threads = ?, can_lock_threads = ?, can_delete_posts = ? WHERE id = ? AND alliance_id = ?";
+        $sql = "UPDATE alliance_roles SET name = ?, `order` = ?, can_edit_profile = ?, can_approve_membership = ?, can_kick_members = ?, can_manage_roles = ?, can_manage_structures = ?, can_manage_treasury = ?, can_invite_members = ?, can_moderate_forum = ?, can_sticky_threads = ?, can_lock_threads = ?, can_delete_posts = ? WHERE id = ? AND alliance_id = ?";
         $stmt = mysqli_prepare($link, $sql);
-        mysqli_stmt_bind_param($stmt, "siiiiiiiiiiiii", $name, $order, $can_edit_profile, $can_approve_membership, $can_kick_members, $can_manage_roles, $can_manage_structures, $can_manage_treasury, $can_moderate_forum, $can_sticky_threads, $can_lock_threads, $can_delete_posts, $role_id, $user_info['alliance_id']);
+        mysqli_stmt_bind_param($stmt, "siiiiiiiiiiiiii", $name, $order, $can_edit_profile, $can_approve_membership, $can_kick_members, $can_manage_roles, $can_manage_structures, $can_manage_treasury, $can_invite_members, $can_moderate_forum, $can_sticky_threads, $can_lock_threads, $can_delete_posts, $role_id, $user_info['alliance_id']);
         mysqli_stmt_execute($stmt);
         mysqli_stmt_close($stmt);
         $_SESSION['alliance_message'] = "Role '" . htmlspecialchars($name) . "' updated successfully.";
