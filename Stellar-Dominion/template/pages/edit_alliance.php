@@ -8,6 +8,12 @@ if (!isset($_SESSION["loggedin"]) || $_SESSION["loggedin"] !== true) { header("l
 
 require_once __DIR__ . '/../../config/config.php';
 
+// --- FORM SUBMISSION HANDLING ---
+if ($_SERVER['REQUEST_METHOD'] === 'POST') {
+    require_once __DIR__ . '/../../src/Controllers/AllianceController.php';
+    exit;
+}
+
 // Generate and store the CSRF token in the session.
 $_SESSION['csrf_token'] = generate_csrf_token();
 
@@ -70,8 +76,8 @@ mysqli_close($link);
                     <?php echo htmlspecialchars($_SESSION['alliance_error']); unset($_SESSION['alliance_error']); ?>
                 </div>
             <?php endif; ?>
-            <!-- Form now correctly points to the AllianceController -->
-            <form action="/src/Controllers/AllianceController.php" method="POST" enctype="multipart/form-data" class="space-y-4">
+            <!-- Form now correctly points to the routed URL -->
+            <form action="/edit_alliance" method="POST" enctype="multipart/form-data" class="space-y-4">
                 <!-- Hidden CSRF token field to be sent with the form -->
                 <input type="hidden" name="csrf_token" value="<?php echo htmlspecialchars($_SESSION['csrf_token']); ?>">
                 <input type="hidden" name="action" value="edit">
@@ -99,8 +105,8 @@ mysqli_close($link);
             <h2 class="font-title text-2xl text-red-400">Danger Zone</h2>
             <p class="text-sm mt-2">Disbanding the alliance is permanent and cannot be undone. All members will be removed, and the alliance name and tag will be lost forever.</p>
             <div class="text-right mt-4">
-                 <!-- Form now correctly points to the AllianceController -->
-                <form action="/src/Controllers/AllianceController.php" method="POST" onsubmit="return confirm('Are you absolutely sure you want to disband this alliance? This action cannot be undone.');">
+                 <!-- Form now correctly points to the routed URL -->
+                <form action="/edit_alliance" method="POST" onsubmit="return confirm('Are you absolutely sure you want to disband this alliance? This action cannot be undone.');">
                     <!-- Hidden CSRF token field to be sent with the form -->
                     <input type="hidden" name="csrf_token" value="<?php echo htmlspecialchars($_SESSION['csrf_token']); ?>">
                     <input type="hidden" name="action" value="disband">

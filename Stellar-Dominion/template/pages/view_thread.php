@@ -55,10 +55,20 @@ if (!$thread) {
     exit;
 }
 
+// Fetch the alliance name to display it
+$sql_alliance_name = "SELECT name FROM alliances WHERE id = ?";
+$stmt_alliance_name = mysqli_prepare($link, $sql_alliance_name);
+mysqli_stmt_bind_param($stmt_alliance_name, "i", $alliance_id);
+mysqli_stmt_execute($stmt_alliance_name);
+$alliance_data = mysqli_fetch_assoc(mysqli_stmt_get_result($stmt_alliance_name));
+mysqli_stmt_close($stmt_alliance_name);
+$alliance_name = $alliance_data['name'] ?? 'this alliance';
+
+
 // Fetch all posts for this thread, joining with user data
 $sql_posts = "
     SELECT p.id, p.content, p.created_at, p.user_id as post_author_id,
-           u.character_name, u.avatar_path, r.name as role_name
+           u.character_name, u.avatar_path, u.alliance_id as post_author_alliance_id, r.name as role_name
     FROM forum_posts p
     JOIN users u ON p.user_id = u.id
     LEFT JOIN alliance_roles r ON u.alliance_role_id = r.id
@@ -119,7 +129,14 @@ $posts_result = mysqli_stmt_get_result($stmt_posts);
                 <div class="md:col-span-1 border-r border-gray-700 pr-4 text-center">
                     <img src="<?php echo htmlspecialchars($post['avatar_path'] ?? 'https://via.placeholder.com/100'); ?>" alt="Avatar" class="w-24 h-24 rounded-full mx-auto border-2 border-gray-600 object-cover">
                     <p class="font-bold text-white mt-2"><?php echo htmlspecialchars($post['character_name']); ?></p>
-                    <p class="text-sm text-cyan-400"><?php echo htmlspecialchars($post['role_name']); ?></p>
+                    <?php
+                        // Check if the post author is still in the current alliance and has a role
+                        if ($post['post_author_alliance_id'] == $alliance_id && !empty($post['role_name'])) {
+                            echo '<p class="text-sm text-cyan-400">' . htmlspecialchars($post['role_name']) . '</p>';
+                        } else {
+                            echo '<p class="text-sm text-red-400 italic">No longer in ' . htmlspecialchars($alliance_name) . '</p>';
+                        }
+                    ?>
                 </div>
                 <div class="md:col-span-3">
                     <div class="flex justify-between items-center border-b border-gray-700 pb-2 mb-2">
