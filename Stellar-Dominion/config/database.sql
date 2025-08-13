@@ -1,5 +1,5 @@
 -- -------------------------------------------------------------
--- Stellar Dominion - Database Schema (Updated)
+-- Stellar Dominion - Database Schema
 --
 -- This script contains all the necessary SQL commands to create
 -- and configure the database tables for the game.
@@ -213,9 +213,9 @@ CREATE TABLE `users` (
   `phone_number` varchar(20) DEFAULT NULL,
   `phone_carrier` varchar(50) DEFAULT NULL,
   `phone_verified` tinyint(1) NOT NULL DEFAULT 0,
-  `credits` bigint(20) NOT NULL DEFAULT 100000,
+  `credits` bigint(20) NOT NULL DEFAULT 10000000,
   `banked_credits` bigint(20) NOT NULL DEFAULT 0,
-  `untrained_citizens` int(11) NOT NULL DEFAULT 1000,
+  `untrained_citizens` int(11) NOT NULL DEFAULT 250,
   `workers` int(11) NOT NULL DEFAULT 0,
   `soldiers` int(11) NOT NULL DEFAULT 0,
   `guards` int(11) NOT NULL DEFAULT 0,
@@ -261,20 +261,6 @@ CREATE TABLE `users` (
 -- --------------------------------------------------------
 
 --
--- Table structure for table `user_armory`
---
-CREATE TABLE `user_armory` (
-  `id` int(11) NOT NULL AUTO_INCREMENT,
-  `user_id` int(11) NOT NULL,
-  `item_key` varchar(50) NOT NULL,
-  `quantity` int(11) NOT NULL DEFAULT 0,
-  PRIMARY KEY (`id`),
-  UNIQUE KEY `user_item_unique` (`user_id`, `item_key`)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
-
--- --------------------------------------------------------
-
---
 -- Table structure for table `user_security_questions`
 --
 CREATE TABLE `user_security_questions` (
@@ -311,9 +297,6 @@ ALTER TABLE `forum_posts`
 
 ALTER TABLE `forum_threads`
   ADD CONSTRAINT `forum_threads_ibfk_1` FOREIGN KEY (`alliance_id`) REFERENCES `alliances` (`id`) ON DELETE CASCADE;
-
-ALTER TABLE `user_armory`
-  ADD CONSTRAINT `user_armory_ibfk_1` FOREIGN KEY (`user_id`) REFERENCES `users` (`id`) ON DELETE CASCADE;
   
 ALTER TABLE `user_security_questions`
   ADD CONSTRAINT `user_security_questions_ibfk_1` FOREIGN KEY (`user_id`) REFERENCES `users` (`id`) ON DELETE CASCADE;
