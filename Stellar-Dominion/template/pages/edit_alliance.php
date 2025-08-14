@@ -1,60 +1,56 @@
 <?php
-// --- SESSION AND DATABASE SETUP ---
-// Use the recommended session start method to avoid conflicts.
+// --- SETUP ---
 if (session_status() == PHP_SESSION_NONE) {
     session_start();
 }
-if (!isset($_SESSION["loggedin"]) || $_SESSION["loggedin"] !== true) { header("location: index.html"); exit; }
+if (!isset($_SESSION["loggedin"]) || $_SESSION["loggedin"] !== true) {
+    header("location: /index.php");
+    exit;
+}
 
 require_once __DIR__ . '/../../config/config.php';
+require_once __DIR__ . '/../../src/Controllers/BaseAllianceController.php';
+require_once __DIR__ . '/../../src/Controllers/AllianceManagementController.php';
+
+$allianceController = new AllianceManagementController($link);
 
 // --- FORM SUBMISSION HANDLING ---
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
-    require_once __DIR__ . '/../../src/Controllers/AllianceController.php';
-    exit;
+    if (!isset($_POST['csrf_token']) || !validate_csrf_token($_POST['csrf_token'])) {
+        $_SESSION['alliance_error'] = 'Invalid session token.';
+        header('Location: /edit_alliance');
+        exit;
+    }
+    
+    // The controller's dispatch method now handles all logic and redirection.
+    if (isset($_POST['action'])) {
+        $allianceController->dispatch($_POST['action']);
+    }
+    exit; // Should be unreachable, but good practice.
 }
 
-// Generate and store the CSRF token in the session.
+// --- PAGE DISPLAY LOGIC (GET REQUEST) ---
+$user_id = $_SESSION['id'];
+$active_page = 'alliance.php';
 $csrf_token = generate_csrf_token();
 
-$user_id = $_SESSION['id'];
-$active_page = 'alliance.php'; // Corrected active page identifier
-$alliance = null;
-
-// Fetch the user's alliance ID first
-$sql_user = "SELECT alliance_id FROM users WHERE id = ?";
-$stmt_user = mysqli_prepare($link, $sql_user);
-mysqli_stmt_bind_param($stmt_user, "i", $user_id);
-mysqli_stmt_execute($stmt_user);
-$user_data = mysqli_fetch_assoc(mysqli_stmt_get_result($stmt_user));
-mysqli_stmt_close($stmt_user);
-
-if ($user_data && $user_data['alliance_id']) {
-    // Now fetch alliance data and verify the current user is the leader
-    $alliance_id = $user_data['alliance_id'];
-    $sql_alliance = "SELECT id, name, tag, description, avatar_path, leader_id FROM alliances WHERE id = ? AND leader_id = ?";
-    $stmt_alliance = mysqli_prepare($link, $sql_alliance);
-    mysqli_stmt_bind_param($stmt_alliance, "ii", $alliance_id, $user_id);
-    mysqli_stmt_execute($stmt_alliance);
-    $alliance = mysqli_fetch_assoc(mysqli_stmt_get_result($stmt_alliance));
-    mysqli_stmt_close($stmt_alliance);
-}
+// Use the controller to fetch all necessary alliance data
+$allianceData = $allianceController->getAllianceDataForUser($user_id);
+$alliance = $allianceData; // Alias for compatibility with the existing view template
 
 // If no alliance is found or the user is not the leader, redirect them.
-if (!$alliance) {
+if (!$alliance || $alliance['leader_id'] != $user_id) {
     $_SESSION['alliance_error'] = "You do not have permission to edit this alliance.";
-    header("location: /alliance.php");
+    header("location: /alliance");
     exit;
 }
-
-mysqli_close($link);
 ?>
 <!DOCTYPE html>
 <html lang="en">
 <head>
     <meta charset="UTF-8">
     <title>Stellar Dominion - Edit Alliance</title>
-    <link rel="stylesheet" href="assets/css/style.css">
+    <link rel="stylesheet" href="/assets/css/style.css">
     <script src="https://cdn.tailwindcss.com"></script>
     <script src="https://unpkg.com/lucide@latest"></script>
     <link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@700&family=Roboto:wght@400;500;700&display=swap" rel="stylesheet">
@@ -76,9 +72,8 @@ mysqli_close($link);
                     <?php echo htmlspecialchars($_SESSION['alliance_error']); unset($_SESSION['alliance_error']); ?>
                 </div>
             <?php endif; ?>
-            <!-- Form now correctly points to the routed URL -->
+            
             <form action="/edit_alliance" method="POST" enctype="multipart/form-data" class="space-y-4">
-                <!-- Hidden CSRF token field to be sent with the form -->
                 <input type="hidden" name="csrf_token" value="<?php echo htmlspecialchars($csrf_token); ?>">
                 <input type="hidden" name="action" value="edit">
                 <input type="hidden" name="alliance_id" value="<?php echo $alliance['id']; ?>">
@@ -99,7 +94,7 @@ mysqli_close($link);
                 <div>
                     <label for="avatar" class="font-semibold text-white">New Avatar (Optional)</label>
                     <input type="file" name="avatar" id="avatar" class="w-full text-sm mt-1 file:mr-4 file:py-2 file:px-4 file:rounded-md file:border-0 file:text-sm file:font-semibold file:bg-cyan-600 file:text-white hover:file:bg-cyan-700">
-                    <p class="text-xs text-gray-500 mt-1">Max size: 10MB. Allowed types: JPG, PNG, GIF.</p>
+                    <p class="text-xs text-gray-500 mt-1">Max size: 10MB. Allowed types: JPG, PNG, GIF, AVIF.</p>
                 </div>
                 <div>
                     <label for="description" class="font-semibold text-white">Alliance Charter (Description)</label>
@@ -115,9 +110,7 @@ mysqli_close($link);
             <h2 class="font-title text-2xl text-red-400">Danger Zone</h2>
             <p class="text-sm mt-2">Disbanding the alliance is permanent and cannot be undone. All members will be removed, and the alliance name and tag will be lost forever.</p>
             <div class="text-right mt-4">
-                 <!-- Form now correctly points to the routed URL -->
                 <form action="/edit_alliance" method="POST" onsubmit="return confirm('Are you absolutely sure you want to disband this alliance? This action cannot be undone.');">
-                    <!-- Hidden CSRF token field to be sent with the form -->
                     <input type="hidden" name="csrf_token" value="<?php echo htmlspecialchars($csrf_token); ?>">
                     <input type="hidden" name="action" value="disband">
                     <input type="hidden" name="alliance_id" value="<?php echo $alliance['id']; ?>">
