@@ -8,8 +8,10 @@
 
 // --- CONTROLLER SETUP ---
 require_once __DIR__ . '/../../config/config.php';
+require_once __DIR__ . '/../../src/Game/GameFunctions.php';            // needed for CSRF helpers
 require_once __DIR__ . '/../../src/Controllers/BaseAllianceController.php';
 require_once __DIR__ . '/../../src/Controllers/AllianceResourceController.php';
+
 $allianceController = new AllianceResourceController($link);
 
 // --- FORM SUBMISSION HANDLING ---
@@ -20,7 +22,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         exit;
     }
     if (isset($_POST['action'])) {
-        $allianceController->dispatch($_POST['action']);
+        $allianceController->dispatch($_POST['action']);   // <-- use the correct variable, and only on POST
     }
     exit;
 }

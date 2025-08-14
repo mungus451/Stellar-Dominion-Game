@@ -8,7 +8,7 @@
 
 // --- FORM SUBMISSION HANDLING ---
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
-    require_once __DIR__ . '/../../src/Controllers/AllianceController.php';
+    require_once __DIR__ . '/../../src/Controllers/AllianceTransferController.php';
     exit;
 }
 
