@@ -95,7 +95,6 @@ $all_permission_keys = [
                 </nav>
             </div>
 
-            <!-- Member Management Tab -->
             <div id="members-content" class="<?php if ($current_tab !== 'members') echo 'hidden'; ?>">
                 <div class="bg-gray-900/50 rounded-lg p-4 overflow-x-auto">
                     <table class="w-full text-sm text-left">
@@ -129,9 +128,7 @@ $all_permission_keys = [
                 </div>
             </div>
 
-            <!-- Role Editor Tab -->
             <div id="roles-content" class="<?php if ($current_tab !== 'roles') echo 'hidden'; ?> space-y-4">
-                <!-- Role Creation Form -->
                 <div class="bg-gray-900/50 rounded-lg p-4">
                      <h3 class="font-title text-xl text-cyan-400 border-b border-gray-600 pb-2 mb-3">Create New Role</h3>
                      <form action="/alliance_roles.php" method="POST" class="grid grid-cols-1 md:grid-cols-3 gap-4 items-end">
@@ -148,7 +145,6 @@ $all_permission_keys = [
                         <button type="submit" class="w-full bg-green-600 hover:bg-green-700 text-white font-bold py-2 px-4 rounded-lg">Create</button>
                      </form>
                 </div>
-                <!-- Existing Roles Editor -->
                 <?php foreach ($roles as $role): ?>
                 <div class="bg-gray-900/50 rounded-lg p-4">
                     <h3 class="font-title text-xl text-white"><?php echo htmlspecialchars($role['name']); ?> (Order: <?php echo $role['order']; ?>)</h3>
@@ -158,14 +154,16 @@ $all_permission_keys = [
                         <input type="hidden" name="role_id" value="<?php echo $role['id']; ?>">
                         <div class="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4 mt-3">
                             <?php 
-                                $current_permissions = json_decode($role['permissions'] ?? '[]', true);
+                                // FIX: Instead of decoding a non-existent JSON column,
+                                // we now loop through the known permission keys and check
+                                // if the corresponding column in the $role array is true (1).
                                 foreach ($all_permission_keys as $key => $label): 
                             ?>
                             <div class="flex items-center">
                                 <input type="checkbox" name="permissions[]" value="<?php echo $key; ?>" id="perm_<?php echo $role['id'] . '_' . $key; ?>" 
                                        class="form-check-input bg-gray-700 border-gray-600 text-cyan-500"
-                                       <?php if (in_array($key, array_keys($current_permissions))) echo 'checked'; ?>
-                                       <?php if ($role['order'] <= 1 && !$is_leader) echo 'disabled'; // Lock leader role for non-leaders ?>>
+                                       <?php if (!empty($role[$key])) echo 'checked'; ?>
+                                       <?php if ($role['order'] <= 1 && !$is_leader) echo 'disabled'; ?>>
                                 <label for="perm_<?php echo $role['id'] . '_' . $key; ?>" class="ml-2 text-sm"><?php echo $label; ?></label>
                             </div>
                             <?php endforeach; ?>
@@ -181,7 +179,6 @@ $all_permission_keys = [
                 <?php endforeach; ?>
             </div>
             
-            <!-- Leadership Tab -->
             <?php if ($is_leader): ?>
             <div id="leadership-content" class="<?php if ($current_tab !== 'leadership') echo 'hidden'; ?>">
                 <div class="bg-gray-900/50 rounded-lg p-6 border-2 border-red-500/50">
