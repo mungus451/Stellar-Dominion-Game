@@ -28,9 +28,12 @@ class AllianceManagementController extends BaseAllianceController
                 case 'update_member_role':
                     $this->assignMemberRole();
                     break;
-                // --- FIX: Added the case for creating a new role ---
                 case 'add_role':
                     $this->addRole();
+                    break;
+                // --- FIX: Added the case for deleting a role ---
+                case 'delete_role':
+                    $this->deleteRole();
                     break;
                 default:
                     throw new Exception("Invalid management action specified.");
@@ -41,12 +44,52 @@ class AllianceManagementController extends BaseAllianceController
             $_SESSION['alliance_roles_error'] = $e->getMessage();
         }
         
-        $redirect_tab = $_POST['current_tab'] ?? 'roles'; // Default to roles tab after role actions
+        $redirect_tab = $_POST['current_tab'] ?? 'roles';
         header("Location: /alliance_roles.php?tab=" . $redirect_tab);
         exit();
     }
     
-    // --- FIX: Added the method to handle creating a new role ---
+    // --- FIX: Added the method to handle deleting a role ---
+    private function deleteRole()
+    {
+        $role_id = (int)($_POST['role_id'] ?? 0);
+        if ($role_id <= 0) {
+            throw new Exception("Invalid role specified.");
+        }
+
+        $currentUserRole = $this->getUserRoleInfo($this->user_id);
+        $roleToDelete = $this->getRoleById($role_id);
+
+        if (!$roleToDelete || $roleToDelete['alliance_id'] != $currentUserRole['alliance_id']) {
+            throw new Exception("Role not found in your alliance.");
+        }
+        if (!$roleToDelete['is_deletable']) {
+            throw new Exception("This role cannot be deleted.");
+        }
+        if ($currentUserRole['role_order'] >= $roleToDelete['order']) {
+            throw new Exception("You cannot delete a role with an equal or higher rank than your own.");
+        }
+
+        // Check if the role is currently assigned to any members
+        $stmt_check = $this->db->prepare("SELECT COUNT(id) as member_count FROM users WHERE alliance_role_id = ?");
+        $stmt_check->bind_param("i", $role_id);
+        $stmt_check->execute();
+        $member_count = $stmt_check->get_result()->fetch_assoc()['member_count'];
+        $stmt_check->close();
+
+        if ($member_count > 0) {
+            throw new Exception("Cannot delete the '{$roleToDelete['name']}' role because it is currently assigned to {$member_count} member(s).");
+        }
+        
+        // If all checks pass, delete the role
+        $stmt_delete = $this->db->prepare("DELETE FROM alliance_roles WHERE id = ?");
+        $stmt_delete->bind_param("i", $role_id);
+        $stmt_delete->execute();
+        $stmt_delete->close();
+
+        $_SESSION['alliance_roles_message'] = "Role '{$roleToDelete['name']}' has been deleted.";
+    }
+
     private function addRole()
     {
         $role_name = trim($_POST['role_name'] ?? '');
@@ -58,7 +101,6 @@ class AllianceManagementController extends BaseAllianceController
 
         $currentUserRole = $this->getUserRoleInfo($this->user_id);
 
-        // Hierarchy 'order' is like a rank; 1 is highest. You can't create a role equal to or higher than your own.
         if ($order <= $currentUserRole['role_order']) {
             throw new Exception("You cannot create a role with a rank equal to or higher than your own.");
         }
@@ -67,7 +109,6 @@ class AllianceManagementController extends BaseAllianceController
         $stmt->bind_param("isi", $currentUserRole['alliance_id'], $role_name, $order);
         
         if (!$stmt->execute()) {
-            // This handles cases where the role name or order might be a duplicate
             throw new Exception("Failed to create role. The name or hierarchy order may already be in use.");
         }
         $stmt->close();
@@ -137,7 +178,7 @@ class AllianceManagementController extends BaseAllianceController
             $leader_role_id = $this->db->insert_id;
             $stmt->close();
 
-            $stmt = $this->db->prepare("INSERT INTO alliance_roles (alliance_id, name, `order`, is_deletable) VALUES (?, 'Member', 99, 0)");
+            $stmt = $this->db->prepare("INSERT INTO alliance_roles (alliance_id, name, `order`, is_deletable) VALUES (?, 'Recruit', 99, 1)");
             $stmt->bind_param("i", $alliance_id);
             $stmt->execute();
             $stmt->close();
