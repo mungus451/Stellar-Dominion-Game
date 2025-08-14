@@ -93,8 +93,8 @@ $routes = [
     '/view_alliances.php'      => '../template/pages/view_alliances.php',
     '/view_alliance'           => '../template/pages/view_alliance.php',
     '/view_alliance.php'       => '../template/pages/view_alliance.php',
-    '/realm_war'           => function() { (new App\Controllers\RealmWarController())->index(); },
-    '/realm_war.php'       => function() { (new App\Controllers\RealmWarController())->index(); },
+    '/realm_war'           => '../template/pages/realm_war.php',
+    '/realm_war.php'       => '../template/pages/realm_war.php',
 
     // Action Handlers
     '/auth.php'                  => '../src/Controllers/AuthController.php',
@@ -109,6 +109,7 @@ $routes = [
     '/lib/alliance_actions.php'  => '../src/Controllers/AllianceController.php',
     '/lib/armory_actions.php'    => '../src/Controllers/ArmoryController.php',
     '/levelup.php'               => '../src/Controllers/LevelUpController.php',
+    '/lib/war_actions.php'       => '../src/Controllers/WarController.php',
 ];
 
 // Define which routes require the user to be logged in
@@ -125,7 +126,8 @@ $authenticated_routes = [
     '/create_thread', '/create_thread.php', '/view_thread', '/view_thread.php',
     '/war_declaration', '/war_declaration.php', '/view_alliances', '/view_alliances.php',
     '/view_alliance', '/view_alliance.php',
-    '/realm_war', '/realm_war.php'
+    '/realm_war', '/realm_war.php',
+    '/lib/war_actions.php'
 ];
 
 // --- ROUTING LOGIC ---

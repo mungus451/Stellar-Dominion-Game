@@ -48,7 +48,7 @@ $alliances = $stmt->get_result()->fetch_all(MYSQLI_ASSOC);
                 <div class="grid grid-cols-1 md:grid-cols-2 gap-4 mt-4">
                     <div>
                         <h2 class="font-title text-xl text-cyan-400">Declare War</h2>
-                        <form action="/src/Controllers/WarController.php" method="post" class="mt-2">
+                        <form action="/lib/war_actions.php" method="post" class="mt-2">
                             <input type="hidden" name="action" value="declare_war">
                             <div class="mb-4">
                                 <label for="casus_belli" class="block mb-2 text-sm font-bold text-gray-400">Casus Belli (Reason for War)</label>
@@ -68,7 +68,7 @@ $alliances = $stmt->get_result()->fetch_all(MYSQLI_ASSOC);
                     </div>
                     <div>
                         <h2 class="font-title text-xl text-cyan-400">Declare Rivalry</h2>
-                        <form action="/src/Controllers/WarController.php" method="post" class="mt-2">
+                        <form action="/lib/war_actions.php" method="post" class="mt-2">
                             <input type="hidden" name="action" value="declare_rivalry">
                             <div class="mb-4">
                                 <label for="rival_alliance_id" class="block mb-2 text-sm font-bold text-gray-400">Select Alliance</label>
