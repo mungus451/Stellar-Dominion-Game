@@ -6,17 +6,70 @@ class BaseAllianceController
     /** @var mysqli */
     protected $db;
 
+    /** @var int|null */
+    protected $user_id = null;
+
     public function __construct(mysqli $link)
     {
         $this->db = $link;
         if (session_status() === PHP_SESSION_NONE) {
             session_start();
         }
+        if (isset($_SESSION['id']) && is_numeric($_SESSION['id'])) {
+            $this->user_id = (int)$_SESSION['id'];
+        }
+    }
+
+    /**
+     * Convenience accessor for the current user id (or null if not set).
+     */
+    public function currentUserId(): ?int
+    {
+        return $this->user_id;
+    }
+
+    /**
+     * Minimal user + alliance info for a given user.
+     * Returns:
+     *  - user_id
+     *  - character_name
+     *  - alliance_id
+     *  - alliance_role_id
+     *  - leader_id (of the alliance, if any)
+     */
+    public function getUserRoleInfo(int $user_id): array
+    {
+        $sql = "
+            SELECT
+                u.id              AS user_id,
+                u.character_name,
+                u.alliance_id,
+                u.alliance_role_id,
+                a.leader_id
+            FROM users u
+            LEFT JOIN alliances a ON a.id = u.alliance_id
+            WHERE u.id = ?
+            LIMIT 1
+        ";
+        $stmt = $this->db->prepare($sql);
+        $stmt->bind_param('i', $user_id);
+        $stmt->execute();
+        $row = $stmt->get_result()->fetch_assoc() ?: [];
+        $stmt->close();
+        return $row;
     }
 
     /**
      * Return all data needed for alliance.php for a given user.
      * If the user is not in an alliance, return null (alliance.php already handles this case).
+     *
+     * Returns a merged structure of the alliance row PLUS:
+     *  - alliance_id            (flat alias of the alliance's id)
+     *  - leader_name            (resolved from users table)
+     *  - members[]              (see getMembers)
+     *  - roles[]                (see getRoles)
+     *  - applications[]         (pending apps)
+     *  - permissions{}          (resolved from role)
      */
     public function getAllianceDataForUser(int $user_id): ?array
     {
@@ -29,7 +82,7 @@ class BaseAllianceController
         ");
         $stmt->bind_param('i', $user_id);
         $stmt->execute();
-        $res = $stmt->get_result();
+        $res  = $stmt->get_result();
         $user = $res->fetch_assoc();
         $stmt->close();
 
@@ -57,7 +110,7 @@ class BaseAllianceController
         ");
         $stmt->bind_param('i', $alliance_id);
         $stmt->execute();
-        $res = $stmt->get_result();
+        $res      = $stmt->get_result();
         $alliance = $res->fetch_assoc();
         $stmt->close();
 
@@ -78,7 +131,6 @@ class BaseAllianceController
             }
             $stmt->close();
         }
-        $alliance['leader_name'] = $leader_name;
 
         // 3) Members (SAFE: only call when we have an int alliance_id)
         $members = $this->getMembers($alliance_id);
@@ -90,10 +142,16 @@ class BaseAllianceController
         $applications = $this->getApplications($alliance_id);
 
         // 6) Permissions for this user based on role
-        $permissions = $this->getPermissionsForUserRole((int)$user['alliance_role_id'], $alliance_id);
+        $permissions = $this->getPermissionsForUserRole(
+            isset($user['alliance_role_id']) ? (int)$user['alliance_role_id'] : null,
+            $alliance_id
+        );
 
         // Compose payload the view expects
+        // NOTE: We keep 'id' from the alliance row (for compatibility), and also add a flat 'alliance_id'.
         return array_merge($alliance, [
+            'alliance_id'  => $alliance_id,
+            'leader_name'  => $leader_name,
             'members'      => $members,
             'roles'        => $roles,
             'applications' => $applications,
@@ -129,7 +187,7 @@ class BaseAllianceController
         $stmt = $this->db->prepare($sql);
         $stmt->bind_param('i', $alliance_id);
         $stmt->execute();
-        $res = $stmt->get_result();
+        $res  = $stmt->get_result();
         $rows = $res->fetch_all(MYSQLI_ASSOC);
         $stmt->close();
 
@@ -151,37 +209,37 @@ class BaseAllianceController
         ");
         $stmt->bind_param('i', $alliance_id);
         $stmt->execute();
-        $res = $stmt->get_result();
+        $res  = $stmt->get_result();
         $rows = $res->fetch_all(MYSQLI_ASSOC);
         $stmt->close();
         return $rows ?: [];
     }
 
     /**
-     * Get pending applications for an alliance.
+     * Get pending applications for an alliance (no dependency on applied_at).
      */
-        public function getApplications(int $alliance_id): array
-        {
-            $sql = "
-                SELECT
-                    aa.user_id,
-                    u.character_name,
-                    u.level,
-                    u.net_worth,
-                    aa.status
-                FROM alliance_applications aa
-                JOIN users u ON u.id = aa.user_id
-                WHERE aa.alliance_id = ? AND aa.status = 'pending'
-                ORDER BY aa.id DESC
-            ";
-            $stmt = $this->db->prepare($sql);
-            $stmt->bind_param('i', $alliance_id);
-            $stmt->execute();
-            $res = $stmt->get_result();
-            $rows = $res->fetch_all(MYSQLI_ASSOC);
-            $stmt->close();
-            return $rows ?: [];
-        }
+    public function getApplications(int $alliance_id): array
+    {
+        $sql = "
+            SELECT
+                aa.user_id,
+                u.character_name,
+                u.level,
+                u.net_worth,
+                aa.status
+            FROM alliance_applications aa
+            JOIN users u ON u.id = aa.user_id
+            WHERE aa.alliance_id = ? AND aa.status = 'pending'
+            ORDER BY aa.id DESC
+        ";
+        $stmt = $this->db->prepare($sql);
+        $stmt->bind_param('i', $alliance_id);
+        $stmt->execute();
+        $res  = $stmt->get_result();
+        $rows = $res->fetch_all(MYSQLI_ASSOC);
+        $stmt->close();
+        return $rows ?: [];
+    }
 
     /**
      * Map role->permissions for this alliance.
@@ -217,7 +275,7 @@ class BaseAllianceController
         ");
         $stmt->bind_param('ii', $role_id, $alliance_id);
         $stmt->execute();
-        $res = $stmt->get_result();
+        $res   = $stmt->get_result();
         $perms = $res->fetch_assoc();
         $stmt->close();
 
@@ -237,6 +295,7 @@ class BaseAllianceController
                 'can_delete_posts'       => false,
             ];
         }
-        return array_map(fn($v) => (bool)$v, $perms);
+        // Cast numeric tinyints to booleans
+        return array_map(static fn($v) => (bool)$v, $perms);
     }
 }
