@@ -25,7 +25,13 @@ class AllianceManagementController extends BaseAllianceController
                 case 'update_permissions':
                     $this->updateRolePermissions();
                     break;
-                // Add other cases here as you build them out...
+                case 'update_member_role':
+                    $this->assignMemberRole();
+                    break;
+                // --- FIX: Added the case for creating a new role ---
+                case 'add_role':
+                    $this->addRole();
+                    break;
                 default:
                     throw new Exception("Invalid management action specified.");
             }
@@ -35,9 +41,75 @@ class AllianceManagementController extends BaseAllianceController
             $_SESSION['alliance_roles_error'] = $e->getMessage();
         }
         
-        $redirect_tab = $_POST['current_tab'] ?? 'members';
+        $redirect_tab = $_POST['current_tab'] ?? 'roles'; // Default to roles tab after role actions
         header("Location: /alliance_roles.php?tab=" . $redirect_tab);
         exit();
+    }
+    
+    // --- FIX: Added the method to handle creating a new role ---
+    private function addRole()
+    {
+        $role_name = trim($_POST['role_name'] ?? '');
+        $order = (int)($_POST['order'] ?? 0);
+        
+        if (empty($role_name) || $order <= 0) {
+            throw new Exception("Role Name and a valid Hierarchy Order are required.");
+        }
+
+        $currentUserRole = $this->getUserRoleInfo($this->user_id);
+
+        // Hierarchy 'order' is like a rank; 1 is highest. You can't create a role equal to or higher than your own.
+        if ($order <= $currentUserRole['role_order']) {
+            throw new Exception("You cannot create a role with a rank equal to or higher than your own.");
+        }
+
+        $stmt = $this->db->prepare("INSERT INTO alliance_roles (alliance_id, name, `order`) VALUES (?, ?, ?)");
+        $stmt->bind_param("isi", $currentUserRole['alliance_id'], $role_name, $order);
+        
+        if (!$stmt->execute()) {
+            // This handles cases where the role name or order might be a duplicate
+            throw new Exception("Failed to create role. The name or hierarchy order may already be in use.");
+        }
+        $stmt->close();
+
+        $_SESSION['alliance_roles_message'] = "Role '{$role_name}' created successfully.";
+    }
+
+    private function assignMemberRole()
+    {
+        $member_id = (int)($_POST['member_id'] ?? 0);
+        $new_role_id = (int)($_POST['role_id'] ?? 0);
+
+        if ($member_id <= 0 || $new_role_id <= 0) {
+            throw new Exception("Invalid member or role specified.");
+        }
+        if ($member_id === $this->user_id) {
+            throw new Exception("You cannot change your own role.");
+        }
+
+        $currentUserRole = $this->getUserRoleInfo($this->user_id);
+        $memberToUpdate = $this->getUserRoleInfo($member_id);
+        $newRole = $this->getRoleById($new_role_id);
+
+        if (!$memberToUpdate || $memberToUpdate['alliance_id'] != $currentUserRole['alliance_id']) {
+            throw new Exception("Member not found in your alliance.");
+        }
+        if (!$newRole || $newRole['alliance_id'] != $currentUserRole['alliance_id']) {
+            throw new Exception("Role not found in your alliance.");
+        }
+        if ($currentUserRole['role_order'] >= $memberToUpdate['role_order']) {
+            throw new Exception("You cannot change the role of a member with an equal or higher rank.");
+        }
+        if ($currentUserRole['role_order'] >= $newRole['order']) {
+            throw new Exception("You cannot assign a role of equal or higher rank than your own.");
+        }
+
+        $stmt = $this->db->prepare("UPDATE users SET alliance_role_id = ? WHERE id = ?");
+        $stmt->bind_param("ii", $new_role_id, $member_id);
+        $stmt->execute();
+        $stmt->close();
+
+        $_SESSION['alliance_roles_message'] = "Role for '{$memberToUpdate['character_name']}' updated to '{$newRole['name']}'.";
     }
     
     public function createAlliance(string $name, string $tag, string $description)
@@ -54,7 +126,6 @@ class AllianceManagementController extends BaseAllianceController
             $alliance_id = $this->db->insert_id;
             $stmt->close();
 
-            // Create the "Leader" role with order 1 and all permissions enabled
             $sql_leader = "
                 INSERT INTO alliance_roles 
                     (alliance_id, name, `order`, is_deletable, can_edit_profile, can_approve_membership, can_kick_members, can_manage_roles, can_manage_structures, can_manage_treasury, can_invite_members, can_moderate_forum, can_sticky_threads, can_lock_threads, can_delete_posts) 
@@ -66,13 +137,11 @@ class AllianceManagementController extends BaseAllianceController
             $leader_role_id = $this->db->insert_id;
             $stmt->close();
 
-            // Create the default "Member" role
             $stmt = $this->db->prepare("INSERT INTO alliance_roles (alliance_id, name, `order`, is_deletable) VALUES (?, 'Member', 99, 0)");
             $stmt->bind_param("i", $alliance_id);
             $stmt->execute();
             $stmt->close();
 
-            // Assign the creator to the alliance with the "Leader" role
             $stmt = $this->db->prepare("UPDATE users SET alliance_id = ?, alliance_role_id = ? WHERE id = ?");
             $stmt->bind_param("iii", $alliance_id, $leader_role_id, $this->user_id);
             $stmt->execute();
@@ -103,14 +172,13 @@ class AllianceManagementController extends BaseAllianceController
         if (!$targetRole || $currentUserRole['alliance_id'] != $targetRole['alliance_id']) {
             throw new Exception("Role not found in your alliance.");
         }
-        if ($currentUserRole['order'] != 1 && $currentUserRole['order'] >= $targetRole['order']) {
+        if ($currentUserRole['role_order'] != 1 && $currentUserRole['role_order'] >= $targetRole['order']) {
             throw new Exception("You cannot edit permissions for a role of equal or higher rank.");
         }
-        if (in_array('can_manage_roles', $permissions_posted) && $currentUserRole['order'] != 1) {
+        if (in_array('can_manage_roles', $permissions_posted) && $currentUserRole['role_order'] != 1) {
             throw new Exception("Only the alliance leader can grant the 'Manage Roles' permission.");
         }
 
-        // Build the dynamic SET part of the query
         $set_clauses = [];
         $params = [];
         $types = "";
@@ -135,7 +203,7 @@ class AllianceManagementController extends BaseAllianceController
 
     private function getUserRoleInfo(int $user_id): ?array {
         $stmt = $this->db->prepare("
-            SELECT u.id, u.character_name, u.alliance_id, u.alliance_role_id as role_id, r.name as role_name, r.order
+            SELECT u.id, u.character_name, u.alliance_id, u.alliance_role_id as role_id, r.name as role_name, r.order as role_order
             FROM users u
             LEFT JOIN alliance_roles r ON u.alliance_role_id = r.id
             WHERE u.id = ?
