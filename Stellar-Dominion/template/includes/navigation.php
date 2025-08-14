@@ -25,6 +25,7 @@ $main_nav_links = [
     'ALLIANCE' => '/alliance.php',
     'COMMUNITY' => '/community.php',
     'TUTORIAL' => '/tutorial.php', // New Link Added
+    'WAR' => '/war_declaration.php',
     'SIGN OUT' => '/auth.php?action=logout'
 ];
 
@@ -54,6 +55,11 @@ $sub_nav_links = [
     'Recruitment' => '/alliance.php?tab=applications',
     'Roles & Permissions' => '/alliance_roles.php'
 ],
+    'WAR' => [
+        'War Declaration' => '/war_declaration.php',
+        'View Alliances' => '/view_alliances.php',
+        'Realm War' => '/realm_war.php'
+    ],
     'STRUCTURES' => [
         // This category currently has no sub-navigation.
     ],
@@ -80,6 +86,8 @@ if (in_array($active_page, ['battle.php', 'attack.php', 'war_history.php', 'armo
     $active_main_category = 'STRUCTURES';
 } elseif (in_array($active_page, ['community.php', 'stats.php'])) {
     $active_main_category = 'COMMUNITY';
+} elseif (in_array($active_page, ['war_declaration.php', 'view_alliances.php', 'view_alliance.php', 'realm_war.php'])) {
+    $active_main_category = 'WAR';
 }
 // Note: 'HOME' is the default, so we don't need a separate check for it.
 // The pages 'dashboard.php', 'levels.php', 'profile.php', and 'settings.php' will correctly default to HOME.
