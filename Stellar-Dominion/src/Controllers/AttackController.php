@@ -82,12 +82,16 @@ try {
 
     // Battle Calculation
     $total_offense_bonus_pct = 0;
-    for ($i = 1; $i <= (int)$attacker['offense_upgrade_level']; $i++) { $total_offense_bonus_pct += $upgrades['offense']['levels'][$i]['bonuses']['offense'] ?? 0; }
+    for ($i = 1; $i <= (int)$attacker['offense_upgrade_level']; $i++) {
+        $total_offense_bonus_pct += $upgrades['offense']['levels'][$i]['bonuses']['offense'] ?? 0;
+    }
     $offense_upgrade_mult = 1 + ($total_offense_bonus_pct / 100);
     $strength_mult = 1 + ((int)$attacker['strength_points'] * 0.01);
 
     $total_defense_bonus_pct = 0;
-    for ($i = 1; $i <= (int)$defender['defense_upgrade_level']; $i++) { $total_defense_bonus_pct += $upgrades['defense']['levels'][$i]['bonuses']['defense'] ?? 0; }
+    for ($i = 1; $i <= (int)$defender['defense_upgrade_level']; $i++) {
+        $total_defense_bonus_pct += $upgrades['defense']['levels'][$i]['bonuses']['defense'] ?? 0;
+    }
     $defense_upgrade_mult = 1 + ($total_defense_bonus_pct / 100);
     $constitution_mult = 1 + ((int)$defender['constitution_points'] * 0.01);
 
@@ -100,21 +104,37 @@ try {
     $noiseD = mt_rand((int)(RANDOM_NOISE_MIN * 1000), (int)(RANDOM_NOISE_MAX * 1000)) / 1000.0;
 
     $EA = $RawAttack  * $TurnsMult * $noiseA;
-    $ED = max(1.0, $RawDefense * $noiseD);
+    $ED = $RawDefense * $noiseD;
+
+    // Final clamps so noise/edge cases can't collapse to 0/negative
+    $EA = max(1.0, $EA);
+    $ED = max(1.0, $ED);
+
     $R  = $EA / $ED;
 
     $attacker_wins = ($R >= UNDERDOG_MIN_RATIO_TO_WIN);
     $outcome = $attacker_wins ? 'victory' : 'defeat';
 
-    // Guards Killed Calculation
+    // Guards Killed Calculation (no negative loss, no floor increase)
     $G0 = max(0, (int)$defender['guards']);
     $KillFrac_raw = GUARD_KILL_BASE_FRAC + GUARD_KILL_ADVANTAGE_GAIN * max(0.0, min(1.0, $R - 1.0));
     $TurnsAssist  = max(0.0, $TurnsMult - 1.0);
     $KillFrac     = $KillFrac_raw * (1 + 0.2 * $TurnsAssist);
     if (!$attacker_wins) { $KillFrac *= 0.5; }
-    $guards_lost = (int)floor($G0 * $KillFrac);
-    $G_after     = max($G0 - $guards_lost, GUARD_FLOOR);
-    $guards_lost = $G0 - $G_after;
+
+    // proposed loss before floors
+    $proposed_loss = (int)floor($G0 * $KillFrac);
+
+    // floor policy: if at/below floor, no more losses; otherwise don't drop below floor
+    if ($G0 <= GUARD_FLOOR) {
+        $guards_lost = 0;
+        $G_after     = $G0;
+    } else {
+        $max_loss    = $G0 - GUARD_FLOOR;
+        $guards_lost = min($proposed_loss, $max_loss);
+        $guards_lost = max(0, $guards_lost);
+        $G_after     = $G0 - $guards_lost;
+    }
 
     // Credits Stolen Calculation
     $credits_stolen = 0;
@@ -123,14 +143,24 @@ try {
         $credits_stolen = (int)floor(max(0, (int)$defender['credits']) * min($steal_pct_raw, CREDITS_STEAL_CAP_PCT));
     }
 
+    // Clamp to defender’s current credits to avoid minting money
+    $defender_credits_before = max(0, (int)$defender['credits']);
+    $actual_stolen = min($credits_stolen, $defender_credits_before);
+
     // Structure Damage Calculation
     $structure_damage = 0;
     $hp0 = max(0, (int)($defender['fortification_hitpoints'] ?? 0));
     if ($hp0 > 0) {
         if ($attacker_wins) {
-            $guardShield = 1.0 - min(STRUCT_GUARD_PROTECT_FACTOR, STRUCT_GUARD_PROTECT_FACTOR * (($G_after > 0 && $G0 > 0) ? ($G_after / $G0) : 0.0));
+            $guardShield = 1.0 - min(
+                STRUCT_GUARD_PROTECT_FACTOR,
+                STRUCT_GUARD_PROTECT_FACTOR * (($G_after > 0 && $G0 > 0) ? ($G_after / $G0) : 0.0)
+            );
             $RawStructDmg = STRUCT_BASE_DMG * pow($R, STRUCT_ADVANTAGE_EXP) * pow($TurnsMult, STRUCT_TURNS_EXP) * (1.0 - $guardShield);
-            $structure_damage = (int)max((int)floor(STRUCT_MIN_DMG_IF_WIN * $hp0), min((int)round($RawStructDmg), (int)floor(STRUCT_MAX_DMG_IF_WIN * $hp0)));
+            $structure_damage = (int)max(
+                (int)floor(STRUCT_MIN_DMG_IF_WIN * $hp0),
+                min((int)round($RawStructDmg), (int)floor(STRUCT_MAX_DMG_IF_WIN * $hp0))
+            );
             $structure_damage = min($structure_damage, $hp0);
         } else {
             $structure_damage = (int)min((int)floor(0.02 * $hp0), (int)floor(0.1 * STRUCT_BASE_DMG));
@@ -156,15 +186,23 @@ try {
             mysqli_stmt_close($stmt_loan);
 
             if ($active_loan) {
-                $repayment_from_plunder = (int)floor($credits_stolen * 0.5);
+                // base on actual stolen to avoid overspending phantom money
+                $repayment_from_plunder = (int)floor($actual_stolen * 0.5);
                 $loan_repayment = min($repayment_from_plunder, (int)$active_loan['amount_to_repay']);
                 if ($loan_repayment > 0) {
                     $new_repay_amount = (int)$active_loan['amount_to_repay'] - $loan_repayment;
                     $new_status = ($new_repay_amount <= 0) ? 'paid' : 'active';
-                    mysqli_query($link, "UPDATE alliance_loans SET amount_to_repay = {$new_repay_amount}, status = '{$new_status}' WHERE id = {$active_loan['id']}");
-                    mysqli_query($link, "UPDATE alliances SET bank_credits = bank_credits + {$loan_repayment} WHERE id = {$attacker['alliance_id']}");
-                    
-                    // FIX: Use prepared statement for log
+
+                    $stmt_a = mysqli_prepare($link, "UPDATE alliance_loans SET amount_to_repay = ?, status = ? WHERE id = ?");
+                    mysqli_stmt_bind_param($stmt_a, "isi", $new_repay_amount, $new_status, $active_loan['id']);
+                    mysqli_stmt_execute($stmt_a);
+                    mysqli_stmt_close($stmt_a);
+
+                    $stmt_b = mysqli_prepare($link, "UPDATE alliances SET bank_credits = bank_credits + ? WHERE id = ?");
+                    mysqli_stmt_bind_param($stmt_b, "ii", $loan_repayment, $attacker['alliance_id']);
+                    mysqli_stmt_execute($stmt_b);
+                    mysqli_stmt_close($stmt_b);
+
                     $log_desc_repay = "Loan repayment from {$attacker['character_name']}'s attack plunder.";
                     $stmt_repay_log = mysqli_prepare($link, "INSERT INTO alliance_bank_logs (alliance_id, user_id, type, amount, description) VALUES (?, ?, 'loan_repaid', ?, ?)");
                     mysqli_stmt_bind_param($stmt_repay_log, "iiis", $attacker['alliance_id'], $attacker_id, $loan_repayment, $log_desc_repay);
@@ -173,12 +211,14 @@ try {
                 }
             }
 
-            // Alliance Tax
-            $alliance_tax = (int)floor($credits_stolen * 0.10);
+            // Alliance Tax based on actual stolen
+            $alliance_tax = (int)floor($actual_stolen * 0.10);
             if ($alliance_tax > 0) {
-                 mysqli_query($link, "UPDATE alliances SET bank_credits = bank_credits + {$alliance_tax} WHERE id = {$attacker['alliance_id']}");
-                 
-                 // FIX: Use prepared statement for log
+                 $stmt_tax = mysqli_prepare($link, "UPDATE alliances SET bank_credits = bank_credits + ? WHERE id = ?");
+                 mysqli_stmt_bind_param($stmt_tax, "ii", $alliance_tax, $attacker['alliance_id']);
+                 mysqli_stmt_execute($stmt_tax);
+                 mysqli_stmt_close($stmt_tax);
+
                  $log_desc_tax = "Battle tax from {$attacker['character_name']}'s victory against {$defender['character_name']}";
                  $stmt_tax_log = mysqli_prepare($link, "INSERT INTO alliance_bank_logs (alliance_id, user_id, type, amount, description) VALUES (?, ?, 'tax', ?, ?)");
                  mysqli_stmt_bind_param($stmt_tax_log, "iiis", $attacker['alliance_id'], $attacker_id, $alliance_tax, $log_desc_tax);
@@ -189,17 +229,18 @@ try {
             $alliance_tax = 0;
         }
 
-        $attacker_net_gain = max(0, $credits_stolen - $alliance_tax - $loan_repayment);
-        
+        // Final attacker gain only from real stolen funds
+        $attacker_net_gain = max(0, $actual_stolen - $alliance_tax - $loan_repayment);
+
         // Update Attacker
         $stmt_att_update = mysqli_prepare($link, "UPDATE users SET credits = credits + ?, experience = experience + ? WHERE id = ?");
         mysqli_stmt_bind_param($stmt_att_update, "iii", $attacker_net_gain, $attacker_xp_gained, $attacker_id);
         mysqli_stmt_execute($stmt_att_update);
         mysqli_stmt_close($stmt_att_update);
 
-        // Update Defender
+        // Update Defender (subtract actual stolen)
         $stmt_def_update = mysqli_prepare($link, "UPDATE users SET credits = GREATEST(0, credits - ?), experience = experience + ?, guards = ?, fortification_hitpoints = GREATEST(0, fortification_hitpoints - ?) WHERE id = ?");
-        mysqli_stmt_bind_param($stmt_def_update, "iiiii", $credits_stolen, $defender_xp_gained, $G_after, $structure_damage, $defender_id);
+        mysqli_stmt_bind_param($stmt_def_update, "iiiii", $actual_stolen, $defender_xp_gained, $G_after, $structure_damage, $defender_id);
         mysqli_stmt_execute($stmt_def_update);
         mysqli_stmt_close($stmt_def_update);
 
@@ -225,13 +266,32 @@ try {
     check_and_process_levelup($attacker_id, $link);
     check_and_process_levelup($defender_id, $link);
 
-    // Battle Logging
-    $attacker_damage_log = (int)round($EA);
-    $defender_damage_log = (int)round($ED);
+    // Battle Logging (log actual values, non-negative)
+    $attacker_damage_log  = max(1, (int)round($EA));
+    $defender_damage_log  = max(1, (int)round($ED));
+    $guards_lost_log      = max(0, (int)$guards_lost);
+    $structure_damage_log = max(0, (int)$structure_damage);
+    $logged_stolen        = $attacker_wins ? (int)$actual_stolen : 0;
 
     $sql_log = "INSERT INTO battle_logs (attacker_id, defender_id, attacker_name, defender_name, outcome, credits_stolen, attack_turns_used, attacker_damage, defender_damage, attacker_xp_gained, defender_xp_gained, guards_lost, structure_damage) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)";
     $stmt_log = mysqli_prepare($link, $sql_log);
-    mysqli_stmt_bind_param($stmt_log, "iisssiiiiiiii", $attacker_id, $defender_id, $attacker['character_name'], $defender['character_name'], $outcome, $credits_stolen, $attack_turns, $attacker_damage_log, $defender_damage_log, $attacker_xp_gained, $defender_xp_gained, $guards_lost, $structure_damage);
+    mysqli_stmt_bind_param(
+        $stmt_log,
+        "iisssiiiiiiii",
+        $attacker_id,
+        $defender_id,
+        $attacker['character_name'],
+        $defender['character_name'],
+        $outcome,
+        $logged_stolen,
+        $attack_turns,
+        $attacker_damage_log,
+        $defender_damage_log,
+        $attacker_xp_gained,
+        $defender_xp_gained,
+        $guards_lost_log,
+        $structure_damage_log
+    );
     mysqli_stmt_execute($stmt_log);
     $battle_log_id = mysqli_insert_id($link);
     mysqli_stmt_close($stmt_log);
