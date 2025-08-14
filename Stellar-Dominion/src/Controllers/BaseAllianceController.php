@@ -160,28 +160,28 @@ class BaseAllianceController
     /**
      * Get pending applications for an alliance.
      */
-    public function getApplications(int $alliance_id): array
-    {
-        $stmt = $this->db->prepare("
-            SELECT
-                aa.user_id,
-                u.character_name,
-                u.level,
-                u.net_worth,
-                aa.status,
-                aa.applied_at
-            FROM alliance_applications aa
-            JOIN users u ON u.id = aa.user_id
-            WHERE aa.alliance_id = ? AND aa.status = 'pending'
-            ORDER BY aa.applied_at DESC
-        ");
-        $stmt->bind_param('i', $alliance_id);
-        $stmt->execute();
-        $res = $stmt->get_result();
-        $rows = $res->fetch_all(MYSQLI_ASSOC);
-        $stmt->close();
-        return $rows ?: [];
-    }
+        public function getApplications(int $alliance_id): array
+        {
+            $sql = "
+                SELECT
+                    aa.user_id,
+                    u.character_name,
+                    u.level,
+                    u.net_worth,
+                    aa.status
+                FROM alliance_applications aa
+                JOIN users u ON u.id = aa.user_id
+                WHERE aa.alliance_id = ? AND aa.status = 'pending'
+                ORDER BY aa.id DESC
+            ";
+            $stmt = $this->db->prepare($sql);
+            $stmt->bind_param('i', $alliance_id);
+            $stmt->execute();
+            $res = $stmt->get_result();
+            $rows = $res->fetch_all(MYSQLI_ASSOC);
+            $stmt->close();
+            return $rows ?: [];
+        }
 
     /**
      * Map role->permissions for this alliance.
