@@ -124,11 +124,9 @@ if (!$log) {
                                      <ul class="space-y-1">
                                         <li class="flex justify-between"><span>Defense Strength:</span> <span class="font-semibold text-white"><?php echo number_format($log['defender_damage']); ?></span></li>
                                         <li class="flex justify-between"><span>XP Gained:</span> <span class="font-semibold text-yellow-400">+<?php echo number_format($log['defender_xp_gained']); ?></span></li>
+                                        <li class="flex justify-between"><span>Defensive Units Lost:</span> <span class="font-semibold text-red-400">-<?php echo number_format($log['guards_lost']); ?></span></li>
                                         <?php if ($log['credits_stolen'] > 0): ?>
                                             <li class="flex justify-between"><span>Credits Lost:</span> <span class="font-semibold text-red-400">-<?php echo number_format($log['credits_stolen']); ?></span></li>
-                                        <?php endif; ?>
-                                        <?php if ($log['guards_lost'] > 0): ?>
-                                            <li class="flex justify-between"><span>Defensive Units Lost:</span> <span class="font-semibold text-red-400">-<?php echo number_format($log['guards_lost']); ?></span></li>
                                         <?php endif; ?>
                                         <?php if ($log['structure_damage'] > 0): ?>
                                             <li class="flex justify-between"><span>Foundation Damage:</span> <span class="font-semibold text-red-400">-<?php echo number_format($log['structure_damage']); ?> HP</span></li>
