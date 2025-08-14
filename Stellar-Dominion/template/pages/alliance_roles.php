@@ -15,12 +15,15 @@
  * @var string $csrfToken - The CSRF token for forms.
  */
 
-// If the page is accessed via a POST request, the router should have directed it
-// to the controller. This template is for display purposes (GET request).
+// If the page is accessed via a POST request, instantiate the controller to handle it.
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
-    // In a properly routed application, this template would not even be hit on POST.
-    // However, as a fallback, we can include the controller like in battle.php
+    // In a fully routed application, this would be handled before the template is loaded.
+    // This serves as the processing logic based on the project's current structure.
     require_once __DIR__ . '/../../src/Controllers/AllianceController.php';
+    // Note: The new controller might not need the $link passed if it establishes its own connection.
+    // Adjust this line based on your final controller's constructor.
+    $allianceController = new AllianceController($link);
+    $allianceController->dispatch($_POST['action']); // Use the central dispatcher
     exit;
 }
 
@@ -50,9 +53,9 @@ $active_page = 'alliance'; // For navigation highlighting
             <p class="text-center text-gray-400 mb-6">Define the hierarchy of your alliance. Create custom roles and assign permissions to manage your members effectively. Role order determines the display hierarchy on the roster.</p>
 
             <?php
-            if (isset($_SESSION['alliance_message'])) {
-                echo '<div class="bg-cyan-900 border border-cyan-500/50 text-cyan-300 p-3 rounded-md text-center mb-6">' . htmlspecialchars($_SESSION['alliance_message']) . '</div>';
-                unset($_SESSION['alliance_message']);
+            if (isset($_SESSION['success_message'])) {
+                echo '<div class="bg-cyan-900 border border-cyan-500/50 text-cyan-300 p-3 rounded-md text-center mb-6">' . htmlspecialchars($_SESSION['success_message']) . '</div>';
+                unset($_SESSION['success_message']);
             }
             if (isset($_SESSION['error_message'])) {
                 echo '<div class="bg-red-900 border border-red-500/50 text-red-300 p-3 rounded-md text-center mb-6">' . htmlspecialchars($_SESSION['error_message']) . '</div>';
@@ -61,7 +64,6 @@ $active_page = 'alliance'; // For navigation highlighting
             ?>
         </div>
 
-        <!-- Assign Roles to Members -->
         <div class="bg-gray-900/50 rounded-lg p-6">
             <h2 class="font-title text-2xl text-cyan-400 mb-4">Assign Roles to Members</h2>
             <div class="overflow-x-auto">
@@ -88,19 +90,21 @@ $active_page = 'alliance'; // For navigation highlighting
 
                                         <td class="p-3"><?php echo htmlspecialchars($member['username']); ?></td>
                                         <td class="p-3">
-                                            <select name="role_id" class="w-full bg-gray-800 border border-gray-600 rounded-md p-2" <?php echo ($member['id'] === $_SESSION['id']) ? 'disabled' : ''; ?>>
+                                            <select name="role_id" class="w-full bg-gray-800 border border-gray-600 rounded-md p-2" <?php echo ($member['id'] === $user['id'] || $user['role']['hierarchy'] >= $member['hierarchy']) ? 'disabled' : ''; ?>>
                                                 <?php foreach ($roles as $role) : ?>
-                                                    <option value="<?php echo htmlspecialchars($role['id']); ?>" <?php echo ($member['role_id'] == $role['id']) ? 'selected' : ''; ?>>
-                                                        <?php echo htmlspecialchars($role['name']); ?>
-                                                    </option>
+                                                    <?php if ($role['hierarchy'] > $user['role']['hierarchy']) : ?>
+                                                        <option value="<?php echo htmlspecialchars($role['id']); ?>" <?php echo ($member['role_id'] == $role['id']) ? 'selected' : ''; ?>>
+                                                            <?php echo htmlspecialchars($role['name']); ?>
+                                                        </option>
+                                                    <?php endif; ?>
                                                 <?php endforeach; ?>
                                             </select>
                                         </td>
                                         <td class="p-3 text-center">
-                                            <?php if ($member['id'] !== $_SESSION['id']) : ?>
+                                            <?php if ($member['id'] !== $user['id'] && $user['role']['hierarchy'] < $member['hierarchy']) : ?>
                                                 <button type="submit" class="bg-cyan-600 hover:bg-cyan-700 text-white font-bold py-2 px-4 rounded-lg">Update</button>
                                             <?php else: ?>
-                                                <span class="text-gray-500 font-semibold">Leader</span>
+                                                <span class="text-gray-500 font-semibold">N/A</span>
                                             <?php endif; ?>
                                         </td>
                                     </form>
@@ -112,7 +116,6 @@ $active_page = 'alliance'; // For navigation highlighting
             </div>
         </div>
 
-        <!-- Manage Roles and Permissions -->
         <?php foreach ($roles as $role) : ?>
             <div class="bg-gray-900/50 rounded-lg p-6">
                 <form method="POST" action="/alliance/roles">
@@ -135,7 +138,7 @@ $active_page = 'alliance'; // For navigation highlighting
                                 $rolePermissions = $role['permissions'] ?? [];
                                 foreach ($allPermissions as $perm) : ?>
                                     <div class="flex items-center">
-                                        <input class="form-check-input bg-gray-700 border-gray-600 text-cyan-500 focus:ring-cyan-600" type="checkbox" name="permissions[]" value="<?php echo htmlspecialchars($perm); ?>" id="perm_<?php echo htmlspecialchars($role['id'] . '_' . $perm); ?>" <?php echo (in_array($perm, $rolePermissions)) ? 'checked' : ''; ?>>
+                                        <input class="form-check-input bg-gray-700 border-gray-600 text-cyan-500 focus:ring-cyan-600" type="checkbox" name="permissions[]" value="<?php echo htmlspecialchars($perm); ?>" id="perm_<?php echo htmlspecialchars($role['id'] . '_' . $perm); ?>" <?php echo (in_array($perm, $rolePermissions)) ? 'checked' : ''; ?> <?php echo ($user['role']['hierarchy'] >= $role['hierarchy']) ? 'disabled' : ''; ?>>
                                         <label class="ml-2 text-sm" for="perm_<?php echo htmlspecialchars($role['id'] . '_' . $perm); ?>">
                                             <?php echo htmlspecialchars(ucwords(str_replace('_', ' ', $perm))); ?>
                                         </label>
@@ -146,16 +149,17 @@ $active_page = 'alliance'; // For navigation highlighting
                     </div>
 
                     <div class="text-right mt-4 flex justify-end gap-3">
-                        <button type="submit" class="bg-cyan-600 hover:bg-cyan-700 text-white font-bold py-2 px-4 rounded-lg">Update</button>
-                        <?php if ($role['id'] > 3) : // Prevent deleting default roles ?>
-                            <button type="submit" name="action" value="delete_role" class="bg-red-800 hover:bg-red-700 text-white font-bold py-2 px-4 rounded-lg" onclick="return confirm('Are you sure you want to delete this role? This action cannot be undone.');">Delete</button>
+                        <?php if ($user['role']['hierarchy'] < $role['hierarchy']) : ?>
+                            <button type="submit" class="bg-cyan-600 hover:bg-cyan-700 text-white font-bold py-2 px-4 rounded-lg">Update Permissions</button>
+                            <?php if ($role['id'] > 3) : // Prevent deleting default roles ?>
+                                <button type="submit" name="action" value="delete_role" class="bg-red-800 hover:bg-red-700 text-white font-bold py-2 px-4 rounded-lg" onclick="return confirm('Are you sure you want to delete this role? Members in this role will be reassigned.');">Delete Role</button>
+                            <?php endif; ?>
                         <?php endif; ?>
                     </div>
                 </form>
             </div>
         <?php endforeach; ?>
 
-        <!-- Add New Role -->
         <div class="bg-gray-900/50 rounded-lg p-6">
             <h2 class="font-title text-2xl text-cyan-400 mb-4">Create New Role</h2>
             <form method="POST" action="/alliance/roles" class="grid grid-cols-1 md:grid-cols-4 gap-6 items-end">
@@ -167,7 +171,7 @@ $active_page = 'alliance'; // For navigation highlighting
                 </div>
                 <div>
                      <label for="hierarchy" class="font-semibold text-white">Hierarchy Order</label>
-                    <input type="number" id="hierarchy" name="hierarchy" class="w-full bg-gray-800 border border-gray-600 rounded-md p-2 mt-1" placeholder="e.g., 4" required>
+                    <input type="number" id="hierarchy" name="hierarchy" min="<?php echo $user['role']['hierarchy'] + 1; ?>" class="w-full bg-gray-800 border border-gray-600 rounded-md p-2 mt-1" placeholder="e.g., 4" required>
                 </div>
                 <div>
                     <button type="submit" class="w-full bg-green-600 hover:bg-green-700 text-white font-bold py-2 px-4 rounded-lg h-10">Create Role</button>
