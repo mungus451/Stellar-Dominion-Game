@@ -24,7 +24,18 @@ if (!$alliance) {
 }
 
 // Fetch the alliance's members
-$sql = "SELECT users.id, users.username, alliance_roles.role_name FROM users JOIN alliance_roles ON users.alliance_role_id = alliance_roles.id WHERE users.alliance_id = ? ORDER BY alliance_roles.order ASC";
+$sql = "
+    SELECT 
+        u.id,
+        u.character_name AS username,          -- alias to keep the template unchanged
+        ar.name AS role_name
+    FROM users u
+    LEFT JOIN alliance_roles ar 
+        ON ar.id = u.alliance_role_id
+       AND ar.alliance_id = u.alliance_id      -- roles are per-alliance in your schema
+    WHERE u.alliance_id = ?
+    ORDER BY ar.`order` ASC, u.character_name ASC
+";
 $stmt = $link->prepare($sql);
 $stmt->bind_param("i", $alliance_id);
 $stmt->execute();

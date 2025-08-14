@@ -13,6 +13,7 @@ if (isset($_SESSION['vacation_until']) && new DateTime() < new DateTime($_SESSIO
 // CENTRALIZED DATABASE CONNECTION & CONFIGURATION
 // config.php is responsible for loading all its own dependencies, including security.
 require_once __DIR__ . '/../config/config.php';
+require_once __DIR__ . '/../src/Controllers/BaseController.php';
 
 // Get the requested URL path
 $request_uri = parse_url($_SERVER['REQUEST_URI'], PHP_URL_PATH);

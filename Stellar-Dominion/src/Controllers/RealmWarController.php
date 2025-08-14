@@ -11,27 +11,74 @@ class RealmWarController extends BaseController
         parent::__construct();
     }
 
-    public function index()
+    /**
+     * Public because it's called from a template.
+     * Returns:
+     *  - declarer_name
+     *  - declared_against_name
+     *  - casus_belli
+     *  - start_date (aliased from wars.started_at)
+     *  - status
+     */
+    public function getWars(): array
     {
-        // Fetch wars and rivalries from the database
-        $wars = $this->getWars();
-        $rivalries = $this->getRivalries();
+        $sql = "
+            SELECT
+                w.id,
+                a1.name AS declarer_name,
+                a2.name AS declared_against_name,
+                w.casus_belli,
+                w.status,
+                w.started_at AS start_date
+            FROM wars w
+            JOIN alliances a1 ON a1.id = w.declarer_alliance_id
+            JOIN alliances a2 ON a2.id = w.declared_against_alliance_id
+            WHERE w.status IN ('declared','active')
+            ORDER BY w.started_at DESC
+        ";
 
-        // Load the view
-        require_once __DIR__ . '/../../template/pages/realm_war.php';
+        $rows = [];
+        if ($stmt = $this->db->prepare($sql)) {
+            $stmt->execute();
+            $res = $stmt->get_result();
+            while ($row = $res->fetch_assoc()) {
+                $rows[] = $row;
+            }
+            $stmt->close();
+        }
+        return $rows;
     }
 
-    private function getWars()
+    /**
+     * Public because it's called from a template.
+     * Returns:
+     *  - alliance1_name
+     *  - alliance2_name
+     *  - start_date (aliased from rivalries.created_at)
+     */
+    public function getRivalries(): array
     {
-        $sql = "SELECT w.*, a1.name as declarer_name, a2.name as declared_against_name FROM wars w JOIN alliances a1 ON w.declarer_alliance_id = a1.id JOIN alliances a2 ON w.declared_against_alliance_id = a2.id WHERE w.status = 'active' ORDER BY w.start_date DESC";
-        $result = $this->db->query($sql);
-        return $result->fetch_all(MYSQLI_ASSOC);
-    }
+        $sql = "
+            SELECT
+                r.id,
+                a1.name AS alliance1_name,
+                a2.name AS alliance2_name,
+                r.created_at AS start_date
+            FROM rivalries r
+            JOIN alliances a1 ON a1.id = r.alliance1_id
+            JOIN alliances a2 ON a2.id = r.alliance2_id
+            ORDER BY r.created_at DESC
+        ";
 
-    private function getRivalries()
-    {
-        $sql = "SELECT r.*, a1.name as alliance1_name, a2.name as alliance2_name FROM rivalries r JOIN alliances a1 ON r.alliance1_id = a1.id JOIN alliances a2 ON r.alliance2_id = a2.id ORDER BY r.start_date DESC";
-        $result = $this->db->query($sql);
-        return $result->fetch_all(MYSQLI_ASSOC);
+        $rows = [];
+        if ($stmt = $this->db->prepare($sql)) {
+            $stmt->execute();
+            $res = $stmt->get_result();
+            while ($row = $res->fetch_assoc()) {
+                $rows[] = $row;
+            }
+            $stmt->close();
+        }
+        return $rows;
     }
 }
