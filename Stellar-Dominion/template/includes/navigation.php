@@ -1,37 +1,20 @@
 <?php
 /**
- * navigation.php
+ * navigation.php (updated)
  *
- * This is a centralized, reusable component for generating the main and sub-navigation
- * menus across all game pages. It ensures consistency and makes adding or removing
- * links a simple, one-time edit.
- *
- * It dynamically determines the active page and category to apply highlighting styles.
- *
- * IMPORTANT: Any page that includes this file MUST define a variable named '$active_page'
- * before the 'include' statement. For example:
- * $active_page = 'dashboard.php';
- * include_once 'navigation.php';
+ * Adds third-level submenu for WAR under ALLIANCE and removes WAR from main nav.
  */
 
-// --- NAVIGATION STRUCTURE DEFINITION ---
-
-// Defines the links that appear in the main, top-level navigation bar.
-// 'Link Text' => 'file_name.php'
 $main_nav_links = [
     'HOME' => '/dashboard.php',
     'BATTLE' => '/battle.php',
     'STRUCTURES' => '/structures.php',
     'ALLIANCE' => '/alliance.php',
     'COMMUNITY' => '/community.php',
-    'TUTORIAL' => '/tutorial.php', // New Link Added
-    'WAR' => '/war_declaration.php',
+    'TUTORIAL' => '/tutorial.php',
     'SIGN OUT' => '/auth.php?action=logout'
 ];
 
-// Defines the links that appear in the secondary, sub-navigation bar.
-// The keys ('HOME', 'BATTLE', etc.) correspond to the main navigation categories.
-// This allows for context-sensitive sub-menus.
 $sub_nav_links = [
     'HOME' => [
         'Dashboard' => '/dashboard.php',
@@ -48,20 +31,17 @@ $sub_nav_links = [
         'War History' => '/war_history.php'
     ],
     'ALLIANCE' => [
-    'Alliance Hub' => '/alliance.php',
-    'Bank' => '/alliance_bank.php',
-    'Structures' => '/alliance_structures.php',
-    'Forum' => '/alliance_forum.php',
-    'Recruitment' => '/alliance.php?tab=applications',
-    'Roles & Permissions' => '/alliance_roles.php'
-],
-    'WAR' => [
-        'War Declaration' => '/war_declaration.php',
-        'View Alliances' => '/view_alliances.php',
-        'Realm War' => '/realm_war.php'
+        'Alliance Hub' => '/alliance.php',
+        'Bank' => '/alliance_bank.php',
+        'Structures' => '/alliance_structures.php',
+        'Forum' => '/alliance_forum.php',
+        'Recruitment' => '/alliance.php?tab=applications',
+        'Roles & Permissions' => '/alliance_roles.php',
+        // New: War lives under Alliance
+        'War' => '/war_declaration.php'
     ],
     'STRUCTURES' => [
-        // This category currently has no sub-navigation.
+        // no subnav
     ],
     'COMMUNITY' => [
         'News' => '/community.php',
@@ -70,27 +50,44 @@ $sub_nav_links = [
     ]
 ];
 
+/**
+ * Third-level submenu (only shows on War pages)
+ * Keyed by logical sub-category "WAR"
+ */
+$sub_sub_nav_links = [
+    'WAR' => [
+        'War Declaration' => '/war_declaration.php',
+        'View Alliances'  => '/view_alliances.php',
+        'Realm War'       => '/realm_war.php'
+    ],
+];
 
 // --- ACTIVE STATE LOGIC ---
-
-// Determine the currently active main category based on the '$active_page' variable.
-// This is used to highlight the correct main navigation link (e.g., 'BATTLE').
-$active_main_category = 'HOME'; // Default to 'HOME'
+$active_main_category = 'HOME'; // default
 $active_page_path = '/' . $active_page;
 
-if (in_array($active_page, ['battle.php', 'attack.php', 'war_history.php', 'armory.php', 'auto_recruit.php'])) { // ADD 'auto_recruit.php' HERE
+// Decide the active main category
+if (in_array($active_page, ['battle.php', 'attack.php', 'war_history.php', 'armory.php', 'auto_recruit.php'])) {
     $active_main_category = 'BATTLE';
-} elseif (in_array($active_page, ['alliance.php', 'create_alliance.php', 'edit_alliance.php', 'alliance_roles.php', 'alliance_bank.php', 'alliance_transfer.php', 'alliance_structures.php', 'alliance_forum.php', 'create_thread.php', 'view_thread.php'])) { // Added all alliance pages to this check
+} elseif (in_array($active_page, [
+    'alliance.php', 'create_alliance.php', 'edit_alliance.php', 'alliance_roles.php',
+    'alliance_bank.php', 'alliance_transfer.php', 'alliance_structures.php',
+    'alliance_forum.php', 'create_thread.php', 'view_thread.php',
+    // Treat WAR pages as part of ALLIANCE now
+    'war_declaration.php', 'view_alliances.php', 'view_alliance.php', 'realm_war.php'
+])) {
     $active_main_category = 'ALLIANCE';
 } elseif (in_array($active_page, ['structures.php'])) {
     $active_main_category = 'STRUCTURES';
 } elseif (in_array($active_page, ['community.php', 'stats.php'])) {
     $active_main_category = 'COMMUNITY';
-} elseif (in_array($active_page, ['war_declaration.php', 'view_alliances.php', 'view_alliance.php', 'realm_war.php'])) {
-    $active_main_category = 'WAR';
 }
-// Note: 'HOME' is the default, so we don't need a separate check for it.
-// The pages 'dashboard.php', 'levels.php', 'profile.php', and 'settings.php' will correctly default to HOME.
+
+// Determine active sub-category (only needed for WAR third-level)
+$active_sub_category = null;
+if (in_array($active_page, ['war_declaration.php', 'view_alliances.php', 'view_alliance.php', 'realm_war.php'])) {
+    $active_sub_category = 'WAR';
+}
 
 ?>
 <header class="text-center mb-4">
@@ -98,42 +95,46 @@ if (in_array($active_page, ['battle.php', 'attack.php', 'war_history.php', 'armo
 </header>
 
 <div class="main-bg border border-gray-700 rounded-lg shadow-2xl p-1">
+    <!-- Main nav -->
     <nav class="flex justify-center flex-wrap items-center gap-x-2 gap-y-1 md:gap-x-6 bg-gray-900 p-2 rounded-t-md">
-        <?php
-        // Loop through the main navigation links and generate the HTML for each one.
-        foreach ($main_nav_links as $title => $link):
-        ?>
+        <?php foreach ($main_nav_links as $title => $link): ?>
             <a href="<?php echo $link; ?>"
-               class="nav-link <?php
-                    // Conditionally add the 'active' class if the current link's category
-                    // matches the determined active category.
-                    echo ($title == $active_main_category) ? 'active font-bold' : 'text-gray-400 hover:text-white';
-                ?> px-2 md:px-3 py-1 transition-all text-sm md:text-base">
+               class="nav-link <?php echo ($title == $active_main_category) ? 'active font-bold' : 'text-gray-400 hover:text-white'; ?> px-2 md:px-3 py-1 transition-all text-sm md:text-base">
                <?php echo $title; ?>
             </a>
         <?php endforeach; ?>
     </nav>
 
-    <?php
-    // Check if a sub-navigation menu exists for the current active category and is not empty.
-    if (isset($sub_nav_links[$active_main_category]) && !empty($sub_nav_links[$active_main_category])):
-    ?>
+    <!-- Second-level (sub) nav -->
+    <?php if (isset($sub_nav_links[$active_main_category]) && !empty($sub_nav_links[$active_main_category])): ?>
     <div class="bg-gray-800 text-center p-2 flex justify-center flex-wrap gap-x-4 gap-y-1">
-        <?php
-        // Loop through the sub-navigation links for the active category.
-        foreach ($sub_nav_links[$active_main_category] as $title => $link):
+        <?php foreach ($sub_nav_links[$active_main_category] as $title => $link):
             $is_external = filter_var($link, FILTER_VALIDATE_URL);
+            $is_active_sub = ($link == $active_page_path)
+                || ($title === 'War' && in_array($active_page, ['war_declaration.php','view_alliances.php','view_alliance.php','realm_war.php']));
         ?>
              <a href="<?php echo $link; ?>"
                 <?php if ($is_external) echo 'target="_blank" rel="noopener noreferrer"'; ?>
-                class="<?php
-                    // Conditionally add styling if the sub-nav link matches the exact active page.
-                    echo ($link == $active_page_path) ? 'font-semibold text-white' : 'text-gray-400 hover:text-white';
-                ?> px-3">
+                class="<?php echo $is_active_sub ? 'font-semibold text-white' : 'text-gray-400 hover:text-white'; ?> px-3">
                 <?php echo $title; ?>
              </a>
         <?php endforeach; ?>
     </div>
-    <?php endif; // End of sub-navigation check ?>
+    <?php endif; ?>
 
+    <!-- Third-level (WAR) nav -->
+    <?php if ($active_sub_category && isset($sub_sub_nav_links[$active_sub_category])): ?>
+    <div class="bg-gray-700 text-center p-2 flex justify-center flex-wrap gap-x-4 gap-y-1">
+        <?php foreach ($sub_sub_nav_links[$active_sub_category] as $title => $link):
+            $is_external = filter_var($link, FILTER_VALIDATE_URL);
+            $is_active_subsub = ($link == $active_page_path);
+        ?>
+            <a href="<?php echo $link; ?>"
+               <?php if ($is_external) echo 'target="_blank" rel="noopener noreferrer"'; ?>
+               class="<?php echo $is_active_subsub ? 'font-semibold text-white' : 'text-gray-300 hover:text-white'; ?> px-3">
+               <?php echo $title; ?>
+            </a>
+        <?php endforeach; ?>
+    </div>
+    <?php endif; ?>
 </div>

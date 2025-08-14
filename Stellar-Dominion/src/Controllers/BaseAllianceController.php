@@ -1,126 +1,242 @@
 <?php
-/**
- * src/Controllers/BaseAllianceController.php
- *
- * This abstract class serves as the foundation for all alliance-related controllers.
- * It is compatible with the mysqli connection object ($link) and the individual
- * permission column schema.
- */
-abstract class BaseAllianceController
-{
-    protected $db;
-    protected $user_id;
+// src/Controllers/BaseAllianceController.php
 
-    public function __construct(mysqli $db)
+class BaseAllianceController
+{
+    /** @var mysqli */
+    protected $db;
+
+    public function __construct(mysqli $link)
     {
-        $this->db = $db;
-        $this->user_id = $_SESSION['id'] ?? 0;
+        $this->db = $link;
+        if (session_status() === PHP_SESSION_NONE) {
+            session_start();
+        }
     }
 
+    /**
+     * Return all data needed for alliance.php for a given user.
+     * If the user is not in an alliance, return null (alliance.php already handles this case).
+     */
     public function getAllianceDataForUser(int $user_id): ?array
     {
-        // This query now selects all individual permission columns directly.
-        $sql = "
-            SELECT 
-                a.id, a.name, a.tag, a.description, a.leader_id, a.avatar_path, a.bank_credits,
-                u_leader.character_name as leader_name,
-                ar.id as role_id, ar.name as role_name, ar.order as role_order,
-                ar.can_edit_profile, ar.can_approve_membership, ar.can_kick_members, 
-                ar.can_manage_roles, ar.can_manage_structures, ar.can_manage_treasury,
-                ar.can_invite_members, ar.can_moderate_forum, ar.can_sticky_threads,
-                ar.can_lock_threads, ar.can_delete_posts
+        // 1) Get the user's alliance + role (may be NULL)
+        $stmt = $this->db->prepare("
+            SELECT u.alliance_id, u.alliance_role_id
             FROM users u
-            LEFT JOIN alliances a ON u.alliance_id = a.id
-            LEFT JOIN users u_leader ON a.leader_id = u_leader.id
-            LEFT JOIN alliance_roles ar ON u.alliance_role_id = ar.id
             WHERE u.id = ?
-        ";
-        
-        $stmt = $this->db->prepare($sql);
-        if (!$stmt) {
-            error_log("Prepare failed: (" . $this->db->errno . ") " . $this->db->error);
-            return null;
-        }
-        $stmt->bind_param("i", $user_id);
+            LIMIT 1
+        ");
+        $stmt->bind_param('i', $user_id);
         $stmt->execute();
-        $result = $stmt->get_result();
-        $allianceData = $result->fetch_assoc();
+        $res = $stmt->get_result();
+        $user = $res->fetch_assoc();
         $stmt->close();
 
-        if (!$allianceData) {
+        if (!$user || $user['alliance_id'] === null) {
+            // Not in an alliance; let the view render the "not in alliance" UI.
             return null;
         }
 
-        // We create a 'permissions' sub-array for easy checking in the view (e.g., can('kick_members'))
-        $allianceData['permissions'] = [
-            'can_edit_profile' => (bool)($allianceData['can_edit_profile'] ?? 0),
-            'can_approve_membership' => (bool)($allianceData['can_approve_membership'] ?? 0),
-            'can_kick_members' => (bool)($allianceData['can_kick_members'] ?? 0),
-            'can_manage_roles' => (bool)($allianceData['can_manage_roles'] ?? 0),
-            'can_manage_structures' => (bool)($allianceData['can_manage_structures'] ?? 0),
-            'can_manage_treasury' => (bool)($allianceData['can_manage_treasury'] ?? 0),
-            'can_invite_members' => (bool)($allianceData['can_invite_members'] ?? 0),
-            'can_moderate_forum' => (bool)($allianceData['can_moderate_forum'] ?? 0),
-            'can_sticky_threads' => (bool)($allianceData['can_sticky_threads'] ?? 0),
-            'can_lock_threads' => (bool)($allianceData['can_lock_threads'] ?? 0),
-            'can_delete_posts' => (bool)($allianceData['can_delete_posts'] ?? 0),
-        ];
+        $alliance_id = (int)$user['alliance_id'];
 
-        $allianceData['members'] = $this->getMembers($allianceData['id']);
-        if ($allianceData['permissions']['can_approve_membership']) {
-            $allianceData['applications'] = $this->getApplications($allianceData['id']);
-        } else {
-            $allianceData['applications'] = [];
+        // 2) Alliance core info
+        $stmt = $this->db->prepare("
+            SELECT
+                a.id,
+                a.name,
+                a.tag,
+                a.description,
+                a.leader_id,
+                a.avatar_path,
+                a.bank_credits,
+                a.created_at
+            FROM alliances a
+            WHERE a.id = ?
+            LIMIT 1
+        ");
+        $stmt->bind_param('i', $alliance_id);
+        $stmt->execute();
+        $res = $stmt->get_result();
+        $alliance = $res->fetch_assoc();
+        $stmt->close();
+
+        if (!$alliance) {
+            // Alliance record missing; treat as no alliance
+            return null;
         }
-        $allianceData['roles'] = $this->getRoles($allianceData['id']);
 
-        return $allianceData;
+        // Resolve leader name (optional)
+        $leader_name = null;
+        if (!empty($alliance['leader_id'])) {
+            $stmt = $this->db->prepare("SELECT character_name FROM users WHERE id = ? LIMIT 1");
+            $stmt->bind_param('i', $alliance['leader_id']);
+            $stmt->execute();
+            $res = $stmt->get_result();
+            if ($row = $res->fetch_assoc()) {
+                $leader_name = $row['character_name'];
+            }
+            $stmt->close();
+        }
+        $alliance['leader_name'] = $leader_name;
+
+        // 3) Members (SAFE: only call when we have an int alliance_id)
+        $members = $this->getMembers($alliance_id);
+
+        // 4) Roles (scoped per alliance)
+        $roles = $this->getRoles($alliance_id);
+
+        // 5) Pending applications (if any)
+        $applications = $this->getApplications($alliance_id);
+
+        // 6) Permissions for this user based on role
+        $permissions = $this->getPermissionsForUserRole((int)$user['alliance_role_id'], $alliance_id);
+
+        // Compose payload the view expects
+        return array_merge($alliance, [
+            'members'      => $members,
+            'roles'        => $roles,
+            'applications' => $applications,
+            'permissions'  => $permissions,
+        ]);
     }
 
-    protected function getMembers(int $alliance_id): array
+    /**
+     * Returns roster rows for the alliance (character, level, role name, etc.).
+     * Early return if $alliance_id is null or <= 0.
+     */
+    public function getMembers(?int $alliance_id): array
     {
+        if (!$alliance_id) {
+            return [];
+        }
+
         $sql = "
-            SELECT u.id as user_id, u.character_name, u.level, u.net_worth, u.last_updated, ar.name as role_name
+            SELECT
+                u.id AS user_id,
+                u.character_name,
+                u.level,
+                u.net_worth,
+                u.last_updated,
+                ar.name AS role_name
             FROM users u
-            LEFT JOIN alliance_roles ar ON u.alliance_role_id = ar.id
+            LEFT JOIN alliance_roles ar
+              ON ar.id = u.alliance_role_id
+             AND ar.alliance_id = u.alliance_id
             WHERE u.alliance_id = ?
-            ORDER BY ar.order ASC, u.character_name ASC
+            ORDER BY ar.`order` ASC, u.character_name ASC
         ";
         $stmt = $this->db->prepare($sql);
-        $stmt->bind_param("i", $alliance_id);
+        $stmt->bind_param('i', $alliance_id);
         $stmt->execute();
-        $result = $stmt->get_result();
-        $data = $result->fetch_all(MYSQLI_ASSOC);
+        $res = $stmt->get_result();
+        $rows = $res->fetch_all(MYSQLI_ASSOC);
         $stmt->close();
-        return $data;
+
+        return $rows ?: [];
     }
 
-    protected function getApplications(int $alliance_id): array
+    /**
+     * Get roles for an alliance.
+     */
+    public function getRoles(int $alliance_id): array
     {
-        $sql = "
-            SELECT aa.id as application_id, u.id as user_id, u.character_name, u.level, u.net_worth
+        $stmt = $this->db->prepare("
+            SELECT id, name, `order`, can_edit_profile, can_approve_membership, can_kick_members,
+                   can_manage_roles, can_manage_structures, can_manage_treasury, can_invite_members,
+                   can_moderate_forum, can_sticky_threads, can_lock_threads, can_delete_posts
+            FROM alliance_roles
+            WHERE alliance_id = ?
+            ORDER BY `order` ASC, name ASC
+        ");
+        $stmt->bind_param('i', $alliance_id);
+        $stmt->execute();
+        $res = $stmt->get_result();
+        $rows = $res->fetch_all(MYSQLI_ASSOC);
+        $stmt->close();
+        return $rows ?: [];
+    }
+
+    /**
+     * Get pending applications for an alliance.
+     */
+    public function getApplications(int $alliance_id): array
+    {
+        $stmt = $this->db->prepare("
+            SELECT
+                aa.user_id,
+                u.character_name,
+                u.level,
+                u.net_worth,
+                aa.status,
+                aa.applied_at
             FROM alliance_applications aa
-            JOIN users u ON aa.user_id = u.id
+            JOIN users u ON u.id = aa.user_id
             WHERE aa.alliance_id = ? AND aa.status = 'pending'
-            ORDER BY aa.id ASC
-        ";
-        $stmt = $this->db->prepare($sql);
-        $stmt->bind_param("i", $alliance_id);
+            ORDER BY aa.applied_at DESC
+        ");
+        $stmt->bind_param('i', $alliance_id);
         $stmt->execute();
-        $result = $stmt->get_result();
-        $data = $result->fetch_all(MYSQLI_ASSOC);
+        $res = $stmt->get_result();
+        $rows = $res->fetch_all(MYSQLI_ASSOC);
         $stmt->close();
-        return $data;
+        return $rows ?: [];
     }
 
-    protected function getRoles(int $alliance_id): array
+    /**
+     * Map role->permissions for this alliance.
+     */
+    public function getPermissionsForUserRole(?int $role_id, int $alliance_id): array
     {
-        $stmt = $this->db->prepare("SELECT * FROM alliance_roles WHERE alliance_id = ? ORDER BY `order` ASC");
-        $stmt->bind_param("i", $alliance_id);
+        if (!$role_id) {
+            // Default: a regular member with no special perms
+            return [
+                'can_edit_profile'       => false,
+                'can_approve_membership' => false,
+                'can_kick_members'       => false,
+                'can_manage_roles'       => false,
+                'can_manage_structures'  => false,
+                'can_manage_treasury'    => false,
+                'can_invite_members'     => false,
+                'can_moderate_forum'     => false,
+                'can_sticky_threads'     => false,
+                'can_lock_threads'       => false,
+                'can_delete_posts'       => false,
+            ];
+        }
+
+        $stmt = $this->db->prepare("
+            SELECT
+                can_edit_profile, can_approve_membership, can_kick_members,
+                can_manage_roles, can_manage_structures, can_manage_treasury,
+                can_invite_members, can_moderate_forum, can_sticky_threads,
+                can_lock_threads, can_delete_posts
+            FROM alliance_roles
+            WHERE id = ? AND alliance_id = ?
+            LIMIT 1
+        ");
+        $stmt->bind_param('ii', $role_id, $alliance_id);
         $stmt->execute();
-        $result = $stmt->get_result();
-        $data = $result->fetch_all(MYSQLI_ASSOC);
+        $res = $stmt->get_result();
+        $perms = $res->fetch_assoc();
         $stmt->close();
-        return $data;
+
+        if (!$perms) {
+            // Fallback to all-false if role not found
+            return [
+                'can_edit_profile'       => false,
+                'can_approve_membership' => false,
+                'can_kick_members'       => false,
+                'can_manage_roles'       => false,
+                'can_manage_structures'  => false,
+                'can_manage_treasury'    => false,
+                'can_invite_members'     => false,
+                'can_moderate_forum'     => false,
+                'can_sticky_threads'     => false,
+                'can_lock_threads'       => false,
+                'can_delete_posts'       => false,
+            ];
+        }
+        return array_map(fn($v) => (bool)$v, $perms);
     }
 }
