@@ -29,25 +29,43 @@ class BaseAllianceController
     }
 
     /**
-     * Minimal user + alliance info for a given user.
-     * Returns:
-     *  - user_id
-     *  - character_name
-     *  - alliance_id
-     *  - alliance_role_id
-     *  - leader_id (of the alliance, if any)
+     * UNIFIED: Minimal + enriched user/alliance/role info for a given user.
+     * Returns keys:
+     *  - user_id, character_name
+     *  - alliance_id (nullable), alliance_role_id (nullable), alliance_role_name (nullable)
+     *  - leader_id (nullable)
+     *  - permissions {} (booleans for all alliance perms; empty if not in an alliance or no role)
      */
     public function getUserRoleInfo(int $user_id): array
     {
         $sql = "
             SELECT
-                u.id              AS user_id,
+                u.id                AS user_id,
                 u.character_name,
                 u.alliance_id,
                 u.alliance_role_id,
-                a.leader_id
+                a.leader_id,
+
+                -- Role info (scoped to the same alliance)
+                ar.name             AS alliance_role_name,
+                ar.can_edit_profile,
+                ar.can_approve_membership,
+                ar.can_kick_members,
+                ar.can_manage_roles,
+                ar.can_manage_structures,
+                ar.can_manage_treasury,
+                ar.can_invite_members,
+                ar.can_moderate_forum,
+                ar.can_sticky_threads,
+                ar.can_lock_threads,
+                ar.can_delete_posts
+
             FROM users u
-            LEFT JOIN alliances a ON a.id = u.alliance_id
+            LEFT JOIN alliances a
+              ON a.id = u.alliance_id
+            LEFT JOIN alliance_roles ar
+              ON ar.id = u.alliance_role_id
+             AND ar.alliance_id = u.alliance_id
             WHERE u.id = ?
             LIMIT 1
         ";
@@ -56,15 +74,54 @@ class BaseAllianceController
         $stmt->execute();
         $row = $stmt->get_result()->fetch_assoc() ?: [];
         $stmt->close();
+
+        if (!$row) {
+            return [];
+        }
+
+        // Build normalized permissions map (booleans) if role joined; otherwise empty/no perms.
+        $perms = [];
+        if (!empty($row['alliance_role_id'])) {
+            $perms = [
+                'can_edit_profile'       => (bool)($row['can_edit_profile'] ?? 0),
+                'can_approve_membership' => (bool)($row['can_approve_membership'] ?? 0),
+                'can_kick_members'       => (bool)($row['can_kick_members'] ?? 0),
+                'can_manage_roles'       => (bool)($row['can_manage_roles'] ?? 0),
+                'can_manage_structures'  => (bool)($row['can_manage_structures'] ?? 0),
+                'can_manage_treasury'    => (bool)($row['can_manage_treasury'] ?? 0),
+                'can_invite_members'     => (bool)($row['can_invite_members'] ?? 0),
+                'can_moderate_forum'     => (bool)($row['can_moderate_forum'] ?? 0),
+                'can_sticky_threads'     => (bool)($row['can_sticky_threads'] ?? 0),
+                'can_lock_threads'       => (bool)($row['can_lock_threads'] ?? 0),
+                'can_delete_posts'       => (bool)($row['can_delete_posts'] ?? 0),
+            ];
+        }
+
+        // Trim raw columns we no longer need to expose directly.
+        unset(
+            $row['can_edit_profile'],
+            $row['can_approve_membership'],
+            $row['can_kick_members'],
+            $row['can_manage_roles'],
+            $row['can_manage_structures'],
+            $row['can_manage_treasury'],
+            $row['can_invite_members'],
+            $row['can_moderate_forum'],
+            $row['can_sticky_threads'],
+            $row['can_lock_threads'],
+            $row['can_delete_posts']
+        );
+
+        $row['permissions'] = $perms;
         return $row;
     }
 
     /**
      * Return all data needed for alliance.php for a given user.
-     * If the user is not in an alliance, return null (alliance.php already handles this case).
+     * If the user is not in an alliance, return null (alliance.php handles this case).
      *
      * Returns a merged structure of the alliance row PLUS:
-     *  - alliance_id            (flat alias of the alliance's id)
+     *  - alliance_id            (flat alias for convenience)
      *  - leader_name            (resolved from users table)
      *  - members[]              (see getMembers)
      *  - roles[]                (see getRoles)
@@ -87,7 +144,6 @@ class BaseAllianceController
         $stmt->close();
 
         if (!$user || $user['alliance_id'] === null) {
-            // Not in an alliance; let the view render the "not in alliance" UI.
             return null;
         }
 
@@ -115,7 +171,6 @@ class BaseAllianceController
         $stmt->close();
 
         if (!$alliance) {
-            // Alliance record missing; treat as no alliance
             return null;
         }
 
@@ -132,13 +187,13 @@ class BaseAllianceController
             $stmt->close();
         }
 
-        // 3) Members (SAFE: only call when we have an int alliance_id)
+        // 3) Members
         $members = $this->getMembers($alliance_id);
 
-        // 4) Roles (scoped per alliance)
+        // 4) Roles
         $roles = $this->getRoles($alliance_id);
 
-        // 5) Pending applications (if any)
+        // 5) Pending applications
         $applications = $this->getApplications($alliance_id);
 
         // 6) Permissions for this user based on role
@@ -148,9 +203,8 @@ class BaseAllianceController
         );
 
         // Compose payload the view expects
-        // NOTE: We keep 'id' from the alliance row (for compatibility), and also add a flat 'alliance_id'.
         return array_merge($alliance, [
-            'alliance_id'  => $alliance_id,
+            'alliance_id'  => $alliance_id, // flat alias
             'leader_name'  => $leader_name,
             'members'      => $members,
             'roles'        => $roles,
@@ -247,7 +301,6 @@ class BaseAllianceController
     public function getPermissionsForUserRole(?int $role_id, int $alliance_id): array
     {
         if (!$role_id) {
-            // Default: a regular member with no special perms
             return [
                 'can_edit_profile'       => false,
                 'can_approve_membership' => false,
@@ -280,7 +333,6 @@ class BaseAllianceController
         $stmt->close();
 
         if (!$perms) {
-            // Fallback to all-false if role not found
             return [
                 'can_edit_profile'       => false,
                 'can_approve_membership' => false,
@@ -295,7 +347,6 @@ class BaseAllianceController
                 'can_delete_posts'       => false,
             ];
         }
-        // Cast numeric tinyints to booleans
         return array_map(static fn($v) => (bool)$v, $perms);
     }
 }
