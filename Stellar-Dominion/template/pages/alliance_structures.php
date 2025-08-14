@@ -3,25 +3,33 @@
  * alliance_structures.php
  *
  * This page allows players to purchase and view alliance structures.
- * It has been updated to work with the central routing system.
+ * It has been updated to work with the central routing system and the AllianceResourceController.
  */
+
+// --- CONTROLLER SETUP ---
+require_once __DIR__ . '/../../config/config.php';
+require_once __DIR__ . '/../../src/Game/GameData.php';
+require_once __DIR__ . '/../../src/Controllers/BaseAllianceController.php';
+require_once __DIR__ . '/../../src/Controllers/AllianceResourceController.php';
+$resourceController = new AllianceResourceController($link);
 
 // --- FORM SUBMISSION HANDLING ---
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
-    require_once __DIR__ . '/../../src/Controllers/AllianceController.php';
+    if (!isset($_POST['csrf_token']) || !validate_csrf_token($_POST['csrf_token'])) {
+        $_SESSION['alliance_error'] = 'Invalid session token.';
+        header('Location: /alliance_structures');
+        exit;
+    }
+    if (isset($_POST['action'])) {
+        $resourceController->dispatch($_POST['action']);
+    }
     exit;
 }
 
 // --- PAGE DISPLAY LOGIC (GET REQUEST) ---
-// The main router (index.php) handles all initial setup.
-
-require_once __DIR__ . '/../../src/Game/GameData.php'; // Corrected path to GameData
-
-// Generate a CSRF token for the purchase forms
 $csrf_token = generate_csrf_token();
-
 $user_id = $_SESSION['id'];
-$active_page = 'alliance_structures.php'; // Keep main nav category as 'ALLIANCE'
+$active_page = 'alliance_structures.php';
 $alliance_id = null;
 $user_permissions = null;
 $alliance = null;
@@ -41,8 +49,6 @@ $user_permissions = mysqli_fetch_assoc(mysqli_stmt_get_result($stmt_user_role));
 mysqli_stmt_close($stmt_user_role);
 
 $alliance_id = $user_permissions['alliance_id'] ?? null;
-
-// If user is not in an alliance, they can't be here.
 if (!$alliance_id) {
     $_SESSION['alliance_error'] = "You must be in an alliance to view structures.";
     header("location: /alliance");
@@ -67,19 +73,6 @@ while($row = mysqli_fetch_assoc($result_owned)){
     $owned_structures[$row['structure_key']] = $row;
 }
 mysqli_stmt_close($stmt_owned);
-
-// Fetch recent bank transaction logs
-$sql_logs = "SELECT * FROM alliance_bank_logs WHERE alliance_id = ? ORDER BY timestamp DESC LIMIT 20";
-$stmt_logs = mysqli_prepare($link, $sql_logs);
-mysqli_stmt_bind_param($stmt_logs, "i", $alliance_id);
-mysqli_stmt_execute($stmt_logs);
-$result_logs = mysqli_stmt_get_result($stmt_logs);
-while($row = mysqli_fetch_assoc($result_logs)){
-    $bank_logs[] = $row;
-}
-mysqli_stmt_close($stmt_logs);
-
-// The database connection is managed by the router and should not be closed here.
 ?>
 <!DOCTYPE html>
 <html lang="en">
@@ -137,39 +130,12 @@ mysqli_stmt_close($stmt_logs);
                                         </button>
                                     </form>
                                 <?php else: ?>
-                                     <p class="text-sm text-gray-500 text-center py-2 italic">Only leaders can purchase.</p>
+                                     <p class="text-sm text-gray-500 text-center py-2 italic">Requires 'Manage Structures' permission.</p>
                                 <?php endif; ?>
                             </div>
                         </div>
                     <?php endforeach; ?>
                 </div>
-            </div>
-
-            <div class="content-box rounded-lg p-6">
-                 <h3 class="font-title text-xl text-cyan-400 border-b border-gray-600 pb-2 mb-3">Recent Bank Activity</h3>
-                 <div class="overflow-x-auto">
-                     <table class="w-full text-sm text-left">
-                        <thead class="bg-gray-800">
-                            <tr><th class="p-2">Date</th><th class="p-2">Type</th><th class="p-2">Description</th><th class="p-2 text-right">Amount</th></tr>
-                        </thead>
-                        <tbody>
-                            <?php if (empty($bank_logs)): ?>
-                                <tr><td colspan="4" class="p-4 text-center">No transactions found.</td></tr>
-                            <?php else: ?>
-                                <?php foreach($bank_logs as $log): ?>
-                                <tr class="border-t border-gray-700">
-                                    <td class="p-2"><?php echo $log['timestamp']; ?></td>
-                                    <td class="p-2 font-bold <?php echo $log['type'] == 'deposit' ? 'text-green-400' : 'text-red-400'; ?>"><?php echo ucfirst($log['type']); ?></td>
-                                    <td class="p-2"><?php echo htmlspecialchars($log['description']); ?></td>
-                                    <td class="p-2 text-right font-semibold <?php echo $log['type'] == 'deposit' ? 'text-green-400' : 'text-red-400'; ?>">
-                                        <?php echo ($log['type'] == 'deposit' ? '+' : '-') . number_format($log['amount']); ?>
-                                    </td>
-                                </tr>
-                                <?php endforeach; ?>
-                            <?php endif; ?>
-                        </tbody>
-                     </table>
-                 </div>
             </div>
         </main>
     </div>

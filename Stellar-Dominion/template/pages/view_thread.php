@@ -3,24 +3,35 @@
  * view_thread.php
  *
  * This page displays a forum thread and its posts.
- * It has been updated to work with the central routing system.
+ * It has been updated to work with the AllianceForumController.
  */
+
+// --- CONTROLLER SETUP ---
+require_once __DIR__ . '/../../config/config.php';
+require_once __DIR__ . '/../../src/Controllers/BaseAllianceController.php';
+require_once __DIR__ . '/../../src/Controllers/AllianceForumController.php';
+$forumController = new AllianceForumController($link);
 
 // --- FORM SUBMISSION HANDLING ---
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
-    require_once __DIR__ . '/../../src/Controllers/AllianceController.php';
+    if (!isset($_POST['csrf_token']) || !validate_csrf_token($_POST['csrf_token'])) {
+        $_SESSION['alliance_error'] = 'Invalid session token.';
+        // Redirect back to the same thread on error
+        header('Location: ' . $_SERVER['REQUEST_URI']);
+        exit;
+    }
+    // Dispatch all actions (create_post, delete_post, moderation) to the single forum controller
+    if (isset($_POST['action'])) {
+        $forumController->dispatch($_POST['action']);
+    }
     exit;
 }
 
 // --- PAGE DISPLAY LOGIC (GET REQUEST) ---
-// The main router (index.php) handles all initial setup.
-
-// Generate a single CSRF token for all forms on this page
 $csrf_token = generate_csrf_token();
-
 $user_id = $_SESSION['id'];
 $thread_id = isset($_GET['id']) ? (int)$_GET['id'] : 0;
-$active_page = 'view_thread.php'; // For nav highlighting
+$active_page = 'view_thread.php';
 
 if ($thread_id <= 0) {
     header("location: /alliance_forum");
@@ -48,7 +59,6 @@ mysqli_stmt_execute($stmt_thread);
 $thread = mysqli_fetch_assoc(mysqli_stmt_get_result($stmt_thread));
 mysqli_stmt_close($stmt_thread);
 
-// If thread not found or doesn't belong to the alliance, redirect
 if (!$thread) {
     $_SESSION['alliance_error'] = "Thread not found or you do not have permission to view it.";
     header("location: /alliance_forum");
@@ -64,7 +74,6 @@ $alliance_data = mysqli_fetch_assoc(mysqli_stmt_get_result($stmt_alliance_name))
 mysqli_stmt_close($stmt_alliance_name);
 $alliance_name = $alliance_data['name'] ?? 'this alliance';
 
-
 // Fetch all posts for this thread, joining with user data
 $sql_posts = "
     SELECT p.id, p.content, p.created_at, p.user_id as post_author_id,
@@ -78,8 +87,6 @@ $stmt_posts = mysqli_prepare($link, $sql_posts);
 mysqli_stmt_bind_param($stmt_posts, "i", $thread_id);
 mysqli_stmt_execute($stmt_posts);
 $posts_result = mysqli_stmt_get_result($stmt_posts);
-
-// The database connection is managed by the router and should not be closed here.
 ?>
 <!DOCTYPE html>
 <html lang="en">
@@ -89,12 +96,24 @@ $posts_result = mysqli_stmt_get_result($stmt_posts);
     <link rel="stylesheet" href="/assets/css/style.css">
     <script src="https://cdn.tailwindcss.com"></script>
     <script src="https://unpkg.com/lucide@latest"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@700&family=Roboto:wght@400;500;700&display=swap" rel="stylesheet">
 </head>
 <body class="text-gray-400 antialiased">
 <div class="min-h-screen bg-cover bg-center bg-fixed" style="background-image: url('/assets/img/backgroundAlt.avif');">
 <div class="container mx-auto p-4 md:p-8">
-            <?php include_once __DIR__ . '/../includes/navigation.php'; ?>
+    <?php include_once __DIR__ . '/../includes/navigation.php'; ?>
     <main class="space-y-4">
+        <?php if(isset($_SESSION['alliance_message'])): ?>
+            <div class="bg-cyan-900 border border-cyan-500/50 text-cyan-300 p-3 rounded-md text-center">
+                <?php echo htmlspecialchars($_SESSION['alliance_message']); unset($_SESSION['alliance_message']); ?>
+            </div>
+        <?php endif; ?>
+        <?php if(isset($_SESSION['alliance_error'])): ?>
+            <div class="bg-red-900 border border-red-500/50 text-red-300 p-3 rounded-md text-center">
+                <?php echo htmlspecialchars($_SESSION['alliance_error']); unset($_SESSION['alliance_error']); ?>
+            </div>
+        <?php endif; ?>
+
         <div class="content-box rounded-lg p-6">
             <h1 class="font-title text-3xl text-white break-words">
                 <?php if($thread['is_stickied']) echo '<i data-lucide="pin" class="inline-block text-yellow-400"></i> '; ?>
@@ -105,7 +124,7 @@ $posts_result = mysqli_stmt_get_result($stmt_posts);
             <?php if($user_permissions['can_moderate_forum']): ?>
             <div class="mt-4 p-3 bg-gray-800 rounded-md border border-gray-700">
                 <h3 class="font-semibold text-white mb-2">Moderation Tools</h3>
-                <form action="/view_thread?id=<?php echo $thread_id; ?>" method="POST" class="flex flex-wrap gap-2">
+                <form action="/view_thread.php?id=<?php echo $thread_id; ?>" method="POST" class="flex flex-wrap gap-2">
                     <input type="hidden" name="csrf_token" value="<?php echo htmlspecialchars($csrf_token, ENT_QUOTES, 'UTF-8'); ?>">
                     <input type="hidden" name="thread_id" value="<?php echo $thread_id; ?>">
                     <?php if($user_permissions['can_sticky_threads']): ?>
@@ -127,10 +146,9 @@ $posts_result = mysqli_stmt_get_result($stmt_posts);
         <div id="post-<?php echo $post['id']; ?>" class="content-box rounded-lg p-4">
             <div class="grid grid-cols-1 md:grid-cols-4 gap-4">
                 <div class="md:col-span-1 border-r border-gray-700 pr-4 text-center">
-                    <img src="<?php echo htmlspecialchars($post['avatar_path'] ?? 'https://via.placeholder.com/100'); ?>" alt="Avatar" class="w-24 h-24 rounded-full mx-auto border-2 border-gray-600 object-cover">
+                    <img src="<?php echo htmlspecialchars($post['avatar_path'] ?? '/assets/img/default_alliance.avif'); ?>" alt="Avatar" class="w-24 h-24 rounded-full mx-auto border-2 border-gray-600 object-cover">
                     <p class="font-bold text-white mt-2"><?php echo htmlspecialchars($post['character_name']); ?></p>
                     <?php
-                        // Check if the post author is still in the current alliance and has a role
                         if ($post['post_author_alliance_id'] == $alliance_id && !empty($post['role_name'])) {
                             echo '<p class="text-sm text-cyan-400">' . htmlspecialchars($post['role_name']) . '</p>';
                         } else {
@@ -142,7 +160,7 @@ $posts_result = mysqli_stmt_get_result($stmt_posts);
                     <div class="flex justify-between items-center border-b border-gray-700 pb-2 mb-2">
                         <p class="text-xs text-gray-500">Posted: <?php echo $post['created_at']; ?></p>
                         <?php if($user_permissions['can_delete_posts'] || $post['post_author_id'] == $user_id): ?>
-                        <form action="/view_thread?id=<?php echo $thread_id; ?>" method="POST" onsubmit="return confirm('Are you sure you want to delete this post?');">
+                        <form action="/view_thread.php?id=<?php echo $thread_id; ?>" method="POST" onsubmit="return confirm('Are you sure you want to delete this post?');">
                             <input type="hidden" name="csrf_token" value="<?php echo htmlspecialchars($csrf_token, ENT_QUOTES, 'UTF-8'); ?>">
                             <input type="hidden" name="post_id" value="<?php echo $post['id']; ?>">
                             <input type="hidden" name="thread_id" value="<?php echo $thread_id; ?>">
@@ -161,9 +179,9 @@ $posts_result = mysqli_stmt_get_result($stmt_posts);
         <?php endwhile; ?>
 
         <?php if(!$thread['is_locked']): ?>
-        <div class="content-box rounded-lg p-6">
+        <div class="content-box rounded-lg p-6" id="post-reply">
             <h2 class="font-title text-2xl text-cyan-400 mb-4">Post a Reply</h2>
-            <form action="/view_thread?id=<?php echo $thread_id; ?>" method="POST" class="space-y-4">
+            <form action="/view_thread.php?id=<?php echo $thread_id; ?>" method="POST" class="space-y-4">
                 <input type="hidden" name="csrf_token" value="<?php echo htmlspecialchars($csrf_token, ENT_QUOTES, 'UTF-8'); ?>">
                 <input type="hidden" name="action" value="create_post">
                 <input type="hidden" name="thread_id" value="<?php echo $thread_id; ?>">

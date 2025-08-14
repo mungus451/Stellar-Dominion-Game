@@ -3,23 +3,33 @@
  * create_thread.php
  *
  * This page allows a player to create a new forum thread in their alliance forum.
- * It has been updated to work with the central routing system.
+ * It has been updated to use the AllianceForumController.
  */
+
+// --- CONTROLLER SETUP ---
+require_once __DIR__ . '/../../config/config.php';
+require_once __DIR__ . '/../../src/Controllers/BaseAllianceController.php';
+require_once __DIR__ . '/../../src/Controllers/AllianceForumController.php';
+$forumController = new AllianceForumController($link);
 
 // --- FORM SUBMISSION HANDLING ---
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
-    require_once __DIR__ . '/../../src/Controllers/AllianceController.php';
+    if (!isset($_POST['csrf_token']) || !validate_csrf_token($_POST['csrf_token'])) {
+        $_SESSION['alliance_error'] = 'Invalid session token.';
+        header('Location: /create_thread');
+        exit;
+    }
+    // Dispatch to the controller, which handles logic and redirection
+    if (isset($_POST['action'])) {
+        $forumController->dispatch($_POST['action']);
+    }
     exit;
 }
 
 // --- PAGE DISPLAY LOGIC (GET REQUEST) ---
-// The main router (index.php) handles all initial setup.
-
-// Generate a CSRF token for the form
 $csrf_token = generate_csrf_token();
-
 $user_id = $_SESSION['id'];
-$active_page = 'alliance_forum.php'; // Keep the main nav active on Alliance > Forum
+$active_page = 'alliance_forum.php';
 
 // Fetch user's alliance ID to ensure they are in an alliance
 $sql_user = "SELECT alliance_id FROM users WHERE id = ?";
@@ -34,7 +44,6 @@ if (!$user_data['alliance_id']) {
     header("location: /alliance");
     exit;
 }
-// The database connection is managed by the router and should not be closed here.
 ?>
 <!DOCTYPE html>
 <html lang="en">
@@ -44,6 +53,7 @@ if (!$user_data['alliance_id']) {
     <link rel="stylesheet" href="/assets/css/style.css">
     <script src="https://cdn.tailwindcss.com"></script>
     <script src="https://unpkg.com/lucide@latest"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@700&family=Roboto:wght@400;500;700&display=swap" rel="stylesheet">
 </head>
 <body class="text-gray-400 antialiased">
 <div class="min-h-screen bg-cover bg-center bg-fixed" style="background-image: url('/assets/img/backgroundAlt.avif');">
@@ -52,9 +62,9 @@ if (!$user_data['alliance_id']) {
     <main class="content-box rounded-lg p-6 mt-4 max-w-4xl mx-auto">
         <h1 class="font-title text-3xl text-cyan-400 border-b border-gray-600 pb-2 mb-4">Create New Forum Thread</h1>
         
-        <?php if(isset($_SESSION['forum_error'])): ?>
+        <?php if(isset($_SESSION['alliance_error'])): ?>
             <div class="bg-red-900 border border-red-500/50 text-red-300 p-3 rounded-md text-center mb-4">
-                <?php echo htmlspecialchars($_SESSION['forum_error']); unset($_SESSION['forum_error']); ?>
+                <?php echo htmlspecialchars($_SESSION['alliance_error']); unset($_SESSION['alliance_error']); ?>
             </div>
         <?php endif; ?>
 

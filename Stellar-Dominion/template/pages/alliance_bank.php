@@ -3,16 +3,29 @@
  * alliance_bank.php
  *
  * This page handles all alliance bank interactions with a new tabbed interface.
+ * It is now fully controlled by the AllianceResourceController.
  */
+
+// --- CONTROLLER SETUP ---
+require_once __DIR__ . '/../../config/config.php';
+require_once __DIR__ . '/../../src/Controllers/BaseAllianceController.php';
+require_once __DIR__ . '/../../src/Controllers/AllianceResourceController.php';
+$allianceController = new AllianceResourceController($link);
 
 // --- FORM SUBMISSION HANDLING ---
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
-    require_once __DIR__ . '/../../src/Controllers/AllianceController.php';
+    if (!isset($_POST['csrf_token']) || !validate_csrf_token($_POST['csrf_token'])) {
+        $_SESSION['alliance_error'] = 'Invalid session token.';
+        header('Location: /alliance_bank');
+        exit;
+    }
+    if (isset($_POST['action'])) {
+        $allianceController->dispatch($_POST['action']);
+    }
     exit;
 }
 
 // --- PAGE DISPLAY LOGIC (GET REQUEST) ---
-require_once __DIR__ . '/../../config/config.php';
 $csrf_token = generate_csrf_token();
 $user_id = $_SESSION['id'];
 $active_page = 'alliance_bank.php';
@@ -21,7 +34,7 @@ $current_tab = $_GET['tab'] ?? 'main';
 // --- DATA FETCHING ---
 $sql_user = "SELECT u.alliance_id, u.credits, u.character_name, u.credit_rating, a.leader_id, ar.can_manage_treasury 
              FROM users u 
-             JOIN alliances a ON u.alliance_id = a.id
+             LEFT JOIN alliances a ON u.alliance_id = a.id
              LEFT JOIN alliance_roles ar ON u.alliance_role_id = ar.id
              WHERE u.id = ?";
 $stmt_user = mysqli_prepare($link, $sql_user);
@@ -124,6 +137,7 @@ $max_loan = $credit_rating_map[$user_data['credit_rating']] ?? 0;
     <title>Stellar Dominion - Alliance Bank</title>
     <link rel="stylesheet" href="/assets/css/style.css">
     <script src="https://cdn.tailwindcss.com"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@700&family=Roboto:wght@400;500;700&display=swap" rel="stylesheet">
 </head>
 <body class="text-gray-400 antialiased">
 <div class="min-h-screen bg-cover bg-center bg-fixed" style="background-image: url('/assets/img/backgroundAlt.avif');">
@@ -147,7 +161,7 @@ $max_loan = $credit_rating_map[$user_data['credit_rating']] ?? 0;
                         <h2 class="font-title text-2xl text-cyan-400">Alliance Bank</h2>
                         <p class="text-lg">Current Funds: <span class="font-bold text-yellow-300"><?php echo number_format($alliance['bank_credits'] ?? 0); ?> Credits</span></p>
                     </div>
-                    <a href="/alliance_transfer" class="bg-purple-600 hover:bg-purple-700 text-white font-bold py-3 px-6 rounded-lg">Member Transfers</a>
+                    <a href="/alliance_transfer.php" class="bg-purple-600 hover:bg-purple-700 text-white font-bold py-3 px-6 rounded-lg">Member Transfers</a>
                 </div>
                 <div class="border-b border-gray-600 mt-4">
                     <nav class="flex space-x-4">
@@ -157,12 +171,11 @@ $max_loan = $credit_rating_map[$user_data['credit_rating']] ?? 0;
                     </nav>
                 </div>
 
-                <!-- MAIN TAB -->
                 <div id="main-content" class="<?php if ($current_tab !== 'main') echo 'hidden'; ?> mt-4">
                     <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
-                        <div class="content-box rounded-lg p-6">
+                        <div class="bg-gray-800/50 rounded-lg p-6">
                             <h3 class="font-title text-xl text-cyan-400 border-b border-gray-600 pb-2 mb-3">Donate Credits</h3>
-                            <form action="/alliance_bank" method="POST" class="space-y-3">
+                            <form action="/alliance_bank.php" method="POST" class="space-y-3">
                                 <input type="hidden" name="csrf_token" value="<?php echo htmlspecialchars($csrf_token); ?>">
                                 <input type="hidden" name="action" value="donate_credits">
                                 <div>
@@ -178,43 +191,63 @@ $max_loan = $credit_rating_map[$user_data['credit_rating']] ?? 0;
                             </form>
                         </div>
                         <?php if ($is_leader): ?>
-                        <div class="content-box rounded-lg p-6">
+                        <div class="bg-gray-800/50 rounded-lg p-6">
                              <h3 class="font-title text-xl text-red-400 border-b border-gray-600 pb-2 mb-3">Leader Withdrawal</h3>
-                             <form action="/alliance_bank" method="POST" class="space-y-3">
+                             <form action="/alliance_bank.php" method="POST" class="space-y-3">
                                 <input type="hidden" name="csrf_token" value="<?php echo htmlspecialchars($csrf_token); ?>">
                                 <input type="hidden" name="action" value="leader_withdraw">
                                 <div>
                                     <label for="withdraw_amount" class="font-semibold text-white">Amount to Withdraw</label>
                                     <input type="number" id="withdraw_amount" name="amount" min="1" max="<?php echo $alliance['bank_credits']; ?>" class="w-full bg-gray-900 border border-gray-600 rounded-md p-2 mt-1" required>
                                 </div>
-                                <button type="submit" class="w-full bg-red-800 hover:bg-red-700 text-white font-bold py-2 rounded-lg">Withdraw to Personal Bank</button>
+                                <button type="submit" class="w-full bg-red-800 hover:bg-red-700 text-white font-bold py-2 rounded-lg">Withdraw to Personal Credits</button>
                             </form>
                         </div>
                         <?php endif; ?>
                     </div>
                 </div>
 
-                <!-- LOANS TAB -->
-                <div id="loans-content" class="<?php if ($current_tab !== 'loans') echo 'hidden'; ?> mt-4">
-                    <!-- Loan Management for Treasury -->
+                <div id="loans-content" class="<?php if ($current_tab !== 'loans') echo 'hidden'; ?> mt-4 space-y-4">
                     <?php if ($can_manage_treasury && !empty($pending_loans)): ?>
-                    <div class="content-box rounded-lg p-6 mb-4">
+                    <div class="bg-gray-800/50 rounded-lg p-6">
                         <h3 class="font-title text-xl text-yellow-400 border-b border-gray-600 pb-2 mb-3">Pending Loan Requests</h3>
-                        <table class="w-full text-sm text-left">
-                           <!-- ... table for pending loans ... -->
-                        </table>
+                        <div class="overflow-x-auto">
+                            <table class="w-full text-sm text-left">
+                               <thead class="bg-gray-900"><tr><th class="p-2">Commander</th><th class="p-2">Amount</th><th class="p-2">Repay Amount</th><th class="p-2 text-right">Action</th></tr></thead>
+                               <tbody>
+                                   <?php foreach($pending_loans as $loan): ?>
+                                   <tr class="border-t border-gray-700">
+                                       <td class="p-2 font-bold"><?php echo htmlspecialchars($loan['character_name']); ?></td>
+                                       <td class="p-2"><?php echo number_format($loan['amount_loaned']); ?></td>
+                                       <td class="p-2 text-yellow-400"><?php echo number_format($loan['amount_to_repay']); ?></td>
+                                       <td class="p-2 text-right">
+                                           <form action="/alliance_bank.php" method="POST" class="inline-block">
+                                               <input type="hidden" name="csrf_token" value="<?php echo htmlspecialchars($csrf_token); ?>"><input type="hidden" name="loan_id" value="<?php echo $loan['id']; ?>">
+                                               <button type="submit" name="action" value="approve_loan" class="text-green-400 hover:text-green-300 font-bold">Approve</button>
+                                           </form> | 
+                                           <form action="/alliance_bank.php" method="POST" class="inline-block">
+                                               <input type="hidden" name="csrf_token" value="<?php echo htmlspecialchars($csrf_token); ?>"><input type="hidden" name="loan_id" value="<?php echo $loan['id']; ?>">
+                                               <button type="submit" name="action" value="deny_loan" class="text-red-400 hover:text-red-300 font-bold">Deny</button>
+                                           </form>
+                                       </td>
+                                   </tr>
+                                   <?php endforeach; ?>
+                               </tbody>
+                            </table>
+                        </div>
                     </div>
                     <?php endif; ?>
                     
-                    <!-- User Loan Section -->
-                    <div class="content-box rounded-lg p-6">
+                    <div class="bg-gray-800/50 rounded-lg p-6">
                         <h3 class="font-title text-xl text-cyan-400 border-b border-gray-600 pb-2 mb-3">Your Loan Status</h3>
                         <?php if ($active_loan): ?>
-                            <!-- Display active loan details -->
+                             <p>You have a loan with a remaining balance.</p>
+                             <p class="text-lg">Amount to Repay: <span class="font-bold text-yellow-300"><?php echo number_format($active_loan['amount_to_repay']); ?></span></p>
+                             <p class="text-xs text-gray-500">50% of credits plundered from successful attacks will automatically go towards repaying your loan.</p>
                         <?php else: ?>
                             <p>Your Credit Rating: <span class="font-bold text-lg"><?php echo $user_data['credit_rating']; ?></span></p>
                             <p>Maximum Loan Amount: <span class="font-bold text-yellow-300"><?php echo number_format($max_loan); ?> Credits</span></p>
-                            <form action="/alliance_bank" method="POST" class="space-y-3 mt-4">
+                            <form action="/alliance_bank.php" method="POST" class="space-y-3 mt-4">
                                 <input type="hidden" name="csrf_token" value="<?php echo htmlspecialchars($csrf_token); ?>">
                                 <input type="hidden" name="action" value="request_loan">
                                 <div>
@@ -228,11 +261,9 @@ $max_loan = $credit_rating_map[$user_data['credit_rating']] ?? 0;
                     </div>
                 </div>
 
-                <!-- LEDGER TAB -->
                 <div id="ledger-content" class="<?php if ($current_tab !== 'ledger') echo 'hidden'; ?> mt-4">
                     <div class="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
-                        <!-- Top Donors -->
-                        <div class="content-box rounded-lg p-4">
+                        <div class="bg-gray-800/50 rounded-lg p-4">
                             <h3 class="font-title text-lg text-green-400">Top Donors</h3>
                             <ul class="text-sm space-y-1 mt-2">
                                 <?php foreach($top_donors as $donor): ?>
@@ -240,8 +271,7 @@ $max_loan = $credit_rating_map[$user_data['credit_rating']] ?? 0;
                                 <?php endforeach; ?>
                             </ul>
                         </div>
-                        <!-- Top Taxers -->
-                        <div class="content-box rounded-lg p-4">
+                        <div class="bg-gray-800/50 rounded-lg p-4">
                             <h3 class="font-title text-lg text-red-400">Top Plunderers (Tax)</h3>
                             <ul class="text-sm space-y-1 mt-2">
                                 <?php foreach($top_taxers as $taxer): ?>
@@ -251,36 +281,29 @@ $max_loan = $credit_rating_map[$user_data['credit_rating']] ?? 0;
                         </div>
                     </div>
                     
-                    <div class="content-box rounded-lg p-6">
+                    <div class="bg-gray-800/50 rounded-lg p-6">
                         <h3 class="font-title text-xl text-cyan-400 border-b border-gray-600 pb-2 mb-3">Recent Bank Activity</h3>
                         <div class="overflow-x-auto">
                             <table class="w-full text-sm text-left">
-                                <!-- Table Headers -->
+                                <thead class="bg-gray-900"><tr><th class="p-2">Date</th><th class="p-2">Type</th><th class="p-2">Description</th><th class="p-2 text-right">Amount</th></tr></thead>
                                 <tbody>
                                     <?php foreach($bank_logs as $log): ?>
                                     <tr class="border-t border-gray-700">
                                         <td class="p-2"><?php echo $log['timestamp']; ?></td>
-                                        <td class="p-2 font-bold <?php echo $log['type'] == 'deposit' ? 'text-green-400' : 'text-red-400'; ?>"><?php echo ucfirst($log['type']); ?></td>
+                                        <td class="p-2 font-bold <?php echo ($log['type'] == 'deposit' || $log['type'] == 'tax' || $log['type'] == 'loan_repaid') ? 'text-green-400' : 'text-red-400'; ?>"><?php echo ucfirst(str_replace('_', ' ', $log['type'])); ?></td>
                                         <td class="p-2"><?php echo htmlspecialchars($log['description']); ?><br><em class="text-xs text-gray-500"><?php echo htmlspecialchars($log['comment']); ?></em></td>
-                                        <td class="p-2 text-right font-semibold <?php echo $log['type'] == 'deposit' ? 'text-green-400' : 'text-red-400'; ?>">
-                                            <?php echo ($log['type'] == 'deposit' ? '+' : '-') . number_format($log['amount']); ?>
+                                        <td class="p-2 text-right font-semibold <?php echo ($log['type'] == 'deposit' || $log['type'] == 'tax' || $log['type'] == 'loan_repaid') ? 'text-green-400' : 'text-red-400'; ?>">
+                                            <?php echo (($log['type'] == 'deposit' || $log['type'] == 'tax' || $log['type'] == 'loan_repaid') ? '+' : '-') . number_format($log['amount']); ?>
                                         </td>
                                     </tr>
                                     <?php endforeach; ?>
                                 </tbody>
                             </table>
                         </div>
-                        <!-- Pagination Controls -->
                         <div class="mt-4 flex justify-center items-center space-x-2 text-sm">
-                            <?php if ($current_page > 1): ?>
-                                <a href="?tab=ledger&show=<?php echo $items_per_page; ?>&page=<?php echo $current_page - 1; ?>" class="px-3 py-1 bg-gray-700 rounded-md hover:bg-cyan-600">&laquo; Prev</a>
-                            <?php endif; ?>
-                            <?php for ($i = 1; $i <= $total_pages; $i++): ?>
-                                <a href="?tab=ledger&show=<?php echo $items_per_page; ?>&page=<?php echo $i; ?>" class="px-3 py-1 <?php echo $i == $current_page ? 'bg-cyan-600 font-bold' : 'bg-gray-700'; ?> rounded-md hover:bg-cyan-600"><?php echo $i; ?></a>
-                            <?php endfor; ?>
-                            <?php if ($current_page < $total_pages): ?>
-                                <a href="?tab=ledger&show=<?php echo $items_per_page; ?>&page=<?php echo $current_page + 1; ?>" class="px-3 py-1 bg-gray-700 rounded-md hover:bg-cyan-600">Next &raquo;</a>
-                            <?php endif; ?>
+                            <?php if ($current_page > 1): ?><a href="?tab=ledger&show=<?php echo $items_per_page; ?>&page=<?php echo $current_page - 1; ?>" class="px-3 py-1 bg-gray-700 rounded-md hover:bg-cyan-600">&laquo; Prev</a><?php endif; ?>
+                            <?php for ($i = 1; $i <= $total_pages; $i++): ?><a href="?tab=ledger&show=<?php echo $items_per_page; ?>&page=<?php echo $i; ?>" class="px-3 py-1 <?php echo $i == $current_page ? 'bg-cyan-600 font-bold' : 'bg-gray-700'; ?> rounded-md hover:bg-cyan-600"><?php echo $i; ?></a><?php endfor; ?>
+                            <?php if ($current_page < $total_pages): ?><a href="?tab=ledger&show=<?php echo $items_per_page; ?>&page=<?php echo $current_page + 1; ?>" class="px-3 py-1 bg-gray-700 rounded-md hover:bg-cyan-600">Next &raquo;</a><?php endif; ?>
                         </div>
                     </div>
                 </div>
