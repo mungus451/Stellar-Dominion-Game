@@ -32,7 +32,8 @@ class BaseAllianceController
         $this->pdo = $pdo;
         $this->gameData = $gameData;
         $this->gameFunctions = $gameFunctions;
-        $this->user_id = $_SESSION['user_id'] ?? 0;
+        // CORRECTED: Use 'id' which is the correct session key for your application.
+        $this->user_id = $_SESSION['id'] ?? 0;
     }
 
     /**
