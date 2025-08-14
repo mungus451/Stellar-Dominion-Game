@@ -3,22 +3,40 @@
  * create_alliance.php
  *
  * This page allows a player to create a new alliance.
- * It has been updated to work with the central routing system.
+ * It now uses the AllianceManagementController to handle creation.
  */
+
+// --- SETUP ---
+require_once __DIR__ . '/../../config/config.php';
+require_once __DIR__ . '/../../src/Controllers/BaseAllianceController.php';
+require_once __DIR__ . '/../../src/Controllers/AllianceManagementController.php';
+
+$allianceController = new AllianceManagementController($link);
 
 // --- FORM SUBMISSION HANDLING ---
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
-    require_once __DIR__ . '/../../src/Controllers/AllianceController.php';
-    exit;
+    if (!isset($_POST['csrf_token']) || !validate_csrf_token($_POST['csrf_token'])) {
+        $_SESSION['alliance_error'] = 'Invalid session token.';
+        header('Location: /create_alliance.php');
+        exit;
+    }
+    
+    try {
+        $name = $_POST['alliance_name'] ?? '';
+        $tag = $_POST['alliance_tag'] ?? '';
+        $description = $_POST['description'] ?? '';
+        // The controller method handles the transaction and redirection
+        $allianceController->createAlliance($name, $tag, $description);
+    } catch (Exception $e) {
+        $_SESSION['alliance_error'] = $e->getMessage();
+        header('Location: /create_alliance.php');
+        exit;
+    }
 }
 
 // --- PAGE DISPLAY LOGIC (GET REQUEST) ---
-// The main router (index.php) handles all initial setup.
-
-// Generate a CSRF token for the form
-$csrf_token = generate_csrf_token();
-
 $active_page = 'alliance.php';
+$csrf_token = generate_csrf_token();
 ?>
 <!DOCTYPE html>
 <html lang="en">
@@ -41,9 +59,8 @@ $active_page = 'alliance.php';
             </div>
         <?php endif; ?>
         <p class="text-sm mb-4">Founding a new alliance requires a significant investment of <span class="text-white font-bold">1,000,000 Credits</span>. Choose your name and tag wisely, Commander.</p>
-        <form action="/create_alliance" method="POST" class="space-y-4">
-            <input type="hidden" name="csrf_token" value="<?php echo htmlspecialchars($csrf_token, ENT_QUOTES, 'UTF-8'); ?>">
-            <input type="hidden" name="action" value="create">
+        <form action="/create_alliance.php" method="POST" class="space-y-4">
+            <input type="hidden" name="csrf_token" value="<?php echo htmlspecialchars($csrf_token); ?>">
             <div>
                 <label for="alliance_name" class="font-semibold text-white">Alliance Name (Max 50 Chars)</label>
                 <input type="text" id="alliance_name" name="alliance_name" maxlength="50" required class="w-full bg-gray-900 border border-gray-600 rounded-md p-2 mt-1">

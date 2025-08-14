@@ -1,96 +1,68 @@
 <?php
 /**
- * alliance.php
+ * template/pages/alliance.php
  *
- * This page handles all alliance-related views and actions.
- * It has been updated to work with the new controller-based system.
+ * Main hub for all alliance activities. Reverted to work with mysqli.
  */
 
-// --- VARIABLE SCOPE CORRECTION ---
-// The main router (index.php) defines these variables. We bring them into this script's scope.
-global $pdo, $gameData, $gameFunctions;
-
-// --- CONTROLLER INITIALIZATION ---
-// This controller will handle both displaying the page and processing form submissions.
+// The main router (index.php) includes config.php, making $link available.
+require_once __DIR__ . '/../../src/Controllers/BaseAllianceController.php';
 require_once __DIR__ . '/../../src/Controllers/AllianceManagementController.php';
-$allianceController = new AllianceManagementController($pdo, $gameData, $gameFunctions);
+require_once __DIR__ . '/../../src/Game/GameData.php';
+require_once __DIR__ . '/../../src/Game/GameFunctions.php';
+
+// Instantiate the controller with the $link object from config.php
+$allianceController = new AllianceManagementController($link);
 
 // --- FORM SUBMISSION HANDLING (POST REQUEST) ---
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
-    // Basic CSRF check
-    if (!isset($_POST['csrf_token']) || !verify_csrf_token($_POST['csrf_token'])) {
-        // Handle CSRF error, maybe redirect with an error message
-        $_SESSION['error_message'] = 'Invalid session token. Please try again.';
+    if (!isset($_POST['csrf_token']) || !validate_csrf_token($_POST['csrf_token'])) {
+        $_SESSION['alliance_error'] = 'Invalid session token. Please try again.';
         header('Location: /alliance');
         exit;
     }
-
-    // The controller handles all actions. We just need to call the right method.
     if (isset($_POST['action'])) {
-        $allianceData = $allianceController->getAllianceDataForUser($_SESSION['id']);
-        $alliance_id = $allianceData['id'] ?? null;
-
-        switch ($_POST['action']) {
-            case 'leave':
-                if ($alliance_id) {
-                    $allianceController->leave($alliance_id);
-                }
-                break;
-            
-            case 'disband':
-                 if ($alliance_id) {
-                    $allianceController->disband($alliance_id);
-                }
-                break;
-
-            case 'accept_application':
-                if ($alliance_id && isset($_POST['user_id'])) {
-                    // Note: You'll need to implement acceptApplication in your controller
-                    // $allianceController->acceptApplication($alliance_id, $_POST['user_id']);
-                }
-                break;
-            
-            // Add other cases for kicking, promoting, applying, etc.
-            // Each method in the controller should handle its own logic and redirection.
-        }
+        $allianceController->dispatch($_POST['action']);
     }
-    // Fallback redirect if no action was handled
-    header('Location: /alliance');
     exit;
 }
-
 
 // --- PAGE DISPLAY LOGIC (GET REQUEST) ---
 $user_id = $_SESSION['id'];
 $active_page = 'alliance.php';
-$csrf_token = generate_csrf_token(); // Generate a token for all forms
+$csrf_token = generate_csrf_token(); 
 
-// Fetch all necessary data using the controller
 $allianceData = $allianceController->getAllianceDataForUser($user_id);
 
-$alliance = $allianceData; // The main alliance data array
+$alliance = $allianceData;
 $members = $allianceData['members'] ?? [];
 $roles = $allianceData['roles'] ?? [];
 $applications = $allianceData['applications'] ?? [];
 $user_permissions = $allianceData['permissions'] ?? [];
 
-$has_pending_application = false; // Placeholder, controller should handle this
-$invitations = []; // Placeholder, controller should handle this
-$alliances_list = []; // Will be populated if user is not in an alliance
-
-$current_tab = isset($_GET['tab']) ? $_GET['tab'] : 'roster'; // Default to roster tab
-
-if (!$alliance) {
-    // User is not in an alliance, fetch the list of all alliances
-    $search_term = isset($_GET['search']) ? trim($_GET['search']) : '';
-    // Note: You would need to add a method like `searchAlliances` to your controller
-    // $alliances_list = $allianceController->searchAlliances($search_term);
-}
-
-// Helper function to check permissions easily in the view
 function can($permission_key) {
     global $user_permissions;
     return isset($user_permissions[$permission_key]) && $user_permissions[$permission_key] === true;
+}
+
+$current_tab = isset($_GET['tab']) ? $_GET['tab'] : 'roster';
+
+$alliances_list = [];
+if (!$alliance) {
+    $search_term = isset($_GET['search']) ? trim($_GET['search']) : '';
+    $search_query = "%" . $search_term . "%";
+    $stmt = $link->prepare("
+        SELECT a.id, a.name, a.tag, (SELECT COUNT(*) FROM users WHERE alliance_id = a.id) as member_count
+        FROM alliances a
+        WHERE a.name LIKE ? OR a.tag LIKE ?
+        ORDER BY member_count DESC
+        LIMIT 50
+    ");
+    $stmt->bind_param("ss", $search_query, $search_query);
+    $stmt->execute();
+    $result = $stmt->get_result();
+    $alliances_list = $result->fetch_all(MYSQLI_ASSOC);
+    $stmt->close();
 }
 
 ?>
@@ -109,14 +81,14 @@ function can($permission_key) {
     <div class="container mx-auto p-4 md:p-8">
             <?php include_once __DIR__ . '/../includes/navigation.php'; ?>
         <main class="space-y-4">
-            <?php if(isset($_SESSION['error_message'])): ?>
+            <?php if(isset($_SESSION['alliance_error'])): ?>
                 <div class="bg-red-900 border border-red-500/50 text-red-300 p-3 rounded-md text-center">
-                    <?php echo htmlspecialchars($_SESSION['error_message']); unset($_SESSION['error_message']); ?>
+                    <?php echo htmlspecialchars($_SESSION['alliance_error']); unset($_SESSION['alliance_error']); ?>
                 </div>
             <?php endif; ?>
-            <?php if(isset($_SESSION['success_message'])): ?>
+            <?php if(isset($_SESSION['alliance_message'])): ?>
                 <div class="bg-cyan-900 border border-cyan-500/50 text-cyan-300 p-3 rounded-md text-center">
-                    <?php echo htmlspecialchars($_SESSION['success_message']); unset($_SESSION['success_message']); ?>
+                    <?php echo htmlspecialchars($_SESSION['alliance_message']); unset($_SESSION['alliance_message']); ?>
                 </div>
             <?php endif; ?>
 
@@ -125,7 +97,7 @@ function can($permission_key) {
                 <div class="content-box rounded-lg p-6">
                     <div class="flex flex-col md:flex-row md:items-start md:justify-between">
                         <div class="flex items-center space-x-4">
-                            <img src="<?php echo htmlspecialchars($alliance['image_url'] ?? '/assets/img/default_alliance.avif'); ?>" alt="Alliance Avatar" class="w-20 h-20 rounded-lg border-2 border-gray-600 object-cover">
+                            <img src="<?php echo htmlspecialchars($alliance['avatar_path'] ?? '/assets/img/default_alliance.avif'); ?>" alt="Alliance Avatar" class="w-20 h-20 rounded-lg border-2 border-gray-600 object-cover">
                             <div>
                                 <h2 class="font-title text-3xl text-white">[<?php echo htmlspecialchars($alliance['tag']); ?>] <?php echo htmlspecialchars($alliance['name']); ?></h2>
                                  <p class="text-sm">Led by <?php echo htmlspecialchars($alliance['leader_name'] ?? 'N/A'); ?></p>
@@ -140,11 +112,13 @@ function can($permission_key) {
                          <?php if ($alliance['leader_id'] == $user_id): ?>
                              <a href="/edit_alliance" class="bg-blue-600 hover:bg-blue-700 text-white font-bold py-2 px-4 rounded-lg text-sm">Edit Alliance</a>
                          <?php endif; ?>
+                         <?php if ($alliance['leader_id'] != $user_id): ?>
                          <form action="/alliance" method="POST" onsubmit="return confirm('Are you sure you want to leave this alliance?');">
-                             <input type="hidden" name="csrf_token" value="<?php echo htmlspecialchars($csrf_token, ENT_QUOTES, 'UTF-8'); ?>">
+                             <input type="hidden" name="csrf_token" value="<?php echo htmlspecialchars($csrf_token); ?>">
                              <input type="hidden" name="action" value="leave">
                              <button type="submit" class="bg-red-600 hover:bg-red-700 text-white font-bold py-2 px-4 rounded-lg text-sm">Leave Alliance</button>
                          </form>
+                         <?php endif; ?>
                      </div>
                 </div>
 
@@ -174,27 +148,21 @@ function can($permission_key) {
                             <tbody>
                                 <?php foreach ($members as $member): ?>
                                 <tr class="border-t border-gray-700">
-                                    <td class="p-2 text-white font-bold"><a href="/view_profile?id=<?php echo $member['user_id']; ?>" class="hover:underline"><?php echo htmlspecialchars($member['username']); ?></a></td>
+                                    <td class="p-2 text-white font-bold"><a href="/view_profile?id=<?php echo $member['user_id']; ?>" class="hover:underline"><?php echo htmlspecialchars($member['character_name']); ?></a></td>
                                     <td class="p-2"><?php echo $member['level'] ?? 'N/A'; ?></td>
                                     <td class="p-2"><?php echo htmlspecialchars($member['role_name']); ?></td>
                                     <td class="p-2"><?php echo number_format($member['net_worth']); ?></td>
                                     <td class="p-2"><?php echo (isset($member['last_updated']) && time() - strtotime($member['last_updated']) < 900) ? '<span class="text-green-400">Online</span>' : '<span class="text-gray-500">Offline</span>'; ?></td>
                                     <?php if (can('can_kick_members') && $member['user_id'] !== $user_id && $alliance['leader_id'] != $member['user_id']): ?>
                                         <td class="p-2 text-right">
-                                            <form action="/alliance" method="POST" class="inline-flex items-center space-x-2">
-                                                <input type="hidden" name="csrf_token" value="<?php echo htmlspecialchars($csrf_token, ENT_QUOTES, 'UTF-8'); ?>">
+                                            <form action="/alliance" method="POST" class="inline-block" onsubmit="return confirm('Are you sure you want to kick this member?');">
+                                                <input type="hidden" name="csrf_token" value="<?php echo htmlspecialchars($csrf_token); ?>">
                                                 <input type="hidden" name="member_id" value="<?php echo $member['user_id']; ?>">
-                                                <select name="role_id" class="bg-gray-900 border border-gray-600 rounded-md p-1 text-xs">
-                                                    <?php foreach($roles as $role): ?>
-                                                        <option value="<?php echo $role['id']; ?>" <?php if($role['role_name'] == $member['role_name']) echo 'selected'; ?>><?php echo htmlspecialchars($role['role_name']); ?></option>
-                                                    <?php endforeach; ?>
-                                                </select>
-                                                <button type="submit" name="action" value="assign_role" class="text-green-400 hover:text-green-300 text-xs">Set</button>
-                                                <span class="text-gray-600">|</span>
-                                                <button type="submit" name="action" value="kick" class="text-red-400 hover:text-red-300 text-xs" onclick="return confirm('Are you sure you want to kick this member?');">Kick</button>
+                                                <input type="hidden" name="action" value="kick">
+                                                <button type="submit" class="text-red-400 hover:text-red-300 text-xs font-bold">Kick</button>
                                             </form>
                                         </td>
-                                    <?php elseif (can('can_kick_members')): ?>
+                                    <?php else: ?>
                                         <td class="p-2"></td>
                                     <?php endif; ?>
                                 </tr>
@@ -204,7 +172,7 @@ function can($permission_key) {
                     </div>
                 </div>
                 
-                <div id="applications-content" class="<?php if ($current_tab !== 'applications') echo 'hidden'; ?>">
+                <div id="applications-content" class="<?php if ($current_tab !== 'applications' || !can('can_approve_membership')) echo 'hidden'; ?>">
                     <div class="content-box rounded-lg p-4">
                         <h3 class="font-title text-cyan-400 border-b border-gray-600 pb-2 mb-3">Pending Applications</h3>
                         <?php if (empty($applications)): ?>
@@ -215,18 +183,18 @@ function can($permission_key) {
                                 <tbody>
                                 <?php foreach($applications as $app): ?>
                                     <tr class="border-t border-gray-700">
-                                        <td class="p-2 text-white font-bold"><a href="/view_profile?id=<?php echo $app['user_id']; ?>" class="hover:underline"><?php echo htmlspecialchars($app['username']); ?></a></td>
+                                        <td class="p-2 text-white font-bold"><a href="/view_profile?id=<?php echo $app['user_id']; ?>" class="hover:underline"><?php echo htmlspecialchars($app['character_name']); ?></a></td>
                                         <td class="p-2"><?php echo $app['level'] ?? 'N/A'; ?></td>
                                         <td class="p-2"><?php echo number_format($app['net_worth'] ?? 0); ?></td>
                                         <td class="p-2 text-right">
                                             <form action="/alliance" method="POST" class="inline-block">
-                                                <input type="hidden" name="csrf_token" value="<?php echo htmlspecialchars($csrf_token, ENT_QUOTES, 'UTF-8'); ?>">
+                                                <input type="hidden" name="csrf_token" value="<?php echo htmlspecialchars($csrf_token); ?>">
                                                 <input type="hidden" name="user_id" value="<?php echo $app['user_id']; ?>">
                                                 <button type="submit" name="action" value="accept_application" class="text-green-400 hover:text-green-300 text-xs font-bold">Approve</button>
                                             </form>
                                             <span class="text-gray-600 mx-1">|</span>
                                             <form action="/alliance" method="POST" class="inline-block">
-                                                <input type="hidden" name="csrf_token" value="<?php echo htmlspecialchars($csrf_token, ENT_QUOTES, 'UTF-8'); ?>">
+                                                <input type="hidden" name="csrf_token" value="<?php echo htmlspecialchars($csrf_token); ?>">
                                                 <input type="hidden" name="user_id" value="<?php echo $app['user_id']; ?>">
                                                 <button type="submit" name="action" value="deny_application" class="text-red-400 hover:text-red-300 text-xs font-bold">Deny</button>
                                             </form>
@@ -246,10 +214,6 @@ function can($permission_key) {
                     <a href="/create_alliance" class="mt-4 inline-block bg-green-600 hover:bg-green-700 text-white font-bold py-3 px-8 rounded-lg">Create Alliance</a>
                 </div>
 
-                <?php if (!empty($invitations)): ?>
-                <!-- Invitation display logic would go here, using controller data -->
-                <?php endif; ?>
-
                 <div class="content-box rounded-lg p-4 overflow-x-auto">
                     <h3 class="font-title text-cyan-400 border-b border-gray-600 pb-2 mb-3">Join an Alliance</h3>
                     <form action="/alliance" method="GET" class="mb-4">
@@ -265,10 +229,10 @@ function can($permission_key) {
                                 <?php foreach($alliances_list as $row): ?>
                                 <tr class="border-t border-gray-700">
                                     <td class="p-2 text-white font-bold">[<?php echo htmlspecialchars($row['tag']); ?>] <?php echo htmlspecialchars($row['name']); ?></td>
-                                    <td class="p-2"><?php echo $row['member_count']; ?> / 100</td>
+                                    <td class="p-2"><?php echo $row['member_count']; ?> / 50</td>
                                     <td class="p-2 text-right">
                                         <form action="/alliance" method="POST">
-                                            <input type="hidden" name="csrf_token" value="<?php echo htmlspecialchars($csrf_token, ENT_QUOTES, 'UTF-8'); ?>">
+                                            <input type="hidden" name="csrf_token" value="<?php echo htmlspecialchars($csrf_token); ?>">
                                             <input type="hidden" name="action" value="apply_to_alliance">
                                             <input type="hidden" name="alliance_id" value="<?php echo $row['id']; ?>">
                                             <button type="submit" class="bg-cyan-600 hover:bg-cyan-700 text-white font-bold py-1 px-3 rounded-md text-xs">Apply</button>

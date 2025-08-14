@@ -1,143 +1,126 @@
 <?php
-
-// src/Controllers/BaseAllianceController.php
-
 /**
- * BaseAllianceController
+ * src/Controllers/BaseAllianceController.php
  *
- * This class contains common properties and methods that are shared across 
- * the different alliance-related controllers. This approach avoids code 
- * duplication and makes the codebase easier to maintain.
- *
- * The specific controllers (AllianceManagementController, AllianceResourceController, 
- * and AllianceForumController) will extend this base class to inherit its
- * functionality.
+ * This abstract class serves as the foundation for all alliance-related controllers.
+ * It is compatible with the mysqli connection object ($link) and the individual
+ * permission column schema.
  */
-class BaseAllianceController
+abstract class BaseAllianceController
 {
-    protected $pdo;
-    protected $gameData;
-    protected $gameFunctions;
+    protected $db;
     protected $user_id;
 
-    /**
-     * Constructor for the BaseAllianceController.
-     *
-     * @param PDO $pdo The database connection object.
-     * @param GameData $gameData The game data object.
-     * @param GameFunctions $gameFunctions The game functions object.
-     */
-    public function __construct($pdo, $gameData, $gameFunctions)
+    public function __construct(mysqli $db)
     {
-        $this->pdo = $pdo;
-        $this->gameData = $gameData;
-        $this->gameFunctions = $gameFunctions;
-        // CORRECTED: Use 'id' which is the correct session key for your application.
+        $this->db = $db;
         $this->user_id = $_SESSION['id'] ?? 0;
     }
 
-    /**
-     * Fetches all relevant alliance data for the currently logged-in user.
-     *
-     * @param int $user_id The ID of the user.
-     * @return array|null An array of alliance data or null if not in an alliance.
-     */
-    public function getAllianceDataForUser($user_id)
+    public function getAllianceDataForUser(int $user_id): ?array
     {
-        $stmt = $this->pdo->prepare("SELECT a.*, p.alliance_role FROM alliances a JOIN players p ON a.id = p.alliance_id WHERE p.user_id = ?");
-        $stmt->execute([$user_id]);
-        $allianceData = $stmt->fetch(PDO::FETCH_ASSOC);
+        // This query now selects all individual permission columns directly.
+        $sql = "
+            SELECT 
+                a.id, a.name, a.tag, a.description, a.leader_id, a.avatar_path, a.bank_credits,
+                u_leader.character_name as leader_name,
+                ar.id as role_id, ar.name as role_name, ar.order as role_order,
+                ar.can_edit_profile, ar.can_approve_membership, ar.can_kick_members, 
+                ar.can_manage_roles, ar.can_manage_structures, ar.can_manage_treasury,
+                ar.can_invite_members, ar.can_moderate_forum, ar.can_sticky_threads,
+                ar.can_lock_threads, ar.can_delete_posts
+            FROM users u
+            LEFT JOIN alliances a ON u.alliance_id = a.id
+            LEFT JOIN users u_leader ON a.leader_id = u_leader.id
+            LEFT JOIN alliance_roles ar ON u.alliance_role_id = ar.id
+            WHERE u.id = ?
+        ";
+        
+        $stmt = $this->db->prepare($sql);
+        if (!$stmt) {
+            error_log("Prepare failed: (" . $this->db->errno . ") " . $this->db->error);
+            return null;
+        }
+        $stmt->bind_param("i", $user_id);
+        $stmt->execute();
+        $result = $stmt->get_result();
+        $allianceData = $result->fetch_assoc();
+        $stmt->close();
 
         if (!$allianceData) {
             return null;
         }
 
-        // Add members, applications, roles, etc. to the data array
+        // We create a 'permissions' sub-array for easy checking in the view (e.g., can('kick_members'))
+        $allianceData['permissions'] = [
+            'can_edit_profile' => (bool)($allianceData['can_edit_profile'] ?? 0),
+            'can_approve_membership' => (bool)($allianceData['can_approve_membership'] ?? 0),
+            'can_kick_members' => (bool)($allianceData['can_kick_members'] ?? 0),
+            'can_manage_roles' => (bool)($allianceData['can_manage_roles'] ?? 0),
+            'can_manage_structures' => (bool)($allianceData['can_manage_structures'] ?? 0),
+            'can_manage_treasury' => (bool)($allianceData['can_manage_treasury'] ?? 0),
+            'can_invite_members' => (bool)($allianceData['can_invite_members'] ?? 0),
+            'can_moderate_forum' => (bool)($allianceData['can_moderate_forum'] ?? 0),
+            'can_sticky_threads' => (bool)($allianceData['can_sticky_threads'] ?? 0),
+            'can_lock_threads' => (bool)($allianceData['can_lock_threads'] ?? 0),
+            'can_delete_posts' => (bool)($allianceData['can_delete_posts'] ?? 0),
+        ];
+
         $allianceData['members'] = $this->getMembers($allianceData['id']);
-        $allianceData['applications'] = $this->getApplications($allianceData['id']);
+        if ($allianceData['permissions']['can_approve_membership']) {
+            $allianceData['applications'] = $this->getApplications($allianceData['id']);
+        } else {
+            $allianceData['applications'] = [];
+        }
         $allianceData['roles'] = $this->getRoles($allianceData['id']);
-        $allianceData['permissions'] = $this->getMemberPermissions($user_id, $allianceData['id']);
 
         return $allianceData;
     }
 
-    /**
-     * Retrieves the permissions for a specific member of an alliance.
-     *
-     * @param int $user_id The ID of the user.
-     * @param int $alliance_id The ID of the alliance.
-     * @return array An array of permissions.
-     */
-    public function getMemberPermissions($user_id, $alliance_id)
+    protected function getMembers(int $alliance_id): array
     {
-        $stmt = $this->pdo->prepare("SELECT r.permissions FROM alliance_roles r JOIN players p ON r.id = p.alliance_role_id WHERE p.user_id = ? AND r.alliance_id = ?");
-        $stmt->execute([$user_id, $alliance_id]);
-        $result = $stmt->fetch(PDO::FETCH_ASSOC);
-
-        return $result ? json_decode($result['permissions'], true) : [];
+        $sql = "
+            SELECT u.id as user_id, u.character_name, u.level, u.net_worth, u.last_updated, ar.name as role_name
+            FROM users u
+            LEFT JOIN alliance_roles ar ON u.alliance_role_id = ar.id
+            WHERE u.alliance_id = ?
+            ORDER BY ar.order ASC, u.character_name ASC
+        ";
+        $stmt = $this->db->prepare($sql);
+        $stmt->bind_param("i", $alliance_id);
+        $stmt->execute();
+        $result = $stmt->get_result();
+        $data = $result->fetch_all(MYSQLI_ASSOC);
+        $stmt->close();
+        return $data;
     }
 
-    /**
-     * Checks if a member has a specific permission.
-     *
-     * @param array $permissions The member's permissions array.
-     * @param string $permission_key The permission to check for.
-     * @return bool True if the member has the permission, false otherwise.
-     */
-    public function hasPermission($permissions, $permission_key)
+    protected function getApplications(int $alliance_id): array
     {
-        return isset($permissions[$permission_key]) && $permissions[$permission_key] === true;
+        $sql = "
+            SELECT aa.id as application_id, u.id as user_id, u.character_name, u.level, u.net_worth
+            FROM alliance_applications aa
+            JOIN users u ON aa.user_id = u.id
+            WHERE aa.alliance_id = ? AND aa.status = 'pending'
+            ORDER BY aa.id ASC
+        ";
+        $stmt = $this->db->prepare($sql);
+        $stmt->bind_param("i", $alliance_id);
+        $stmt->execute();
+        $result = $stmt->get_result();
+        $data = $result->fetch_all(MYSQLI_ASSOC);
+        $stmt->close();
+        return $data;
     }
 
-    /**
-     * Fetches alliance data by its ID.
-     *
-     * @param int $alliance_id The alliance ID.
-     * @return array|false The alliance data or false if not found.
-     */
-    public function getAllianceById($alliance_id)
+    protected function getRoles(int $alliance_id): array
     {
-        $stmt = $this->pdo->prepare("SELECT * FROM alliances WHERE id = ?");
-        $stmt->execute([$alliance_id]);
-        return $stmt->fetch(PDO::FETCH_ASSOC);
-    }
-
-    /**
-     * Fetches all members of an alliance.
-     *
-     * @param int $alliance_id The alliance ID.
-     * @return array An array of member data.
-     */
-    public function getMembers($alliance_id)
-    {
-        $stmt = $this->pdo->prepare("SELECT u.username, p.user_id, p.net_worth, r.role_name FROM players p JOIN users u ON p.user_id = u.id LEFT JOIN alliance_roles r ON p.alliance_role_id = r.id WHERE p.alliance_id = ? ORDER BY p.net_worth DESC");
-        $stmt->execute([$alliance_id]);
-        return $stmt->fetchAll(PDO::FETCH_ASSOC);
-    }
-
-    /**
-     * Fetches all pending applications for an alliance.
-     *
-     * @param int $alliance_id The alliance ID.
-     * @return array An array of application data.
-     */
-    public function getApplications($alliance_id)
-    {
-        $stmt = $this->pdo->prepare("SELECT u.username, a.user_id FROM alliance_applications a JOIN users u ON a.user_id = u.id WHERE a.alliance_id = ?");
-        $stmt->execute([$alliance_id]);
-        return $stmt->fetchAll(PDO::FETCH_ASSOC);
-    }
-
-    /**
-     * Fetches all roles for an alliance.
-     *
-     * @param int $alliance_id The alliance ID.
-     * @return array An array of role data.
-     */
-    public function getRoles($alliance_id)
-    {
-        $stmt = $this->pdo->prepare("SELECT * FROM alliance_roles WHERE alliance_id = ?");
-        $stmt->execute([$alliance_id]);
-        return $stmt->fetchAll(PDO::FETCH_ASSOC);
+        $stmt = $this->db->prepare("SELECT * FROM alliance_roles WHERE alliance_id = ? ORDER BY `order` ASC");
+        $stmt->bind_param("i", $alliance_id);
+        $stmt->execute();
+        $result = $stmt->get_result();
+        $data = $result->fetch_all(MYSQLI_ASSOC);
+        $stmt->close();
+        return $data;
     }
 }
