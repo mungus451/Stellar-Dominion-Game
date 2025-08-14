@@ -13,6 +13,7 @@ if (isset($_SESSION['vacation_until']) && new DateTime() < new DateTime($_SESSIO
 // CENTRALIZED DATABASE CONNECTION & CONFIGURATION
 // config.php is responsible for loading all its own dependencies, including security.
 require_once __DIR__ . '/../config/config.php';
+require_once __DIR__ . '/../src/Controllers/BaseController.php';
 
 // Get the requested URL path
 $request_uri = parse_url($_SERVER['REQUEST_URI'], PHP_URL_PATH);
@@ -87,6 +88,14 @@ $routes = [
     '/create_thread.php'       => '../template/pages/create_thread.php',
     '/view_thread'             => '../template/pages/view_thread.php',
     '/view_thread.php'         => '../template/pages/view_thread.php',
+    '/war_declaration'         => '../template/pages/war_declaration.php',
+    '/war_declaration.php'     => '../template/pages/war_declaration.php',
+    '/view_alliances'          => '../template/pages/view_alliances.php',
+    '/view_alliances.php'      => '../template/pages/view_alliances.php',
+    '/view_alliance'           => '../template/pages/view_alliance.php',
+    '/view_alliance.php'       => '../template/pages/view_alliance.php',
+    '/realm_war'           => '../template/pages/realm_war.php',
+    '/realm_war.php'       => '../template/pages/realm_war.php',
 
     // Action Handlers
     '/auth.php'                  => '../src/Controllers/AuthController.php',
@@ -101,6 +110,7 @@ $routes = [
     '/lib/alliance_actions.php'  => '../src/Controllers/AllianceController.php',
     '/lib/armory_actions.php'    => '../src/Controllers/ArmoryController.php',
     '/levelup.php'               => '../src/Controllers/LevelUpController.php',
+    '/lib/war_actions.php'       => '../src/Controllers/WarController.php',
 ];
 
 // Define which routes require the user to be logged in
@@ -114,7 +124,11 @@ $authenticated_routes = [
     '/alliance_bank', '/alliance_bank.php', '/alliance_roles', '/alliance_roles.php', 
     '/alliance_structures', '/alliance_structures.php', '/alliance_transfer', 
     '/alliance_transfer.php', '/alliance_forum', '/alliance_forum.php', 
-    '/create_thread', '/create_thread.php', '/view_thread', '/view_thread.php'
+    '/create_thread', '/create_thread.php', '/view_thread', '/view_thread.php',
+    '/war_declaration', '/war_declaration.php', '/view_alliances', '/view_alliances.php',
+    '/view_alliance', '/view_alliance.php',
+    '/realm_war', '/realm_war.php',
+    '/lib/war_actions.php'
 ];
 
 // --- ROUTING LOGIC ---
