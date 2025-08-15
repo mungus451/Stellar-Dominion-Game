@@ -31,10 +31,10 @@ class BaseAllianceController
     /**
      * UNIFIED: Minimal + enriched user/alliance/role info for a given user.
      * Returns keys:
-     *  - user_id, character_name
-     *  - alliance_id (nullable), alliance_role_id (nullable), alliance_role_name (nullable)
-     *  - leader_id (nullable)
-     *  - permissions {} (booleans for all alliance perms; empty if not in an alliance or no role)
+     * - user_id, character_name
+     * - alliance_id (nullable), alliance_role_id (nullable), alliance_role_name (nullable)
+     * - leader_id (nullable)
+     * - permissions {} (booleans for all alliance perms; empty if not in an alliance or no role)
      */
     public function getUserRoleInfo(int $user_id): array
     {
@@ -121,12 +121,12 @@ class BaseAllianceController
      * If the user is not in an alliance, return null (alliance.php handles this case).
      *
      * Returns a merged structure of the alliance row PLUS:
-     *  - alliance_id            (flat alias for convenience)
-     *  - leader_name            (resolved from users table)
-     *  - members[]              (see getMembers)
-     *  - roles[]                (see getRoles)
-     *  - applications[]         (pending apps)
-     *  - permissions{}          (resolved from role)
+     * - alliance_id            (flat alias for convenience)
+     * - leader_name            (resolved from users table)
+     * - members[]              (see getMembers)
+     * - roles[]                (see getRoles)
+     * - applications[]         (pending apps)
+     * - permissions{}          (resolved from role)
      */
     public function getAllianceDataForUser(int $user_id): ?array
     {
@@ -254,7 +254,7 @@ class BaseAllianceController
     public function getRoles(int $alliance_id): array
     {
         $stmt = $this->db->prepare("
-            SELECT id, name, `order`, can_edit_profile, can_approve_membership, can_kick_members,
+            SELECT id, name, `order`, is_deletable, can_edit_profile, can_approve_membership, can_kick_members,
                    can_manage_roles, can_manage_structures, can_manage_treasury, can_invite_members,
                    can_moderate_forum, can_sticky_threads, can_lock_threads, can_delete_posts
             FROM alliance_roles

@@ -18,16 +18,15 @@ class AllianceManagementController extends BaseAllianceController
     {
         $this->db->begin_transaction();
         try {
-            $redirect_url = '/alliance_roles.php'; // Default for role actions
+            $redirect_url = '/alliance'; // Default redirect for most actions
 
             switch ($action) {
+                // ... (existing cases like apply_to_alliance, cancel_application)
                 case 'apply_to_alliance':
                     $this->applyToAlliance();
-                    $redirect_url = '/alliance'; // Correct redirect for this action
                     break;
                 case 'cancel_application':
                     $this->cancelApplication();
-                    $redirect_url = '/alliance';
                     break;
                 case 'accept_application':
                     $this->acceptApplication();
@@ -37,9 +36,14 @@ class AllianceManagementController extends BaseAllianceController
                     $this->denyApplication();
                     $redirect_url = '/alliance?tab=applications';
                     break;
-                case 'create_alliance':
-                    $this->createAlliance($_POST['alliance_name'], $_POST['alliance_tag'], $_POST['description']);
-                    break; // Exits within method
+                case 'kick':
+                    $this->kickMember();
+                    break;
+                case 'leave':
+                     $this->leaveAlliance();
+                     break;
+
+                // Role and Permission Actions
                 case 'update_permissions':
                     $this->updateRolePermissions();
                     $_SESSION['alliance_roles_message'] = "Permissions updated successfully.";
@@ -47,7 +51,7 @@ class AllianceManagementController extends BaseAllianceController
                     break;
                 case 'update_member_role':
                     $this->assignMemberRole();
-                    $redirect_url = '/alliance_roles.php?tab=members';
+                     $redirect_url = '/alliance_roles.php?tab=members';
                     break;
                 case 'add_role':
                     $this->addRole();
@@ -57,27 +61,35 @@ class AllianceManagementController extends BaseAllianceController
                     $this->deleteRole();
                     $redirect_url = '/alliance_roles.php?tab=roles';
                     break;
+
+                // Alliance Profile and Leadership
+                case 'create_alliance':
+                    $this->createAlliance($_POST['alliance_name'], $_POST['alliance_tag'], $_POST['description']);
+                    break; // Exits within method
                 case 'edit':
                     $this->editAlliance();
                     $redirect_url = '/edit_alliance';
                     break;
                 case 'disband':
                     $this->disbandAlliance();
-                    $redirect_url = '/alliance';
                     break;
+                case 'transfer_leadership':
+                    $this->transferLeadership();
+                    $redirect_url = '/alliance_roles.php?tab=leadership';
+                    break;
+
                 default:
                     throw new Exception("Invalid management action specified.");
             }
             $this->db->commit();
         } catch (Exception $e) {
             $this->db->rollback();
-            // Use a generic session error key, the page itself will display it
             $_SESSION['alliance_error'] = $e->getMessage();
             
-            // Determine redirect on error
-            if (in_array($action, ['edit', 'disband'])) {
+            // Determine redirect on error based on the action attempted
+             if (in_array($action, ['edit', 'disband', 'transfer_leadership'])) {
                 $redirect_url = '/edit_alliance';
-            } elseif (in_array($action, ['apply_to_alliance', 'cancel_application', 'accept_application', 'deny_application'])) {
+            } elseif (in_array($action, ['apply_to_alliance', 'cancel_application', 'accept_application', 'deny_application', 'kick', 'leave'])) {
                 $redirect_url = '/alliance';
             } else {
                 $redirect_url = '/alliance_roles.php';
@@ -86,6 +98,48 @@ class AllianceManagementController extends BaseAllianceController
         
         header("Location: " . $redirect_url);
         exit();
+    }
+    
+    private function kickMember()
+    {
+        $member_id_to_kick = (int)($_POST['member_id'] ?? 0);
+        if ($member_id_to_kick <= 0) {
+            throw new Exception("Invalid member specified for kicking.");
+        }
+
+        $currentUserData = $this->getAllianceDataForUser($this->user_id);
+        if (empty($currentUserData['permissions']['can_kick_members'])) {
+            throw new Exception("You do not have permission to kick members.");
+        }
+
+        // Additional checks (e.g., cannot kick self, cannot kick leader) can be added here
+        if ($member_id_to_kick === $this->user_id) {
+            throw new Exception("You cannot kick yourself.");
+        }
+        if ($member_id_to_kick === (int)$currentUserData['leader_id']) {
+            throw new Exception("You cannot kick the alliance leader.");
+        }
+
+        // Logic to remove the member from the alliance
+        $stmt = $this->db->prepare("UPDATE users SET alliance_id = NULL, alliance_role_id = NULL WHERE id = ? AND alliance_id = ?");
+        $stmt->bind_param("ii", $member_id_to_kick, $currentUserData['id']);
+        $stmt->execute();
+
+        if ($stmt->affected_rows > 0) {
+            $_SESSION['alliance_message'] = "Member has been kicked from the alliance.";
+        } else {
+            throw new Exception("Failed to kick member. They may not be in your alliance.");
+        }
+        $stmt->close();
+    }
+    
+    private function leaveAlliance() {
+        $stmt = $this->db->prepare("UPDATE users SET alliance_id = NULL, alliance_role_id = NULL WHERE id = ?");
+        $stmt->bind_param("i", $this->user_id);
+        $stmt->execute();
+        $stmt->close();
+
+        $_SESSION['alliance_message'] = "You have left the alliance.";
     }
 
     private function acceptApplication()
