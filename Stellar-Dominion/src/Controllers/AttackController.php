@@ -45,6 +45,8 @@ const STRUCT_ADVANTAGE_EXP        = 0.75;
 const STRUCT_TURNS_EXP            = 0.40;
 const STRUCT_MIN_DMG_IF_WIN       = 0.05;
 const STRUCT_MAX_DMG_IF_WIN       = 0.25;
+// --- NEW: Prestige constant (added without removing anything else) ---
+const BASE_PRESTIGE_GAIN          = 10; // New constant for prestige
 
 // Input Validation
 $attacker_id  = $_SESSION["id"];
@@ -272,6 +274,101 @@ try {
     $guards_lost_log      = max(0, (int)$guards_lost);
     $structure_damage_log = max(0, (int)$structure_damage);
     $logged_stolen        = $attacker_wins ? (int)$actual_stolen : 0;
+
+    // --- NEW: WAR & RIVALRY TRACKING (existing block preserved) ---
+    if ($attacker['alliance_id'] && $defender['alliance_id']) {
+        $alliance1 = (int)$attacker['alliance_id'];
+        $alliance2 = (int)$defender['alliance_id'];
+
+        // 1. Update Rivalry Heat
+        $sql_rivalry = "INSERT INTO rivalries (alliance1_id, alliance2_id, heat_level, last_attack_date) VALUES (?, ?, 1, NOW()) ON DUPLICATE KEY UPDATE heat_level = heat_level + 1, last_attack_date = NOW()";
+        $stmt_rivalry = mysqli_prepare($link, $sql_rivalry);
+        // Ensure consistent ordering for the unique key
+        if ($alliance1 < $alliance2) {
+            $stmt_rivalry->bind_param("ii", $alliance1, $alliance2);
+        } else {
+            $stmt_rivalry->bind_param("ii", $alliance2, $alliance1);
+        }
+        mysqli_stmt_execute($stmt_rivalry);
+        mysqli_stmt_close($stmt_rivalry);
+
+        // 2. Update War Goal Progress
+        $sql_war = "SELECT id, goal_metric, declarer_alliance_id FROM wars WHERE status = 'active' AND ((declarer_alliance_id = ? AND declared_against_alliance_id = ?) OR (declarer_alliance_id = ? AND declared_against_alliance_id = ?))";
+        $stmt_war = mysqli_prepare($link, $sql_war);
+        mysqli_stmt_bind_param($stmt_war, "iiii", $alliance1, $alliance2, $alliance2, $alliance1);
+        mysqli_stmt_execute($stmt_war);
+        $war = mysqli_fetch_assoc(mysqli_stmt_get_result($stmt_war));
+        mysqli_stmt_close($stmt_war);
+
+        if ($war) {
+            $progress_value = 0;
+            switch ($war['goal_metric']) {
+                case 'credits_plundered':
+                    $progress_value = $logged_stolen;
+                    break;
+                case 'units_killed':
+                    $progress_value = $guards_lost; // This can be expanded later
+                    break;
+                case 'structures_destroyed':
+                    $progress_value = $structure_damage;
+                    break;
+                case 'prestige_change':
+                    // handled below; we still track via prestige calc
+                    break;
+            }
+
+            if ($progress_value > 0) {
+                // Determine who gets the progress
+                $progress_column = ($alliance1 === (int)$war['declarer_alliance_id']) ? 'goal_progress_declarer' : 'goal_progress_declared_against';
+                
+                $sql_update_progress = "UPDATE wars SET $progress_column = $progress_column + ? WHERE id = ?";
+                $stmt_progress = mysqli_prepare($link, $sql_update_progress);
+                mysqli_stmt_bind_param($stmt_progress, "ii", $progress_value, $war['id']);
+                mysqli_stmt_execute($stmt_progress);
+                mysqli_stmt_close($stmt_progress);
+            }
+        }
+
+        // 3. NEW: Prestige tracking (added per your snippet)
+        $war_prestige_change = 0;
+        $level_difference = abs((int)$attacker['level'] - (int)$defender['level']);
+        $prestige_modifier = 1 + ($level_difference * 0.1); // More prestige for fighting closer levels
+        $base_prestige_change = (int)floor(BASE_PRESTIGE_GAIN * $prestige_modifier * ($attack_turns / 5));
+
+        $winner_alliance_id = $attacker_wins ? $alliance1 : $alliance2;
+        $loser_alliance_id  = $attacker_wins ? $alliance2 : $alliance1;
+        $war_prestige_change = $attacker_wins ? $base_prestige_change : -$base_prestige_change;
+
+        // Grant prestige to alliances
+        $stmt_winner = mysqli_prepare($link, "UPDATE alliances SET war_prestige = war_prestige + ? WHERE id = ?");
+        mysqli_stmt_bind_param($stmt_winner, "ii", $base_prestige_change, $winner_alliance_id);
+        mysqli_stmt_execute($stmt_winner);
+        mysqli_stmt_close($stmt_winner);
+
+        $loser_prestige_loss = (int)floor($base_prestige_change / 2);
+        $stmt_loser = mysqli_prepare($link, "UPDATE alliances SET war_prestige = GREATEST(0, war_prestige - ?) WHERE id = ?");
+        mysqli_stmt_bind_param($stmt_loser, "ii", $loser_prestige_loss, $loser_alliance_id);
+        mysqli_stmt_execute($stmt_loser);
+        mysqli_stmt_close($stmt_loser);
+
+        // Grant personal prestige
+        $attacker_personal_prestige = $attacker_wins ? 2 : 1;
+        $defender_personal_prestige = $attacker_wins ? 1 : 2;
+        mysqli_query($link, "UPDATE users SET war_prestige = war_prestige + $attacker_personal_prestige WHERE id = $attacker_id");
+        mysqli_query($link, "UPDATE users SET war_prestige = war_prestige + $defender_personal_prestige WHERE id = $defender_id");
+
+        // Update war goal if metric is prestige
+        if (isset($war) && $war && $war['goal_metric'] === 'prestige_change') {
+            $progress_column = ($alliance1 === (int)$war['declarer_alliance_id']) ? 'goal_progress_declarer' : 'goal_progress_declared_against';
+            $sql_update_progress = "UPDATE wars SET $progress_column = $progress_column + ? WHERE id = ?";
+            $stmt_progress = mysqli_prepare($link, $sql_update_progress);
+            $abs_prestige = abs($war_prestige_change);
+            mysqli_stmt_bind_param($stmt_progress, "ii", $abs_prestige, $war['id']);
+            mysqli_stmt_execute($stmt_progress);
+            mysqli_stmt_close($stmt_progress);
+        }
+    }
+    // --- END: WAR & RIVALRY TRACKING ---
 
     $sql_log = "INSERT INTO battle_logs (attacker_id, defender_id, attacker_name, defender_name, outcome, credits_stolen, attack_turns_used, attacker_damage, defender_damage, attacker_xp_gained, defender_xp_gained, guards_lost, structure_damage) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)";
     $stmt_log = mysqli_prepare($link, $sql_log);

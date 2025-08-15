@@ -877,6 +877,58 @@ $armory_loadouts = [
     ]
 ];
 
+// --- NEW: War & Diplomacy System Data ---
+
+$casus_belli_presets = [
+    'liberation' => [
+        'name' => 'Liberation',
+        'description' => 'Claim to free the galaxy from tyranny. High reputation gain on victory, but lower plunder rewards.',
+        'modifiers' => ['reputation' => 1.5, 'plunder' => 0.75, 'morale' => 1.1]
+    ],
+    'subjugation' => [
+        'name' => 'Subjugation',
+        'description' => 'A brutal conquest for dominance. High plunder rewards, but a significant reputation penalty.',
+        'modifiers' => ['reputation' => 0.5, 'plunder' => 1.25, 'morale' => 0.9]
+    ],
+    'territorial_dispute' => [
+        'name' => 'Territorial Dispute',
+        'description' => 'A conflict over a contested star system. Balanced modifiers.',
+        'modifiers' => ['reputation' => 1.0, 'plunder' => 1.0, 'morale' => 1.0]
+    ],
+    'economic_sanctions' => [
+        'name' => 'Enforce Sanctions',
+        'description' => 'Punish a rival for economic transgressions. Focuses on resource drain.',
+        'modifiers' => ['reputation' => 1.1, 'plunder' => 1.1, 'morale' => 1.0]
+    ]
+];
+
+$war_goal_presets = [
+    'attrition' => [
+        'name' => 'War of Attrition',
+        'description' => 'Win by inflicting massive casualties on the enemy.',
+        'metric' => 'units_killed',
+        'threshold' => 50000 // Example value, admin can tune
+    ],
+    'plunder' => [
+        'name' => 'Raid for Profit',
+        'description' => 'Win by plundering a vast amount of resources.',
+        'metric' => 'credits_plundered',
+        'threshold' => 1000000000 // Example value
+    ],
+    'destruction' => [
+        'name' => 'Total Annihilation',
+        'description' => 'Win by shattering the enemy\'s infrastructure.',
+        'metric' => 'structures_destroyed', // Note: This will require tracking structure HP damage in battle logs
+        'threshold' => 500000 // Example value, representing total structure HP
+    ],
+    'humiliation' => [
+        'name' => 'Humiliation',
+        'description' => 'Win by crushing the enemy\'s will to fight and gaining superior prestige.',
+        'metric' => 'prestige_change',
+        'threshold' => 1000 // Example value
+    ]
+];
+
 // --- SECURITY QUESTIONS for Account Recovery ---
 $security_questions = [
     1 => "What was the name of your first pet?",

@@ -3,6 +3,7 @@
  * template/pages/alliance.php
  *
  * Main hub for all alliance activities. Reverted to work with mysqli.
+ * Now includes the Rivalry display section for members.
  */
 
 // The main router (index.php) includes config.php, making $link available.
@@ -142,6 +143,35 @@ if (!$alliance) { // User is not in an alliance
                 <div class="content-box rounded-lg p-6">
                     <h3 class="font-title text-cyan-400">Alliance Charter</h3>
                     <div class="mt-2 text-sm italic prose max-w-none prose-invert text-gray-300"><?php echo nl2br(htmlspecialchars($alliance['description'])); ?></div>
+                </div>
+
+                <div class="content-box rounded-lg p-6 mt-4">
+                    <h3 class="font-title text-yellow-400">Active Rivalries</h3>
+                    <?php 
+                        $rivalries_sql = "
+                            SELECT r.heat_level, a.id, a.name, a.tag
+                            FROM rivalries r
+                            JOIN alliances a ON (a.id = r.alliance1_id OR a.id = r.alliance2_id)
+                            WHERE (r.alliance1_id = {$alliance['id']} OR r.alliance2_id = {$alliance['id']})
+                              AND a.id != {$alliance['id']}
+                            ORDER BY r.heat_level DESC
+                            LIMIT 5";
+                        $rivalries_result = $link->query($rivalries_sql);
+                        if ($rivalries_result && $rivalries_result->num_rows > 0):
+                    ?>
+                    <div class="space-y-3 mt-2">
+                        <?php while($rival = $rivalries_result->fetch_assoc()): ?>
+                        <div class="bg-gray-800 p-2 rounded-md">
+                             <div class="flex justify-between items-center text-sm font-bold">
+                                <span class="text-white">[<?= htmlspecialchars($rival['tag']) ?>] <?= htmlspecialchars($rival['name']) ?></span>
+                                <span class="text-red-400">Heat: <?= $rival['heat_level'] ?></span>
+                            </div>
+                        </div>
+                        <?php endwhile; ?>
+                    </div>
+                    <?php else: ?>
+                    <p class="text-sm text-gray-400 mt-2 italic">This alliance currently has no active rivalries.</p>
+                    <?php endif; ?>
                 </div>
 
                 <div class="border-b border-gray-600">

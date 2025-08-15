@@ -11,12 +11,26 @@ if (isset($_SESSION['vacation_until']) && new DateTime() < new DateTime($_SESSIO
     exit;
 }
 // CENTRALIZED DATABASE CONNECTION & CONFIGURATION
-// config.php is responsible for loading all its own dependencies, including security.
 require_once __DIR__ . '/../config/config.php';
 require_once __DIR__ . '/../src/Controllers/BaseController.php';
 
 // Get the requested URL path
 $request_uri = parse_url($_SERVER['REQUEST_URI'], PHP_URL_PATH);
+
+// Special handling for POST requests to war_declaration.php
+if ($request_uri === '/war_declaration.php' && $_SERVER['REQUEST_METHOD'] === 'POST') {
+    try {
+        require_once __DIR__ . '/../src/Controllers/WarController.php';
+        $controller = new WarController();
+        $controller->dispatch($_POST['action'] ?? '');
+    } catch (Exception $e) {
+        $_SESSION['alliance_error'] = $e->getMessage(); // Use a general error key
+        header('Location: /war_declaration.php');
+        exit;
+    }
+    exit;
+}
+
 
 // Map URL routes to their corresponding PHP script files
 $routes = [
@@ -65,6 +79,8 @@ $routes = [
     '/forgot_password.php'  => '../template/pages/forgot_password.php',
     '/reset_password'       => '../template/pages/reset_password.php',
     '/reset_password.php'   => '../template/pages/reset_password.php',
+    '/war_leaderboard'      => '../template/pages/war_leaderboard.php',
+    '/war_leaderboard.php'  => '../template/pages/war_leaderboard.php',
 
 
     // Alliance Page Views
@@ -94,9 +110,12 @@ $routes = [
     '/view_alliances.php'      => '../template/pages/view_alliances.php',
     '/view_alliance'           => '../template/pages/view_alliance.php',
     '/view_alliance.php'       => '../template/pages/view_alliance.php',
-    '/realm_war'           => '../template/pages/realm_war.php',
-    '/realm_war.php'       => '../template/pages/realm_war.php',
-
+    '/realm_war'               => '../template/pages/realm_war.php',
+    '/realm_war.php'           => '../template/pages/realm_war.php',
+    '/war_archives'            => '../template/pages/war_archives.php',
+    '/war_archives.php'        => '../template/pages/war_archives.php',
+    '/diplomacy'               => '../template/pages/diplomacy.php',
+    '/diplomacy.php'           => '../template/pages/diplomacy.php',
     // Action Handlers
     '/auth.php'                  => '../src/Controllers/AuthController.php',
     '/lib/train.php'             => '../src/Controllers/TrainingController.php',
@@ -110,7 +129,6 @@ $routes = [
     '/lib/alliance_actions.php'  => '../src/Controllers/AllianceController.php',
     '/lib/armory_actions.php'    => '../src/Controllers/ArmoryController.php',
     '/levelup.php'               => '../src/Controllers/LevelUpController.php',
-    '/lib/war_actions.php'       => '../src/Controllers/WarController.php',
 ];
 
 // Define which routes require the user to be logged in
@@ -128,7 +146,6 @@ $authenticated_routes = [
     '/war_declaration', '/war_declaration.php', '/view_alliances', '/view_alliances.php',
     '/view_alliance', '/view_alliance.php',
     '/realm_war', '/realm_war.php',
-    '/lib/war_actions.php'
 ];
 
 // --- ROUTING LOGIC ---
@@ -140,8 +157,6 @@ if (array_key_exists($request_uri, $routes)) {
             exit;
         }
     }
-    // This path construction correctly navigates from /public up to the project root
-    // and then into the template or src directories as defined in the $routes array.
     require_once __DIR__ . '/' . $routes[$request_uri];
 } else {
     http_response_code(404);

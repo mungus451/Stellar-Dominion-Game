@@ -35,9 +35,8 @@ $sub_nav_links = [
         'Bank' => '/alliance_bank.php',
         'Structures' => '/alliance_structures.php',
         'Forum' => '/alliance_forum.php',
-        'Recruitment' => '/alliance.php?tab=applications',
+        'Diplomacy' => '/diplomacy.php',
         'Roles & Permissions' => '/alliance_roles.php',
-        // New: War lives under Alliance
         'War' => '/war_declaration.php'
     ],
     'STRUCTURES' => [
@@ -46,6 +45,7 @@ $sub_nav_links = [
     'COMMUNITY' => [
         'News' => '/community.php',
         'Leaderboards' => '/stats.php',
+        'War Leaderboard' => '/war_leaderboard.php',
         'Discord' => 'https://discord.gg/sCKvuxHAqt'
     ]
 ];
@@ -57,8 +57,8 @@ $sub_nav_links = [
 $sub_sub_nav_links = [
     'WAR' => [
         'War Declaration' => '/war_declaration.php',
-        'View Alliances'  => '/view_alliances.php',
-        'Realm War'       => '/realm_war.php'
+        'Realm War'       => '/realm_war.php',
+        'War Archives'    => '/war_archives.php'
     ],
 ];
 
@@ -72,20 +72,19 @@ if (in_array($active_page, ['battle.php', 'attack.php', 'war_history.php', 'armo
 } elseif (in_array($active_page, [
     'alliance.php', 'create_alliance.php', 'edit_alliance.php', 'alliance_roles.php',
     'alliance_bank.php', 'alliance_transfer.php', 'alliance_structures.php',
-    'alliance_forum.php', 'create_thread.php', 'view_thread.php',
-    // Treat WAR pages as part of ALLIANCE now
-    'war_declaration.php', 'view_alliances.php', 'view_alliance.php', 'realm_war.php'
+    'alliance_forum.php', 'create_thread.php', 'view_thread.php', 'diplomacy.php',
+    'war_declaration.php', 'view_alliances.php', 'view_alliance.php', 'realm_war.php', 'war_archives.php'
 ])) {
     $active_main_category = 'ALLIANCE';
 } elseif (in_array($active_page, ['structures.php'])) {
     $active_main_category = 'STRUCTURES';
-} elseif (in_array($active_page, ['community.php', 'stats.php'])) {
+} elseif (in_array($active_page, ['community.php', 'stats.php', 'war_leaderboard.php'])) {
     $active_main_category = 'COMMUNITY';
 }
 
 // Determine active sub-category (only needed for WAR third-level)
 $active_sub_category = null;
-if (in_array($active_page, ['war_declaration.php', 'view_alliances.php', 'view_alliance.php', 'realm_war.php'])) {
+if (in_array($active_page, ['war_declaration.php', 'view_alliances.php', 'view_alliance.php', 'realm_war.php', 'war_archives.php', 'diplomacy.php'])) {
     $active_sub_category = 'WAR';
 }
 
@@ -95,7 +94,6 @@ if (in_array($active_page, ['war_declaration.php', 'view_alliances.php', 'view_a
 </header>
 
 <div class="main-bg border border-gray-700 rounded-lg shadow-2xl p-1">
-    <!-- Main nav -->
     <nav class="flex justify-center flex-wrap items-center gap-x-2 gap-y-1 md:gap-x-6 bg-gray-900 p-2 rounded-t-md">
         <?php foreach ($main_nav_links as $title => $link): ?>
             <a href="<?php echo $link; ?>"
@@ -105,13 +103,12 @@ if (in_array($active_page, ['war_declaration.php', 'view_alliances.php', 'view_a
         <?php endforeach; ?>
     </nav>
 
-    <!-- Second-level (sub) nav -->
     <?php if (isset($sub_nav_links[$active_main_category]) && !empty($sub_nav_links[$active_main_category])): ?>
     <div class="bg-gray-800 text-center p-2 flex justify-center flex-wrap gap-x-4 gap-y-1">
         <?php foreach ($sub_nav_links[$active_main_category] as $title => $link):
             $is_external = filter_var($link, FILTER_VALIDATE_URL);
             $is_active_sub = ($link == $active_page_path)
-                || ($title === 'War' && in_array($active_page, ['war_declaration.php','view_alliances.php','view_alliance.php','realm_war.php']));
+                || ($title === 'War' && in_array($active_page, ['war_declaration.php','view_alliances.php','view_alliance.php','realm_war.php', 'war_archives.php', 'diplomacy.php']));
         ?>
              <a href="<?php echo $link; ?>"
                 <?php if ($is_external) echo 'target="_blank" rel="noopener noreferrer"'; ?>
@@ -122,7 +119,6 @@ if (in_array($active_page, ['war_declaration.php', 'view_alliances.php', 'view_a
     </div>
     <?php endif; ?>
 
-    <!-- Third-level (WAR) nav -->
     <?php if ($active_sub_category && isset($sub_sub_nav_links[$active_sub_category])): ?>
     <div class="bg-gray-700 text-center p-2 flex justify-center flex-wrap gap-x-4 gap-y-1">
         <?php foreach ($sub_sub_nav_links[$active_sub_category] as $title => $link):
