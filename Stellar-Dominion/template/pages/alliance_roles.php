@@ -79,9 +79,12 @@ $all_permission_keys = [
                     <?php echo htmlspecialchars($_SESSION['alliance_roles_message']); unset($_SESSION['alliance_roles_message']); ?>
                 </div>
             <?php endif; ?>
-            <?php if(isset($_SESSION['alliance_roles_error'])): ?>
+            <?php if(isset($_SESSION['alliance_error']) || isset($_SESSION['alliance_roles_error'])): ?>
                 <div class="bg-red-900 border border-red-500/50 text-red-300 p-3 rounded-md text-center">
-                    <?php echo htmlspecialchars($_SESSION['alliance_roles_error']); unset($_SESSION['alliance_roles_error']); ?>
+                    <?php 
+                        echo htmlspecialchars($_SESSION['alliance_error'] ?? $_SESSION['alliance_roles_error']); 
+                        unset($_SESSION['alliance_error'], $_SESSION['alliance_roles_error']); 
+                    ?>
                 </div>
             <?php endif; ?>
 
@@ -129,6 +132,7 @@ $all_permission_keys = [
             </div>
 
             <div id="roles-content" class="<?php if ($current_tab !== 'roles') echo 'hidden'; ?> space-y-4">
+                <?php if ($is_leader): ?>
                 <div class="bg-gray-900/50 rounded-lg p-4">
                      <h3 class="font-title text-xl text-cyan-400 border-b border-gray-600 pb-2 mb-3">Create New Role</h3>
                      <form action="/alliance_roles.php" method="POST" class="grid grid-cols-1 md:grid-cols-3 gap-4 items-end">
@@ -139,40 +143,54 @@ $all_permission_keys = [
                             <input type="text" id="role_name" name="role_name" class="w-full bg-gray-800 border border-gray-600 rounded-md p-2 mt-1" required>
                         </div>
                         <div>
-                            <label for="order" class="font-semibold text-white text-sm">Hierarchy Order</label>
-                            <input type="number" id="order" name="order" min="2" class="w-full bg-gray-800 border border-gray-600 rounded-md p-2 mt-1" required>
+                            <label for="order" class="font-semibold text-white text-sm">Hierarchy Order (2-98)</label>
+                            <input type="number" id="order" name="order" min="2" max="98" class="w-full bg-gray-800 border border-gray-600 rounded-md p-2 mt-1" required>
                         </div>
                         <button type="submit" class="w-full bg-green-600 hover:bg-green-700 text-white font-bold py-2 px-4 rounded-lg">Create</button>
                      </form>
                 </div>
+                <?php endif; ?>
                 <?php foreach ($roles as $role): ?>
                 <div class="bg-gray-900/50 rounded-lg p-4">
-                    <h3 class="font-title text-xl text-white"><?php echo htmlspecialchars($role['name']); ?> (Order: <?php echo $role['order']; ?>)</h3>
                     <form action="/alliance_roles.php" method="POST">
                         <input type="hidden" name="csrf_token" value="<?php echo htmlspecialchars($csrf_token); ?>">
-                        <input type="hidden" name="action" value="update_permissions">
+                        <input type="hidden" name="action" value="update_role">
                         <input type="hidden" name="role_id" value="<?php echo $role['id']; ?>">
+                        
+                        <div class="flex items-center gap-4 mb-4">
+                            <div>
+                                <label class="text-xs font-semibold">Role Name</label>
+                                <input type="text" name="role_name" value="<?php echo htmlspecialchars($role['name']); ?>"
+                                       class="bg-gray-800 border border-gray-700 rounded-md p-2 mt-1 disabled:bg-gray-900 disabled:text-gray-500"
+                                       <?php if (!$is_leader || empty($role['is_deletable'])) echo 'disabled'; ?>>
+                            </div>
+                            <div>
+                                <label class="text-xs font-semibold">Hierarchy Order</label>
+                                <input type="number" name="order" value="<?php echo $role['order']; ?>"
+                                       class="w-24 bg-gray-800 border border-gray-700 rounded-md p-2 mt-1 disabled:bg-gray-900 disabled:text-gray-500"
+                                       min="2" max="98"
+                                       <?php if (!$is_leader || empty($role['is_deletable'])) echo 'disabled'; ?>>
+                            </div>
+                        </div>
+
                         <div class="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4 mt-3">
-                            <?php 
-                                // FIX: Instead of decoding a non-existent JSON column,
-                                // we now loop through the known permission keys and check
-                                // if the corresponding column in the $role array is true (1).
-                                foreach ($all_permission_keys as $key => $label): 
-                            ?>
+                            <?php foreach ($all_permission_keys as $key => $label): ?>
                             <div class="flex items-center">
                                 <input type="checkbox" name="permissions[]" value="<?php echo $key; ?>" id="perm_<?php echo $role['id'] . '_' . $key; ?>" 
                                        class="form-check-input bg-gray-700 border-gray-600 text-cyan-500"
                                        <?php if (!empty($role[$key])) echo 'checked'; ?>
-                                       <?php if ($role['order'] <= 1 && !$is_leader) echo 'disabled'; ?>>
+                                       <?php if (!$is_leader) echo 'disabled'; ?>>
                                 <label for="perm_<?php echo $role['id'] . '_' . $key; ?>" class="ml-2 text-sm"><?php echo $label; ?></label>
                             </div>
                             <?php endforeach; ?>
                         </div>
                         <div class="text-right mt-4 flex justify-end gap-2">
-                            <?php if ($role['is_deletable']): ?>
-                            <button type="submit" formaction="/alliance_roles.php" name="action" value="delete_role" class="bg-red-800 hover:bg-red-700 text-white font-bold py-2 px-4 rounded-lg text-sm">Delete</button>
+                            <?php if ($is_leader && !empty($role['is_deletable'])): ?>
+                            <button type="submit" formaction="/alliance_roles.php" name="action" value="delete_role" class="bg-red-800 hover:bg-red-700 text-white font-bold py-2 px-4 rounded-lg text-sm">Delete Role</button>
                             <?php endif; ?>
-                            <button type="submit" class="bg-cyan-600 hover:bg-cyan-700 text-white font-bold py-2 px-4 rounded-lg text-sm">Save Permissions</button>
+                             <?php if ($is_leader): ?>
+                            <button type="submit" class="bg-cyan-600 hover:bg-cyan-700 text-white font-bold py-2 px-4 rounded-lg text-sm">Save Role</button>
+                            <?php endif; ?>
                         </div>
                     </form>
                 </div>

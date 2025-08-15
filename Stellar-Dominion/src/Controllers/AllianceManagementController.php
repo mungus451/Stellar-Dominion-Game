@@ -21,7 +21,7 @@ class AllianceManagementController extends BaseAllianceController
             $redirect_url = '/alliance'; // Default redirect for most actions
 
             switch ($action) {
-                // ... (existing cases like apply_to_alliance, cancel_application)
+                // Application & Member Actions
                 case 'apply_to_alliance':
                     $this->applyToAlliance();
                     break;
@@ -40,18 +40,17 @@ class AllianceManagementController extends BaseAllianceController
                     $this->kickMember();
                     break;
                 case 'leave':
-                     $this->leaveAlliance();
-                     break;
+                    $this->leaveAlliance();
+                    break;
 
                 // Role and Permission Actions
-                case 'update_permissions':
-                    $this->updateRolePermissions();
-                    $_SESSION['alliance_roles_message'] = "Permissions updated successfully.";
+                case 'update_role': // This now handles name, order, and permissions
+                    $this->updateRole();
                     $redirect_url = '/alliance_roles.php?tab=roles';
                     break;
                 case 'update_member_role':
                     $this->assignMemberRole();
-                     $redirect_url = '/alliance_roles.php?tab=members';
+                    $redirect_url = '/alliance_roles.php?tab=members';
                     break;
                 case 'add_role':
                     $this->addRole();
@@ -87,8 +86,8 @@ class AllianceManagementController extends BaseAllianceController
             $_SESSION['alliance_error'] = $e->getMessage();
             
             // Determine redirect on error based on the action attempted
-             if (in_array($action, ['edit', 'disband', 'transfer_leadership'])) {
-                $redirect_url = '/edit_alliance';
+            if (in_array($action, ['edit', 'disband', 'transfer_leadership'])) {
+                $redirect_url = '/alliance_roles.php?tab=leadership';
             } elseif (in_array($action, ['apply_to_alliance', 'cancel_application', 'accept_application', 'deny_application', 'kick', 'leave'])) {
                 $redirect_url = '/alliance';
             } else {
@@ -100,6 +99,130 @@ class AllianceManagementController extends BaseAllianceController
         exit();
     }
     
+    private function transferLeadership()
+    {
+        $new_leader_id = (int)($_POST['new_leader_id'] ?? 0);
+        if ($new_leader_id <= 0) {
+            throw new Exception("Invalid member selected for leadership.");
+        }
+
+        $currentUserData = $this->getAllianceDataForUser($this->user_id);
+        if ((int)$currentUserData['leader_id'] !== $this->user_id) {
+            throw new Exception("Only the current alliance leader can transfer leadership.");
+        }
+        
+        $alliance_id = (int)$currentUserData['id'];
+
+        // Get the role of the person being promoted
+        $stmt_new_leader = $this->db->prepare("SELECT alliance_role_id FROM users WHERE id = ? AND alliance_id = ?");
+        $stmt_new_leader->bind_param("ii", $new_leader_id, $alliance_id);
+        $stmt_new_leader->execute();
+        $new_leader_data = $stmt_new_leader->get_result()->fetch_assoc();
+        $stmt_new_leader->close();
+
+        if (!$new_leader_data) {
+            throw new Exception("Selected member is not part of this alliance.");
+        }
+        $old_leader_new_role_id = $new_leader_data['alliance_role_id'];
+
+        // Get the leader role ID
+        $stmt_leader_role = $this->db->prepare("SELECT id FROM alliance_roles WHERE alliance_id = ? AND `order` = 1");
+        $stmt_leader_role->bind_param("i", $alliance_id);
+        $stmt_leader_role->execute();
+        $leader_role = $stmt_leader_role->get_result()->fetch_assoc();
+        $stmt_leader_role->close();
+        if (!$leader_role) {
+            throw new Exception("Could not find the 'Leader' role for this alliance.");
+        }
+        $leader_role_id = $leader_role['id'];
+
+        // Perform the swap
+        // 1. Promote new leader
+        $stmt_promote = $this->db->prepare("UPDATE users SET alliance_role_id = ? WHERE id = ?");
+        $stmt_promote->bind_param("ii", $leader_role_id, $new_leader_id);
+        $stmt_promote->execute();
+        $stmt_promote->close();
+
+        // 2. Demote old leader
+        $stmt_demote = $this->db->prepare("UPDATE users SET alliance_role_id = ? WHERE id = ?");
+        $stmt_demote->bind_param("ii", $old_leader_new_role_id, $this->user_id);
+        $stmt_demote->execute();
+        $stmt_demote->close();
+        
+        // 3. Update the leader_id in the alliances table
+        $stmt_update_alliance = $this->db->prepare("UPDATE alliances SET leader_id = ? WHERE id = ?");
+        $stmt_update_alliance->bind_param("ii", $new_leader_id, $alliance_id);
+        $stmt_update_alliance->execute();
+        $stmt_update_alliance->close();
+        
+        $_SESSION['alliance_roles_message'] = "Leadership has been successfully transferred.";
+    }
+
+    private function updateRole()
+    {
+        // 1. Permission Check: Only the leader can edit roles.
+        $currentUserData = $this->getAllianceDataForUser($this->user_id);
+        if ((int)$currentUserData['leader_id'] !== $this->user_id) {
+            throw new Exception("Only the alliance leader can edit roles.");
+        }
+        $alliance_id = (int)$currentUserData['id'];
+
+        // 2. Input Validation
+        $role_id = (int)($_POST['role_id'] ?? 0);
+        $role_name = trim($_POST['role_name'] ?? '');
+        $order = (int)($_POST['order'] ?? 0);
+        $permissions_posted = $_POST['permissions'] ?? [];
+
+        $role_to_edit = $this->getRoleById($role_id);
+        if (!$role_to_edit || (int)$role_to_edit['alliance_id'] !== $alliance_id) {
+            throw new Exception("Role not found in your alliance.");
+        }
+        
+        // Only allow editing of standard, deletable roles
+        if (empty($role_to_edit['is_deletable'])) {
+            // If the role is not deletable (e.g. Leader), only allow permission changes
+            $role_name = $role_to_edit['name'];
+            $order = $role_to_edit['order'];
+        } else {
+            // For standard roles, validate the new name and order
+            if ($role_id <= 0 || empty($role_name) || $order <= 1 || $order >= 99) {
+                throw new Exception("Invalid input. Role name is required, and order must be between 2 and 98.");
+            }
+            // Check for order conflicts
+            $stmt_check_order = $this->db->prepare("SELECT id FROM alliance_roles WHERE alliance_id = ? AND `order` = ? AND id != ?");
+            $stmt_check_order->bind_param("iii", $alliance_id, $order, $role_id);
+            $stmt_check_order->execute();
+            if ($stmt_check_order->get_result()->fetch_assoc()) {
+                $stmt_check_order->close();
+                throw new Exception("The hierarchy order '{$order}' is already in use by another role.");
+            }
+            $stmt_check_order->close();
+        }
+
+        // 3. Database Update
+        $set_clauses = ["`name` = ?", "`order` = ?"];
+        $params = [$role_name, $order];
+        $types = "si";
+
+        foreach ($this->getAllPermissionKeys() as $key) {
+            $value = in_array($key, $permissions_posted, true) ? 1 : 0;
+            $set_clauses[] = "`$key` = ?";
+            $params[] = $value;
+            $types .= "i";
+        }
+        
+        $params[] = $role_id;
+        $types .= "i";
+
+        $sql = "UPDATE alliance_roles SET " . implode(", ", $set_clauses) . " WHERE id = ?";
+        $stmt = $this->db->prepare($sql);
+        $stmt->bind_param($types, ...$params);
+        $stmt->execute();
+        $stmt->close();
+        
+        $_SESSION['alliance_roles_message'] = "Role '{$role_name}' updated successfully.";
+    }
+
     private function kickMember()
     {
         $member_id_to_kick = (int)($_POST['member_id'] ?? 0);
@@ -112,7 +235,6 @@ class AllianceManagementController extends BaseAllianceController
             throw new Exception("You do not have permission to kick members.");
         }
 
-        // Additional checks (e.g., cannot kick self, cannot kick leader) can be added here
         if ($member_id_to_kick === $this->user_id) {
             throw new Exception("You cannot kick yourself.");
         }
@@ -120,7 +242,6 @@ class AllianceManagementController extends BaseAllianceController
             throw new Exception("You cannot kick the alliance leader.");
         }
 
-        // Logic to remove the member from the alliance
         $stmt = $this->db->prepare("UPDATE users SET alliance_id = NULL, alliance_role_id = NULL WHERE id = ? AND alliance_id = ?");
         $stmt->bind_param("ii", $member_id_to_kick, $currentUserData['id']);
         $stmt->execute();
@@ -149,14 +270,12 @@ class AllianceManagementController extends BaseAllianceController
             throw new Exception("Invalid applicant specified.");
         }
 
-        // 1. Check permissions
         $currentUserData = $this->getAllianceDataForUser($this->user_id);
         if (empty($currentUserData['permissions']['can_approve_membership'])) {
             throw new Exception("You do not have permission to approve members.");
         }
         $alliance_id = (int)$currentUserData['id'];
 
-        // 2. Verify application exists and is pending
         $stmt_verify = $this->db->prepare("SELECT id FROM alliance_applications WHERE user_id = ? AND alliance_id = ? AND status = 'pending'");
         $stmt_verify->bind_param("ii", $applicant_id, $alliance_id);
         $stmt_verify->execute();
@@ -166,7 +285,6 @@ class AllianceManagementController extends BaseAllianceController
         }
         $stmt_verify->close();
         
-        // 3. Find the default "Recruit" role (highest order number)
         $stmt_role = $this->db->prepare("SELECT id FROM alliance_roles WHERE alliance_id = ? ORDER BY `order` DESC LIMIT 1");
         $stmt_role->bind_param("i", $alliance_id);
         $stmt_role->execute();
@@ -177,13 +295,11 @@ class AllianceManagementController extends BaseAllianceController
         }
         $recruit_role_id = $recruit_role['id'];
 
-        // 4. Update the user's alliance and role
         $stmt_update_user = $this->db->prepare("UPDATE users SET alliance_id = ?, alliance_role_id = ? WHERE id = ?");
         $stmt_update_user->bind_param("iii", $alliance_id, $recruit_role_id, $applicant_id);
         $stmt_update_user->execute();
         $stmt_update_user->close();
         
-        // 5. Delete the application record
         $stmt_delete_app = $this->db->prepare("DELETE FROM alliance_applications WHERE user_id = ? AND alliance_id = ?");
         $stmt_delete_app->bind_param("ii", $applicant_id, $alliance_id);
         $stmt_delete_app->execute();
@@ -199,14 +315,12 @@ class AllianceManagementController extends BaseAllianceController
             throw new Exception("Invalid applicant specified.");
         }
 
-        // 1. Check permissions
         $currentUserData = $this->getAllianceDataForUser($this->user_id);
         if (empty($currentUserData['permissions']['can_approve_membership'])) {
             throw new Exception("You do not have permission to deny members.");
         }
         $alliance_id = (int)$currentUserData['id'];
 
-        // 2. Delete the pending application
         $stmt_delete_app = $this->db->prepare("DELETE FROM alliance_applications WHERE user_id = ? AND alliance_id = ? AND status = 'pending'");
         $stmt_delete_app->bind_param("ii", $applicant_id, $alliance_id);
         $stmt_delete_app->execute();
@@ -240,7 +354,6 @@ class AllianceManagementController extends BaseAllianceController
             throw new Exception("Invalid alliance specified.");
         }
 
-        // Check if user is already in an alliance
         $stmt_check_member = $this->db->prepare("SELECT alliance_id FROM users WHERE id = ?");
         $stmt_check_member->bind_param("i", $this->user_id);
         $stmt_check_member->execute();
@@ -251,7 +364,6 @@ class AllianceManagementController extends BaseAllianceController
             throw new Exception("You are already in an alliance. You must leave your current alliance before applying to another.");
         }
 
-        // Check for existing pending applications
         $stmt_check_app = $this->db->prepare("SELECT id FROM alliance_applications WHERE user_id = ? AND status = 'pending'");
         $stmt_check_app->bind_param("i", $this->user_id);
         $stmt_check_app->execute();
@@ -261,7 +373,6 @@ class AllianceManagementController extends BaseAllianceController
         }
         $stmt_check_app->close();
 
-        // Check for existing pending invitations
         $stmt_check_invite = $this->db->prepare("SELECT id FROM alliance_invitations WHERE invitee_id = ? AND status = 'pending'");
         $stmt_check_invite->bind_param("i", $this->user_id);
         $stmt_check_invite->execute();
@@ -271,7 +382,6 @@ class AllianceManagementController extends BaseAllianceController
         }
         $stmt_check_invite->close();
         
-        // Insert new application
         $stmt_insert = $this->db->prepare("INSERT INTO alliance_applications (user_id, alliance_id, status) VALUES (?, ?, 'pending')");
         $stmt_insert->bind_param("ii", $this->user_id, $alliance_id);
         $stmt_insert->execute();
@@ -384,7 +494,6 @@ class AllianceManagementController extends BaseAllianceController
         $role_id = (int)($_POST['role_id'] ?? 0);
         if ($role_id <= 0) throw new Exception("Invalid role specified.");
 
-        // Base method (public) – no override here.
         $currentUser = $this->getUserRoleInfo($this->user_id);
         $roleToDelete = $this->getRoleById($role_id);
 
@@ -395,7 +504,6 @@ class AllianceManagementController extends BaseAllianceController
             throw new Exception("This role cannot be deleted.");
         }
 
-        // Compute current user's role order
         $currentRoleOrder = 999;
         if (!empty($currentUser['alliance_role_id'])) {
             $currRoleRow = $this->getRoleById((int)$currentUser['alliance_role_id']);
@@ -428,28 +536,29 @@ class AllianceManagementController extends BaseAllianceController
     {
         $role_name = trim($_POST['role_name'] ?? '');
         $order = (int)($_POST['order'] ?? 0);
-        if (empty($role_name) || $order <= 0) {
-            throw new Exception("Role Name and a valid Hierarchy Order are required.");
+        if (empty($role_name) || $order <= 1 || $order >= 99) {
+            throw new Exception("Role Name is required and Hierarchy Order must be between 2 and 98.");
         }
 
         $currentUser = $this->getUserRoleInfo($this->user_id);
+        $alliance_id = (int)$currentUser['alliance_id'];
 
-        // Compute current user's role order
-        $currentRoleOrder = 999;
-        if (!empty($currentUser['alliance_role_id'])) {
-            $currRoleRow = $this->getRoleById((int)$currentUser['alliance_role_id']);
-            if ($currRoleRow) $currentRoleOrder = (int)$currRoleRow['order'];
+        // Check for order conflicts
+        $stmt_check_order = $this->db->prepare("SELECT id FROM alliance_roles WHERE alliance_id = ? AND `order` = ?");
+        $stmt_check_order->bind_param("ii", $alliance_id, $order);
+        $stmt_check_order->execute();
+        if ($stmt_check_order->get_result()->fetch_assoc()) {
+            $stmt_check_order->close();
+            throw new Exception("The hierarchy order '{$order}' is already in use.");
         }
+        $stmt_check_order->close();
 
-        if ($order <= $currentRoleOrder) {
-            throw new Exception("You cannot create a role with a rank equal to or higher than your own.");
-        }
 
         $stmt = $this->db->prepare("INSERT INTO alliance_roles (alliance_id, name, `order`) VALUES (?, ?, ?)");
-        $stmt->bind_param("isi", $currentUser['alliance_id'], $role_name, $order);
+        $stmt->bind_param("isi", $alliance_id, $role_name, $order);
         if (!$stmt->execute()) {
             $stmt->close();
-            throw new Exception("Failed to create role. The name or hierarchy order may already be in use.");
+            throw new Exception("Failed to create role. The name may already be in use.");
         }
         $stmt->close();
 
@@ -475,7 +584,6 @@ class AllianceManagementController extends BaseAllianceController
             throw new Exception("Role not found in your alliance.");
         }
 
-        // Compute role orders (current user and target member)
         $currentRoleOrder = 999;
         if (!empty($currentUser['alliance_role_id'])) {
             $currRoleRow = $this->getRoleById((int)$currentUser['alliance_role_id']);
@@ -547,53 +655,6 @@ class AllianceManagementController extends BaseAllianceController
             }
             throw $e;
         }
-    }
-
-    private function updateRolePermissions()
-    {
-        $role_id = (int)($_POST['role_id'] ?? 0);
-        $permissions_posted = $_POST['permissions'] ?? [];
-        if ($role_id <= 0) throw new Exception("Invalid role specified.");
-
-        $currentUser = $this->getUserRoleInfo($this->user_id);
-        $targetRole  = $this->getRoleById($role_id);
-
-        if (!$targetRole || (int)$currentUser['alliance_id'] !== (int)$targetRole['alliance_id']) {
-            throw new Exception("Role not found in your alliance.");
-        }
-
-        // Compute current user's role order
-        $currentRoleOrder = 999;
-        if (!empty($currentUser['alliance_role_id'])) {
-            $currRoleRow = $this->getRoleById((int)$currentUser['alliance_role_id']);
-            if ($currRoleRow) $currentRoleOrder = (int)$currRoleRow['order'];
-        }
-
-        if ($currentRoleOrder !== 1 && $currentRoleOrder >= (int)$targetRole['order']) {
-            throw new Exception("You cannot edit permissions for a role of equal or higher rank.");
-        }
-        if (in_array('can_manage_roles', $permissions_posted, true) && $currentRoleOrder !== 1) {
-            throw new Exception("Only the alliance leader can grant the 'Manage Roles' permission.");
-        }
-
-        $set_clauses = [];
-        $params = [];
-        $types = "";
-        foreach ($this->getAllPermissionKeys() as $key) {
-            $value = in_array($key, $permissions_posted, true) ? 1 : 0;
-            $set_clauses[] = "`$key` = ?";
-            $params[] = $value;
-            $types .= "i";
-        }
-        
-        $sql = "UPDATE alliance_roles SET " . implode(", ", $set_clauses) . " WHERE id = ?";
-        $params[] = $role_id;
-        $types .= "i";
-
-        $stmt = $this->db->prepare($sql);
-        $stmt->bind_param($types, ...$params);
-        $stmt->execute();
-        $stmt->close();
     }
 
     private function getRoleById(int $role_id): ?array
