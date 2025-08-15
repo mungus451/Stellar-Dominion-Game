@@ -48,23 +48,40 @@ function can($permission_key) {
 $current_tab = isset($_GET['tab']) ? $_GET['tab'] : 'roster';
 
 $alliances_list = [];
-if (!$alliance) {
-    $search_term = isset($_GET['search']) ? trim($_GET['search']) : '';
-    $search_query = "%" . $search_term . "%";
-    $stmt = $link->prepare("
-        SELECT a.id, a.name, a.tag, (SELECT COUNT(*) FROM users WHERE alliance_id = a.id) as member_count
-        FROM alliances a
-        WHERE a.name LIKE ? OR a.tag LIKE ?
-        ORDER BY member_count DESC
-        LIMIT 50
-    ");
-    $stmt->bind_param("ss", $search_query, $search_query);
-    $stmt->execute();
-    $result = $stmt->get_result();
-    $alliances_list = $result->fetch_all(MYSQLI_ASSOC);
-    $stmt->close();
-}
+$pending_application = null; // Variable to hold application info
 
+if (!$alliance) { // User is not in an alliance
+    // Check for a pending application first
+    $stmt_app = $link->prepare("
+        SELECT aa.alliance_id, a.name, a.tag
+        FROM alliance_applications aa
+        JOIN alliances a ON aa.alliance_id = a.id
+        WHERE aa.user_id = ? AND aa.status = 'pending'
+    ");
+    $stmt_app->bind_param("i", $user_id);
+    $stmt_app->execute();
+    $result_app = $stmt_app->get_result();
+    $pending_application = $result_app->fetch_assoc();
+    $stmt_app->close();
+
+    // Only search for other alliances if the user has no pending application
+    if (!$pending_application) {
+        $search_term = isset($_GET['search']) ? trim($_GET['search']) : '';
+        $search_query = "%" . $search_term . "%";
+        $stmt_search = $link->prepare("
+            SELECT a.id, a.name, a.tag, (SELECT COUNT(*) FROM users WHERE alliance_id = a.id) as member_count
+            FROM alliances a
+            WHERE a.name LIKE ? OR a.tag LIKE ?
+            ORDER BY member_count DESC
+            LIMIT 50
+        ");
+        $stmt_search->bind_param("ss", $search_query, $search_query);
+        $stmt_search->execute();
+        $result_search = $stmt_search->get_result();
+        $alliances_list = $result_search->fetch_all(MYSQLI_ASSOC);
+        $stmt_search->close();
+    }
+}
 ?>
 <!DOCTYPE html>
 <html lang="en">
@@ -208,44 +225,57 @@ if (!$alliance) {
                 </div>
 
             <?php else: // START: USER IS NOT IN AN ALLIANCE ?>
-                <div class="content-box rounded-lg p-6 text-center">
-                    <h1 class="font-title text-3xl text-white">Forge Your Allegiance</h1>
-                    <p class="mt-2">You are currently unaligned. Apply to an existing alliance or spend 1,000,000 Credits to forge your own.</p>
-                    <a href="/create_alliance" class="mt-4 inline-block bg-green-600 hover:bg-green-700 text-white font-bold py-3 px-8 rounded-lg">Create Alliance</a>
-                </div>
+                <?php if ($pending_application): ?>
+                    <div class="content-box rounded-lg p-6 text-center">
+                        <h1 class="font-title text-3xl text-white">Application Pending</h1>
+                        <p class="mt-2">You have a pending application to join <strong class="text-cyan-400">[<?php echo htmlspecialchars($pending_application['tag']); ?>] <?php echo htmlspecialchars($pending_application['name']); ?></strong>.</p>
+                        <p class="text-sm text-gray-400">You must cancel this application before you can apply to another alliance.</p>
+                        <form action="/alliance" method="POST" class="mt-4">
+                            <input type="hidden" name="csrf_token" value="<?php echo htmlspecialchars($csrf_token); ?>">
+                            <input type="hidden" name="action" value="cancel_application">
+                            <button type="submit" class="bg-red-600 hover:bg-red-700 text-white font-bold py-3 px-8 rounded-lg">Cancel Application</button>
+                        </form>
+                    </div>
+                <?php else: ?>
+                    <div class="content-box rounded-lg p-6 text-center">
+                        <h1 class="font-title text-3xl text-white">Forge Your Allegiance</h1>
+                        <p class="mt-2">You are currently unaligned. Apply to an existing alliance or spend 1,000,000 Credits to forge your own.</p>
+                        <a href="/create_alliance" class="mt-4 inline-block bg-green-600 hover:bg-green-700 text-white font-bold py-3 px-8 rounded-lg">Create Alliance</a>
+                    </div>
 
-                <div class="content-box rounded-lg p-4 overflow-x-auto">
-                    <h3 class="font-title text-cyan-400 border-b border-gray-600 pb-2 mb-3">Join an Alliance</h3>
-                    <form action="/alliance" method="GET" class="mb-4">
-                        <div class="flex">
-                            <input type="text" name="search" placeholder="Search by name or tag..." value="<?php echo htmlspecialchars($_GET['search'] ?? ''); ?>" class="w-full bg-gray-900 border border-gray-600 rounded-l-md p-2">
-                            <button type="submit" class="bg-cyan-600 hover:bg-cyan-700 text-white font-bold py-2 px-4 rounded-r-md">Search</button>
-                        </div>
-                    </form>
-                    <table class="w-full text-sm text-left">
-                        <thead class="bg-gray-800"><tr><th class="p-2">Name</th><th class="p-2">Members</th><th class="p-2 text-right">Action</th></tr></thead>
-                        <tbody>
-                            <?php if (!empty($alliances_list)): ?>
-                                <?php foreach($alliances_list as $row): ?>
-                                <tr class="border-t border-gray-700">
-                                    <td class="p-2 text-white font-bold">[<?php echo htmlspecialchars($row['tag']); ?>] <?php echo htmlspecialchars($row['name']); ?></td>
-                                    <td class="p-2"><?php echo $row['member_count']; ?> / 50</td>
-                                    <td class="p-2 text-right">
-                                        <form action="/alliance" method="POST">
-                                            <input type="hidden" name="csrf_token" value="<?php echo htmlspecialchars($csrf_token); ?>">
-                                            <input type="hidden" name="action" value="apply_to_alliance">
-                                            <input type="hidden" name="alliance_id" value="<?php echo $row['id']; ?>">
-                                            <button type="submit" class="bg-cyan-600 hover:bg-cyan-700 text-white font-bold py-1 px-3 rounded-md text-xs">Apply</button>
-                                        </form>
-                                    </td>
-                                </tr>
-                                <?php endforeach; ?>
-                            <?php else: ?>
-                                <tr><td colspan="3" class="p-4 text-center">No alliances found.</td></tr>
-                            <?php endif; ?>
-                        </tbody>
-                    </table>
-                </div>
+                    <div class="content-box rounded-lg p-4 overflow-x-auto">
+                        <h3 class="font-title text-cyan-400 border-b border-gray-600 pb-2 mb-3">Join an Alliance</h3>
+                        <form action="/alliance" method="GET" class="mb-4">
+                            <div class="flex">
+                                <input type="text" name="search" placeholder="Search by name or tag..." value="<?php echo htmlspecialchars($_GET['search'] ?? ''); ?>" class="w-full bg-gray-900 border border-gray-600 rounded-l-md p-2">
+                                <button type="submit" class="bg-cyan-600 hover:bg-cyan-700 text-white font-bold py-2 px-4 rounded-r-md">Search</button>
+                            </div>
+                        </form>
+                        <table class="w-full text-sm text-left">
+                            <thead class="bg-gray-800"><tr><th class="p-2">Name</th><th class="p-2">Members</th><th class="p-2 text-right">Action</th></tr></thead>
+                            <tbody>
+                                <?php if (!empty($alliances_list)): ?>
+                                    <?php foreach($alliances_list as $row): ?>
+                                    <tr class="border-t border-gray-700">
+                                        <td class="p-2 text-white font-bold">[<?php echo htmlspecialchars($row['tag']); ?>] <?php echo htmlspecialchars($row['name']); ?></td>
+                                        <td class="p-2"><?php echo $row['member_count']; ?> / 50</td>
+                                        <td class="p-2 text-right">
+                                            <form action="/alliance" method="POST">
+                                                <input type="hidden" name="csrf_token" value="<?php echo htmlspecialchars($csrf_token); ?>">
+                                                <input type="hidden" name="action" value="apply_to_alliance">
+                                                <input type="hidden" name="alliance_id" value="<?php echo $row['id']; ?>">
+                                                <button type="submit" class="bg-cyan-600 hover:bg-cyan-700 text-white font-bold py-1 px-3 rounded-md text-xs">Apply</button>
+                                            </form>
+                                        </td>
+                                    </tr>
+                                    <?php endforeach; ?>
+                                <?php else: ?>
+                                    <tr><td colspan="3" class="p-4 text-center">No alliances found.</td></tr>
+                                <?php endif; ?>
+                            </tbody>
+                        </table>
+                    </div>
+                <?php endif; ?>
             <?php endif; // END: IF/ELSE FOR ALLIANCE MEMBERSHIP ?>
         </main>
     </div>

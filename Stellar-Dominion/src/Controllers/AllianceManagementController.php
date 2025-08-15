@@ -21,6 +21,14 @@ class AllianceManagementController extends BaseAllianceController
             $redirect_url = '/alliance_roles.php'; // Default for role actions
 
             switch ($action) {
+                case 'apply_to_alliance':
+                    $this->applyToAlliance();
+                    $redirect_url = '/alliance'; // Correct redirect for this action
+                    break;
+                case 'cancel_application':
+                    $this->cancelApplication();
+                    $redirect_url = '/alliance';
+                    break;
                 case 'create_alliance':
                     $this->createAlliance($_POST['alliance_name'], $_POST['alliance_tag'], $_POST['description']);
                     break; // Exits within method
@@ -61,6 +69,8 @@ class AllianceManagementController extends BaseAllianceController
             // Determine redirect on error
             if (in_array($action, ['edit', 'disband'])) {
                 $redirect_url = '/edit_alliance';
+            } elseif (in_array($action, ['apply_to_alliance', 'cancel_application'])) {
+                $redirect_url = '/alliance';
             } else {
                 $redirect_url = '/alliance_roles.php';
             }
@@ -69,6 +79,68 @@ class AllianceManagementController extends BaseAllianceController
         header("Location: " . $redirect_url);
         exit();
     }
+    
+    private function cancelApplication()
+    {
+        $stmt = $this->db->prepare("DELETE FROM alliance_applications WHERE user_id = ? AND status = 'pending'");
+        $stmt->bind_param("i", $this->user_id);
+        $stmt->execute();
+
+        if ($stmt->affected_rows > 0) {
+            $_SESSION['alliance_message'] = "Your application has been successfully canceled.";
+        } else {
+            $_SESSION['alliance_error'] = "No pending application found to cancel.";
+        }
+        $stmt->close();
+    }
+
+    private function applyToAlliance()
+    {
+        $alliance_id = (int)($_POST['alliance_id'] ?? 0);
+        if ($alliance_id <= 0) {
+            throw new Exception("Invalid alliance specified.");
+        }
+
+        // Check if user is already in an alliance
+        $stmt_check_member = $this->db->prepare("SELECT alliance_id FROM users WHERE id = ?");
+        $stmt_check_member->bind_param("i", $this->user_id);
+        $stmt_check_member->execute();
+        $user_data = $stmt_check_member->get_result()->fetch_assoc();
+        $stmt_check_member->close();
+
+        if (!empty($user_data['alliance_id'])) {
+            throw new Exception("You are already in an alliance. You must leave your current alliance before applying to another.");
+        }
+
+        // Check for existing pending applications
+        $stmt_check_app = $this->db->prepare("SELECT id FROM alliance_applications WHERE user_id = ? AND status = 'pending'");
+        $stmt_check_app->bind_param("i", $this->user_id);
+        $stmt_check_app->execute();
+        if ($stmt_check_app->get_result()->fetch_assoc()) {
+            $stmt_check_app->close();
+            throw new Exception("You already have a pending application to another alliance. Please cancel it before applying to a new one.");
+        }
+        $stmt_check_app->close();
+
+        // Check for existing pending invitations
+        $stmt_check_invite = $this->db->prepare("SELECT id FROM alliance_invitations WHERE invitee_id = ? AND status = 'pending'");
+        $stmt_check_invite->bind_param("i", $this->user_id);
+        $stmt_check_invite->execute();
+        if ($stmt_check_invite->get_result()->fetch_assoc()) {
+            $stmt_check_invite->close();
+            throw new Exception("You have a pending invitation to an alliance. You must accept or decline it before applying to another.");
+        }
+        $stmt_check_invite->close();
+        
+        // Insert new application
+        $stmt_insert = $this->db->prepare("INSERT INTO alliance_applications (user_id, alliance_id, status) VALUES (?, ?, 'pending')");
+        $stmt_insert->bind_param("ii", $this->user_id, $alliance_id);
+        $stmt_insert->execute();
+        $stmt_insert->close();
+
+        $_SESSION['alliance_message'] = "Your application has been sent successfully.";
+    }
+
 
     private function editAlliance()
     {
