@@ -29,6 +29,14 @@ class AllianceManagementController extends BaseAllianceController
                     $this->cancelApplication();
                     $redirect_url = '/alliance';
                     break;
+                case 'accept_application':
+                    $this->acceptApplication();
+                    $redirect_url = '/alliance?tab=applications';
+                    break;
+                case 'deny_application':
+                    $this->denyApplication();
+                    $redirect_url = '/alliance?tab=applications';
+                    break;
                 case 'create_alliance':
                     $this->createAlliance($_POST['alliance_name'], $_POST['alliance_tag'], $_POST['description']);
                     break; // Exits within method
@@ -69,7 +77,7 @@ class AllianceManagementController extends BaseAllianceController
             // Determine redirect on error
             if (in_array($action, ['edit', 'disband'])) {
                 $redirect_url = '/edit_alliance';
-            } elseif (in_array($action, ['apply_to_alliance', 'cancel_application'])) {
+            } elseif (in_array($action, ['apply_to_alliance', 'cancel_application', 'accept_application', 'deny_application'])) {
                 $redirect_url = '/alliance';
             } else {
                 $redirect_url = '/alliance_roles.php';
@@ -78,6 +86,83 @@ class AllianceManagementController extends BaseAllianceController
         
         header("Location: " . $redirect_url);
         exit();
+    }
+
+    private function acceptApplication()
+    {
+        $applicant_id = (int)($_POST['user_id'] ?? 0);
+        if ($applicant_id <= 0) {
+            throw new Exception("Invalid applicant specified.");
+        }
+
+        // 1. Check permissions
+        $currentUserData = $this->getAllianceDataForUser($this->user_id);
+        if (empty($currentUserData['permissions']['can_approve_membership'])) {
+            throw new Exception("You do not have permission to approve members.");
+        }
+        $alliance_id = (int)$currentUserData['id'];
+
+        // 2. Verify application exists and is pending
+        $stmt_verify = $this->db->prepare("SELECT id FROM alliance_applications WHERE user_id = ? AND alliance_id = ? AND status = 'pending'");
+        $stmt_verify->bind_param("ii", $applicant_id, $alliance_id);
+        $stmt_verify->execute();
+        if (!$stmt_verify->get_result()->fetch_assoc()) {
+            $stmt_verify->close();
+            throw new Exception("No pending application found for this user.");
+        }
+        $stmt_verify->close();
+        
+        // 3. Find the default "Recruit" role (highest order number)
+        $stmt_role = $this->db->prepare("SELECT id FROM alliance_roles WHERE alliance_id = ? ORDER BY `order` DESC LIMIT 1");
+        $stmt_role->bind_param("i", $alliance_id);
+        $stmt_role->execute();
+        $recruit_role = $stmt_role->get_result()->fetch_assoc();
+        $stmt_role->close();
+        if (!$recruit_role) {
+            throw new Exception("Default recruit role not found for this alliance.");
+        }
+        $recruit_role_id = $recruit_role['id'];
+
+        // 4. Update the user's alliance and role
+        $stmt_update_user = $this->db->prepare("UPDATE users SET alliance_id = ?, alliance_role_id = ? WHERE id = ?");
+        $stmt_update_user->bind_param("iii", $alliance_id, $recruit_role_id, $applicant_id);
+        $stmt_update_user->execute();
+        $stmt_update_user->close();
+        
+        // 5. Delete the application record
+        $stmt_delete_app = $this->db->prepare("DELETE FROM alliance_applications WHERE user_id = ? AND alliance_id = ?");
+        $stmt_delete_app->bind_param("ii", $applicant_id, $alliance_id);
+        $stmt_delete_app->execute();
+        $stmt_delete_app->close();
+
+        $_SESSION['alliance_message'] = "Application approved. The commander has joined your alliance.";
+    }
+
+    private function denyApplication()
+    {
+        $applicant_id = (int)($_POST['user_id'] ?? 0);
+        if ($applicant_id <= 0) {
+            throw new Exception("Invalid applicant specified.");
+        }
+
+        // 1. Check permissions
+        $currentUserData = $this->getAllianceDataForUser($this->user_id);
+        if (empty($currentUserData['permissions']['can_approve_membership'])) {
+            throw new Exception("You do not have permission to deny members.");
+        }
+        $alliance_id = (int)$currentUserData['id'];
+
+        // 2. Delete the pending application
+        $stmt_delete_app = $this->db->prepare("DELETE FROM alliance_applications WHERE user_id = ? AND alliance_id = ? AND status = 'pending'");
+        $stmt_delete_app->bind_param("ii", $applicant_id, $alliance_id);
+        $stmt_delete_app->execute();
+        
+        if ($stmt_delete_app->affected_rows > 0) {
+            $_SESSION['alliance_message'] = "Application successfully denied.";
+        } else {
+            $_SESSION['alliance_error'] = "No pending application found for this user.";
+        }
+        $stmt_delete_app->close();
     }
     
     private function cancelApplication()

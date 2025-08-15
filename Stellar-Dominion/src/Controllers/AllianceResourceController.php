@@ -305,7 +305,7 @@ class AllianceResourceController extends BaseAllianceController
         if (empty($currentUserData['permissions']['can_manage_treasury'])) {
             throw new Exception("You do not have permission to manage loans.");
         }
-        $my_alliance_id = (int)$currentUserData['id'];
+        $my_alliance_id = (int)($currentUserData['alliance_id'] ?? 0); // ✅ use alliance_id
 
         // Load pending loan
         $stmt = $this->db->prepare("
@@ -387,7 +387,7 @@ class AllianceResourceController extends BaseAllianceController
         if (empty($currentUserData['permissions']['can_manage_treasury'])) {
             throw new Exception("You do not have permission to manage loans.");
         }
-        $my_alliance_id = (int)$currentUserData['id'];
+        $my_alliance_id = (int)($currentUserData['alliance_id'] ?? 0); // ✅ use alliance_id
 
         // Ensure loan belongs to this alliance & is pending
         $stmt = $this->db->prepare("
