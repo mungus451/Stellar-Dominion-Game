@@ -45,7 +45,6 @@ const STRUCT_ADVANTAGE_EXP        = 0.75;
 const STRUCT_TURNS_EXP            = 0.40;
 const STRUCT_MIN_DMG_IF_WIN       = 0.05;
 const STRUCT_MAX_DMG_IF_WIN       = 0.25;
-// --- NEW: Prestige constant (added without removing anything else) ---
 const BASE_PRESTIGE_GAIN          = 10; // New constant for prestige
 
 // Input Validation
