@@ -51,15 +51,7 @@ try {
 
     if ($action === 'deposit') {
         // --- DEPOSIT LOGIC ---
-        // Reset daily deposit count if the last deposit was more than 24 hours ago.
-        if ($user['last_deposit_timestamp']) {
-            $last_deposit_time = new DateTime($user['last_deposit_timestamp'], new DateTimeZone('UTC'));
-            if ((new DateTime('now', new DateTimeZone('UTC')))->getTimestamp() - $last_deposit_time->getTimestamp() > 86400) { // 86400 seconds = 24 hours
-                $user['deposits_today'] = 0; // Reset for the logic check below.
-            }
-        }
-        
-        // Check against the user's daily deposit limit.
+        // The TurnProcessor now handles the daily reset. We just check the current value.
         $max_deposits = min(10, 3 + floor($user['level'] / 10));
         if ($user['deposits_today'] >= $max_deposits) {
             throw new Exception("You have reached your daily deposit limit.");

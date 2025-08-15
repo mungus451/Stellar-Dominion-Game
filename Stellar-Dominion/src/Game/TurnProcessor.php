@@ -38,6 +38,21 @@ while ($structure = mysqli_fetch_assoc($result_structures)) {
     }
 }
 
+// --- NEW: Reset Daily Deposits for Eligible Users ---
+$sql_reset_deposits = "
+    UPDATE users 
+    SET deposits_today = 0 
+    WHERE deposits_today > 0 
+    AND last_deposit_timestamp IS NOT NULL 
+    AND last_deposit_timestamp < NOW() - INTERVAL 1 DAY
+";
+$reset_result = mysqli_query($link, $sql_reset_deposits);
+if ($reset_result) {
+    write_log("Reset daily deposits for " . mysqli_affected_rows($link) . " users.");
+} else {
+    write_log("ERROR resetting daily deposits: " . mysqli_error($link));
+}
+
 
 // Main Logic
 $sql_select_users = "SELECT id, last_updated, workers, wealth_points, economy_upgrade_level, population_level, alliance_id FROM users";
