@@ -8,35 +8,35 @@
  * HIGH-LEVEL OVERVIEW
  * ─────────────────────────────────────────────────────────────────────────────
  * This controller exposes alliance diplomacy actions:
- *   • declareWar()      — Create a new war record between two alliances.
- *   • proposeTreaty()   — Propose a peace treaty to an opposing alliance.
- *   • acceptTreaty()    — Accept a pending treaty (skeleton; implement logic).
- *   • declineTreaty()   — Decline a pending treaty (skeleton; implement logic).
- *   • endWar()          — Conclude an active war and archive its record.
+ * • declareWar()      — Create a new war record between two alliances.
+ * • proposeTreaty()   — Propose a peace treaty to an opposing alliance.
+ * • acceptTreaty()    — Accept a pending treaty (skeleton; implement logic).
+ * • declineTreaty()   — Decline a pending treaty (skeleton; implement logic).
+ * • endWar()          — Conclude an active war and archive its record.
  *
  * All public actions are invoked through dispatch($action), which:
- *   1) Requires POST (safety against CSRF via non-idempotent verbs)
- *   2) Verifies a valid CSRF token
- *   3) Routes to the appropriate private method
+ * 1) Requires POST (safety against CSRF via non-idempotent verbs)
+ * 2) Verifies a valid CSRF token
+ * 3) Routes to the appropriate private method
  *
  * Security & Auth:
- *   • Requires a logged-in session.
- *   • Validates the user's alliance role and hierarchy for sensitive actions:
- *     Typically ranks with hierarchy 1 or 2 (e.g., Leader, Officer) are allowed.
+ * • Requires a logged-in session.
+ * • Validates the user's alliance role and hierarchy for sensitive actions:
+ * Typically ranks with hierarchy 1 or 2 (e.g., Leader, Officer) are allowed.
  *
  * Data:
- *   • Uses $this->db (from BaseController) for prepared statements and queries.
- *   • Relies on $casus_belli_presets and $war_goal_presets (from GameData.php)
- *     for canonical text and metrics associated with reasons/goals of war.
+ * • Uses $this->db (from BaseController) for prepared statements and queries.
+ * • Relies on $casus_belli_presets and $war_goal_presets (from GameData.php)
+ * for canonical text and metrics associated with reasons/goals of war.
  *
  * Concurrency & Consistency:
- *   • War creation is a single INSERT (low risk of race conditions).
- *   • Treaty creation is a single INSERT; acceptance/decline should be done
- *     transactionally when fleshed out to avoid double decisions.
+ * • War creation is a single INSERT (low risk of race conditions).
+ * • Treaty creation is a single INSERT; acceptance/decline should be done
+ * transactionally when fleshed out to avoid double decisions.
  *
  * UX:
- *   • On success or failure, the controller sets user-facing messages in
- *     $_SESSION and redirects to the appropriate page.
+ * • On success or failure, the controller sets user-facing messages in
+ * $_SESSION and redirects to the appropriate page.
  */
 
 // Ensure a PHP session exists; necessary for authentication and CSRF storage.
@@ -94,6 +94,9 @@ class WarController extends BaseController
             case 'decline_treaty':
                 $this->declineTreaty();
                 break;
+            case 'cancel_treaty':
+                $this->cancelTreaty();
+                break;
             default:
                 throw new Exception("Invalid war action specified.");
         }
@@ -103,14 +106,14 @@ class WarController extends BaseController
      * Declare a war between the invoker's alliance and a target alliance.
      *
      * Validates:
-     *   • User holds sufficient rank (hierarchy 1 or 2).
-     *   • Self-war is disallowed.
-     *   • If "custom" casus belli / goal are chosen, enforce length limits.
-     *   • Provided preset keys must exist in the preset registries.
+     * • User holds sufficient rank (hierarchy 1 or 2).
+     * • Self-war is disallowed.
+     * • If "custom" casus belli / goal are chosen, enforce length limits.
+     * • Provided preset keys must exist in the preset registries.
      *
      * On success:
-     *   • Inserts a new row in `wars` with the chosen metadata and defaults.
-     *   • Sets a session success message and redirects the user.
+     * • Inserts a new row in `wars` with the chosen metadata and defaults.
+     * • Sets a session success message and redirects the user.
      */
     private function declareWar()
     {
@@ -217,15 +220,15 @@ class WarController extends BaseController
      * Propose a peace treaty to an opponent alliance in an active war.
      *
      * Validates:
-     *   • User holds sufficient rank.
-     *   • Opponent alliance id is present.
-     *   • Terms text is non-empty.
+     * • User holds sufficient rank.
+     * • Opponent alliance id is present.
+     * • Terms text is non-empty.
      *
      * Persists:
-     *   • A `treaties` row with status 'proposed', 7-day expiration window.
+     * • A `treaties` row with status 'proposed', 7-day expiration window.
      *
      * UX:
-     *   • Sets a session message and redirects to diplomacy page.
+     * • Sets a session message and redirects to diplomacy page.
      */
     private function proposeTreaty()
     {
@@ -280,14 +283,14 @@ class WarController extends BaseController
      * Accept a pending treaty.
      *
      * NOTE: This is a skeleton. In a complete implementation, you should:
-     *   • Verify the user has authority (hierarchy 1 or 2).
-     *   • Verify the treaty exists, is addressed to the user's alliance,
-     *     and is still in 'proposed' status and not expired.
-     *   • Atomically:
-     *       - Mark the treaty as 'active'
-     *       - Identify and end the associated war(s) if the treaty type is peace
-     *         (calling endWar where appropriate)
-     *   • Handle concurrency with transactions and row-level locks.
+     * • Verify the user has authority (hierarchy 1 or 2).
+     * • Verify the treaty exists, is addressed to the user's alliance,
+     * and is still in 'proposed' status and not expired.
+     * • Atomically:
+     * - Mark the treaty as 'active'
+     * - Identify and end the associated war(s) if the treaty type is peace
+     * (calling endWar where appropriate)
+     * • Handle concurrency with transactions and row-level locks.
      */
     private function acceptTreaty()
     {
@@ -303,9 +306,9 @@ class WarController extends BaseController
      * Decline a pending treaty.
      *
      * NOTE: This is a skeleton. In a complete implementation, you should:
-     *   • Verify authority and ownership (treaty addressed to user's alliance).
-     *   • Optionally mark the treaty as 'rejected' or delete it based on policy.
-     *   • Consider logging the decision for audit/history.
+     * • Verify authority and ownership (treaty addressed to user's alliance).
+     * • Optionally mark the treaty as 'rejected' or delete it based on policy.
+     * • Consider logging the decision for audit/history.
      */
     private function declineTreaty()
     {
@@ -317,6 +320,50 @@ class WarController extends BaseController
         exit;
     }
 
+    private function cancelTreaty()
+    {
+        $treaty_id = (int)($_POST['treaty_id'] ?? 0);
+        $user_id = $_SESSION['id'];
+
+        // Permissions check (leader/officer)
+        $sql_perms = "SELECT u.alliance_id, ar.`order` as hierarchy
+                      FROM users u
+                      JOIN alliance_roles ar ON u.alliance_role_id = ar.id
+                      WHERE u.id = ?";
+        $stmt = $this->db->prepare($sql_perms);
+        $stmt->bind_param("i", $user_id);
+        $stmt->execute();
+        $user_data = $stmt->get_result()->fetch_assoc();
+        $stmt->close();
+
+        if (!$user_data || !in_array($user_data['hierarchy'], [1, 2])) {
+            throw new Exception("You do not have the authority to manage treaties.");
+        }
+
+        $alliance_id = (int)$user_data['alliance_id'];
+
+        // Find the treaty and verify ownership (proposer is alliance1_id)
+        $stmt_find = $this->db->prepare("SELECT id FROM treaties WHERE id = ? AND alliance1_id = ? AND status = 'proposed'");
+        $stmt_find->bind_param("ii", $treaty_id, $alliance_id);
+        $stmt_find->execute();
+        $treaty = $stmt_find->get_result()->fetch_assoc();
+        $stmt_find->close();
+
+        if (!$treaty) {
+            throw new Exception("Treaty not found or you do not have permission to cancel it.");
+        }
+
+        // Delete the treaty
+        $stmt_delete = $this->db->prepare("DELETE FROM treaties WHERE id = ?");
+        $stmt_delete->bind_param("i", $treaty_id);
+        $stmt_delete->execute();
+        $stmt_delete->close();
+
+        $_SESSION['war_message'] = "Treaty proposal has been canceled.";
+        header("Location: /diplomacy.php");
+        exit;
+    }
+
     /**
      * Conclude an active war and archive it into war_history.
      *
@@ -324,15 +371,15 @@ class WarController extends BaseController
      * @param string $outcome_reason Human-readable outcome text (e.g., "Treaty signed").
      *
      * Steps:
-     *   1) Fetch war; return early if not found or not active.
-     *   2) Mark war as concluded with outcome and end_date.
-     *   3) (Placeholder) Award final prestige based on outcome (future work).
-     *   4) Insert an archival record into war_history with descriptive fields.
+     * 1) Fetch war; return early if not found or not active.
+     * 2) Mark war as concluded with outcome and end_date.
+     * 3) (Placeholder) Award final prestige based on outcome (future work).
+     * 4) Insert an archival record into war_history with descriptive fields.
      *
      * Notes:
-     *   • This method currently does not wrap in an explicit transaction. If you
-     *     extend it with prestige distribution or multi-table updates, consider
-     *     using a transaction to ensure atomicity.
+     * • This method currently does not wrap in an explicit transaction. If you
+     * extend it with prestige distribution or multi-table updates, consider
+     * using a transaction to ensure atomicity.
      */
     private function endWar(int $war_id, string $outcome_reason)
     {

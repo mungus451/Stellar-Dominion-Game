@@ -47,24 +47,39 @@ if ($is_diplomat) {
 
 $csrf_token = generate_csrf_token();
 
-// ---------------------------------------------
-// NEW: Fetch incoming and active treaties (kept intact)
-// ---------------------------------------------
+// Fetch incoming, active, and outgoing treaties
 $incoming_treaties = [];
 $active_treaties = [];
+$outgoing_treaties = []; // New variable for sent proposals
+
 if ($is_diplomat) {
     $my_alliance_id = $user_data['alliance_id'];
-    $sql_treaties = "
+    
+    // Fetch incoming treaties
+    $sql_incoming = "
         SELECT t.*, a.name as proposer_alliance_name, a.tag as proposer_alliance_tag
         FROM treaties t
         JOIN alliances a ON t.alliance1_id = a.id
         WHERE t.alliance2_id = ? AND t.status = 'proposed'
     ";
-    $stmt_treaties = $link->prepare($sql_treaties);
-    $stmt_treaties->bind_param("i", $my_alliance_id);
-    $stmt_treaties->execute();
-    $incoming_treaties = $stmt_treaties->get_result()->fetch_all(MYSQLI_ASSOC);
-    $stmt_treaties->close();
+    $stmt_incoming = $link->prepare($sql_incoming);
+    $stmt_incoming->bind_param("i", $my_alliance_id);
+    $stmt_incoming->execute();
+    $incoming_treaties = $stmt_incoming->get_result()->fetch_all(MYSQLI_ASSOC);
+    $stmt_incoming->close();
+
+    // Fetch outgoing (pending) treaties
+    $sql_outgoing = "
+        SELECT t.*, a.name as opponent_alliance_name, a.tag as opponent_alliance_tag
+        FROM treaties t
+        JOIN alliances a ON t.alliance2_id = a.id
+        WHERE t.alliance1_id = ? AND t.status = 'proposed'
+    ";
+    $stmt_outgoing = $link->prepare($sql_outgoing);
+    $stmt_outgoing->bind_param("i", $my_alliance_id);
+    $stmt_outgoing->execute();
+    $outgoing_treaties = $stmt_outgoing->get_result()->fetch_all(MYSQLI_ASSOC);
+    $stmt_outgoing->close();
 }
 ?>
 <!DOCTYPE html>
@@ -89,7 +104,7 @@ if ($is_diplomat) {
                     <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
                         <div class="bg-gray-800 p-4 rounded-lg">
                             <h2 class="font-title text-xl text-cyan-400 mb-3">Propose Peace Treaty</h2>
-                            <form action="/war_actions.php" method="POST" class="space-y-4">
+                            <form action="/war_declaration.php" method="POST" class="space-y-4">
                                 <input type="hidden" name="action" value="propose_treaty">
                                 <input type="hidden" name="csrf_token" value="<?php echo htmlspecialchars($csrf_token); ?>">
                                 <div>
@@ -111,12 +126,11 @@ if ($is_diplomat) {
                             </form>
                         </div>
                         <div class="bg-gray-800 p-4 rounded-lg">
-                            <h2 class="font-title text-xl text-cyan-400 mb-3">Incoming Proposals & Active Treaties</h2>
-                            <p class="text-sm text-gray-500 italic">This section will display treaties you can accept and those currently in effect. (Functionality to be added).</p>
+                            <h2 class="font-title text-xl text-cyan-400 mb-3">Active Treaties</h2>
+                            <p class="text-sm text-gray-500 italic">This section will display treaties currently in effect. (Functionality to be added).</p>
                         </div>
                     </div>
 
-                    <!-- Merged Incoming Proposals block (kept verbatim) -->
                     <div class="bg-gray-800 p-4 rounded-lg mt-6">
                         <h2 class="font-title text-xl text-cyan-400 mb-3">Incoming Proposals</h2>
                         <?php if (empty($incoming_treaties)): ?>
@@ -128,17 +142,41 @@ if ($is_diplomat) {
                                     <p class="text-sm">Proposal from <strong class="text-white">[<?= htmlspecialchars($treaty['proposer_alliance_tag']) ?>] <?= htmlspecialchars($treaty['proposer_alliance_name']) ?></strong></p>
                                     <blockquote class="text-sm italic border-l-2 border-gray-600 pl-2 my-2">"<?= htmlspecialchars($treaty['terms']) ?>"</blockquote>
                                     <div class="flex justify-end gap-2 mt-2">
-                                        <form action="/war_actions.php" method="POST">
+                                        <form action="/war_declaration.php" method="POST">
                                             <input type="hidden" name="action" value="decline_treaty">
                                             <input type="hidden" name="treaty_id" value="<?= $treaty['id'] ?>">
                                             <input type="hidden" name="csrf_token" value="<?= htmlspecialchars($csrf_token) ?>">
                                             <button type="submit" class="bg-red-600 hover:bg-red-700 text-white font-bold py-1 px-3 text-xs rounded">Decline</button>
                                         </form>
-                                        <form action="/war_actions.php" method="POST">
+                                        <form action="/war_declaration.php" method="POST">
                                             <input type="hidden" name="action" value="accept_treaty">
                                             <input type="hidden" name="treaty_id" value="<?= $treaty['id'] ?>">
                                             <input type="hidden" name="csrf_token" value="<?= htmlspecialchars($csrf_token) ?>">
                                             <button type="submit" class="bg-green-600 hover:bg-green-700 text-white font-bold py-1 px-3 text-xs rounded">Accept</button>
+                                        </form>
+                                    </div>
+                                </div>
+                            <?php endforeach; ?>
+                            </div>
+                        <?php endif; ?>
+                    </div>
+
+                    <div class="bg-gray-800 p-4 rounded-lg mt-6">
+                        <h2 class="font-title text-xl text-cyan-400 mb-3">Pending Sent Proposals</h2>
+                        <?php if (empty($outgoing_treaties)): ?>
+                            <p class="text-sm text-gray-500 italic">You have no pending proposals sent to other alliances.</p>
+                        <?php else: ?>
+                            <div class="space-y-3">
+                            <?php foreach($outgoing_treaties as $treaty): ?>
+                                <div class="bg-gray-900 p-3 rounded-md border border-gray-700">
+                                    <p class="text-sm">Proposal sent to <strong class="text-white">[<?= htmlspecialchars($treaty['opponent_alliance_name']) ?>] <?= htmlspecialchars($treaty['opponent_alliance_tag']) ?></strong></p>
+                                    <blockquote class="text-sm italic border-l-2 border-gray-600 pl-2 my-2">"<?= htmlspecialchars($treaty['terms']) ?>"</blockquote>
+                                    <div class="flex justify-end gap-2 mt-2">
+                                        <form action="/war_declaration.php" method="POST">
+                                            <input type="hidden" name="action" value="cancel_treaty">
+                                            <input type="hidden" name="treaty_id" value="<?= $treaty['id'] ?>">
+                                            <input type="hidden" name="csrf_token" value="<?= htmlspecialchars($csrf_token) ?>">
+                                            <button type="submit" class="bg-yellow-600 hover:bg-yellow-700 text-white font-bold py-1 px-3 text-xs rounded">Cancel Proposal</button>
                                         </form>
                                     </div>
                                 </div>
