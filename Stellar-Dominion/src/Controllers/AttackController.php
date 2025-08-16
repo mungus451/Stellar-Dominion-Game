@@ -9,32 +9,32 @@
  * ─────────────────────────────────────────────────────────────────────────────
  * This controller resolves a single PvP attack between an attacker and a defender.
  * It performs:
- *   1) Request hardening (auth, CSRF) and environment setup
- *   2) Input validation and a database transaction with row-level locks
- *   3) Business rules:
- *        • Treaty enforcement (no attacks if a valid peace treaty is active)
- *        • Stochastic combat resolution using soft exponents & random noise
- *        • Guard casualties with a non-bypassable floor to avoid full depletion
- *        • Stealable credits with caps to prevent runaway outcomes
- *        • Structure (fortification) damage respecting guard shielding
- *        • Experience point (XP) rewards scaled by level delta and attack turns
- *        • Alliance-related post-processing: loan repayment & battle tax
- *        • War/rivalry bookkeeping and prestige tracking for alliances/users
- *   4) Logging, commit/rollback, and redirect to the battle report
+ * 1) Request hardening (auth, CSRF) and environment setup
+ * 2) Input validation and a database transaction with row-level locks
+ * 3) Business rules:
+ * • Treaty enforcement (no attacks if a valid peace treaty is active)
+ * • Stochastic combat resolution using soft exponents & random noise
+ * • Guard casualties with a non-bypassable floor to avoid full depletion
+ * • Stealable credits with caps to prevent runaway outcomes
+ * • Structure (fortification) damage respecting guard shielding
+ * • Experience point (XP) rewards scaled by level delta and attack turns
+ * • Alliance-related post-processing: loan repayment & battle tax
+ * • War/rivalry bookkeeping and prestige tracking for alliances/users
+ * 4) Logging, commit/rollback, and redirect to the battle report
  *
  * Concurrency model:
- *   - We use `mysqli_begin_transaction()` and `SELECT ... FOR UPDATE` on both
- *     attacker and defender to serialize state changes and prevent race conditions.
+ * - We use `mysqli_begin_transaction()` and `SELECT ... FOR UPDATE` on both
+ * attacker and defender to serialize state changes and prevent race conditions.
  *
  * Security model:
- *   - Requires an authenticated session (server-side check)
- *   - CSRF protection on POST requests
- *   - All updates occur inside a transaction; any exception rolls back atomically
+ * - Requires an authenticated session (server-side check)
+ * - CSRF protection on POST requests
+ * - All updates occur inside a transaction; any exception rolls back atomically
  *
  * Numerical stability and fairness:
- *   - Soft caps/soft exponents reduce extreme outcomes
- *   - Random noise is bounded in a narrow band to keep results stable but not deterministic
- *   - Floors and clamps ensure no negative state or wealth minting
+ * - Soft caps/soft exponents reduce extreme outcomes
+ * - Random noise is bounded in a narrow band to keep results stable but not deterministic
+ * - Floors and clamps ensure no negative state or wealth minting
  */
 
 // Ensure a PHP session exists before accessing $_SESSION.
@@ -213,12 +213,38 @@ try {
     // BATTLE CALCULATION
     // ─────────────────────────────────────────────────────────────────────────
     // This section computes effective attack (EA) and defense (ED) values using:
-    //   - Base troops × average unit power
-    //   - Upgrade multipliers
-    //   - Player stat multipliers (strength/constitution)
-    //   - Attack turns multiplier (soft exponent with cap)
-    //   - Random noise for non-determinism (bounded)
+    //     - Base troops × average unit power
+    //     - Upgrade multipliers
+    //     - Player stat multipliers (strength/constitution)
+    //     - Attack turns multiplier (soft exponent with cap)
+    //     - Random noise for non-determinism (bounded)
     // The win condition is based on the ratio R = EA / ED compared to a threshold.
+
+    // **FIX START**: FETCH AND CALCULATE ATTACKER'S ARMORY BONUS
+    $sql_armory = "SELECT item_key, quantity FROM user_armory WHERE user_id = ?";
+    $stmt_armory = mysqli_prepare($link, $sql_armory);
+    mysqli_stmt_bind_param($stmt_armory, "i", $attacker_id);
+    mysqli_stmt_execute($stmt_armory);
+    $armory_result = mysqli_stmt_get_result($stmt_armory);
+    $owned_items = [];
+    while($row = mysqli_fetch_assoc($armory_result)) {
+        $owned_items[$row['item_key']] = $row['quantity'];
+    }
+    mysqli_stmt_close($stmt_armory);
+
+    $armory_attack_bonus = 0;
+    $soldier_count = (int)$attacker['soldiers'];
+    if ($soldier_count > 0 && isset($armory_loadouts['soldier'])) {
+        foreach ($armory_loadouts['soldier']['categories'] as $category) {
+            foreach ($category['items'] as $item_key => $item) {
+                if (isset($owned_items[$item_key]) && isset($item['attack'])) {
+                    $effective_items = min($soldier_count, $owned_items[$item_key]);
+                    $armory_attack_bonus += $effective_items * $item['attack'];
+                }
+            }
+        }
+    }
+    // **FIX END**
 
     // Aggregate offense % bonuses from each acquired offense upgrade level.
     $total_offense_bonus_pct = 0;
@@ -244,8 +270,12 @@ try {
     $AVG_UNIT_POWER = 10;
 
     // Raw, pre-noise/pre-turns attack/defense strength from troop counts and multipliers.
-    $RawAttack  = max(0, (int)$attacker['soldiers']) * $AVG_UNIT_POWER * $offense_upgrade_mult * $strength_mult;
+    // **FIX START**: CORRECTED RawAttack CALCULATION
+    $base_soldier_attack = max(0, (int)$attacker['soldiers']) * $AVG_UNIT_POWER;
+    $RawAttack = (($base_soldier_attack * $strength_mult) + $armory_attack_bonus) * $offense_upgrade_mult;
+    // **FIX END**
     $RawDefense = max(0, (int)$defender['guards'])   * $AVG_UNIT_POWER * $defense_upgrade_mult * $constitution_mult;
+
 
     // Turns multiplier: sublinear scaling by ATK_TURNS_SOFT_EXP and hard-capped.
     // This rewards committing more turns but with diminishing returns.
