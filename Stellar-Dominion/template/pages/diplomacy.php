@@ -1,4 +1,9 @@
 <?php
+// ------------------------------
+// diplomacy.php (merged file)
+// ------------------------------
+
+// (Existing setup code for diplomacy.php)
 $active_page = 'diplomacy.php';
 require_once __DIR__ . '/../../config/config.php';
 
@@ -41,6 +46,26 @@ if ($is_diplomat) {
 }
 
 $csrf_token = generate_csrf_token();
+
+// ---------------------------------------------
+// NEW: Fetch incoming and active treaties (kept intact)
+// ---------------------------------------------
+$incoming_treaties = [];
+$active_treaties = [];
+if ($is_diplomat) {
+    $my_alliance_id = $user_data['alliance_id'];
+    $sql_treaties = "
+        SELECT t.*, a.name as proposer_alliance_name, a.tag as proposer_alliance_tag
+        FROM treaties t
+        JOIN alliances a ON t.alliance1_id = a.id
+        WHERE t.alliance2_id = ? AND t.status = 'proposed'
+    ";
+    $stmt_treaties = $link->prepare($sql_treaties);
+    $stmt_treaties->bind_param("i", $my_alliance_id);
+    $stmt_treaties->execute();
+    $incoming_treaties = $stmt_treaties->get_result()->fetch_all(MYSQLI_ASSOC);
+    $stmt_treaties->close();
+}
 ?>
 <!DOCTYPE html>
 <html lang="en">
@@ -88,7 +113,38 @@ $csrf_token = generate_csrf_token();
                         <div class="bg-gray-800 p-4 rounded-lg">
                             <h2 class="font-title text-xl text-cyan-400 mb-3">Incoming Proposals & Active Treaties</h2>
                             <p class="text-sm text-gray-500 italic">This section will display treaties you can accept and those currently in effect. (Functionality to be added).</p>
+                        </div>
+                    </div>
+
+                    <!-- Merged Incoming Proposals block (kept verbatim) -->
+                    <div class="bg-gray-800 p-4 rounded-lg mt-6">
+                        <h2 class="font-title text-xl text-cyan-400 mb-3">Incoming Proposals</h2>
+                        <?php if (empty($incoming_treaties)): ?>
+                            <p class="text-sm text-gray-500 italic">No pending peace proposals from other alliances.</p>
+                        <?php else: ?>
+                            <div class="space-y-3">
+                            <?php foreach($incoming_treaties as $treaty): ?>
+                                <div class="bg-gray-900 p-3 rounded-md border border-gray-700">
+                                    <p class="text-sm">Proposal from <strong class="text-white">[<?= htmlspecialchars($treaty['proposer_alliance_tag']) ?>] <?= htmlspecialchars($treaty['proposer_alliance_name']) ?></strong></p>
+                                    <blockquote class="text-sm italic border-l-2 border-gray-600 pl-2 my-2">"<?= htmlspecialchars($treaty['terms']) ?>"</blockquote>
+                                    <div class="flex justify-end gap-2 mt-2">
+                                        <form action="/war_actions.php" method="POST">
+                                            <input type="hidden" name="action" value="decline_treaty">
+                                            <input type="hidden" name="treaty_id" value="<?= $treaty['id'] ?>">
+                                            <input type="hidden" name="csrf_token" value="<?= htmlspecialchars($csrf_token) ?>">
+                                            <button type="submit" class="bg-red-600 hover:bg-red-700 text-white font-bold py-1 px-3 text-xs rounded">Decline</button>
+                                        </form>
+                                        <form action="/war_actions.php" method="POST">
+                                            <input type="hidden" name="action" value="accept_treaty">
+                                            <input type="hidden" name="treaty_id" value="<?= $treaty['id'] ?>">
+                                            <input type="hidden" name="csrf_token" value="<?= htmlspecialchars($csrf_token) ?>">
+                                            <button type="submit" class="bg-green-600 hover:bg-green-700 text-white font-bold py-1 px-3 text-xs rounded">Accept</button>
+                                        </form>
+                                    </div>
+                                </div>
+                            <?php endforeach; ?>
                             </div>
+                        <?php endif; ?>
                     </div>
                 <?php endif; ?>
             </main>

@@ -81,6 +81,23 @@ try {
     if ($attacker['alliance_id'] !== NULL && $attacker['alliance_id'] === $defender['alliance_id']) throw new Exception("You cannot attack a member of your own alliance.");
     if ((int)$attacker['attack_turns'] < $attack_turns) throw new Exception("Not enough attack turns.");
 
+    // NEW: Treaty Enforcement Check (inserted)
+    if ($attacker['alliance_id'] && $defender['alliance_id']) {
+        $alliance1 = (int)$attacker['alliance_id'];
+        $alliance2 = (int)$defender['alliance_id'];
+        $sql_treaty = "SELECT id FROM treaties 
+                       WHERE status = 'active' AND expiration_date > NOW() 
+                         AND ((alliance1_id = ? AND alliance2_id = ?) OR (alliance1_id = ? AND alliance2_id = ?))";
+        $stmt_treaty = mysqli_prepare($link, $sql_treaty);
+        mysqli_stmt_bind_param($stmt_treaty, "iiii", $alliance1, $alliance2, $alliance2, $alliance1);
+        mysqli_stmt_execute($stmt_treaty);
+        if (mysqli_stmt_get_result($stmt_treaty)->fetch_assoc()) {
+            mysqli_stmt_close($stmt_treaty);
+            throw new Exception("You cannot attack this target due to an active peace treaty.");
+        }
+        mysqli_stmt_close($stmt_treaty);
+    }
+
     // Battle Calculation
     $total_offense_bonus_pct = 0;
     for ($i = 1; $i <= (int)$attacker['offense_upgrade_level']; $i++) {

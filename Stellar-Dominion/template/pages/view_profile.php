@@ -63,6 +63,22 @@ if ($is_logged_in) {
     mysqli_stmt_close($stmt_viewer);
 }
 
+// -----------------------------
+// NEW: Rivalry Check (merged)
+// -----------------------------
+$is_rival = false;
+if ($viewer_data && $viewer_data['alliance_id'] && $profile_data['alliance_id'] && $viewer_data['alliance_id'] != $profile_data['alliance_id']) {
+    $a1 = (int)$viewer_data['alliance_id'];
+    $a2 = (int)$profile_data['alliance_id'];
+    $sql_rival = "SELECT heat_level FROM rivalries WHERE (alliance1_id = $a1 AND alliance2_id = $a2) OR (alliance1_id = $a2 AND alliance2_id = $a1)";
+    $rival_result = $link->query($sql_rival);
+    if ($rival_result && $rival_data = $rival_result->fetch_assoc()) {
+        if ($rival_data['heat_level'] >= 10) { // Using 10 as the threshold
+            $is_rival = true;
+        }
+    }
+}
+
 // --- DERIVED STATS & CALCULATIONS for viewed profile ---
 $army_size = $profile_data['soldiers'] + $profile_data['guards'] + $profile_data['sentries'] + $profile_data['spies'];
 $last_seen_ts = strtotime($profile_data['last_updated']);
@@ -185,7 +201,13 @@ $active_page = 'attack.php'; // Keep the 'BATTLE' main nav active
                         <div class="flex flex-col md:flex-row md:items-center gap-6">
                              <img src="<?php echo htmlspecialchars($profile_data['avatar_path'] ?? 'https://via.placeholder.com/150'); ?>" alt="Avatar" class="w-32 h-32 rounded-full border-2 border-gray-600 object-cover">
                             <div class="flex-1">
-                                <h2 class="font-title text-3xl text-white"><?php echo htmlspecialchars($profile_data['character_name']); ?></h2>
+                                <!-- Merged header with RIVAL badge -->
+                                <h2 class="font-title text-3xl text-white">
+                                    <?php echo htmlspecialchars($profile_data['character_name']); ?>
+                                    <?php if ($is_rival): ?>
+                                        <span class="text-xs align-middle font-semibold bg-red-800 text-red-300 border border-red-500 px-2 py-1 rounded-full">RIVAL</span>
+                                    <?php endif; ?>
+                                </h2>
                                 <p class="text-lg text-cyan-300"><?php echo htmlspecialchars(ucfirst($profile_data['race']) . ' ' . ucfirst($profile_data['class'])); ?></p>
                                 <p class="text-sm">Level: <?php echo $profile_data['level']; ?></p>
                                 <?php if ($profile_data['alliance_name']): ?>
