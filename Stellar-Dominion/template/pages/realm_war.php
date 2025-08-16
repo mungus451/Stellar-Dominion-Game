@@ -4,7 +4,7 @@ require_once __DIR__ . '/../../config/config.php';
 require_once __DIR__ . '/../../src/Controllers/RealmWarController.php';
 require_once __DIR__ . '/../../src/Game/GameData.php'; // For presets
 
-$controller = new \App\Controllers\RealmWarController();
+$controller = new RealmWarController();
 $wars = $controller->getWars();
 $rivalries = $controller->getRivalries();
 

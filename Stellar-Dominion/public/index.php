@@ -4,35 +4,163 @@
  *
  * Main entry point and Front Controller for the application.
  * This version includes clean URLs for all page views.
+ *
+ * ─────────────────────────────────────────────────────────────────────────────
+ * PURPOSE OF THIS FILE (FRONT CONTROLLER PATTERN)
+ * ─────────────────────────────────────────────────────────────────────────────
+ * • Centralizes all HTTP requests through a single entry point.
+ * • Normalizes routing so that "clean" paths (e.g., /dashboard) map to PHP view
+ *   templates or controller scripts without exposing underlying file structure.
+ * • Establishes a consistent environment (session, config, DB connection),
+ *   and applies cross-cutting concerns (auth checks, redirection rules).
+ *
+ * KEY CONCEPTS & GUARANTEES
+ * ─────────────────────────────────────────────────────────────────────────────
+ * • Session Lifecycle:
+ *     Starts a session early to access authentication state and system flags
+ *     (e.g., vacation mode).
+ * • Vacation Lockout:
+ *     If an account is flagged as "on vacation" until a future timestamp, force
+ *     logout to preserve game balance (prevents resource accrual/exploitation).
+ * • Route Map:
+ *     $routes maps request paths → actual PHP files to include.
+ *     This keeps URLs stable while allowing refactors behind the scenes.
+ * • Auth Gate:
+ *     $authenticated_routes declares which paths require a logged-in user.
+ *     The gate occurs just before including the routed file, returning users
+ *     to "/" if they aren’t authenticated.
+ * • Special POST Handling:
+ *     A specific path (/war_declaration.php) is handled by a controller dispatch
+ *     rather than a simple include, because it performs state-changing actions
+ *     (war declaration) that need CSRF validation & error capture.
+ *
+ * SECURITY & HARDENING NOTES
+ * ─────────────────────────────────────────────────────────────────────────────
+ * • Session Fixation/Mgmt:
+ *     This file assumes secure session configuration is set in config.php
+ *     (e.g., cookie_httponly, cookie_secure, samesite). It starts the session
+ *     before any output to ensure headers can still be sent.
+ * • CSRF:
+ *     For /war_declaration.php POSTs, WarController::dispatch is expected to
+ *     validate CSRF tokens. Page views should embed tokens in forms that post
+ *     to action endpoints.
+ * • Path Traversal:
+ *     Routing uses a fixed whitelist ($routes) and ignores user input beyond
+ *     the normalized request path ($request_uri). No dynamic require paths are
+ *     constructed from user-controlled data.
+ * • Open Redirect:
+ *     All redirects are to site-internal absolute paths (e.g., "/"), not to
+ *     external user-provided URLs, mitigating open redirect risks.
+ * • Caching:
+ *     Not explicitly configured here; any private data views should set cache
+ *     headers in the included templates/controllers as appropriate.
+ *
+ * PERFORMANCE & OPERATIONAL NOTES
+ * ─────────────────────────────────────────────────────────────────────────────
+ * • Minimal Logic:
+ *     The router does not perform heavy DB work; it just includes the resource.
+ * • Duplicate Keys:
+ *     Some routes appear twice (e.g., '/realm_war' and '/realm_war.php' appear
+ *     in both the "Page Views" and "Alliance Page Views" sections). This does
+ *     not change behavior (later identical keys overwrite earlier identical
+ *     keys in PHP array literals), but maintainers should avoid duplication to
+ *     reduce cognitive load.
+ * • Error Handling:
+ *     A simple 404 handler is used for unknown routes. For production, consider
+ *     unified error pages and logging.
  */
-session_start();
+
+// ─────────────────────────────────────────────────────────────────────────────
+// 1) SESSION INITIALIZATION & VACATION MODE ENFORCEMENT
+// ─────────────────────────────────────────────────────────────────────────────
+
+session_start(); // Start/continue the session; must be called before any output.
+
+// If a "vacation_until" timestamp exists in the session and it's still in the
+// future, force a logout. This protects game state by ensuring players cannot
+// perform actions while "away". The comparison uses server time.
+//
+// NOTE:
+// • new DateTime() uses the current timezone (configured in php.ini or default).
+// • $_SESSION['vacation_until'] must be a parseable datetime string.
+// • After sending a Location header, we `exit` to stop further processing.
 if (isset($_SESSION['vacation_until']) && new DateTime() < new DateTime($_SESSION['vacation_until'])) {
     header("location: /auth.php?action=logout");
     exit;
 }
-// CENTRALIZED DATABASE CONNECTION & CONFIGURATION
+
+// ─────────────────────────────────────────────────────────────────────────────
+// 2) CORE CONFIG & BASE CONTROLLER BOOTSTRAP
+// ─────────────────────────────────────────────────────────────────────────────
+//
+// Centralized DB connection, configuration constants, helper functions, etc.
+// BaseController provides shared controller infrastructure (e.g., $this->db).
 require_once __DIR__ . '/../config/config.php';
 require_once __DIR__ . '/../src/Controllers/BaseController.php';
 
-// Get the requested URL path
+// ─────────────────────────────────────────────────────────────────────────────
+// 3) NORMALIZE THE REQUEST PATH
+// ─────────────────────────────────────────────────────────────────────────────
+//
+// We extract only the path portion (no query string, no fragment) from the
+// requested URI to match against our $routes map. This avoids accidental
+// mismatches due to query parameters and neutralizes injection via the path.
 $request_uri = parse_url($_SERVER['REQUEST_URI'], PHP_URL_PATH);
 
-// Special handling for POST requests to war_declaration.php
+// ─────────────────────────────────────────────────────────────────────────────
+// 4) SPECIAL-CASE: POST HANDLING FOR WAR DECLARATION
+// ─────────────────────────────────────────────────────────────────────────────
+//
+// WHY A SPECIAL CASE?
+// • This action (declaring war) modifies game state and requires controller
+//   logic (permissions, CSRF checks, invariants) rather than a simple include.
+// • It is intentionally isolated so that GET to /war_declaration.php still
+//   renders the form (via the standard route include), while POST executes the
+//   action (via controller dispatch).
+//
+// FLOW:
+// • On POST to /war_declaration.php, instantiate WarController and call dispatch
+//   with the posted action (e.g., "declare_war"). Any thrown Exception
+//   becomes a user-visible error message, then redirect back to the form page.
+//
+// ERROR CHANNEL:
+// • Errors are stored in $_SESSION['alliance_error'] to be displayed by the
+//   included template (war_declaration.php). This prevents exposing stack
+//   traces and preserves UX with a clean redirect.
 if ($request_uri === '/war_declaration.php' && $_SERVER['REQUEST_METHOD'] === 'POST') {
     try {
+        require_once __DIR__ . '/../src/Controllers/BaseController.php';
         require_once __DIR__ . '/../src/Controllers/WarController.php';
         $controller = new WarController();
+        // Dispatch based on posted action; missing/invalid action is handled by controller.
         $controller->dispatch($_POST['action'] ?? '');
     } catch (Exception $e) {
+        // Store a generic error string for the next render cycle.
         $_SESSION['alliance_error'] = $e->getMessage(); // Use a general error key
-        header('Location: /war_declaration.php');
+        header('Location: /war_declaration.php'); // Redirect back to the form view.
         exit;
     }
-    exit;
+    exit; // Ensure no further routing occurs after controller handled the POST.
 }
 
 
-// Map URL routes to their corresponding PHP script files
+// ─────────────────────────────────────────────────────────────────────────────
+// 5) ROUTE TABLE: PUBLIC & AUTHENTICATED VIEWS + ACTION ENDPOINTS
+// ─────────────────────────────────────────────────────────────────────────────
+//
+// $routes maps clean paths to specific files relative to /public/.
+// IMPORTANT: Keys must include the leading "/" to match $request_uri.
+//
+// CATEGORIES:
+// • Page Views: template-driven pages usually rendering HTML.
+// • Alliance Page Views: similar to Page Views, grouped for organization.
+// • Action Handlers: controller endpoints that perform state changes.
+//
+// NOTE ON DUPLICATES:
+// • Some paths appear in multiple sections; because array keys are unique,
+//   the last definition wins if keys are identical. Here, each section uses
+//   unique keys, but there are repeated entries for convenience (e.g. both
+//   '/realm_war' and '/realm_war.php' in two sections map to the same file).
 $routes = [
     // Page Views
     '/'                     => '../template/pages/landing.php',
@@ -135,7 +263,17 @@ $routes = [
     '/levelup.php'               => '../src/Controllers/LevelUpController.php',
 ];
 
-// Define which routes require the user to be logged in
+// ─────────────────────────────────────────────────────────────────────────────
+// 6) AUTHORIZATION MATRIX FOR PROTECTED ROUTES
+// ─────────────────────────────────────────────────────────────────────────────
+//
+// Declare which routes demand authentication. These are typically pages that
+// read/write user data or reveal private state. If an unauthenticated user
+// attempts to access one, we redirect them to the landing page ("/").
+//
+// MAINTENANCE TIP:
+// • Keep this list in sync with $routes to avoid silent exposure of pages.
+// • Consider grouping by feature to simplify auditing.
 $authenticated_routes = [
     '/dashboard', '/dashboard.php', '/attack', '/attack.php', '/battle', '/battle.php', 
     '/armory', '/armory.php', '/auto_recruit', '/auto_recruit.php', '/structures', 
@@ -155,17 +293,36 @@ $authenticated_routes = [
     '/diplomacy', '/diplomacy.php'
 ];
 
-// --- ROUTING LOGIC ---
+// ─────────────────────────────────────────────────────────────────────────────
+// 7) ROUTE RESOLUTION & REQUEST DISPATCH
+// ─────────────────────────────────────────────────────────────────────────────
+//
+// The router checks if the normalized path exists in $routes.
+// • If yes:
+//     - If it’s an authenticated route: require a logged-in session.
+//     - Then include the mapped file (relative to /public/).
+// • If no:
+//     - Return HTTP 404 and include a 404 page.
+//
+// NOTE:
+// • `require_once` ensures each file is included only once per request,
+//   preventing redefinition errors when multiple includes chain together.
+//
+// CONTROL FLOW AFTER HEADER():
+// • After sending Location headers, always `exit` to stop executing the rest
+//   of the script and to prevent any accidental output.
 if (array_key_exists($request_uri, $routes)) {
     // Check if the route requires authentication
     if (in_array($request_uri, $authenticated_routes)) {
         if (!isset($_SESSION["loggedin"]) || $_SESSION["loggedin"] !== true) {
-            header("location: /");
+            header("location: /"); // Redirect unauthenticated users to the landing page.
             exit;
         }
     }
+    // Include the requested resource (template/controller) relative to /public/.
     require_once __DIR__ . '/' . $routes[$request_uri];
 } else {
+    // Unknown route: send "Not Found" and render a friendly 404 page.
     http_response_code(404);
     require_once __DIR__ . '/404.php';
 }

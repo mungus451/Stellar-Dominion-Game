@@ -1,7 +1,7 @@
 <?php
 // src/Controllers/RealmWarController.php
 
-namespace App\Controllers;
+//namespace App\Controllers;
 
 require_once __DIR__ . '/../../config/config.php';
 require_once __DIR__ . '/BaseController.php';
