@@ -81,6 +81,12 @@ $routes = [
     '/reset_password.php'   => '../template/pages/reset_password.php',
     '/war_leaderboard'      => '../template/pages/war_leaderboard.php',
     '/war_leaderboard.php'  => '../template/pages/war_leaderboard.php',
+    '/realm_war'               => '../template/pages/realm_war.php',
+    '/realm_war.php'           => '../template/pages/realm_war.php',
+    '/alliance_war_history'    => '../template/pages/alliance_war_history.php', // NEW
+    '/alliance_war_history.php'=> '../template/pages/alliance_war_history.php', // NEW
+    '/diplomacy'               => '../template/pages/diplomacy.php',
+    '/diplomacy.php'           => '../template/pages/diplomacy.php',
 
 
     // Alliance Page Views
@@ -108,8 +114,6 @@ $routes = [
     '/war_declaration.php'     => '../template/pages/war_declaration.php',
     '/view_alliances'          => '../template/pages/view_alliances.php',
     '/view_alliances.php'      => '../template/pages/view_alliances.php',
-    '/view_alliance'           => '../template/pages/view_alliance.php',
-    '/view_alliance.php'       => '../template/pages/view_alliance.php',
     '/realm_war'               => '../template/pages/realm_war.php',
     '/realm_war.php'           => '../template/pages/realm_war.php',
     '/war_archives'            => '../template/pages/war_archives.php',
@@ -146,6 +150,9 @@ $authenticated_routes = [
     '/war_declaration', '/war_declaration.php', '/view_alliances', '/view_alliances.php',
     '/view_alliance', '/view_alliance.php',
     '/realm_war', '/realm_war.php',
+    '/war_leaderboard', '/war_leaderboard.php',
+    '/alliance_war_history', '/alliance_war_history.php', // NEW
+    '/diplomacy', '/diplomacy.php'
 ];
 
 // --- ROUTING LOGIC ---

@@ -34,7 +34,7 @@ class WarController extends BaseController
             case 'declare_war':
                 $this->declareWar();
                 break;
-            case 'propose_treaty': // <-- merged new case
+            case 'propose_treaty':
                 $this->proposeTreaty();
                 break;
             default:
@@ -47,7 +47,6 @@ class WarController extends BaseController
         global $casus_belli_presets, $war_goal_presets;
         $user_id = $_SESSION['id'];
 
-        // 1. Permission Check
         $sql_perms = "SELECT u.alliance_id, ar.`order` as hierarchy 
                       FROM users u 
                       JOIN alliance_roles ar ON u.alliance_role_id = ar.id 
@@ -63,7 +62,6 @@ class WarController extends BaseController
         }
         $declarer_alliance_id = (int)$user_data['alliance_id'];
 
-        // 2. Input Validation
         $declared_against_id = (int)($_POST['alliance_id'] ?? 0);
         $casus_belli_key = $_POST['casus_belli'] ?? '';
         $custom_casus_belli = trim($_POST['custom_casus_belli'] ?? '');
@@ -80,7 +78,6 @@ class WarController extends BaseController
         if ($casus_belli_key !== 'custom' && !isset($casus_belli_presets[$casus_belli_key])) throw new Exception("Invalid reason for war selected.");
         if ($goal_key !== 'custom' && !isset($war_goal_presets[$goal_key])) throw new Exception("Invalid war goal selected.");
         
-        // 3. Prepare War Data
         $final_casus_belli_key = ($casus_belli_key === 'custom') ? null : $casus_belli_key;
         $final_custom_casus_belli = ($casus_belli_key === 'custom') ? $custom_casus_belli : null;
 
@@ -92,7 +89,7 @@ class WarController extends BaseController
                 throw new Exception("Invalid metric selected for custom goal.");
             }
             $final_goal_metric = $selected_metric;
-            $final_goal_threshold = 50000; // Default threshold for custom goals
+            $final_goal_threshold = 50000;
         } else {
             $goal_preset = $war_goal_presets[$goal_key];
             $final_goal_key = $goal_key;
@@ -101,7 +98,6 @@ class WarController extends BaseController
             $final_goal_threshold = $goal_preset['threshold'];
         }
 
-        // 4. Insert into Database
         $sql_insert_war = "
             INSERT INTO wars (declarer_alliance_id, declared_against_alliance_id, casus_belli_key, casus_belli_custom, goal_key, goal_custom_label, goal_metric, goal_threshold) 
             VALUES (?, ?, ?, ?, ?, ?, ?, ?)
@@ -120,22 +116,17 @@ class WarController extends BaseController
         $stmt_insert->execute();
         $stmt_insert->close();
 
-        // 5. Redirect with Success Message
         $_SESSION['war_message'] = "War has been declared successfully!";
         header("Location: /realm_war.php");
         exit;
     }
 
-    /**
-     * NEW: Propose a peace treaty (merged in without removing existing functionality)
-     */
     private function proposeTreaty()
     {
         $user_id = $_SESSION['id'];
         $opponent_id = (int)($_POST['opponent_id'] ?? 0);
         $terms = trim($_POST['terms'] ?? '');
 
-        // Permissions check (mirrors declareWar check: leader or officer)
         $sql_perms = "SELECT u.alliance_id, ar.`order` as hierarchy 
                       FROM users u 
                       JOIN alliance_roles ar ON u.alliance_role_id = ar.id 
@@ -154,32 +145,20 @@ class WarController extends BaseController
             throw new Exception("You must select an opponent and propose terms.");
         }
         
-        // Simplified for now: Log the proposal
         $_SESSION['war_message'] = "Peace treaty proposed to the opponent.";
-        // In a full implementation, this would create a 'proposed' treaty in the `treaties` table.
-
         header("Location: /diplomacy.php");
         exit;
     }
 
-    /**
-     * NEW: Conclude a war and archive it (merged in as provided)
-     */
     private function endWar(int $war_id, string $outcome_reason)
     {
-        // 1. Fetch war data
         $war_id = (int)$war_id;
         $war = $this->db->query("SELECT * FROM wars WHERE id = {$war_id}")->fetch_assoc();
         if (!$war || $war['status'] !== 'active') return;
 
-        // 2. Update the main war record
         $safe_reason = $this->db->real_escape_string($outcome_reason);
         $this->db->query("UPDATE wars SET status = 'concluded', outcome = '{$safe_reason}', end_date = NOW() WHERE id = {$war_id}");
         
-        // 3. Award final prestige based on outcome
-        // ... (prestige logic here)
-
-        // 4. Archive the war
         $decRow = $this->db->query("SELECT name FROM alliances WHERE id = {$war['declarer_alliance_id']}")->fetch_assoc();
         $agaRow = $this->db->query("SELECT name FROM alliances WHERE id = {$war['declared_against_alliance_id']}")->fetch_assoc();
         $declarer = $decRow ? $decRow['name'] : 'Unknown';

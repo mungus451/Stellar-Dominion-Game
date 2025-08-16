@@ -58,7 +58,7 @@ $sub_sub_nav_links = [
     'WAR' => [
         'War Declaration' => '/war_declaration.php',
         'Realm War'       => '/realm_war.php',
-        'War Archives'    => '/war_archives.php'
+        'War Archives'    => '/alliance_war_history.php'
     ],
 ];
 
@@ -73,7 +73,7 @@ if (in_array($active_page, ['battle.php', 'attack.php', 'war_history.php', 'armo
     'alliance.php', 'create_alliance.php', 'edit_alliance.php', 'alliance_roles.php',
     'alliance_bank.php', 'alliance_transfer.php', 'alliance_structures.php',
     'alliance_forum.php', 'create_thread.php', 'view_thread.php', 'diplomacy.php',
-    'war_declaration.php', 'view_alliances.php', 'view_alliance.php', 'realm_war.php', 'war_archives.php'
+    'war_declaration.php', 'view_alliances.php', 'view_alliance.php', 'realm_war.php', 'alliance_war_history.php'
 ])) {
     $active_main_category = 'ALLIANCE';
 } elseif (in_array($active_page, ['structures.php'])) {
@@ -84,7 +84,7 @@ if (in_array($active_page, ['battle.php', 'attack.php', 'war_history.php', 'armo
 
 // Determine active sub-category (only needed for WAR third-level)
 $active_sub_category = null;
-if (in_array($active_page, ['war_declaration.php', 'view_alliances.php', 'view_alliance.php', 'realm_war.php', 'war_archives.php', 'diplomacy.php'])) {
+if (in_array($active_page, ['war_declaration.php', 'view_alliances.php', 'view_alliance.php', 'realm_war.php', 'alliance_war_history.php', 'diplomacy.php'])) {
     $active_sub_category = 'WAR';
 }
 
@@ -108,7 +108,7 @@ if (in_array($active_page, ['war_declaration.php', 'view_alliances.php', 'view_a
         <?php foreach ($sub_nav_links[$active_main_category] as $title => $link):
             $is_external = filter_var($link, FILTER_VALIDATE_URL);
             $is_active_sub = ($link == $active_page_path)
-                || ($title === 'War' && in_array($active_page, ['war_declaration.php','view_alliances.php','view_alliance.php','realm_war.php', 'war_archives.php', 'diplomacy.php']));
+                || ($title === 'War' && in_array($active_page, ['war_declaration.php','view_alliances.php','view_alliance.php','realm_war.php', 'alliance_war_history.php', 'diplomacy.php']));
         ?>
              <a href="<?php echo $link; ?>"
                 <?php if ($is_external) echo 'target="_blank" rel="noopener noreferrer"'; ?>
