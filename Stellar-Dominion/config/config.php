@@ -1,94 +1,29 @@
 <?php
-require_once __DIR__ . '/../vendor/autoload.php';
-// Load .env file if it exists
-if (file_exists(__DIR__ . '/../.env')) {
-    $dotenv = Dotenv\Dotenv::createImmutable(__DIR__ . '/..');
-    $dotenv->load();
-}
-
-// Configure error reporting based on environment
-if ($_ENV['APP_DEBUG'] ?? false) {
-    ini_set('display_errors', 1);
-    ini_set('display_startup_errors', 1);
-    error_reporting(E_ALL);
-} else {
-    ini_set('display_errors', 0);
-    error_reporting(0);
-}
+// Enable full error reporting
+ini_set('display_errors', 1);
+ini_set('display_startup_errors', 1);
+error_reporting(E_ALL);
 
 // Start the session if it's not already started. This is crucial for CSRF protection.
 if (session_status() == PHP_SESSION_NONE) {
     session_start();
 }
 
-// --- Database Credentials from Environment ---
-define('DB_SERVER', $_ENV['DB_HOST'] ?? 'localhost');
-define('DB_USERNAME', $_ENV['DB_USERNAME'] ?? 'admin');
-define('DB_PASSWORD', $_ENV['DB_PASSWORD'] ?? 'password');
-define('DB_NAME', $_ENV['DB_DATABASE'] ?? 'users');
+// --- Database Credentials ---
+define('DB_SERVER', 'localhost');
+define('DB_USERNAME', 'admin');
+define('DB_PASSWORD', 'password');
+define('DB_NAME', 'users');
 
 // Define the project root directory based on the location of this config file.
 if (!defined('PROJECT_ROOT')) {
     define('PROJECT_ROOT', dirname(__DIR__));
 }
 
-// Security classes are now loaded via autoloader when needed
+// Include the new, secure CSRF Protection system.
 // We no longer need the old config/security.php file.
-
-// Backward compatibility function for legacy templates
-if (!function_exists('generate_csrf_token')) {
-    function generate_csrf_token($action = 'default') {
-        $csrf = StellarDominion\Security\CSRFProtection::getInstance();
-        return $csrf->generateToken($action);
-    }
-}
-
-// Backward compatibility function for legacy templates
-if (!function_exists('validate_csrf_token')) {
-    function validate_csrf_token($token, $action = 'default') {
-        $csrf = StellarDominion\Security\CSRFProtection::getInstance();
-        return $csrf->validateToken($token, $action);
-    }
-}
-
-// Backward compatibility function for legacy templates
-if (!function_exists('csrf_token_field')) {
-    function csrf_token_field($action = 'default') {
-        $csrf = StellarDominion\Security\CSRFProtection::getInstance();
-        return $csrf->getTokenField($action);
-    }
-}
-
-// Backward compatibility function for legacy templates
-if (!function_exists('protect_csrf')) {
-    function protect_csrf() {
-        $csrf = StellarDominion\Security\CSRFProtection::getInstance();
-        $csrf->protectForm();
-    }
-}
-
-// --- Game Configuration Constants from Environment ---
-define('AVATAR_SIZE_LIMIT', $_ENV['AVATAR_SIZE_LIMIT'] ?? 500000); // 500KB in bytes
-define('MIN_USER_LEVEL_AVATAR', $_ENV['MIN_USER_LEVEL_AVATAR'] ?? 5);
-define('MAX_BIOGRAPHY_LENGTH', $_ENV['MAX_BIOGRAPHY_LENGTH'] ?? 500); // characters
-define('CSRF_TOKEN_EXPIRY', $_ENV['CSRF_TOKEN_EXPIRY'] ?? 3600); // 1 hour
-define('RECRUITMENT_BONUS', $_ENV['RECRUITMENT_BONUS'] ?? 50); // What each recruited person gets
-
-// --- Redis Configuration (if available) ---
-// Session is already started, we can not do this at this time.
-// if (extension_loaded('redis') && isset($_ENV['REDIS_HOST'])) {
-//     ini_set('session.save_handler', 'redis');
-//     ini_set('session.save_path', 'tcp://' . $_ENV['REDIS_HOST'] . ':' . ($_ENV['REDIS_PORT'] ?? 6379));
-// }
-
-// --- Mail Configuration ---
-if (isset($_ENV['MAIL_HOST'])) {
-    ini_set('SMTP', $_ENV['MAIL_HOST']);
-    ini_set('smtp_port', $_ENV['MAIL_PORT'] ?? 25);
-    if (isset($_ENV['MAIL_FROM'])) {
-        ini_set('sendmail_from', $_ENV['MAIL_FROM']);
-    }
-}
+require_once PROJECT_ROOT . '/src/Security/CSRFLogger.php';
+require_once PROJECT_ROOT . '/src/Security/CSRFProtection.php';
 
 
 // --- SMS Gateway Definitions for Account Recovery ---

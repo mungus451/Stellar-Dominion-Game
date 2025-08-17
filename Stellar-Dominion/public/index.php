@@ -98,8 +98,6 @@ if (isset($_SESSION['vacation_until']) && new DateTime() < new DateTime($_SESSIO
 require_once __DIR__ . '/../config/config.php';
 require_once __DIR__ . '/../src/Controllers/BaseController.php';
 
-use StellarDominion\Factories\ControllerFactory;
-
 // ─────────────────────────────────────────────────────────────────────────────
 // 3) NORMALIZE THE REQUEST PATH
 // ─────────────────────────────────────────────────────────────────────────────
@@ -263,15 +261,6 @@ $routes = [
     '/lib/alliance_actions.php'  => '../src/Controllers/AllianceController.php',
     '/lib/armory_actions.php'    => '../src/Controllers/ArmoryController.php',
     '/levelup.php'               => '../src/Controllers/LevelUpController.php',
-    
-    // API - New API based controllers
-    '/api/profile.php'              => 'controllers/api/ProfileController',
-    '/api/profile'              => 'controllers/api/ProfileController',
-
-    // New SPA
-    '/new/profile'              => '../template/spa-pages/profile.php',
-    '/new/profile.php'              => '../template/spa-pages/profile.php',
-
 ];
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -322,61 +311,16 @@ $authenticated_routes = [
 // CONTROL FLOW AFTER HEADER():
 // • After sending Location headers, always `exit` to stop executing the rest
 //   of the script and to prevent any accidental output.
-// Replace the existing route resolution logic in index.php with this enhanced version
 if (array_key_exists($request_uri, $routes)) {
     // Check if the route requires authentication
     if (in_array($request_uri, $authenticated_routes)) {
         if (!isset($_SESSION["loggedin"]) || $_SESSION["loggedin"] !== true) {
-            header("location: /");
+            header("location: /"); // Redirect unauthenticated users to the landing page.
             exit;
         }
     }
-    
-    $route_target = $routes[$request_uri];
-    
-    // Check if this is a new controller route (starts with 'controllers/api/')
-    if (strpos($route_target, 'controllers/api/') === 0) {
-        try {
-            // Extract controller class name from route
-            $controllerName = str_replace('controllers/api/', '', $route_target);
-            $controllerClass = "StellarDominion\\Controllers\\api\\{$controllerName}";
-            
-            // Create controller using factory
-            $factory = new ControllerFactory();
-            $controller = $factory->createController($controllerClass);
-            $requestHandler = $factory->createRequestHandler();
-            
-            // Process request through request handler and handle PSR-7 response
-            $requires_auth = in_array($request_uri, $authenticated_routes);
-            $requires_csrf = false; // API endpoints typically don't require CSRF tokens
-            $response = $requestHandler->processRequest($controller, null, $requires_auth, $requires_csrf);
-            
-            http_response_code($response->getStatusCode());
-            foreach ($response->getHeaders() as $name => $values) {
-                foreach ($values as $value) {
-                    header(sprintf('%s: %s', $name, $value), false);
-                }
-            }
-            echo $response->getBody();
-            
-        } catch (\Exception $e) {
-            error_log('Controller error: ' . $e->getMessage());
-            $_SESSION['error'] = 'An error occurred. Please try again.';
-            
-            // Try to fall back to legacy route if available
-            $legacyRoute = str_replace('/new', '', $request_uri);
-            if (array_key_exists($legacyRoute, $routes) && $legacyRoute !== $request_uri) {
-                header("Location: {$legacyRoute}");
-                exit;
-            }
-            
-            http_response_code(500);
-            require_once __DIR__ . '/500.php';
-        }
-    } else {
-        // Handle legacy routes as before
-        require_once __DIR__ . '/' . $route_target;
-    }
+    // Include the requested resource (template/controller) relative to /public/.
+    require_once __DIR__ . '/' . $routes[$request_uri];
 } else {
     // Unknown route: send "Not Found" and render a friendly 404 page.
     http_response_code(404);

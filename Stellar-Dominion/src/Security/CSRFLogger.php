@@ -1,7 +1,4 @@
 <?php
-
-namespace StellarDominion\Security;
-
 /**
  * STEP 7: Error Handling and Logging
  * File: src/Security/CSRFLogger.php

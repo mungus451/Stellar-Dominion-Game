@@ -3,7 +3,9 @@
 if (session_status() == PHP_SESSION_NONE) {
     session_start();
 }
-// The security functions are now available via config.php backward compatibility
+// The security file is now included via the main index.php router,
+// but we still need to generate the token here for the forms on this page.
+// Assuming the router makes the function available.
 $_SESSION['csrf_token'] = generate_csrf_token();
 
 $page_title = 'A New Era of Idle Sci-Fi RPG';
