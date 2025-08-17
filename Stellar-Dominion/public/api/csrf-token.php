@@ -3,13 +3,17 @@
  * STEP 5: Create CSRF Token API Endpoint
  * File: public/api/csrf-token.php
  */
+require_once '../../vendor/autoload.php';
 require_once '../../config/config.php';
+
+use StellarDominion\Security\CSRFProtection;
 
 header('Content-Type: application/json');
 
 if ($_SERVER['REQUEST_METHOD'] === 'GET') {
     $action = $_GET['action'] ?? 'default';
-    $token = generate_csrf_token($action);
+    $csrf = CSRFProtection::getInstance();
+    $token = $csrf->generateToken($action);
 
     echo json_encode([
         'success' => true,

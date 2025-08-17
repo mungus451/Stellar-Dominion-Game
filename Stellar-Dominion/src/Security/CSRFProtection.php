@@ -1,4 +1,7 @@
 <?php
+
+namespace StellarDominion\Security;
+
 /**
  * STEP 1: Create the CSRF Protection Class
  * File: src/Security/CSRFProtection.php
@@ -102,19 +105,27 @@ class CSRFProtection {
     }
 }
 
-// Helper functions
-function generate_csrf_token($action = 'default') {
-    return CSRFProtection::getInstance()->generateToken($action);
+// Helper functions - only declare if they don't already exist
+if (!function_exists('generate_csrf_token')) {
+    function generate_csrf_token($action = 'default') {
+        return \StellarDominion\Security\CSRFProtection::getInstance()->generateToken($action);
+    }
 }
 
-function validate_csrf_token($token, $action = 'default') {
-    return CSRFProtection::getInstance()->validateToken($token, $action);
+if (!function_exists('validate_csrf_token')) {
+    function validate_csrf_token($token, $action = 'default') {
+        return \StellarDominion\Security\CSRFProtection::getInstance()->validateToken($token, $action);
+    }
 }
 
-function csrf_token_field($action = 'default') {
-    return CSRFProtection::getInstance()->getTokenField($action);
+if (!function_exists('csrf_token_field')) {
+    function csrf_token_field($action = 'default') {
+        return \StellarDominion\Security\CSRFProtection::getInstance()->getTokenField($action);
+    }
 }
 
-function protect_csrf() {
-    CSRFProtection::getInstance()->protectForm();
+if (!function_exists('protect_csrf')) {
+    function protect_csrf() {
+        \StellarDominion\Security\CSRFProtection::getInstance()->protectForm();
+    }
 }
