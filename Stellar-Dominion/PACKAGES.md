@@ -4,6 +4,63 @@ This document outlines the packages used in the Stellar Dominion project and the
 
 ## Production Dependencies
 
+### PHP dotenv (`vlucas/phpdotenv`)
+**Purpose:** Environment variable loader that loads environment variables from `.env` files into `$_ENV`.
+
+**Usage:**
+```php
+use Dotenv\Dotenv;
+
+// Load .env file from project root
+$dotenv = Dotenv::createImmutable(__DIR__ . '/..');
+$dotenv->load();
+
+// Access environment variables
+$dbHost = $_ENV['DB_HOST'] ?? 'localhost';
+$dbName = $_ENV['DB_DATABASE'] ?? 'stellar_dominion';
+$isDebug = $_ENV['APP_DEBUG'] ?? false;
+
+// Required environment variables
+$dotenv->required(['DB_HOST', 'DB_USERNAME', 'DB_PASSWORD']);
+
+// Validate specific values
+$dotenv->required('APP_ENV')->allowedValues(['development', 'testing', 'production']);
+```
+
+**Environment File (`.env`):**
+```bash
+# Database Configuration
+DB_HOST=db
+DB_DATABASE=users
+DB_USERNAME=admin
+DB_PASSWORD=password
+
+# Application Settings
+APP_ENV=development
+APP_DEBUG=true
+APP_TIMEZONE=America/New_York
+
+# Game Configuration
+AVATAR_SIZE_LIMIT=500000
+MIN_USER_LEVEL_AVATAR=5
+CSRF_TOKEN_EXPIRY=3600
+```
+
+**Configuration:** Never commit `.env` files! Use `.env.example` as a template.
+
+**Integration in config.php:**
+```php
+// Load environment variables
+if (file_exists(__DIR__ . '/../.env')) {
+    $dotenv = Dotenv\Dotenv::createImmutable(__DIR__ . '/..');
+    $dotenv->load();
+}
+
+// Use with fallbacks
+define('DB_SERVER', $_ENV['DB_HOST'] ?? 'localhost');
+define('DB_NAME', $_ENV['DB_DATABASE'] ?? 'users');
+```
+
 ### Monolog (`monolog/monolog`)
 **Purpose:** Comprehensive logging library for PHP applications.
 
@@ -252,7 +309,9 @@ Add these scripts to `composer.json` for easier package usage:
         "cs-check": "phpcs src --standard=PSR12",
         "cs-fix": "phpcbf src --standard=PSR12",
         "style-fix": "php-cs-fixer fix src",
+        "env-check": "php -r \"if(!file_exists('.env')){echo 'Missing .env file. Copy .env.example to .env and configure.'.PHP_EOL;exit(1);}echo '.env file exists'.PHP_EOL;\"",
         "quality": [
+            "@env-check",
             "@analyse",
             "@cs-check",
             "@test"
@@ -262,6 +321,18 @@ Add these scripts to `composer.json` for easier package usage:
 ```
 
 ## Integration with Development Workflow
+
+### Environment Setup
+```bash
+# Copy environment template
+cp .env.example .env
+
+# Edit environment variables
+nano .env
+
+# Validate environment setup
+composer env-check
+```
 
 ### Pre-commit Hooks
 Create `.git/hooks/pre-commit`:
@@ -290,17 +361,23 @@ composer test
 
 ## Best Practices
 
-1. **Logging:** Use appropriate log levels and structured logging
-2. **ORM:** Define clear entity relationships and use repositories
-3. **HTTP:** Implement proper error handling and timeout configurations
-4. **Static Analysis:** Run PHPStan at level 8 for maximum strictness
-5. **Code Style:** Enforce consistent formatting across the team
-6. **Testing:** Maintain high test coverage for critical game logic
+1. **Environment Configuration:** Always use `.env` files for environment-specific settings
+   - Never commit `.env` files to version control
+   - Use `.env.example` as a template for required variables
+   - Validate required environment variables on application startup
+2. **Logging:** Use appropriate log levels and structured logging
+3. **ORM:** Define clear entity relationships and use repositories
+4. **HTTP:** Implement proper error handling and timeout configurations
+5. **Static Analysis:** Run PHPStan at level 8 for maximum strictness
+6. **Code Style:** Enforce consistent formatting across the team
+7. **Testing:** Maintain high test coverage for critical game logic
 
 ## Maintenance
 
-- Regularly update packages: `composer update`
-- Review PHPStan reports for new issues
-- Run code style fixes before commits
-- Monitor logs for application health
-- Keep test suite up to date with new features
+- **Environment Management:** Keep `.env.example` updated when adding new variables
+- **Package Updates:** Regularly update packages with `composer update`
+- **Static Analysis:** Review PHPStan reports for new issues
+- **Code Style:** Run code style fixes before commits
+- **Testing:** Keep test suite up to date with new features
+- **Configuration:** Monitor logs for application health and environment issues
+- **Security:** Regularly audit environment variables for sensitive data exposure

@@ -227,7 +227,7 @@ class AuthService
 }
 ```
 
-#### Step 3: Create a Controller Factory
+#### Step 3: Using the Existing ControllerFactory
 
 The ControllerFactory is already created in `src/Factory/ControllerFactory.php`. Here's how to use it:
 
@@ -251,196 +251,33 @@ $logger = $factory->getLogger();
 $controllerWithORM = $factory->createController(ProfileController::class, true);
 ```
 
-#### Step 4: Controller Instantiation Patterns
+#### Step 4: Integrating with the Existing Front Controller
 
-Once you have created your new controller, you need to integrate it into your existing application. Here are the main patterns for instantiating and using the new controllers:
+The application already uses a front controller pattern in `public/index.php`. Here's how to integrate the new controllers with the existing routing system:
 
-##### Pattern 1: Direct Page Replacement
-
-Replace an existing page (e.g., `public/profile.php`) with the new controller:
+Add new controller routes to the existing `$routes` array in `index.php`:
 
 ```php
-<?php
-// public/profile.php - Updated to use new controller
-
-require_once __DIR__ . '/../vendor/autoload.php';
-require_once __DIR__ . '/../config/config.php';
-
-use StellarDominion\Controllers\Core\ProfileController;
-use StellarDominion\Factory\ControllerFactory;
-
-session_start();
-
-try {
-    $factory = new ControllerFactory();
-    $controller = $factory->createController(ProfileController::class);
-    $response = $controller->processRequest();
+// Add these entries to the existing $routes array in public/index.php
+$routes = [
+    // ... existing routes ...
     
-    // Handle the PSR-7 response
-    http_response_code($response->getStatusCode());
+    // New Controller Routes (add these alongside existing routes)
+    '/profile/new'              => 'controllers/api/ProfileController',
+    '/settings/new'             => 'controllers/api/SettingsController', 
+    '/alliance/new'             => 'controllers/api/AllianceController',
+    '/api/profile'              => 'controllers/api/ProfileController',
+    '/api/settings'             => 'controllers/api/SettingsController',
     
-    foreach ($response->getHeaders() as $name => $values) {
-        foreach ($values as $value) {
-            header(sprintf('%s: %s', $name, $value), false);
-        }
-    }
-    
-    echo $response->getBody();
-    
-} catch (\Exception $e) {
-    error_log('Controller error: ' . $e->getMessage());
-    http_response_code(500);
-    include __DIR__ . '/500.php';
-}
-```
-
-##### Pattern 2: Router-Based Approach
-
-Create a simple router for multiple controllers:
-
-```php
-<?php
-// public/index.php - Router approach
-
-require_once __DIR__ . '/../vendor/autoload.php';
-require_once __DIR__ . '/../config/config.php';
-
-use StellarDominion\Factory\ControllerFactory;
-
-session_start();
-
-// Simple routing based on request URI
-$requestUri = parse_url($_SERVER['REQUEST_URI'], PHP_URL_PATH);
-$controllerMap = [
-    '/profile' => 'StellarDominion\\Controllers\\Core\\ProfileController',
-    '/settings' => 'StellarDominion\\Controllers\\Core\\SettingsController',
-    '/alliance' => 'StellarDominion\\Controllers\\Core\\AllianceController',
-    // Add more routes as you migrate controllers
+    // ... rest of existing routes ...
 ];
-
-try {
-    $factory = new ControllerFactory();
-    
-    if (isset($controllerMap[$requestUri])) {
-        $controllerClass = $controllerMap[$requestUri];
-        $controller = $factory->createController($controllerClass);
-        $response = $controller->processRequest();
-        
-        // Handle PSR-7 response
-        http_response_code($response->getStatusCode());
-        foreach ($response->getHeaders() as $name => $values) {
-            foreach ($values as $value) {
-                header(sprintf('%s: %s', $name, $value), false);
-            }
-        }
-        echo $response->getBody();
-    } else {
-        // Fall back to legacy routing or 404
-        include __DIR__ . '/404.php';
-    }
-    
-} catch (\Exception $e) {
-    error_log('Router error: ' . $e->getMessage());
-    http_response_code(500);
-    include __DIR__ . '/500.php';
-}
-```
-
-##### Pattern 3: Gradual Migration with Feature Flags
-
-Use a feature flag approach to gradually roll out new controllers:
-
-```php
-<?php
-// public/profile.php - Gradual migration with feature flags
-
-require_once __DIR__ . '/../vendor/autoload.php';
-require_once __DIR__ . '/../config/config.php';
-
-session_start();
-
-// Feature flag to enable new controller (can be database-driven)
-$useNewController = $_GET['new'] ?? false; // or check user preferences, config, etc.
-
-if ($useNewController) {
-    // Use new controller
-    use StellarDominion\Controllers\Core\ProfileController;
-    use StellarDominion\Factory\ControllerFactory;
-    
-    try {
-        $factory = new ControllerFactory();
-        $controller = $factory->createController(ProfileController::class);
-        $response = $controller->processRequest();
-        
-        http_response_code($response->getStatusCode());
-        foreach ($response->getHeaders() as $name => $values) {
-            foreach ($values as $value) {
-                header(sprintf('%s: %s', $name, $value), false);
-            }
-        }
-        echo $response->getBody();
-        
-    } catch (\Exception $e) {
-        error_log('New controller error: ' . $e->getMessage());
-        // Fall back to legacy controller on error
-        $useNewController = false;
-    }
-}
-
-if (!$useNewController) {
-    // Fall back to legacy implementation
-    require_once __DIR__ . '/../src/Controllers/ProfileController.php';
-    // ... existing legacy code
-}
-```
-
-##### Pattern 4: API Endpoint Integration
-
-For AJAX/API calls, create dedicated endpoints:
-
-```php
-<?php
-// public/api/profile.php - API endpoint using new controller
-
-require_once __DIR__ . '/../../vendor/autoload.php';
-require_once __DIR__ . '/../../config/config.php';
-
-use StellarDominion\Controllers\Core\ProfileController;
-use StellarDominion\Factory\ControllerFactory;
-
-session_start();
-
-// Ensure this is an API request
-header('Content-Type: application/json');
-
-try {
-    $factory = new ControllerFactory();
-    $controller = $factory->createController(ProfileController::class);
-    
-    // Force JSON response for API endpoints
-    $response = $controller->processRequest(null, true, true); // (request, requireAuth, forceJson)
-    
-    http_response_code($response->getStatusCode());
-    foreach ($response->getHeaders() as $name => $values) {
-        foreach ($values as $value) {
-            header(sprintf('%s: %s', $name, $value), false);
-        }
-    }
-    
-    echo $response->getBody();
-    
-} catch (\Exception $e) {
-    error_log('API controller error: ' . $e->getMessage());
-    http_response_code(500);
-    echo json_encode(['error' => 'Internal server error']);
-}
 ```
 
 ### Phase 3: Gradual Migration Process
 
 #### For Each Controller Migration:
 
-1. **Create the new controller** in `src/Controllers/Core/`
+1. **Create the new controller** in `src/Controllers/api/`
 2. **Implement the handleRequest method**
 3. **Move business logic** to private methods
 4. **Choose an integration pattern** (direct replacement, router, feature flags, or API)
@@ -462,25 +299,49 @@ try {
 
 #### Choosing the Right Integration Pattern:
 
-**Direct Page Replacement** - Best for:
-- Simple, standalone pages like profile, settings
-- Pages with minimal interdependencies
-- When you want to fully migrate a page at once
+**Extend Existing Route Map** - Best for:
+- Adding new controller-based routes alongside existing template routes
+- Maintaining the current front controller architecture
+- When you want new URLs (e.g., `/profile/new`) for testing
 
-**Router-Based Approach** - Best for:
-- Multiple related pages/controllers
-- New applications or major refactoring
-- When you want centralized request handling
+**Modify Route Resolution Logic** - Best for:
+- Completely replacing template-based pages with controllers
+- When you want to maintain existing URLs
+- Gradual migration with automatic fallback to legacy routes
 
-**Gradual Migration with Feature Flags** - Best for:
+**Feature Detection/Flags** - Best for:
 - High-traffic pages where you need to test carefully
-- When you want to roll back quickly if issues arise
 - A/B testing new vs. old implementations
+- User-opt-in testing of new features
+- When you want to roll back quickly if issues arise
 
-**API Endpoint Integration** - Best for:
+**API Route Handling** - Best for:
 - AJAX/JSON API endpoints
 - Mobile app backends
-- Microservice-style architectures
+- Separating API logic from page rendering
+- Modern JavaScript frontend integration
+- Single Page Application (SPA) architecture
+
+### SPA Template Architecture
+
+The new architecture also supports creating Single Page Application (SPA) style templates in `template/spa-pages/`. These templates:
+
+- **Load data via JavaScript API calls** instead of mixing PHP and HTML
+- **Handle form submissions via AJAX** with proper error handling
+- **Provide real-time feedback** to users without page refreshes
+- **Use modern JavaScript patterns** for better user experience
+
+#### Example SPA Integration:
+```php
+// Add this route to index.php for SPA profile page
+'/profile/spa' => '../template/spa-pages/profile.php',
+
+// The SPA template uses JavaScript to call the API:
+// GET /api/profile - Fetch profile data
+// POST /api/profile - Update profile data
+```
+
+This approach separates concerns: the API controllers handle business logic and data, while the SPA templates handle presentation and user interaction.
 
 ### Phase 4: Response Handling Patterns
 
@@ -523,6 +384,52 @@ $this->withORMFallback(
         return mysqli_fetch_assoc(mysqli_stmt_get_result($stmt));
     }
 );
+```
+
+#### Combined Controller Logic Pattern:
+
+When creating API controllers, you can combine logic from existing templates and controllers:
+
+```php
+<?php
+// src/Controllers/api/ProfileController.php
+namespace StellarDominion\Controllers\Api;
+
+use StellarDominion\Core\BaseController;
+
+class ProfileController extends BaseController
+{
+    protected function handleRequest(ServerRequestInterface $request): ResponseInterface
+    {
+        $method = $request->getMethod();
+        
+        switch ($method) {
+            case 'GET':
+                return $this->getProfile($request);    // Data fetching from template
+            case 'POST':
+                return $this->updateProfile($request); // Update logic from controller
+            default:
+                return $this->createErrorResponse('Method not allowed', null, 405);
+        }
+    }
+    
+    // Combine data fetching logic from template/pages/profile.php
+    private function getProfile($request): ResponseInterface
+    {
+        $userData = $this->fetchUserProfileData($this->getCurrentUserId());
+        $timerData = $this->calculateTimerData($userData['last_updated']);
+        
+        return $this->createJsonResponse(array_merge($userData, ['timer' => $timerData]));
+    }
+    
+    // Combine update logic from src/Controllers/ProfileController.php
+    private function updateProfile($request): ResponseInterface
+    {
+        // Handle file uploads using PSR-7 UploadedFileInterface
+        // Update database using ORM with legacy fallback
+        // Return updated data as JSON response
+    }
+}
 ```
 
 #### JSON API Responses:
@@ -608,13 +515,15 @@ class ProfileControllerTest extends TestCase
 ```
 
 #### Manual Testing:
-1. **Test the integration pattern** you chose (direct replacement, router, etc.)
-2. **Test all HTTP methods** (GET, POST, etc.) that your controller handles
-3. **Verify authentication** and CSRF protection work automatically
-4. **Check error handling** and logging in both success and failure scenarios
-5. **Validate responses** match expected format (HTML for pages, JSON for APIs)
-6. **Test with and without ORM** if using the fallback pattern
-7. **Verify session handling** and flash messages work correctly
+1. **Test the front controller integration** by visiting the routes you added to `index.php`
+2. **Verify namespace autoloading** works correctly with `vendor/autoload.php`
+3. **Test authentication** flows through the existing `$authenticated_routes` array
+4. **Verify error handling** falls back to legacy routes when controllers fail
+5. **Test both new and legacy routes** to ensure no regression
+6. **Check feature flags** work correctly for gradual rollout
+7. **Validate API routes** return proper JSON responses with correct headers
+8. **Test with and without ORM** if using the fallback pattern
+9. **Verify the existing vacation mode** and authentication logic still works
 
 ### Common Migration Patterns
 

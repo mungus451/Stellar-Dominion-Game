@@ -18,13 +18,15 @@ use StellarDominion\Services\AuthService;
  * Base controller class providing common functionality for all controllers
  * 
  * This abstract class implements shared patterns across the application:
- * - Authentication handling
- * - CSRF protection
- * - Error handling and logging
+ * - Authentication helpers
+ * - Response formatting utilities
  * - Session management
- * - Response formatting
+ * - Input validation
  * - ORM integration with Cycle ORM
  * - Legacy database support for gradual migration
+ * 
+ * Request processing, CSRF validation, rate limiting, and logging are handled
+ * by the separate RequestHandler class to maintain single responsibility.
  * 
  * All new controllers should extend this class to ensure consistent behavior
  * and reduce code duplication across the application.
@@ -78,69 +80,7 @@ abstract class BaseController
      * @param ServerRequestInterface $request PSR-7 server request object
      * @return ResponseInterface PSR-7 response object
      */
-    abstract protected function handleRequest(ServerRequestInterface $request): ResponseInterface;
-    
-    /**
-     * Process a request with common middleware functionality
-     * 
-     * @param ServerRequestInterface|null $request PSR-7 server request (auto-created if null)
-     * @param bool $requireAuth Whether authentication is required
-     * @param bool $requireCSRF Whether CSRF validation is required
-     * @return ResponseInterface PSR-7 response object
-     */
-    public function processRequest(
-        ?ServerRequestInterface $request = null, 
-        bool $requireAuth = true, 
-        bool $requireCSRF = true
-    ): ResponseInterface {
-        try {
-            // Create request from globals if not provided
-            if ($request === null) {
-                $request = $this->createServerRequestFromGlobals();
-            }
-            
-            // Authentication check
-            if ($requireAuth && !$this->isAuthenticated()) {
-                return $this->createErrorResponse(
-                    'Authentication required',
-                    '/login.php',
-                    401
-                );
-            }
-            
-            // CSRF validation
-            if ($requireCSRF && !$this->validateCSRF($request)) {
-                return $this->createErrorResponse(
-                    'Invalid security token. Please try again.',
-                    $this->getCurrentPage(),
-                    403
-                );
-            }
-            
-            // Rate limiting check
-            if (!$this->checkRateLimit()) {
-                return $this->createErrorResponse(
-                    'Too many requests. Please wait before trying again.',
-                    $this->getCurrentPage(),
-                    429
-                );
-            }
-            
-            // Log the request
-            $this->logRequest($request);
-            
-            // Process the actual request
-            $response = $this->handleRequest($request);
-            
-            // Log successful response
-            $this->logResponse($response);
-            
-            return $response;
-            
-        } catch (\Exception $e) {
-            return $this->handleException($e);
-        }
-    }
+    abstract public function handleRequest(ServerRequestInterface $request): ResponseInterface;
     
     /**
      * Check if the current user is authenticated
@@ -173,57 +113,6 @@ abstract class BaseController
     }
     
     /**
-     * Validate CSRF token
-     * 
-     * @param ServerRequestInterface $request PSR-7 server request
-     * @return bool True if CSRF token is valid
-     */
-    protected function validateCSRF(ServerRequestInterface $request): bool
-    {
-        $parsedBody = $request->getParsedBody();
-        $queryParams = $request->getQueryParams();
-        
-        // Check POST data first, then query parameters
-        $token = $parsedBody['csrf_token'] ?? $queryParams['csrf_token'] ?? '';
-        
-        return $this->csrfProtection->validateToken($token);
-    }
-    
-    /**
-     * Basic rate limiting check
-     * Override in child classes for specific rate limiting rules
-     * 
-     * @return bool True if request is within rate limits
-     */
-    protected function checkRateLimit(): bool
-    {
-        $key = 'rate_limit_' . ($this->getCurrentUserId() ?? session_id());
-        $current_time = time();
-        $window = 60; // 1 minute window
-        $max_requests = 30; // 30 requests per minute
-        
-        if (!isset($this->session[$key])) {
-            $this->session[$key] = [];
-        }
-        
-        // Clean old requests outside the window
-        $this->session[$key] = array_filter(
-            $this->session[$key],
-            fn($timestamp) => $current_time - $timestamp < $window
-        );
-        
-        // Check if we're over the limit
-        if (count($this->session[$key]) >= $max_requests) {
-            return false;
-        }
-        
-        // Add current request
-        $this->session[$key][] = $current_time;
-        
-        return true;
-    }
-    
-    /**
      * Create a standardized success response
      * 
      * @param string $message Success message
@@ -232,7 +121,7 @@ abstract class BaseController
      * @param int $statusCode HTTP status code
      * @return ResponseInterface PSR-7 response object
      */
-    protected function createSuccessResponse(
+    public function createSuccessResponse(
         string $message, 
         ?string $redirectUrl = null, 
         array $data = [],
@@ -270,7 +159,7 @@ abstract class BaseController
      * @param array $errors Additional error details
      * @return ResponseInterface PSR-7 response object
      */
-    protected function createErrorResponse(
+    public function createErrorResponse(
         string $message, 
         ?string $redirectUrl = null, 
         int $statusCode = 400,
@@ -296,156 +185,6 @@ abstract class BaseController
             $headers,
             json_encode($responseData, JSON_THROW_ON_ERROR)
         );
-    }
-    
-    /**
-     * Handle exceptions in a consistent manner
-     * 
-     * @param \Exception $e The exception to handle
-     * @return ResponseInterface Error response
-     */
-    protected function handleException(\Exception $e): ResponseInterface
-    {
-        // Log the exception
-        $this->logger->error('Controller exception', [
-            'exception' => $e->getMessage(),
-            'file' => $e->getFile(),
-            'line' => $e->getLine(),
-            'trace' => $e->getTraceAsString(),
-            'user_id' => $this->getCurrentUserId(),
-            'controller' => static::class
-        ]);
-        
-        // Return user-friendly error
-        return $this->createErrorResponse(
-            'An unexpected error occurred. Please try again.',
-            $this->getCurrentPage(),
-            500
-        );
-    }
-    
-    /**
-     * Log incoming requests for debugging and security
-     * 
-     * @param ServerRequestInterface $request PSR-7 server request
-     */
-    protected function logRequest(ServerRequestInterface $request): void
-    {
-        // Remove sensitive data before logging
-        $sanitizedRequest = $this->sanitizeRequestForLogging($request);
-        
-        $this->logger->info('Controller request', [
-            'controller' => static::class,
-            'user_id' => $this->getCurrentUserId(),
-            'method' => $request->getMethod(),
-            'uri' => (string) $request->getUri(),
-            'ip_address' => $this->getClientIp($request),
-            'user_agent' => $request->getHeaderLine('User-Agent'),
-            'request_data' => $sanitizedRequest
-        ]);
-    }
-    
-    /**
-     * Log response data for debugging
-     * 
-     * @param ResponseInterface $response PSR-7 response
-     */
-    protected function logResponse(ResponseInterface $response): void
-    {
-        $body = $response->getBody();
-        $body->rewind();
-        $content = $body->getContents();
-        $body->rewind();
-        
-        $responseData = json_decode($content, true) ?? [];
-        
-        $this->logger->info('Controller response', [
-            'controller' => static::class,
-            'user_id' => $this->getCurrentUserId(),
-            'status_code' => $response->getStatusCode(),
-            'status' => $responseData['status'] ?? 'unknown',
-            'message' => $responseData['message'] ?? '',
-            'has_redirect' => !empty($responseData['redirect_url'])
-        ]);
-    }
-    
-    /**
-     * Remove sensitive information from request data before logging
-     * 
-     * @param ServerRequestInterface $request PSR-7 server request
-     * @return array Sanitized request data
-     */
-    protected function sanitizeRequestForLogging(ServerRequestInterface $request): array
-    {
-        $sensitiveFields = [
-            'password',
-            'password_confirmation',
-            'current_password',
-            'new_password',
-            'csrf_token',
-            'security_answer',
-            'api_key',
-            'token'
-        ];
-        
-        $sanitized = [
-            'method' => $request->getMethod(),
-            'uri' => (string) $request->getUri(),
-            'headers' => $this->sanitizeHeaders($request->getHeaders()),
-            'query_params' => $request->getQueryParams(),
-            'parsed_body' => $request->getParsedBody() ?? []
-        ];
-        
-        // Sanitize query parameters
-        foreach ($sensitiveFields as $field) {
-            if (isset($sanitized['query_params'][$field])) {
-                $sanitized['query_params'][$field] = '[REDACTED]';
-            }
-        }
-        
-        // Sanitize body data
-        if (is_array($sanitized['parsed_body'])) {
-            foreach ($sensitiveFields as $field) {
-                if (isset($sanitized['parsed_body'][$field])) {
-                    $sanitized['parsed_body'][$field] = '[REDACTED]';
-                }
-            }
-        }
-        
-        return $sanitized;
-    }
-    
-    /**
-     * Sanitize headers for logging (remove authorization headers)
-     * 
-     * @param array $headers Request headers
-     * @return array Sanitized headers
-     */
-    protected function sanitizeHeaders(array $headers): array
-    {
-        $sanitized = $headers;
-        $sensitiveHeaders = ['authorization', 'cookie', 'x-api-key'];
-        
-        foreach ($sensitiveHeaders as $header) {
-            if (isset($sanitized[$header])) {
-                $sanitized[$header] = ['[REDACTED]'];
-            }
-            if (isset($sanitized[strtoupper($header)])) {
-                $sanitized[strtoupper($header)] = ['[REDACTED]'];
-            }
-        }
-        
-        return $sanitized;
-    }
-    
-    /**
-     * Get the current page URL for redirects
-     * 
-     * @return string Current page URL
-     */
-    protected function getCurrentPage(): string
-    {
-        return $_SERVER['REQUEST_URI'] ?? '/dashboard.php';
     }
     
     /**
@@ -502,40 +241,6 @@ abstract class BaseController
         }
         
         return $missing;
-    }
-    
-    /**
-     * Create a PSR-7 ServerRequest from PHP globals
-     * 
-     * @return ServerRequestInterface
-     */
-    protected function createServerRequestFromGlobals(): ServerRequestInterface
-    {
-        return ServerRequest::fromGlobals();
-    }
-    
-    /**
-     * Get client IP address from request
-     * 
-     * @param ServerRequestInterface $request PSR-7 server request
-     * @return string Client IP address
-     */
-    protected function getClientIp(ServerRequestInterface $request): string
-    {
-        // Check for forwarded IP headers
-        $forwardedIp = $request->getHeaderLine('X-Forwarded-For');
-        if ($forwardedIp) {
-            return trim(explode(',', $forwardedIp)[0]);
-        }
-        
-        $realIp = $request->getHeaderLine('X-Real-IP');
-        if ($realIp) {
-            return $realIp;
-        }
-        
-        // Fallback to server params
-        $serverParams = $request->getServerParams();
-        return $serverParams['REMOTE_ADDR'] ?? 'unknown';
     }
     
     /**

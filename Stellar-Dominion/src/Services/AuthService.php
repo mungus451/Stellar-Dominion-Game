@@ -54,9 +54,10 @@ class AuthService
      */
     public function isLoggedIn(): bool
     {
-        return isset($this->session['user_id']) && 
-               !empty($this->session['user_id']) &&
-               $this->validateSession();
+        // Check both new format (user_id) and legacy format (id) for backward compatibility
+        $userId = $this->session['user_id'] ?? $this->session['id'] ?? null;
+        
+        return !empty($userId) && $this->validateSession();
     }
     
     /**
@@ -66,7 +67,13 @@ class AuthService
      */
     public function getCurrentUserId(): ?int
     {
-        return $this->isLoggedIn() ? (int) $this->session['user_id'] : null;
+        if (!$this->isLoggedIn()) {
+            return null;
+        }
+        
+        // Check both new format (user_id) and legacy format (id) for backward compatibility
+        $userId = $this->session['user_id'] ?? $this->session['id'] ?? null;
+        return $userId ? (int) $userId : null;
     }
     
     /**

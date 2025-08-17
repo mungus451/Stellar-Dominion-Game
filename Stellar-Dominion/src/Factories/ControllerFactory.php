@@ -5,14 +5,16 @@ namespace StellarDominion\Factories;
 use Monolog\Logger;
 use Monolog\Handler\StreamHandler;
 use Monolog\Handler\RotatingFileHandler;
+use Monolog\Handler\ErrorLogHandler;
 use StellarDominion\Core\BaseController;
+use StellarDominion\Core\RequestHandler;
 use StellarDominion\Security\CSRFProtection;
 use StellarDominion\Services\AuthService;
 
 /**
- * Factory class for creating controllers with proper dependency injection
+ * Factory class for creating controllers and request handlers with proper dependency injection
  * 
- * This factory provides a centralized way to create controllers with all
+ * This factory provides a centralized way to create controllers and request handlers with all
  * required dependencies, ensuring consistent configuration across the application.
  * Uses singleton pattern for shared services to optimize memory usage.
  */
@@ -21,6 +23,7 @@ class ControllerFactory
     private static ?AuthService $auth_service = null;
     private static ?CSRFProtection $csrf_protection = null;
     private static ?Logger $logger = null;
+    private static ?RequestHandler $request_handler = null;
     
     /**
      * Create or return existing AuthService instance
@@ -44,7 +47,7 @@ class ControllerFactory
     public static function createCSRFProtection(): CSRFProtection
     {
         if (self::$csrf_protection === null) {
-            self::$csrf_protection = new CSRFProtection();
+            self::$csrf_protection = CSRFProtection::getInstance();
         }
         
         return self::$csrf_protection;
@@ -60,40 +63,83 @@ class ControllerFactory
         if (self::$logger === null) {
             self::$logger = new Logger('stellar-dominion');
             
-            // Create logs directory if it doesn't exist
-            $log_dir = __DIR__ . '/../../logs';
-            if (!is_dir($log_dir)) {
-                mkdir($log_dir, 0755, true);
+            // Determine log directory based on environment
+            $log_dir = self::getLogDirectory();
+            
+            // Ensure log directory exists and is writable
+            if (!self::ensureLogDirectoryExists($log_dir)) {
+                // If we can't create the primary log directory, fall back to temp
+                $log_dir = sys_get_temp_dir() . '/stellar-dominion-logs';
+                self::ensureLogDirectoryExists($log_dir);
             }
             
             // Add rotating file handler for general application logs
-            self::$logger->pushHandler(
-                new RotatingFileHandler(
-                    $log_dir . '/app.log',
-                    7, // Keep 7 days of logs
-                    Logger::INFO
-                )
-            );
+            try {
+                self::$logger->pushHandler(
+                    new RotatingFileHandler(
+                        $log_dir . '/app.log',
+                        7, // Keep 7 days of logs
+                        Logger::INFO
+                    )
+                );
+            } catch (\Exception $e) {
+                // If file handler fails, fall back to error_log
+                self::$logger->pushHandler(
+                    new ErrorLogHandler(ErrorLogHandler::OPERATING_SYSTEM, Logger::INFO)
+                );
+            }
             
             // Add separate handler for security events
-            self::$logger->pushHandler(
-                new RotatingFileHandler(
-                    $log_dir . '/security.log',
-                    30, // Keep 30 days of security logs
-                    Logger::WARNING
-                )
-            );
+            try {
+                self::$logger->pushHandler(
+                    new RotatingFileHandler(
+                        $log_dir . '/security.log',
+                        30, // Keep 30 days of security logs
+                        Logger::WARNING
+                    )
+                );
+            } catch (\Exception $e) {
+                // Security events are critical, use error_log as fallback
+                self::$logger->pushHandler(
+                    new ErrorLogHandler(ErrorLogHandler::OPERATING_SYSTEM, Logger::WARNING)
+                );
+            }
             
             // Add error handler for critical issues
-            self::$logger->pushHandler(
-                new StreamHandler(
-                    $log_dir . '/error.log',
-                    Logger::ERROR
-                )
-            );
+            try {
+                self::$logger->pushHandler(
+                    new StreamHandler(
+                        $log_dir . '/error.log',
+                        Logger::ERROR
+                    )
+                );
+            } catch (\Exception $e) {
+                // Last resort: use PHP's error_log
+                self::$logger->pushHandler(
+                    new ErrorLogHandler(ErrorLogHandler::OPERATING_SYSTEM, Logger::ERROR)
+                );
+            }
         }
         
         return self::$logger;
+    }
+    
+    /**
+     * Create or return existing RequestHandler instance
+     * 
+     * @return RequestHandler The request handler instance
+     */
+    public static function createRequestHandler(): RequestHandler
+    {
+        if (self::$request_handler === null) {
+            self::$request_handler = new RequestHandler(
+                self::createAuthService(),
+                self::createCSRFProtection(),
+                self::createLogger()
+            );
+        }
+        
+        return self::$request_handler;
     }
     
     /**
@@ -152,6 +198,7 @@ class ControllerFactory
         self::$auth_service = null;
         self::$csrf_protection = null;
         self::$logger = null;
+        self::$request_handler = null;
     }
     
     /**
@@ -199,6 +246,77 @@ class ControllerFactory
     public static function getCSRFProtection(): ?CSRFProtection
     {
         return self::$csrf_protection;
+    }
+    
+    /**
+     * Get current RequestHandler instance without creating if not exists
+     * 
+     * @return RequestHandler|null Current request handler instance or null
+     */
+    public static function getRequestHandler(): ?RequestHandler
+    {
+        return self::$request_handler;
+    }
+    
+    /**
+     * Determine the appropriate log directory based on environment
+     * 
+     * @return string The log directory path
+     */
+    private static function getLogDirectory(): string
+    {
+        // First priority: Check if the project logs directory exists and is writable
+        $project_log_dir = __DIR__ . '/../../logs';
+        if (is_dir($project_log_dir) && is_writable($project_log_dir)) {
+            return $project_log_dir;
+        }
+        
+        // Second priority: Try to use the project logs directory if parent is writable
+        if (is_writable(dirname($project_log_dir))) {
+            return $project_log_dir;
+        }
+        
+        // Third priority: Check if running in Docker (environment variable or mounted volume)
+        if (isset($_ENV['PHP_ENV']) && $_ENV['PHP_ENV'] === 'development') {
+            // Docker environment - use mounted log volume
+            $docker_log_dir = '/var/log/stellar-dominion';
+            if (is_dir($docker_log_dir) && is_writable($docker_log_dir)) {
+                return $docker_log_dir;
+            }
+            // Try to create Docker log directory if parent is writable
+            if (is_writable(dirname($docker_log_dir))) {
+                return $docker_log_dir;
+            }
+        }
+        
+        // Fallback to system temp directory
+        return sys_get_temp_dir() . '/stellar-dominion-logs';
+    }
+    
+    /**
+     * Ensure log directory exists and is writable
+     * 
+     * @param string $log_dir Log directory path
+     * @return bool True if directory exists and is writable
+     */
+    private static function ensureLogDirectoryExists(string $log_dir): bool
+    {
+        try {
+            // Check if directory already exists
+            if (is_dir($log_dir)) {
+                return is_writable($log_dir);
+            }
+            
+            // Try to create the directory
+            if (mkdir($log_dir, 0755, true)) {
+                return is_writable($log_dir);
+            }
+            
+            return false;
+        } catch (\Exception $e) {
+            // If we can't create or check the directory, return false
+            return false;
+        }
     }
     
     /**
