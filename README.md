@@ -1,6 +1,6 @@
-# Stellar Dominion
+# Starlight Dominion
 
-**Live Site:** [www.stellar-dominion.com](https://www.stellar-dominion.com)
+**Live Site:** [www.starlightdominion.com](https://www.starlightdominion.com)
 
 A persistent, text-based, massively multiplayer online strategy game set in a futuristic sci-fi universe. Players assume the role of a commander, building their empire, developing a powerful fleet, and engaging in strategic warfare with other players.
 
@@ -21,7 +21,7 @@ A persistent, text-based, massively multiplayer online strategy game set in a fu
 
 ## Core Gameplay Mechanics
 
-Stellar Dominion is a turn-based strategy game where players manage resources, construct buildings, and build a fleet to expand their power.
+Starlight Dominion is a turn-based strategy game where players manage resources, construct buildings, and build a fleet to expand their power.
 
 -   **Turn-Based System:** The game progresses in turns. Each turn, players receive resources, and their structures perform their designated functions. The core game loop is managed by the `TurnProcessor.php` script, which calculates income, applies bonuses, and updates the state of all players' empires.
 
@@ -167,7 +167,7 @@ The database is the backbone of the game, storing all persistent data for player
 
 ## Installation and Setup
 
-To run a local instance of Stellar Dominion, follow these steps:
+To run a local instance of Starlight Dominion, follow these steps:
 
 1.  **Clone the Repository:**
     ```bash
@@ -191,4 +191,4 @@ To run a local instance of Stellar Dominion, follow these steps:
     -   Update the database credentials (`DB_HOST`, `DB_NAME`, `DB_USER`, `DB_PASS`) to match your local setup.
 
 5.  **Run the Application:**
-    -   Navigate to your local server's address in a web browser. You should see the Stellar Dominion landing page.
+    -   Navigate to your local server's address in a web browser. You should see the Starlight Dominion landing page.
