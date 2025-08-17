@@ -16,7 +16,7 @@ $og_image = '/assets/img/cyborg.png'; // A default OG image for social sharing
 
 // Page-Specific Meta Overrides
 if (isset($page_title)) {
-    $meta_title = 'Stellar Dominion - ' . $page_title;
+    $meta_title = 'Starlight Dominion - ' . $page_title;
 }
 
 if (isset($active_page)) {
