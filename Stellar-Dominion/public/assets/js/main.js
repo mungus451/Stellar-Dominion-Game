@@ -371,4 +371,69 @@ document.addEventListener('DOMContentLoaded', () => {
             statsToggleButton.textContent = statsContainer.classList.contains('stats-minimized') ? '+' : '-';
         });
     }
+      // --- Profile Modal Logic (attack.php) ---
+    const modal = document.getElementById('profile-modal');
+    const modalContent = document.getElementById('profile-modal-content');
+    const profileTriggers = document.querySelectorAll('.profile-modal-trigger');
+
+    const openModal = () => modal.classList.remove('hidden');
+    const closeModal = () => modal.classList.add('hidden');
+
+    profileTriggers.forEach(trigger => {
+        trigger.addEventListener('click', async (e) => {
+            e.preventDefault();
+            const profileId = trigger.dataset.profileId;
+            
+            // Show loading state
+            modalContent.innerHTML = '<div class="text-center p-8">Loading profile...</div>';
+            openModal();
+
+            try {
+                const response = await fetch(`/api/get_profile_data.php?id=${profileId}`);
+                if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`);
+                const data = await response.json();
+
+                // Build modal HTML
+                const html = `
+                    <button class="modal-close-btn text-white">
+                        <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>
+                    </button>
+                    <div class="p-6">
+                        <div class="flex flex-col md:flex-row items-center gap-4">
+                             <img src="${data.avatar_path || 'https://via.placeholder.com/100'}" alt="Avatar" class="w-24 h-24 rounded-full border-2 border-gray-600 object-cover flex-shrink-0">
+                             <div class="text-center md:text-left">
+                                <h2 class="font-title text-3xl text-white">${data.character_name}</h2>
+                                <p class="text-lg text-cyan-300">Level ${data.level} ${data.race} ${data.class}</p>
+                             </div>
+                        </div>
+                        <div class="mt-4 border-t border-gray-700 pt-4 grid grid-cols-2 gap-4 text-sm">
+                            <div><span class="font-semibold">Army Size:</span> <span class="text-white">${parseInt(data.army_size).toLocaleString()}</span></div>
+                            <div><span class="font-semibold">Workers:</span> <span class="text-white">${parseInt(data.workers).toLocaleString()}</span></div>
+                            <div><span class="font-semibold">Soldiers:</span> <span class="text-white">${parseInt(data.soldiers).toLocaleString()}</span></div>
+                            <div><span class="font-semibold">Guards:</span> <span class="text-white">${parseInt(data.guards).toLocaleString()}</span></div>
+                        </div>
+                        <div class="mt-4">
+                            <h4 class="font-semibold text-cyan-400">Biography</h4>
+                            <div class="text-gray-300 italic p-2 bg-gray-900/50 rounded-lg text-sm max-h-24 overflow-y-auto">
+                                ${data.biography ? data.biography.replace(/\n/g, '<br>') : 'No biography provided.'}
+                            </div>
+                        </div>
+                    </div>
+                `;
+                modalContent.innerHTML = html;
+                // Add event listener to the new close button
+                modalContent.querySelector('.modal-close-btn').addEventListener('click', closeModal);
+
+            } catch (error) {
+                modalContent.innerHTML = `<div class="text-center p-8 text-red-400">Error loading profile. Please try again.</div>`;
+            }
+        });
+    });
+
+    // Close modal if clicking on the background overlay
+    modal.addEventListener('click', (e) => {
+        if (e.target === modal) {
+            closeModal();
+        }
+    });
 });
