@@ -10,7 +10,6 @@ date_default_timezone_set('UTC');
 $user_id = $_SESSION['id'];
 
 // --- FORM SUBMISSION HANDLING ---
-// This block now processes the form data when submitted.
 if ($_SERVER["REQUEST_METHOD"] == "POST") {
     // Use the central CSRF protection function. It will stop the script if the token is invalid.
     protect_csrf();
@@ -125,31 +124,11 @@ if ($_SERVER["REQUEST_METHOD"] == "POST") {
 }
 // --- END FORM HANDLING ---
 
-
 // --- DATA FETCHING FOR PAGE DISPLAY ---
 $now = new DateTime('now', new DateTimeZone('UTC'));
 
-// Deposit reset logic (can stay here)
-$sql_check_deposit = "SELECT last_deposit_timestamp FROM users WHERE id = ?";
-$stmt_check = mysqli_prepare($link, $sql_check_deposit);
-mysqli_stmt_bind_param($stmt_check, "i", $user_id);
-mysqli_stmt_execute($stmt_check);
-$deposit_data = mysqli_fetch_assoc(mysqli_stmt_get_result($stmt_check));
-mysqli_stmt_close($stmt_check);
-
-if ($deposit_data && $deposit_data['last_deposit_timestamp']) {
-    $last_deposit_time = new DateTime($deposit_data['last_deposit_timestamp'], new DateTimeZone('UTC'));
-    if ($now->getTimestamp() - $last_deposit_time->getTimestamp() > 86400) {
-        $sql_reset_deposits = "UPDATE users SET deposits_today = 0 WHERE id = ?";
-        $stmt_reset = mysqli_prepare($link, $sql_reset_deposits);
-        mysqli_stmt_bind_param($stmt_reset, "i", $user_id);
-        mysqli_stmt_execute($stmt_reset);
-        mysqli_stmt_close($stmt_reset);
-    }
-}
-
-// Fetch user stats for display, now including experience
-$sql = "SELECT credits, banked_credits, untrained_citizens, level, experience, attack_turns, last_updated, deposits_today FROM users WHERE id = ?";
+// Fetch user stats for display, now including last_deposit_timestamp
+$sql = "SELECT credits, banked_credits, untrained_citizens, level, experience, attack_turns, last_updated, deposits_today, last_deposit_timestamp FROM users WHERE id = ?";
 $stmt = mysqli_prepare($link, $sql);
 mysqli_stmt_bind_param($stmt, "i", $user_id);
 mysqli_stmt_execute($stmt);
@@ -166,11 +145,26 @@ mysqli_stmt_close($stmt_transactions);
 
 mysqli_close($link);
 
-
 // --- CALCULATIONS ---
 $max_deposits = min(10, 3 + floor($user_stats['level'] / 10));
 $deposits_available = $max_deposits - $user_stats['deposits_today'];
 $max_deposit_amount = floor($user_stats['credits'] * 0.80);
+
+// --- NEW: NEXT DEPOSIT TIMER CALCULATION ---
+$seconds_until_next_deposit = 0;
+// Only calculate if a deposit has been used and the user is not at their max limit
+if ($user_stats['deposits_today'] > 0 && $deposits_available < $max_deposits && !empty($user_stats['last_deposit_timestamp'])) {
+    $last_deposit_time = new DateTime($user_stats['last_deposit_timestamp'], new DateTimeZone('UTC'));
+    // Next deposit is granted 6 hours after the last one was made
+    $next_deposit_time = (clone $last_deposit_time)->add(new DateInterval('PT6H'));
+
+    if ($now < $next_deposit_time) {
+        $interval = $now->diff($next_deposit_time);
+        // Convert interval into total seconds for the JavaScript timer
+        $seconds_until_next_deposit = ($interval->days * 86400) + ($interval->h * 3600) + ($interval->i * 60) + $interval->s;
+    }
+}
+
 
 // Timer Calculations
 $turn_interval_minutes = 10;
@@ -222,16 +216,24 @@ $active_page = 'bank.php';
 
                     <div class="content-box rounded-lg p-4">
                         <h3 class="font-title text-cyan-400 border-b border-gray-600 pb-2 mb-3">Interstellar Bank</h3>
-                        <div class="grid grid-cols-1 md:grid-cols-4 gap-4 text-center">
+                        <div class="grid grid-cols-2 md:grid-cols-4 gap-4 text-center">
                             <div><p class="text-xs uppercase">Credits on Hand</p><p id="credits-on-hand" data-amount="<?php echo $user_stats['credits']; ?>" class="text-lg font-bold text-white"><?php echo number_format($user_stats['credits']); ?></p></div>
                             <div><p class="text-xs uppercase">Banked Credits</p><p id="credits-in-bank" data-amount="<?php echo $user_stats['banked_credits']; ?>" class="text-lg font-bold text-white"><?php echo number_format($user_stats['banked_credits']); ?></p></div>
-                            <div><p class="text-xs uppercase">Daily Deposits Used</p><p class="text-lg font-bold text-white"><?php echo $user_stats['deposits_today']; ?></p></div>
-                            <div><p class="text-xs uppercase">Deposits Available</p><p class="text-lg font-bold text-white"><?php echo $deposits_available; ?></p></div>
+                            <div><p class="text-xs uppercase">Deposits Used</p><p class="text-lg font-bold text-white"><?php echo $user_stats['deposits_today']; ?></p></div>
+                            <div>
+                                <p class="text-xs uppercase">Deposits Available</p>
+                                <p class="text-lg font-bold text-white"><?php echo $deposits_available; ?></p>
+                                <?php if ($deposits_available < $max_deposits): ?>
+                                    <p class="text-xs text-gray-400 leading-tight">
+                                        Next in: 
+                                        <span id="next-deposit-timer" class="font-semibold text-cyan-400" data-seconds="<?php echo $seconds_until_next_deposit; ?>">--:--:--</span>
+                                    </p>
+                                <?php endif; ?>
+                            </div>
                         </div>
                     </div>
 
                     <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
-                        <!-- Deposit Form: action is now empty to submit to the same page -->
                         <form action="" method="POST" class="content-box rounded-lg p-4 space-y-3">
                             <?php echo csrf_token_field('bank_deposit'); ?>
                             <h4 class="font-title text-white">Deposit Credits</h4>
@@ -243,7 +245,6 @@ $active_page = 'bank.php';
                             <button type="submit" name="action" value="deposit" class="w-full bg-green-600 hover:bg-green-700 text-white font-bold py-2 rounded-lg">Deposit</button>
                         </form>
 
-                        <!-- Withdraw Form: action is now empty to submit to the same page -->
                         <form action="" method="POST" class="content-box rounded-lg p-4 space-y-3">
                             <?php echo csrf_token_field('bank_withdraw'); ?>
                             <h4 class="font-title text-white">Withdraw Credits</h4>
@@ -259,7 +260,6 @@ $active_page = 'bank.php';
                         </form>
                     </div>
                     
-                    <!-- Transfer Form: action is now empty to submit to the same page -->
                     <div class="content-box rounded-lg p-4">
                          <h3 class="font-title text-cyan-400 border-b border-gray-600 pb-2 mb-3">Transfer to Another Commander</h3>
                          <p class="text-xs text-gray-400 mb-3">Send credits directly to another player. A small fee may apply.</p>
@@ -273,10 +273,9 @@ $active_page = 'bank.php';
                                 <label for="transfer-amount" class="block text-sm font-medium text-gray-300">Amount to Transfer</label>
                                 <input type="number" id="transfer-amount" name="amount" min="1" placeholder="e.g., 2500" class="mt-1 w-full bg-gray-900/50 border border-gray-700 rounded-lg px-4 py-2 text-white focus:outline-none focus:ring-2 focus:ring-cyan-500" required>
                             </div>
-                            <button type="submit" name="action" value="transfer" class="w-full bg-purple-600 hover:bg-purple-700 text-white font-bold py-2 rounded-lg">Transfer Credits</button>
+                            <button type="submit" name="action" value="transfer" class="w-full bg-purple-600 hover:bg-purple-700 text-white font-bold py-2 px-6 rounded-lg">Transfer Credits</button>
                         </form>
                     </div>
-
 
                     <div class="content-box rounded-lg p-4">
                         <h3 class="font-title text-cyan-400 border-b border-gray-600 pb-2 mb-3">Recent Transactions</h3>

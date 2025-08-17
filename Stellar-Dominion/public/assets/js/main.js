@@ -1,265 +1,316 @@
 /**
  * Stellar Dominion - Main JavaScript File (Optimized)
  *
- * This file contains the shared JavaScript logic for the game pages,
- * including optimized timers, icon initialization, and various form helpers.
+ * Shared logic for timers, icons, and page helpers.
+ * Changes:
+ *  - One requestAnimationFrame “second ticker” powers all 1s timers (less overhead).
+ *  - Pauses timers when the tab is hidden (Page Visibility API) to save CPU.
+ *  - Strict number parsing with radix and NaN guards.
+ *  - Safer DOM updates (no unsafe innerHTML for dynamic content).
+ *  - Drift-corrected setInterval countdown for deposits.
  */
 document.addEventListener('DOMContentLoaded', () => {
-    // This check is a placeholder for a real icon library like Lucide
+    // Icon init (keep reference)
     if (typeof lucide !== 'undefined') {
         lucide.createIcons();
     }
 
-    // --- Next Turn Timer (Optimized with requestAnimationFrame) ---
+    // ---------- Utilities ----------
+    const toInt = (v, def = 0) => {
+        const n = parseInt(v, 10);
+        return Number.isFinite(n) ? n : def;
+    };
+    const toFloat = (v, def = 0) => {
+        const n = parseFloat(v);
+        return Number.isFinite(n) ? n : def;
+    };
+
+    // Global 1Hz ticker using requestAnimationFrame
+    const secondCallbacks = [];
+    let rafId = 0, lastTs = 0;
+    const tick = (ts) => {
+        if (!lastTs) lastTs = ts;
+        if (ts - lastTs >= 1000) {
+            lastTs += 1000;
+            for (let i = 0; i < secondCallbacks.length; i++) {
+                // Guard each callback to keep others running on error
+                try { secondCallbacks[i](); } catch (_) {}
+            }
+        }
+        rafId = requestAnimationFrame(tick);
+    };
+    const startTicker = () => { if (!rafId) rafId = requestAnimationFrame(tick); };
+    const stopTicker  = () => { if (rafId) cancelAnimationFrame(rafId); rafId = 0; lastTs = 0; };
+    document.addEventListener('visibilitychange', () => {
+        if (document.hidden) stopTicker(); else startTicker();
+    });
+    startTicker();
+
+    // ---------- Next Turn Timer (rAF 1Hz) ----------
     const timerDisplay = document.getElementById('next-turn-timer');
     if (timerDisplay && timerDisplay.dataset.secondsUntilNextTurn) {
-        let totalSeconds = parseInt(timerDisplay.dataset.secondsUntilNextTurn) || 0;
-        let lastTimestamp = 0;
-
-        function updateTimer(timestamp) {
-            if (!lastTimestamp || timestamp - lastTimestamp >= 1000) {
-                lastTimestamp = timestamp;
-
-                if (totalSeconds <= 0) {
-                    timerDisplay.textContent = "Processing...";
-                    setTimeout(() => {
-                        // Append a timestamp to prevent caching issues on reload
-                        window.location.href = window.location.pathname + '?t=' + new Date().getTime();
-                    }, 1500);
-                    return; // Stop the loop
-                }
-                
-                totalSeconds--;
-                const minutes = Math.floor(totalSeconds / 60);
-                const seconds = totalSeconds % 60;
-                timerDisplay.textContent = `${String(minutes).padStart(2, '0')}:${String(seconds).padStart(2, '0')}`;
+        let totalSeconds = toInt(timerDisplay.dataset.secondsUntilNextTurn, 0);
+        const onSecond = () => {
+            if (totalSeconds <= 0) {
+                timerDisplay.textContent = "Processing...";
+                // Small delay, then cache-busting reload
+                setTimeout(() => {
+                    window.location.href = window.location.pathname + '?t=' + Date.now();
+                }, 1500);
+                // Remove self from callbacks once done
+                const idx = secondCallbacks.indexOf(onSecond);
+                if (idx > -1) secondCallbacks.splice(idx, 1);
+                return;
             }
-            requestAnimationFrame(updateTimer);
-        }
-        requestAnimationFrame(updateTimer);
+            totalSeconds--;
+            const m = Math.floor(totalSeconds / 60);
+            const s = totalSeconds % 60;
+            timerDisplay.textContent = `${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}`;
+        };
+        secondCallbacks.push(onSecond);
     }
 
-    // --- Dominion Time Clock (Optimized with requestAnimationFrame) ---
+    // ---------- Dominion Time Clock (rAF 1Hz) ----------
     const timeDisplay = document.getElementById('dominion-time');
     if (timeDisplay && timeDisplay.dataset.hours) {
-        const initialHours = parseInt(timeDisplay.dataset.hours) || 0;
-        const initialMinutes = parseInt(timeDisplay.dataset.minutes) || 0;
-        const initialSeconds = parseInt(timeDisplay.dataset.seconds) || 0;
-        
-        let serverTime = new Date();
-        serverTime.setUTCHours(initialHours, initialMinutes, initialSeconds);
+        const h0 = toInt(timeDisplay.dataset.hours, 0);
+        const m0 = toInt(timeDisplay.dataset.minutes, 0);
+        const s0 = toInt(timeDisplay.dataset.seconds, 0);
 
-        let lastTimestamp = 0;
+        const serverTime = new Date();
+        serverTime.setUTCHours(h0, m0, s0, 0);
 
-        function updateClock(timestamp) {
-            if (!lastTimestamp || timestamp - lastTimestamp >= 1000) {
-                lastTimestamp = timestamp;
-                serverTime.setSeconds(serverTime.getSeconds() + 1);
-                const hours = String(serverTime.getUTCHours()).padStart(2, '0');
-                const minutes = String(serverTime.getUTCMinutes()).padStart(2, '0');
-                const seconds = String(serverTime.getUTCSeconds()).padStart(2, '0');
-                timeDisplay.textContent = `${hours}:${minutes}:${seconds}`;
-            }
-            requestAnimationFrame(updateClock);
-        }
-        requestAnimationFrame(updateClock);
+        const onSecond = () => {
+            serverTime.setSeconds(serverTime.getSeconds() + 1);
+            const hh = String(serverTime.getUTCHours()).padStart(2, '0');
+            const mm = String(serverTime.getUTCMinutes()).padStart(2, '0');
+            const ss = String(serverTime.getUTCSeconds()).padStart(2, '0');
+            timeDisplay.textContent = `${hh}:${mm}:${ss}`;
+        };
+        secondCallbacks.push(onSecond);
     }
 
-    // --- Point Allocation Form Helper (levels.php) ---
+    // ---------- Next Deposit Timer (bank.php) — setInterval (drift-corrected) ----------
+    const depositTimerDisplay = document.getElementById('next-deposit-timer');
+    if (depositTimerDisplay && depositTimerDisplay.dataset.seconds) {
+        let totalSeconds = toInt(depositTimerDisplay.dataset.seconds, 0);
+        const render = (secs) => {
+            if (secs <= 0) {
+                depositTimerDisplay.textContent = "Available";
+                return;
+            }
+            const h = Math.floor(secs / 3600);
+            const m = Math.floor((secs % 3600) / 60);
+            const s = secs % 60;
+            depositTimerDisplay.textContent =
+                `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}`;
+        };
+        render(totalSeconds);
+        if (totalSeconds > 0) {
+            const endAt = Date.now() + totalSeconds * 1000;
+            const iv = setInterval(() => {
+                const remaining = Math.max(0, Math.round((endAt - Date.now()) / 1000));
+                render(remaining);
+                if (remaining <= 0) {
+                    clearInterval(iv);
+                    setTimeout(() => window.location.reload(), 1500);
+                }
+            }, 1000);
+        }
+    }
+
+    // ---------- Point Allocation Form (levels.php) ----------
     const availablePointsEl = document.getElementById('available-points');
     const totalSpentEl = document.getElementById('total-spent');
     const pointInputs = document.querySelectorAll('.point-input');
-    if (availablePointsEl && totalSpentEl && pointInputs.length > 0) {
-        function updateTotal() {
+    if (availablePointsEl && totalSpentEl && pointInputs.length) {
+        const getAvail = () => toInt(availablePointsEl.textContent, 0);
+        let debounceId = 0;
+        const updateTotal = () => {
             let total = 0;
-            pointInputs.forEach(input => {
-                total += parseInt(input.value) || 0;
-            });
-            totalSpentEl.textContent = total;
-            if (total > parseInt(availablePointsEl.textContent)) {
-                totalSpentEl.classList.add('text-red-500');
-            } else {
-                totalSpentEl.classList.remove('text-red-500');
+            for (let i = 0; i < pointInputs.length; i++) {
+                total += toInt(pointInputs[i].value, 0);
             }
-        }
-        pointInputs.forEach(input => input.addEventListener('input', updateTotal));
+            totalSpentEl.textContent = String(total);
+            totalSpentEl.classList.toggle('text-red-500', total > getAvail());
+        };
+        const onInput = () => {
+            // simple debounce to reduce layout churn on rapid edits
+            clearTimeout(debounceId);
+            debounceId = setTimeout(updateTotal, 50);
+        };
+        pointInputs.forEach(input => input.addEventListener('input', onInput, { passive: true }));
     }
 
-    // --- A.I. Advisor Text Rotator ---
+    // ---------- A.I. Advisor Text Rotator ----------
     const advisorTextEl = document.getElementById('advisor-text');
     if (advisorTextEl && advisorTextEl.dataset.advice) {
-        const adviceList = JSON.parse(advisorTextEl.dataset.advice || '[]');
-        let currentAdviceIndex = 0;
+        let adviceList = [];
+        try {
+            adviceList = JSON.parse(advisorTextEl.dataset.advice || '[]');
+            if (!Array.isArray(adviceList)) adviceList = [];
+        } catch (_) { adviceList = []; }
+        let idx = 0;
         if (adviceList.length > 1) {
             setInterval(() => {
-                currentAdviceIndex = (currentAdviceIndex + 1) % adviceList.length;
+                idx = (idx + 1) % adviceList.length;
                 advisorTextEl.style.opacity = 0;
                 setTimeout(() => {
-                    advisorTextEl.textContent = adviceList[currentAdviceIndex];
+                    // textContent avoids HTML injection
+                    advisorTextEl.textContent = String(adviceList[idx]);
                     advisorTextEl.style.opacity = 1;
                 }, 500);
             }, 10000);
         }
     }
 
-    // --- Banking Form Helpers (bank.php) ---
+    // ---------- Banking Form Helpers (bank.php) ----------
     const creditsOnHand = document.getElementById('credits-on-hand');
     const creditsInBank = document.getElementById('credits-in-bank');
     const depositInput = document.getElementById('deposit-amount');
     const withdrawInput = document.getElementById('withdraw-amount');
     const bankPercentBtns = document.querySelectorAll('.bank-percent-btn');
-    if (bankPercentBtns.length > 0) {
+    if (bankPercentBtns.length) {
         bankPercentBtns.forEach(btn => {
             btn.addEventListener('click', () => {
                 const action = btn.dataset.action;
-                const percent = parseFloat(btn.dataset.percent);
+                const percent = toFloat(btn.dataset.percent, 0);
                 if (action === 'deposit' && creditsOnHand && depositInput) {
-                    const amount = Math.floor(parseInt(creditsOnHand.dataset.amount) * percent);
-                    depositInput.value = amount;
+                    const base = toInt(creditsOnHand.dataset.amount, 0);
+                    depositInput.value = Math.floor(base * percent);
                 } else if (action === 'withdraw' && creditsInBank && withdrawInput) {
-                    const amount = Math.floor(parseInt(creditsInBank.dataset.amount) * percent);
-                    withdrawInput.value = amount;
+                    const base = toInt(creditsInBank.dataset.amount, 0);
+                    withdrawInput.value = Math.floor(base * percent);
                 }
-            });
+            }, { passive: true });
         });
     }
-    
-    // --- Training & Disband Page Logic (battle.php) ---
+
+    // ---------- Training & Disband (battle.php) ----------
     const trainTab = document.getElementById('train-tab-content');
     if (trainTab) {
-        const trainForm = document.getElementById('train-form');
-        const disbandForm = document.getElementById('disband-form');
-        const trainTabBtn = document.getElementById('train-tab-btn');
-        const disbandTabBtn = document.getElementById('disband-tab-btn');
+        const trainForm         = document.getElementById('train-form');
+        const disbandForm       = document.getElementById('disband-form');
+        const trainTabBtn       = document.getElementById('train-tab-btn');
+        const disbandTabBtn     = document.getElementById('disband-tab-btn');
         const disbandTabContent = document.getElementById('disband-tab-content');
 
         const availableCitizensEl = document.getElementById('available-citizens');
-        const availableCreditsEl = document.getElementById('available-credits');
-        const totalCostEl = document.getElementById('total-build-cost');
+        const availableCreditsEl  = document.getElementById('available-credits');
+        const totalCostEl   = document.getElementById('total-build-cost');
         const totalRefundEl = document.getElementById('total-refund-value');
 
-        const availableCitizens = parseInt(availableCitizensEl.dataset.amount);
-        const availableCredits = parseInt(availableCreditsEl.dataset.amount);
-        const charismaDiscount = parseFloat(trainForm.dataset.charismaDiscount);
-        const refundRate = 0.75;
+        const availableCitizens  = toInt(availableCitizensEl?.dataset.amount, 0);
+        const availableCredits   = toInt(availableCreditsEl?.dataset.amount, 0);
+        const charismaDiscount   = toFloat(trainForm?.dataset.charismaDiscount, 1);
+        const refundRate         = 0.75;
 
-        // --- Tab Switching ---
+        // Tab switching (preserve classes/IDs)
         const activeClasses = ['bg-gray-700', 'text-white', 'font-semibold'];
         const inactiveClasses = ['bg-gray-800', 'hover:bg-gray-700', 'text-gray-400'];
 
-        trainTabBtn.addEventListener('click', () => {
-            trainTab.classList.remove('hidden');
-            disbandTabContent.classList.add('hidden');
-            trainTabBtn.classList.add(...activeClasses);
-            trainTabBtn.classList.remove(...inactiveClasses);
-            disbandTabBtn.classList.add(...inactiveClasses);
-            disbandTabBtn.classList.remove(...activeClasses);
-        });
+        const setActive = (btnOn, btnOff, contentOn, contentOff) => {
+            contentOn.classList.remove('hidden');
+            contentOff.classList.add('hidden');
+            btnOn.classList.add(...activeClasses);
+            btnOn.classList.remove(...inactiveClasses);
+            btnOff.classList.add(...inactiveClasses);
+            btnOff.classList.remove(...activeClasses);
+        };
+        trainTabBtn?.addEventListener('click', () => setActive(trainTabBtn, disbandTabBtn, trainTab, disbandTabContent));
+        disbandTabBtn?.addEventListener('click', () => setActive(disbandTabBtn, trainTabBtn, disbandTabContent, trainTab));
 
-        disbandTabBtn.addEventListener('click', () => {
-            disbandTabContent.classList.remove('hidden');
-            trainTab.classList.add('hidden');
-            disbandTabBtn.classList.add(...activeClasses);
-            disbandTabBtn.classList.remove(...inactiveClasses);
-            trainTabBtn.classList.add(...inactiveClasses);
-            trainTabBtn.classList.remove(...activeClasses);
-        });
-
-        const trainInputs = trainForm.querySelectorAll('.unit-input-train');
-        function updateTrainingCost() {
+        // Training costs
+        const trainInputs = trainForm ? trainForm.querySelectorAll('.unit-input-train') : [];
+        const updateTrainingCost = () => {
             let totalCost = 0;
             let totalCitizens = 0;
             trainInputs.forEach(input => {
-                const amount = parseInt(input.value) || 0;
+                const amount = toInt(input.value, 0);
                 totalCitizens += amount;
                 if (amount > 0) {
-                    const baseCost = parseInt(input.dataset.cost);
+                    const baseCost = toInt(input.dataset.cost, 0);
                     totalCost += amount * Math.floor(baseCost * charismaDiscount);
                 }
             });
             totalCostEl.textContent = totalCost.toLocaleString();
             totalCostEl.classList.toggle('text-red-500', totalCost > availableCredits);
             availableCitizensEl.classList.toggle('text-red-500', totalCitizens > availableCitizens);
-        }
-        trainInputs.forEach(input => input.addEventListener('input', updateTrainingCost));
-        
-            trainForm.querySelectorAll('.train-max-btn').forEach(btn => {
-        btn.addEventListener('click', e => {
-            const clickedInput = e.currentTarget.previousElementSibling;
-            let otherInputsCost = 0;
-            let otherInputsCitizens = 0;
-            trainInputs.forEach(input => {
-                if (input !== clickedInput) {
-                    const amount = parseInt(input.value) || 0;
-                    otherInputsCitizens += amount;
-                    if (amount > 0) {
-                        const baseCost = parseInt(input.dataset.cost);
-                        otherInputsCost += amount * Math.floor(baseCost * charismaDiscount);
+        };
+        trainInputs.forEach(input => input.addEventListener('input', updateTrainingCost, { passive: true }));
+
+        trainForm?.querySelectorAll('.train-max-btn').forEach(btn => {
+            btn.addEventListener('click', (e) => {
+                const clickedInput = e.currentTarget.previousElementSibling;
+                let otherCost = 0, otherCitizens = 0;
+
+                trainInputs.forEach(input => {
+                    if (input !== clickedInput) {
+                        const amt = toInt(input.value, 0);
+                        otherCitizens += amt;
+                        if (amt > 0) {
+                            otherCost += amt * Math.floor(toInt(input.dataset.cost, 0) * charismaDiscount);
+                        }
                     }
-                }
+                });
+
+                const remainingCredits  = Math.max(0, availableCredits - otherCost);
+                const remainingCitizens = Math.max(0, availableCitizens - otherCitizens);
+                const baseCost = toInt(clickedInput.dataset.cost, 0);
+                const discCost = Math.floor(baseCost * charismaDiscount);
+                const maxByCredits = discCost > 0 ? Math.floor(remainingCredits / discCost) : remainingCitizens;
+                const maxForThis = Math.max(0, Math.min(maxByCredits, remainingCitizens));
+
+                clickedInput.value = maxForThis;
+                updateTrainingCost();
             });
-
-            const remainingCredits = availableCredits - otherInputsCost;
-            const remainingCitizens = availableCitizens - otherInputsCitizens;
-            const baseCost = parseInt(clickedInput.dataset.cost);
-            const discountedCost = Math.floor(baseCost * charismaDiscount);
-
-            // Ensure we don't divide by zero if a unit is free
-            const maxByCredits = discountedCost > 0 ? Math.floor(remainingCredits / discountedCost) : remainingCitizens;
-
-            const maxForThisUnit = Math.max(0, Math.min(maxByCredits, remainingCitizens));
-
-            clickedInput.value = maxForThisUnit;
-            updateTrainingCost();
         });
-    });
 
-        const disbandInputs = disbandForm.querySelectorAll('.unit-input-disband');
-        function updateDisbandRefund() {
+        // Disband refunds
+        const disbandInputs = disbandForm ? disbandForm.querySelectorAll('.unit-input-disband') : [];
+        const updateDisbandRefund = () => {
             let totalRefund = 0;
             disbandInputs.forEach(input => {
-                const amount = parseInt(input.value) || 0;
-                if (amount > 0) {
-                    const baseCost = parseInt(input.dataset.cost);
-                    totalRefund += amount * Math.floor(baseCost * refundRate);
+                const amt = toInt(input.value, 0);
+                if (amt > 0) {
+                    totalRefund += amt * Math.floor(toInt(input.dataset.cost, 0) * refundRate);
                 }
             });
             totalRefundEl.textContent = totalRefund.toLocaleString();
-        }
-        disbandInputs.forEach(input => input.addEventListener('input', updateDisbandRefund));
-
-        disbandForm.querySelectorAll('.disband-max-btn').forEach(btn => {
-            btn.addEventListener('click', e => {
+        };
+        disbandInputs.forEach(input => input.addEventListener('input', updateDisbandRefund, { passive: true }));
+        disbandForm?.querySelectorAll('.disband-max-btn').forEach(btn => {
+            btn.addEventListener('click', (e) => {
                 const input = e.currentTarget.previousElementSibling;
                 input.value = input.max;
                 updateDisbandRefund();
             });
         });
-        
+
         updateTrainingCost();
         updateDisbandRefund();
     }
 
-    // --- Armory Purchase Calculator (armory.php) ---
+    // ---------- Armory Purchase Calculator (armory.php) ----------
     const armoryForm = document.getElementById('armory-form');
     if (armoryForm) {
         const summaryItemsEl = document.getElementById('summary-items');
-        const grandTotalEl = document.getElementById('grand-total');
+        const grandTotalEl   = document.getElementById('grand-total');
         const quantityInputs = armoryForm.querySelectorAll('.armory-item-quantity');
 
         const updateArmoryCost = () => {
             let grandTotal = 0;
-            let summaryHtml = '';
+            const frag = document.createDocumentFragment();
+            let selectedCount = 0;
 
             quantityInputs.forEach(input => {
-                const quantity = parseInt(input.value) || 0;
+                const quantity = toInt(input.value, 0);
                 const itemRow = input.closest('.armory-item');
-                const costEl = itemRow.querySelector('[data-cost]');
-                const subtotalEl = itemRow.querySelector('.subtotal');
-                
-                const cost = parseInt(costEl.dataset.cost);
+                const costEl = itemRow?.querySelector('[data-cost]');
+                const subtotalEl = itemRow?.querySelector('.subtotal');
+                const cost = toInt(costEl?.dataset.cost, 0);
                 const subtotal = quantity * cost;
-                
+
                 if (subtotalEl) {
                     subtotalEl.textContent = subtotal.toLocaleString();
                 }
@@ -267,58 +318,57 @@ document.addEventListener('DOMContentLoaded', () => {
                 grandTotal += subtotal;
 
                 if (quantity > 0) {
-                    const itemName = input.dataset.itemName;
-                    summaryHtml += `
-                        <div class="flex justify-between">
-                            <span>${itemName} x${quantity}</span>
-                            <span class="font-semibold">${subtotal.toLocaleString()}</span>
-                        </div>`;
+                    selectedCount++;
+                    const line = document.createElement('div');
+                    line.className = 'flex justify-between';
+
+                    const left = document.createElement('span');
+                    left.textContent = `${input.dataset.itemName} x${quantity}`;
+
+                    const right = document.createElement('span');
+                    right.className = 'font-semibold';
+                    right.textContent = subtotal.toLocaleString();
+
+                    line.append(left, right);
+                    frag.appendChild(line);
                 }
             });
 
             grandTotalEl.textContent = grandTotal.toLocaleString();
-            
-            if (summaryHtml === '') {
-                summaryItemsEl.innerHTML = '<p class="text-gray-500 italic">Select items to purchase...</p>';
-            } else {
-                summaryItemsEl.innerHTML = summaryHtml;
+            if (summaryItemsEl) {
+                summaryItemsEl.textContent = ''; // clear safely
+                if (selectedCount === 0) {
+                    const p = document.createElement('p');
+                    p.className = 'text-gray-500 italic';
+                    p.textContent = 'Select items to purchase...';
+                    summaryItemsEl.appendChild(p);
+                } else {
+                    summaryItemsEl.appendChild(frag);
+                }
             }
         };
 
-        quantityInputs.forEach(input => {
-            input.addEventListener('input', updateArmoryCost);
-        });
-        
+        quantityInputs.forEach(input => input.addEventListener('input', updateArmoryCost, { passive: true }));
         updateArmoryCost();
     }
 
-    // --- Advisor Mobile Toggle ---
+    // ---------- Advisor Mobile Toggle ----------
     const toggleButton = document.getElementById('toggle-advisor-btn');
     const advisorContainer = document.querySelector('.advisor-container');
-
     if (toggleButton && advisorContainer) {
-        toggleButton.addEventListener('click', function() {
+        toggleButton.addEventListener('click', () => {
             advisorContainer.classList.toggle('advisor-minimized');
-            if (advisorContainer.classList.contains('advisor-minimized')) {
-                toggleButton.textContent = '+';
-            } else {
-                toggleButton.textContent = '-';
-            }
+            toggleButton.textContent = advisorContainer.classList.contains('advisor-minimized') ? '+' : '-';
         });
     }
 
-    // --- Stats Mobile Toggle ---
+    // ---------- Stats Mobile Toggle ----------
     const statsToggleButton = document.getElementById('toggle-stats-btn');
     const statsContainer = document.querySelector('.stats-container');
-
     if (statsToggleButton && statsContainer) {
-        statsToggleButton.addEventListener('click', function() {
+        statsToggleButton.addEventListener('click', () => {
             statsContainer.classList.toggle('stats-minimized');
-            if (statsContainer.classList.contains('stats-minimized')) {
-                statsToggleButton.textContent = '+';
-            } else {
-                statsToggleButton.textContent = '-';
-            }
+            statsToggleButton.textContent = statsContainer.classList.contains('stats-minimized') ? '+' : '-';
         });
     }
 });
