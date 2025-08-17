@@ -50,7 +50,7 @@ $viewer_data = null;
 $viewer_permissions = ['can_invite_members' => 0];
 if ($is_logged_in) {
     $sql_viewer = "
-        SELECT u.credits, u.untrained_citizens, u.level, u.attack_turns, u.last_updated, u.alliance_id,
+        SELECT u.credits, u.untrained_citizens, u.level, u.experience, u.attack_turns, u.last_updated, u.alliance_id,
                ar.can_invite_members
         FROM users u
         LEFT JOIN alliance_roles ar ON u.alliance_role_id = ar.id
@@ -131,7 +131,7 @@ $active_page = 'attack.php'; // Keep the 'BATTLE' main nav active
                 <aside class="lg:col-span-1 space-y-4">
                     <?php 
                         $user_stats = $viewer_data; // Pass viewer's stats to the advisor
-                        $user_xp = 0; // XP is not fetched here, can be added if needed
+                        $user_xp = $viewer_data['experience'] ?? 0; // Use actual experience value
                         $user_level = $viewer_data['level'];
                         include_once __DIR__ . '/../includes/advisor.php'; 
                     ?>
