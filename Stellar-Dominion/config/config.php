@@ -51,6 +51,22 @@ if (!function_exists('validate_csrf_token')) {
     }
 }
 
+// Backward compatibility function for legacy templates
+if (!function_exists('csrf_token_field')) {
+    function csrf_token_field($action = 'default') {
+        $csrf = StellarDominion\Security\CSRFProtection::getInstance();
+        return $csrf->getTokenField($action);
+    }
+}
+
+// Backward compatibility function for legacy templates
+if (!function_exists('protect_csrf')) {
+    function protect_csrf() {
+        $csrf = StellarDominion\Security\CSRFProtection::getInstance();
+        $csrf->protectForm();
+    }
+}
+
 // --- Game Configuration Constants from Environment ---
 define('AVATAR_SIZE_LIMIT', $_ENV['AVATAR_SIZE_LIMIT'] ?? 500000); // 500KB in bytes
 define('MIN_USER_LEVEL_AVATAR', $_ENV['MIN_USER_LEVEL_AVATAR'] ?? 5);
