@@ -92,7 +92,7 @@ if (in_array($active_page, ['war_declaration.php', 'view_alliances.php', 'view_a
 
 ?>
 <header class="text-center mb-4">
-    <h1 class="text-5xl font-title text-cyan-400" style="text-shadow: 0 0 8px rgba(6, 182, 212, 0.7);">STELLAR DOMINION</h1>
+    <h1 class="text-5xl font-title text-cyan-400" style="text-shadow: 0 0 8px rgba(6, 182, 212, 0.7);">STARLIGHT DOMINION</h1>
 </header>
 
 <div class="main-bg border border-gray-700 rounded-lg shadow-2xl p-1">
