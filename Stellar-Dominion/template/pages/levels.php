@@ -69,8 +69,7 @@ if ($_SERVER["REQUEST_METHOD"] == "POST") {
                 mysqli_stmt_bind_param($stmt_update, "i", $user_id);
                 mysqli_stmt_execute($stmt_update);
                 mysqli_stmt_close($stmt_update);
-
-                $_SESSION['level_message'] = "Successfully spent " . $total_points_to_spend . " points!";
+                $_SESSION['level_message'] = "Successfully spent " . $total_points_to_spend . " point" . ($total_points_to_spend == 1 ? "" : "s") . "!";
             }
 
             mysqli_commit($link);
