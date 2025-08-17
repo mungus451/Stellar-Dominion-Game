@@ -1,0 +1,54 @@
+# Version control
+.git
+.gitignore
+
+# Documentation
+*.md
+docs/
+
+# Docker files
+Dockerfile
+docker-compose.yml
+.dockerignore
+
+# Environment files
+.env.example
+
+# Logs
+logs/
+*.log
+
+# Cache and temporary files
+.cache/
+tmp/
+temp/
+
+# IDE and editor files
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS generated files
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+
+# Node.js (if present)
+node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# PHP
+vendor/ # Will be installed in container
+
+# Application specific
+uploads/
+storage/
+public/uploads/
