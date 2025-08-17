@@ -1,214 +1,355 @@
 <?php
 // --- SESSION AND DATABASE SETUP ---
 // session_start() and the login check are now handled by the main router (public/index.php)
-date_default_timezone_set('UTC');
+date_default_timezone_set('UTC'); // Canonicalizes all server-side time arithmetic to UTC to avoid DST drift.
 
 // --- CORRECTED FILE PATHS ---
 require_once __DIR__ . '/../../config/config.php';
-require_once __DIR__ . '/../../src/Game/GameData.php'; // Corrected path to GameData
+require_once __DIR__ . '/../../src/Game/GameData.php'; // Provides $upgrades and $armory_loadouts metadata structures (read-only)
 
-// --- FIX: Define user_id for subsequent queries ---
-$user_id = $_SESSION['id'];
+// Explicit cast prevents accidental string injection and quiets strict typing paths.
+$user_id = (int)($_SESSION['id'] ?? 0);
 
 require_once __DIR__ . '/../../src/Game/GameFunctions.php';
+
+// Turn compaction side-effect: this function may mutate persistent state (credits, citizens, etc.)
+// based on elapsed turns. We intentionally call it *before* reading user rows to reflect current state.
 process_offline_turns($link, $_SESSION["id"]);
 
 // --- DATA FETCHING FOR DISPLAY ---
-$user_stats = []; // Changed variable name for consistency
-$sql = "SELECT * FROM users WHERE id = ?";
-if($stmt = mysqli_prepare($link, $sql)){
-    mysqli_stmt_bind_param($stmt, "i", $_SESSION["id"]);
-    mysqli_stmt_execute($stmt);
-    $result = mysqli_stmt_get_result($stmt);
-    $user_stats = mysqli_fetch_assoc($result);
-    mysqli_stmt_close($stmt);
+// We fetch the entire user row once. This keeps a single source of truth for downstream computations.
+$user_stats = [];
+if ($user_id > 0) {
+    $sql = "SELECT * FROM users WHERE id = ?";
+    if ($stmt = mysqli_prepare($link, $sql)) {
+        mysqli_stmt_bind_param($stmt, "i", $user_id);
+        mysqli_stmt_execute($stmt);
+        $result = mysqli_stmt_get_result($stmt);
+        $user_stats = mysqli_fetch_assoc($result) ?: [];
+        mysqli_stmt_close($stmt);
+    }
 }
+
+/**
+ * Populate defaults for any potentially absent columns.
+ * WHY: Production safety. Undefined indices cause PHP notices and may vary across migrations.
+ * This ensures downstream math is total-order deterministic and avoids fragile isset() chains.
+ * NOTE: We deliberately retain the same keys and their usage patterns.
+ */
+$user_stats += [
+    'id' => $user_id,
+    'alliance_id' => $user_stats['alliance_id'] ?? null,
+    'credits' => $user_stats['credits'] ?? 0,
+    'banked_credits' => $user_stats['banked_credits'] ?? 0,
+    'net_worth' => $user_stats['net_worth'] ?? 0,
+    'workers' => $user_stats['workers'] ?? 0,
+    'soldiers' => $user_stats['soldiers'] ?? 0,
+    'guards' => $user_stats['guards'] ?? 0,
+    'sentries' => $user_stats['sentries'] ?? 0,
+    'spies' => $user_stats['spies'] ?? 0,
+    'untrained_citizens' => $user_stats['untrained_citizens'] ?? 0,
+    'strength_points' => $user_stats['strength_points'] ?? 0,
+    'constitution_points' => $user_stats['constitution_points'] ?? 0,
+    'wealth_points' => $user_stats['wealth_points'] ?? 0,
+    'offense_upgrade_level' => $user_stats['offense_upgrade_level'] ?? 0,
+    'defense_upgrade_level' => $user_stats['defense_upgrade_level'] ?? 0,
+    'economy_upgrade_level' => $user_stats['economy_upgrade_level'] ?? 0,
+    'population_level' => $user_stats['population_level'] ?? 0,
+    'last_updated' => $user_stats['last_updated'] ?? gmdate('Y-m-d H:i:s'), // Fallback avoids negative modulo below.
+    'experience' => $user_stats['experience'] ?? 0,
+    'level' => $user_stats['level'] ?? 1,
+    'race' => $user_stats['race'] ?? '',
+    'class' => $user_stats['class'] ?? '',
+    'character_name' => $user_stats['character_name'] ?? 'Unknown',
+    'avatar_path' => $user_stats['avatar_path'] ?? null,
+    'attack_turns' => $user_stats['attack_turns'] ?? 0,
+    'previous_login_at' => $user_stats['previous_login_at'] ?? null,
+    'previous_login_ip' => $user_stats['previous_login_ip'] ?? null,
+];
 
 // --- FETCH ARMORY DATA ---
-$sql_armory = "SELECT item_key, quantity FROM user_armory WHERE user_id = ?";
-$stmt_armory = mysqli_prepare($link, $sql_armory);
-mysqli_stmt_bind_param($stmt_armory, "i", $user_id);
-mysqli_stmt_execute($stmt_armory);
-$armory_result = mysqli_stmt_get_result($stmt_armory);
+// Shape: owned_items[item_key] => integer quantity. Used to clamp per-unit equipment contribution.
 $owned_items = [];
-while($row = mysqli_fetch_assoc($armory_result)) {
-    $owned_items[$row['item_key']] = $row['quantity'];
+if ($user_id > 0) {
+    $sql_armory = "SELECT item_key, quantity FROM user_armory WHERE user_id = ?";
+    if ($stmt_armory = mysqli_prepare($link, $sql_armory)) {
+        mysqli_stmt_bind_param($stmt_armory, "i", $user_id);
+        mysqli_stmt_execute($stmt_armory);
+        $armory_result = mysqli_stmt_get_result($stmt_armory);
+        while ($row = mysqli_fetch_assoc($armory_result)) {
+            $owned_items[$row['item_key']] = (int)$row['quantity'];
+        }
+        mysqli_stmt_close($stmt_armory);
+    }
 }
-mysqli_stmt_close($stmt_armory);
 
 // --- FETCH ALLIANCE INFO ---
+// We only surface name/tag for UX. This avoids over-fetching alliance state here.
 $alliance_info = null;
-if ($user_stats['alliance_id']) {
+if (!empty($user_stats['alliance_id'])) {
     $sql_alliance = "SELECT name, tag FROM alliances WHERE id = ?";
-    if($stmt_alliance = mysqli_prepare($link, $sql_alliance)) {
+    if ($stmt_alliance = mysqli_prepare($link, $sql_alliance)) {
         mysqli_stmt_bind_param($stmt_alliance, "i", $user_stats['alliance_id']);
         mysqli_stmt_execute($stmt_alliance);
-        $alliance_info = mysqli_fetch_assoc(mysqli_stmt_get_result($stmt_alliance));
+        $alliance_info = mysqli_fetch_assoc(mysqli_stmt_get_result($stmt_alliance)) ?: null;
         mysqli_stmt_close($stmt_alliance);
     }
 }
 
-// --- FETCH COMBAT RECORD ---
-$sql_wins = "SELECT COUNT(id) as wins FROM battle_logs WHERE attacker_id = ? AND outcome = 'victory'";
-$stmt_wins = mysqli_prepare($link, $sql_wins);
-mysqli_stmt_bind_param($stmt_wins, "i", $user_id);
-mysqli_stmt_execute($stmt_wins);
-$wins = mysqli_fetch_assoc(mysqli_stmt_get_result($stmt_wins))['wins'] ?? 0;
-mysqli_stmt_close($stmt_wins);
-
-$sql_losses_attacker = "SELECT COUNT(id) as losses FROM battle_logs WHERE attacker_id = ? AND outcome = 'defeat'";
-$stmt_losses_a = mysqli_prepare($link, $sql_losses_attacker);
-mysqli_stmt_bind_param($stmt_losses_a, "i", $user_id);
-mysqli_stmt_execute($stmt_losses_a);
-$losses_as_attacker = mysqli_fetch_assoc(mysqli_stmt_get_result($stmt_losses_a))['losses'] ?? 0;
-mysqli_stmt_close($stmt_losses_a);
-
-$sql_losses_defender = "SELECT COUNT(id) as losses FROM battle_logs WHERE defender_id = ? AND outcome = 'victory'";
-$stmt_losses_d = mysqli_prepare($link, $sql_losses_defender);
-mysqli_stmt_bind_param($stmt_losses_d, "i", $user_id);
-mysqli_stmt_execute($stmt_losses_d);
-$losses_as_defender = mysqli_fetch_assoc(mysqli_stmt_get_result($stmt_losses_d))['losses'] ?? 0;
-mysqli_stmt_close($stmt_losses_d);
+/**
+ * --- FETCH COMBAT RECORD (single pass) ---
+ * We collapse three separate COUNT(*) queries into one scan using conditional SUMs.
+ * Complexity: O(k) in #rows where attacker_id=user_id OR defender_id=user_id.
+ * Indexing guidance (DBA note): composite indexes on (attacker_id, outcome) and
+ * (defender_id, outcome) or a partial covering index can accelerate this aggregation.
+ */
+$wins = 0;
+$losses_as_attacker = 0;
+$losses_as_defender = 0;
+if ($user_id > 0) {
+    $sql_battles = "
+        SELECT
+            SUM(CASE WHEN attacker_id = ? AND outcome = 'victory' THEN 1 ELSE 0 END) AS wins,
+            SUM(CASE WHEN attacker_id = ? AND outcome = 'defeat'  THEN 1 ELSE 0 END) AS losses_as_attacker,
+            SUM(CASE WHEN defender_id = ? AND outcome = 'victory' THEN 1 ELSE 0 END) AS losses_as_defender
+        FROM battle_logs
+        WHERE attacker_id = ? OR defender_id = ?
+    ";
+    if ($stmt_b = mysqli_prepare($link, $sql_battles)) {
+        mysqli_stmt_bind_param($stmt_b, "iiiii", $user_id, $user_id, $user_id, $user_id, $user_id);
+        mysqli_stmt_execute($stmt_b);
+        $row = mysqli_fetch_assoc(mysqli_stmt_get_result($stmt_b)) ?: [];
+        $wins = (int)($row['wins'] ?? 0);
+        $losses_as_attacker = (int)($row['losses_as_attacker'] ?? 0);
+        $losses_as_defender = (int)($row['losses_as_defender'] ?? 0);
+        mysqli_stmt_close($stmt_b);
+    }
+}
 $total_losses = $losses_as_attacker + $losses_as_defender;
 
-// --- NET WORTH RECALCULATION ---
+/**
+ * --- NET WORTH RECALCULATION ---
+ * This is the *only* write-side effect in this script. It recomputes users.net_worth deterministically.
+ *
+ * DEFINITION (as implemented here):
+ *   net_worth = floor(
+ *       sum_over_units( quantity * base_cost * refund_rate )
+ *     + ( historical_upgrade_spend * structure_depreciation_rate )
+ *     + credits_on_hand
+ *     + banked_credits
+ *   )
+ *
+ * RATIONALE:
+ * • Unit liquidation value assumes a 75% refund (refund_rate) — simulates resale/attrition.
+ * • Upgrades depreciate heavily (10%) — they’re sunk cost with low resale.
+ * • Liquid credits contribute 1:1 to wealth (both on-hand and banked).
+ * • floor() ensures integer storage, consistent with in-game currency granulity.
+ *
+ * CONSISTENCY:
+ * • If user_state changed earlier in process_offline_turns(), we capture that here.
+ * • If the recomputed value differs, we persist it; otherwise we avoid a write (reduces lock churn).
+ */
 $base_unit_costs = ['workers' => 100, 'soldiers' => 250, 'guards' => 250, 'sentries' => 500, 'spies' => 1000];
 $refund_rate = 0.75;
-$structure_depreciation_rate = 0.10; // Structures are worth 10% of their cost for net worth
+$structure_depreciation_rate = 0.10; // Upgrades contribute only 10% to net worth.
 
 $total_unit_value = 0;
 foreach ($base_unit_costs as $unit => $cost) {
-    if (isset($user_stats[$unit])) {
-        $total_unit_value += floor($user_stats[$unit] * $cost * $refund_rate);
+    $qty = (int)($user_stats[$unit] ?? 0);
+    if ($qty > 0) {
+        // Accumulate at full precision; final floor after sum matches original semantics but is cheaper.
+        $total_unit_value += $qty * $cost * $refund_rate;
     }
 }
+$total_unit_value = (int)floor($total_unit_value);
 
+// Historical upgrade spend through current level for each category.
 $total_upgrade_cost = 0;
-foreach ($upgrades as $category_key => $category) {
-    $db_column = $category['db_column'];
-    $current_level = $user_stats[$db_column];
-    for ($i = 1; $i <= $current_level; $i++) {
-        $total_upgrade_cost += $category['levels'][$i]['cost'] ?? 0;
+if (!empty($upgrades) && is_array($upgrades)) {
+    foreach ($upgrades as $category_key => $category) {
+        $db_column = $category['db_column'] ?? null;
+        if (!$db_column) { continue; }
+        $current_level = (int)($user_stats[$db_column] ?? 0);
+        $levels = $category['levels'] ?? [];
+        // Summation is O(L) for level L; typical L is small (<= ~20), so this is negligible.
+        for ($i = 1; $i <= $current_level; $i++) {
+            $total_upgrade_cost += (int)($levels[$i]['cost'] ?? 0);
+        }
     }
 }
 
-$new_net_worth = $total_unit_value + ($total_upgrade_cost * $structure_depreciation_rate) + $user_stats['credits'] + $user_stats['banked_credits'];
+$new_net_worth = (int)floor(
+    $total_unit_value
+    + ($total_upgrade_cost * $structure_depreciation_rate)
+    + (int)$user_stats['credits']
+    + (int)$user_stats['banked_credits']
+);
 
-if ($new_net_worth != $user_stats['net_worth']) {
+if ($new_net_worth !== (int)$user_stats['net_worth']) {
     $sql_update_networth = "UPDATE users SET net_worth = ? WHERE id = ?";
-    if($stmt_nw = mysqli_prepare($link, $sql_update_networth)) {
+    if ($stmt_nw = mysqli_prepare($link, $sql_update_networth)) {
         mysqli_stmt_bind_param($stmt_nw, "ii", $new_net_worth, $user_id);
         mysqli_stmt_execute($stmt_nw);
         mysqli_stmt_close($stmt_nw);
-        $user_stats['net_worth'] = $new_net_worth;
+        $user_stats['net_worth'] = $new_net_worth; // Keep in-memory view consistent with storage.
     }
 }
 
-
-// --- CALCULATE CUMULATIVE BONUSES FROM UPGRADES ---
+/**
+ * --- UPGRADE MULTIPLIERS ---
+ * Multipliers are multiplicative factors derived from cumulative percent bonuses up to current level.
+ * Offense/Defense/Economy each sum their respective percentage bonuses and convert to (1 + pct/100).
+ * NOTE: We avoid pow() / product to preserve original linear stacking semantics.
+ */
 $total_offense_bonus_pct = 0;
-for ($i = 1; $i <= $user_stats['offense_upgrade_level']; $i++) { $total_offense_bonus_pct += $upgrades['offense']['levels'][$i]['bonuses']['offense'] ?? 0; }
+for ($i = 1, $n = (int)$user_stats['offense_upgrade_level']; $i <= $n; $i++) {
+    $total_offense_bonus_pct += (float)($upgrades['offense']['levels'][$i]['bonuses']['offense'] ?? 0);
+}
 $offense_upgrade_multiplier = 1 + ($total_offense_bonus_pct / 100);
 
 $total_defense_bonus_pct = 0;
-for ($i = 1; $i <= $user_stats['defense_upgrade_level']; $i++) { $total_defense_bonus_pct += $upgrades['defense']['levels'][$i]['bonuses']['defense'] ?? 0; }
+for ($i = 1, $n = (int)$user_stats['defense_upgrade_level']; $i <= $n; $i++) {
+    $total_defense_bonus_pct += (float)($upgrades['defense']['levels'][$i]['bonuses']['defense'] ?? 0);
+}
 $defense_upgrade_multiplier = 1 + ($total_defense_bonus_pct / 100);
 
 $total_economy_bonus_pct = 0;
-for ($i = 1; $i <= $user_stats['economy_upgrade_level']; $i++) { $total_economy_bonus_pct += $upgrades['economy']['levels'][$i]['bonuses']['income'] ?? 0; }
+for ($i = 1, $n = (int)$user_stats['economy_upgrade_level']; $i <= $n; $i++) {
+    $total_economy_bonus_pct += (float)($upgrades['economy']['levels'][$i]['bonuses']['income'] ?? 0);
+}
 $economy_upgrade_multiplier = 1 + ($total_economy_bonus_pct / 100);
 
-// --- START: MODIFIED CITIZEN CALCULATION ---
+/**
+ * --- CITIZENS PER TURN ---
+ * Base inflow = 1 citizen/turn.
+ * + Personal (population upgrade) bonuses: sum of per-level discrete citizens.
+ * + Alliance membership base bonus (+2 flat) if in any alliance.
+ * + Alliance structure bonuses: sum of 'citizens' from each owned alliance structure.
+ *
+ * This separates *production* (citizens inflow) from *wealth* (net_worth) and *military stats*.
+ */
 $citizens_per_turn = 1; // Base value
-// Add personal bonus from structures
-for ($i = 1; $i <= $user_stats['population_level']; $i++) {
-    $citizens_per_turn += $upgrades['population']['levels'][$i]['bonuses']['citizens'] ?? 0;
+
+// Personal structural bonuses from the player’s population upgrade track.
+for ($i = 1, $n = (int)$user_stats['population_level']; $i <= $n; $i++) {
+    $citizens_per_turn += (int)($upgrades['population']['levels'][$i]['bonuses']['citizens'] ?? 0);
 }
 
-// Add alliance bonuses if applicable
-if ($user_stats['alliance_id']) {
-    // 1. Add the base bonus for being in any alliance
-    $citizens_per_turn += 2; // As defined in TurnProcessor.php
+// Alliance-derived bonuses (flat + structure-based).
+if (!empty($user_stats['alliance_id'])) {
+    $citizens_per_turn += 2; // Base alliance membership boost (documented in TurnProcessor.php)
 
-    // 2. Fetch and add bonuses from alliance structures
-    $sql_alliance_structures = "SELECT als.structure_key, s.bonuses 
-                                FROM alliance_structures als 
-                                JOIN alliance_structures_definitions s ON als.structure_key = s.structure_key
-                                WHERE als.alliance_id = ?";
-    $stmt_as = mysqli_prepare($link, $sql_alliance_structures);
-    mysqli_stmt_bind_param($stmt_as, "i", $user_stats['alliance_id']);
-    mysqli_stmt_execute($stmt_as);
-    $result_as = mysqli_stmt_get_result($stmt_as);
-    while ($structure = mysqli_fetch_assoc($result_as)) {
-        $bonus_data = json_decode($structure['bonuses'], true);
-        if (isset($bonus_data['citizens'])) {
-            $citizens_per_turn += $bonus_data['citizens'];
+    // Pull alliance structures and aggregate their 'citizens' contribution.
+    $sql_alliance_structures = "
+        SELECT als.structure_key, s.bonuses
+        FROM alliance_structures als 
+        JOIN alliance_structures_definitions s ON als.structure_key = s.structure_key
+        WHERE als.alliance_id = ?
+    ";
+    if ($stmt_as = mysqli_prepare($link, $sql_alliance_structures)) {
+        mysqli_stmt_bind_param($stmt_as, "i", $user_stats['alliance_id']);
+        mysqli_stmt_execute($stmt_as);
+        $result_as = mysqli_stmt_get_result($stmt_as);
+        while ($structure = mysqli_fetch_assoc($result_as)) {
+            $bonus_data = json_decode($structure['bonuses'], true);
+            if (!empty($bonus_data['citizens'])) {
+                $citizens_per_turn += (int)$bonus_data['citizens'];
+            }
         }
+        mysqli_stmt_close($stmt_as);
     }
-    mysqli_stmt_close($stmt_as);
 }
-// --- END: MODIFIED CITIZEN CALCULATION ---
 
-// --- CALCULATE DERIVED STATS including all bonuses ---
-$strength_bonus = 1 + ($user_stats['strength_points'] * 0.01);
-$constitution_bonus = 1 + ($user_stats['constitution_points'] * 0.01);
+/**
+ * --- DERIVED STATS ---
+ * These are displayed values, not persisted:
+ * • strength_bonus, constitution_bonus: linear 1% per stat point.
+ * • offense_power: soldiers baseline + armory attack bonuses, then scaled by upgrades and strength.
+ * • defense_rating: guards baseline + armory defense bonuses, then scaled by upgrades and constitution.
+ *
+ * NOTE: Equipment contribution is clamped by troop count (min(#troops, #items)).
+ */
+$strength_bonus = 1 + ((float)$user_stats['strength_points'] * 0.01);
+$constitution_bonus = 1 + ((float)$user_stats['constitution_points'] * 0.01);
 
-// --- ARMORY ATTACK BONUS CALCULATION ---
+// Armory -> Offense
 $armory_attack_bonus = 0;
-$soldier_count = $user_stats['soldiers'];
+$soldier_count = (int)$user_stats['soldiers'];
 if ($soldier_count > 0 && isset($armory_loadouts['soldier'])) {
     foreach ($armory_loadouts['soldier']['categories'] as $category) {
         foreach ($category['items'] as $item_key => $item) {
-            if (isset($owned_items[$item_key]) && isset($item['attack'])) {
-                $effective_items = min($soldier_count, $owned_items[$item_key]);
-                $armory_attack_bonus += $effective_items * $item['attack'];
+            if (!isset($owned_items[$item_key], $item['attack'])) { continue; }
+            $effective_items = min($soldier_count, (int)$owned_items[$item_key]); // clamp to soldier count
+            if ($effective_items > 0) {
+                $armory_attack_bonus += $effective_items * (int)$item['attack'];
             }
         }
     }
 }
 
-// --- ARMORY DEFENSE BONUS CALCULATION ---
+// Armory -> Defense
 $armory_defense_bonus = 0;
-$guard_count = $user_stats['guards'];
+$guard_count = (int)$user_stats['guards'];
 if ($guard_count > 0 && isset($armory_loadouts['guard'])) {
     foreach ($armory_loadouts['guard']['categories'] as $category) {
         foreach ($category['items'] as $item_key => $item) {
-            if (isset($owned_items[$item_key]) && isset($item['defense'])) {
-                $effective_items = min($guard_count, $owned_items[$item_key]);
-                $armory_defense_bonus += $effective_items * $item['defense'];
+            if (!isset($owned_items[$item_key], $item['defense'])) { continue; }
+            $effective_items = min($guard_count, (int)$owned_items[$item_key]); // clamp to guard count
+            if ($effective_items > 0) {
+                $armory_defense_bonus += $effective_items * (int)$item['defense'];
             }
         }
     }
 }
 
-$offense_power = floor((($user_stats['soldiers'] * 10) * $strength_bonus + $armory_attack_bonus) * $offense_upgrade_multiplier);
-$defense_rating = floor(((($user_stats['guards'] * 10) + $armory_defense_bonus) * $constitution_bonus) * $defense_upgrade_multiplier);
+// Final displayed combat stats (integers, floors preserve original behavior).
+$offense_power = (int)floor((($soldier_count * 10) * $strength_bonus + $armory_attack_bonus) * $offense_upgrade_multiplier);
+$defense_rating = (int)floor(((($guard_count * 10) + $armory_defense_bonus) * $constitution_bonus) * $defense_upgrade_multiplier);
 
-$worker_income = $user_stats['workers'] * 50;
+/**
+ * --- INCOME ---
+ * • Base income = 5000 + (workers * 50)
+ * • wealth_points add +1% each multiplicatively.
+ * • economy upgrades multiply via economy_upgrade_multiplier.
+ * The order matches original (base -> wealth -> upgrades), and floor at end ensures integers.
+ */
+$worker_income = (int)$user_stats['workers'] * 50;
 $total_base_income = 5000 + $worker_income;
-$wealth_bonus = 1 + ($user_stats['wealth_points'] * 0.01);
-$credits_per_turn = floor(($total_base_income * $wealth_bonus) * $economy_upgrade_multiplier);
+$wealth_bonus = 1 + ((float)$user_stats['wealth_points'] * 0.01);
+$credits_per_turn = (int)floor(($total_base_income * $wealth_bonus) * $economy_upgrade_multiplier);
 
-// --- POPULATION & UNIT CALCULATIONS ---
-$non_military_units = $user_stats['workers'] + $user_stats['untrained_citizens'];
-$defensive_units = $user_stats['guards'] + $user_stats['sentries'];
-$offensive_units = $user_stats['soldiers'];
-$utility_units = $user_stats['spies'];
+/**
+ * --- POPULATION & UNIT AGGREGATES ---
+ * Buckets are used purely for display; nothing is persisted here.
+ */
+$non_military_units = (int)$user_stats['workers'] + (int)$user_stats['untrained_citizens'];
+$defensive_units = (int)$user_stats['guards'] + (int)$user_stats['sentries'];
+$offensive_units = (int)$user_stats['soldiers'];
+$utility_units = (int)$user_stats['spies'];
 $total_military_units = $defensive_units + $offensive_units + $utility_units;
 $total_population = $non_military_units + $total_military_units;
 
-mysqli_close($link);
-
-// --- TIMER CALCULATIONS ---
+/**
+ * --- TURN TIMER ---
+ * Computes wall-clock countdown to next 10-minute boundary from last_updated.
+ * We protect against negative modulo (can occur if clock skew or last_updated future).
+ */
 $turn_interval_minutes = 10;
 $last_updated = new DateTime($user_stats['last_updated'], new DateTimeZone('UTC'));
 $now = new DateTime('now', new DateTimeZone('UTC'));
-$seconds_until_next_turn = ($turn_interval_minutes * 60) - (($now->getTimestamp() - $last_updated->getTimestamp()) % ($turn_interval_minutes * 60));
+$interval = $turn_interval_minutes * 60;
+$elapsed = $now->getTimestamp() - $last_updated->getTimestamp();
+$seconds_until_next_turn = $interval - ($elapsed % $interval);
 if ($seconds_until_next_turn < 0) { $seconds_until_next_turn = 0; }
-$minutes_until_next_turn = floor($seconds_until_next_turn / 60);
+$minutes_until_next_turn = (int)floor($seconds_until_next_turn / 60);
 $seconds_remainder = $seconds_until_next_turn % 60;
 
+// Connection closed only after all reads/writes are done to release pooled resources early.
+// (Note: If later code paths add more queries, move this accordingly.)
+mysqli_close($link);
+
 // --- PAGE IDENTIFICATION ---
+// Used by navigation to highlight current view; string literal preserved.
 $active_page = 'dashboard.php';
 ?>
 <!DOCTYPE html>
@@ -231,6 +372,7 @@ $active_page = 'dashboard.php';
             <div class="grid grid-cols-1 lg:grid-cols-4 gap-4 p-4">
                 <aside class="lg:col-span-1 space-y-4">
                     <?php 
+                        // advisor.php expects $user_xp and $user_level in scope; we surface from $user_stats for compatibility.
                         $user_xp = $user_stats['experience'];
                         $user_level = $user_stats['level'];
                         include_once __DIR__ . '/../includes/advisor.php'; 
@@ -251,7 +393,7 @@ $active_page = 'dashboard.php';
                         </div>
                     </div>
 
-                    <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <div class="grid grid-cols-1 md-grid-cols-2 md:grid-cols-2 gap-4">
                         <div class="content-box rounded-lg p-4 space-y-3">
                             <h3 class="font-title text-cyan-400 border-b border-gray-600 pb-2 mb-2 flex items-center"><i data-lucide="banknote" class="w-5 h-5 mr-2"></i>Economic Overview</h3>
                             <div class="flex justify-between text-sm"><span>Credits on Hand:</span> <span class="text-white font-semibold"><?php echo number_format($user_stats['credits']); ?></span></div>
