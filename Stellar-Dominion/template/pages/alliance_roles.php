@@ -60,7 +60,7 @@ $all_permission_keys = [
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <title>Stellar Dominion - Manage Alliance Roles</title>
+    <title>Starlight Dominion - Manage Alliance Roles</title>
     <link rel="stylesheet" href="/assets/css/style.css">
     <script src="https://cdn.tailwindcss.com"></script>
 </head>

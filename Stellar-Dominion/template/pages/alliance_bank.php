@@ -136,7 +136,7 @@ $max_loan = $credit_rating_map[$user_data['credit_rating']] ?? 0;
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <title>Stellar Dominion - Alliance Bank</title>
+    <title>Starlight Dominion - Alliance Bank</title>
     <link rel="stylesheet" href="/assets/css/style.css">
     <script src="https://cdn.tailwindcss.com"></script>
     <link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@700&family=Roboto:wght@400;500;700&display=swap" rel="stylesheet">

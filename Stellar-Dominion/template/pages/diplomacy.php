@@ -86,7 +86,7 @@ if ($is_diplomat) {
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <title>Stellar Dominion - Diplomacy</title>
+    <title>Starlight Dominion - Diplomacy</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@700&family=Roboto:wght@400;500;700&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="/assets/css/style.css">

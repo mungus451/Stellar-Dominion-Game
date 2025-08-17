@@ -196,7 +196,7 @@ foreach ($structure_tracks as $slotIndex => $track) {
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <title>Stellar Dominion - Alliance Structures</title>
+    <title>Starlight Dominion - Alliance Structures</title>
     <link rel="stylesheet" href="/assets/css/style.css">
     <script src="https://cdn.tailwindcss.com"></script>
     <script src="https://unpkg.com/lucide@latest"></script>

@@ -92,7 +92,7 @@ $posts_result = mysqli_stmt_get_result($stmt_posts);
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <title>Stellar Dominion - <?php echo htmlspecialchars($thread['title']); ?></title>
+    <title>Starlight Dominion - <?php echo htmlspecialchars($thread['title']); ?></title>
     <link rel="stylesheet" href="/assets/css/style.css">
     <script src="https://cdn.tailwindcss.com"></script>
     <script src="https://unpkg.com/lucide@latest"></script>

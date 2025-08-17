@@ -49,7 +49,7 @@ if (!$alliance || $alliance['leader_id'] != $user_id) {
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <title>Stellar Dominion - Edit Alliance</title>
+    <title>Starlight Dominion - Edit Alliance</title>
     <link rel="stylesheet" href="/assets/css/style.css">
     <script src="https://cdn.tailwindcss.com"></script>
     <script src="https://unpkg.com/lucide@latest"></script>

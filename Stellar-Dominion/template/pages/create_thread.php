@@ -49,7 +49,7 @@ if (!$user_data['alliance_id']) {
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <title>Stellar Dominion - Create Forum Thread</title>
+    <title>Starlight Dominion - Create Forum Thread</title>
     <link rel="stylesheet" href="/assets/css/style.css">
     <script src="https://cdn.tailwindcss.com"></script>
     <script src="https://unpkg.com/lucide@latest"></script>

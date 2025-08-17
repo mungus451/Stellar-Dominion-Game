@@ -44,7 +44,7 @@ if ($is_logged_in) {
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Stellar Dominion - Inspiration</title>
+    <title>Starlight Dominion - Inspiration</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <script src="https://unpkg.com/lucide@latest"></script>
     <link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@700&family=Roboto:wght@400;500;700&display=swap" rel="stylesheet">
@@ -89,7 +89,7 @@ if ($is_logged_in) {
                         <h3 class="font-title text-2xl text-cyan-400 mb-4 border-b border-gray-600 pb-2">Standing on the Shoulders of Giants</h3>
 
                         <div class="mb-8 pb-4 border-b border-gray-700">
-                            <p class="text-lg text-gray-300">Stellar Dominion is a passion project, a loving homage to the browser-based strategy games that defined a generation. Its creation would not have been possible without the foundational work and inspiration from several key projects and the unforgettable experiences they provided.</p>
+                            <p class="text-lg text-gray-300">Starlight Dominion is a passion project, a loving homage to the browser-based strategy games that defined a generation. Its creation would not have been possible without the foundational work and inspiration from several key projects and the unforgettable experiences they provided.</p>
                         </div>
 
                         <div class="mb-6">

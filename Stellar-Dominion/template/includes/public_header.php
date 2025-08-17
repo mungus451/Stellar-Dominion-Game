@@ -9,8 +9,8 @@
 // --- SEO & Meta Tag Management ---
 
 // Default Meta Values
-$meta_title = 'Stellar Dominion - A New Era of Idle Sci-Fi RPG';
-$meta_description = 'Forge your galactic empire in Stellar Dominion, a free-to-play text-based sci-fi MMORPG. Choose your race, build a powerful army, form strategic alliances, and conquer the universe.';
+$meta_title = 'Starlight Dominion - A New Era of Idle Sci-Fi RPG';
+$meta_description = 'Forge your galactic empire in Starlight Dominion, a free-to-play text-based sci-fi MMORPG. Choose your race, build a powerful army, form strategic alliances, and conquer the universe.';
 $meta_keywords = 'Stellar Dominion, text-based RPG, sci-fi MMORPG, browser game, space strategy game, free to play, online RPG, empire building, multiplayer space game, alliance warfare';
 $og_image = '/assets/img/cyborg.png'; // A default OG image for social sharing
 
@@ -105,7 +105,7 @@ $og_image_url = $base_url . $og_image;
     <header class="fixed top-0 left-0 right-0 z-50 bg-dark-translucent border-b border-cyan-400/20">
         <div class="container mx-auto px-6 py-4">
             <div class="flex justify-between items-center">
-                <a href="/" class="text-3xl font-bold tracking-wider font-title text-cyan-400">STELLAR DOMINION</a>
+                <a href="/" class="text-3xl font-bold tracking-wider font-title text-cyan-400">STARLIGHT DOMINION</a>
                 <nav class="hidden md:flex space-x-8 text-lg">
                     <a href="/gameplay.php" class="nav-link-public <?php if($active_page === 'gameplay.php') echo 'active'; ?>">Gameplay</a>
                     <a href="/community.php" class="nav-link-public <?php if($active_page === 'community.php') echo 'active'; ?>">Community</a>

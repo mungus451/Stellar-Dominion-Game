@@ -1,6 +1,6 @@
 <?php
 /**
- * Stellar Dominion - A.I. Advisor & Stats Module
+ * Starlight Dominion - A.I. Advisor & Stats Module
  *
  * This file generates the complete sidebar content, including the advisor
  * and the player's primary stats.
@@ -75,7 +75,7 @@ $advice_repository = [
 ];
 
 // Get the appropriate advice for the current page, or provide a default message.
-$current_advice_list = isset($advice_repository[$active_page]) ? $advice_repository[$active_page] : ["Welcome to Stellar Dominion."];
+$current_advice_list = isset($advice_repository[$active_page]) ? $advice_repository[$active_page] : ["Welcome to Starlight Dominion."];
 
 // Encode the list of advice for the current page into a JSON string.
 // This makes it easy to pass the data to our JavaScript.

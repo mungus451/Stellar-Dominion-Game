@@ -19,7 +19,7 @@ if ($is_logged_in) {
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Stellar Dominion - <?php echo $page_title; ?></title>
+    <title>Starlight Dominion - <?php echo $page_title; ?></title>
     <script src="https://cdn.tailwindcss.com"></script>
     <link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@700&family=Roboto:wght@400;500;700&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="assets/css/style.css">
@@ -36,13 +36,13 @@ if ($is_logged_in) {
 
             <main class="lg:col-span-3 space-y-6 <?php if (!$is_logged_in) echo 'pt-20'; ?>">
                 <div class="content-box rounded-lg p-8">
-                    <h1 class="font-title text-4xl text-cyan-400 mb-6 border-b border-gray-600 pb-4">Stellar Dominion: The Commander's Handbook</h1>
+                    <h1 class="font-title text-4xl text-cyan-400 mb-6 border-b border-gray-600 pb-4">Starlight Dominion: The Commander's Handbook</h1>
                     <p class="text-lg mb-6">Welcome, Commander. This guide is your key to understanding the intricate mechanics of the galaxy. Mastering these concepts will be the difference between a fledgling outpost and a galactic empire. Study it well.</p>
 
                     <!-- Chapter 1: The Core Loop -->
                     <section id="core-loop" class="mb-10">
                         <h2 class="font-title text-3xl text-yellow-400 mb-4">Chapter 1: The Core Loop (Your First Hour)</h2>
-                        <p class="mb-4">Stellar Dominion is a persistent universe. It evolves even when you're offline. Understanding its fundamental rhythm is the first step to power.</p>
+                        <p class="mb-4">Starlight Dominion is a persistent universe. It evolves even when you're offline. Understanding its fundamental rhythm is the first step to power.</p>
                         <div class="space-y-4">
                             <div>
                                 <h3 class="font-semibold text-white text-xl">The Turn System: The Pulse of the Galaxy</h3>

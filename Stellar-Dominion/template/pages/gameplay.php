@@ -1,6 +1,6 @@
 <?php
 $page_title = 'Gameplay Overview';
-$page_description = 'Learn about the core mechanics of Stellar Dominion, from the turn-based system and economy to unit training, combat, and the leveling system.';
+$page_description = 'Learn about the core mechanics of Starlight Dominion, from the turn-based system and economy to unit training, combat, and the leveling system.';
 $page_keywords = 'gameplay, game mechanics, turn system, economy, unit training, combat';
 $active_page = 'gameplay.php';
 include_once __DIR__ . '/../includes/public_header.php';
@@ -13,14 +13,14 @@ include_once __DIR__ . '/../includes/public_header.php';
                 THE LAWS OF THE GALAXY
             </h1>
             <p class="mt-6 text-lg text-gray-300 max-w-3xl mx-auto">
-                Understand the intricate mechanics that govern life, war, and power in Stellar Dominion. Here, strategy is paramount, and knowledge is your most critical asset. Master these systems to rise from a fledgling commander to a galactic powerhouse.
+                Understand the intricate mechanics that govern life, war, and power in Starlight Dominion. Here, strategy is paramount, and knowledge is your most critical asset. Master these systems to rise from a fledgling commander to a galactic powerhouse.
             </p>
         </div>
 
         <div class="mt-16 max-w-5xl mx-auto space-y-12">
             <div class="content-box rounded-lg p-8">
                 <h2 class="font-title text-3xl text-cyan-400 mb-4">The Pulse of the Universe: The Turn System</h2>
-                <p class="text-lg mb-4">The universe of Stellar Dominion is persistent and ever-evolving. Time progresses in automated <strong>10-minute turns</strong>, ensuring your empire grows and gathers resources even when you are offline. Each turn, every commander in the galaxy is granted a baseline of resources to fuel their ambition: <strong>2 Attack Turns</strong>, <strong>1 Untrained Citizen</strong>, and a foundational income of <strong>Credits</strong>. This steady pulse ensures a dynamic and constantly shifting strategic landscape.</p>
+                <p class="text-lg mb-4">The universe of Starlight Dominion is persistent and ever-evolving. Time progresses in automated <strong>10-minute turns</strong>, ensuring your empire grows and gathers resources even when you are offline. Each turn, every commander in the galaxy is granted a baseline of resources to fuel their ambition: <strong>2 Attack Turns</strong>, <strong>1 Untrained Citizen</strong>, and a foundational income of <strong>Credits</strong>. This steady pulse ensures a dynamic and constantly shifting strategic landscape.</p>
             </div>
 
             <div class="content-box rounded-lg p-8">
