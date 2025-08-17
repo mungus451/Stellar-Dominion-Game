@@ -1,8 +1,10 @@
 <?php
 /**
- * navigation.php (updated)
+ * navigation.php (updated & corrected)
  *
  * Adds third-level submenu for WAR under ALLIANCE and removes WAR from main nav.
+ * CORRECTED: Renamed the loop variable from $link to $url to prevent collision
+ * with the global database connection variable.
  */
 
 $main_nav_links = [
@@ -90,13 +92,13 @@ if (in_array($active_page, ['war_declaration.php', 'view_alliances.php', 'view_a
 
 ?>
 <header class="text-center mb-4">
-    <h1 class="text-5xl font-title text-cyan-400" style="text-shadow: 0 0 8px rgba(6, 182, 212, 0.7);">STARLIGHT DOMINION</h1>
+    <h1 class="text-5xl font-title text-cyan-400" style="text-shadow: 0 0 8px rgba(6, 182, 212, 0.7);">STELLAR DOMINION</h1>
 </header>
 
 <div class="main-bg border border-gray-700 rounded-lg shadow-2xl p-1">
     <nav class="flex justify-center flex-wrap items-center gap-x-2 gap-y-1 md:gap-x-6 bg-gray-900 p-2 rounded-t-md">
-        <?php foreach ($main_nav_links as $title => $link): ?>
-            <a href="<?php echo $link; ?>"
+        <?php foreach ($main_nav_links as $title => $url): ?>
+            <a href="<?php echo $url; ?>"
                class="nav-link <?php echo ($title == $active_main_category) ? 'active font-bold' : 'text-gray-400 hover:text-white'; ?> px-2 md:px-3 py-1 transition-all text-sm md:text-base">
                <?php echo $title; ?>
             </a>
@@ -105,12 +107,12 @@ if (in_array($active_page, ['war_declaration.php', 'view_alliances.php', 'view_a
 
     <?php if (isset($sub_nav_links[$active_main_category]) && !empty($sub_nav_links[$active_main_category])): ?>
     <div class="bg-gray-800 text-center p-2 flex justify-center flex-wrap gap-x-4 gap-y-1">
-        <?php foreach ($sub_nav_links[$active_main_category] as $title => $link):
-            $is_external = filter_var($link, FILTER_VALIDATE_URL);
-            $is_active_sub = ($link == $active_page_path)
+        <?php foreach ($sub_nav_links[$active_main_category] as $title => $url):
+            $is_external = filter_var($url, FILTER_VALIDATE_URL);
+            $is_active_sub = ($url == $active_page_path)
                 || ($title === 'War' && in_array($active_page, ['war_declaration.php','view_alliances.php','view_alliance.php','realm_war.php', 'alliance_war_history.php', 'diplomacy.php']));
         ?>
-             <a href="<?php echo $link; ?>"
+             <a href="<?php echo $url; ?>"
                 <?php if ($is_external) echo 'target="_blank" rel="noopener noreferrer"'; ?>
                 class="<?php echo $is_active_sub ? 'font-semibold text-white' : 'text-gray-400 hover:text-white'; ?> px-3">
                 <?php echo $title; ?>
@@ -121,11 +123,11 @@ if (in_array($active_page, ['war_declaration.php', 'view_alliances.php', 'view_a
 
     <?php if ($active_sub_category && isset($sub_sub_nav_links[$active_sub_category])): ?>
     <div class="bg-gray-700 text-center p-2 flex justify-center flex-wrap gap-x-4 gap-y-1">
-        <?php foreach ($sub_sub_nav_links[$active_sub_category] as $title => $link):
-            $is_external = filter_var($link, FILTER_VALIDATE_URL);
-            $is_active_subsub = ($link == $active_page_path);
+        <?php foreach ($sub_sub_nav_links[$active_sub_category] as $title => $url):
+            $is_external = filter_var($url, FILTER_VALIDATE_URL);
+            $is_active_subsub = ($url == $active_page_path);
         ?>
-            <a href="<?php echo $link; ?>"
+            <a href="<?php echo $url; ?>"
                <?php if ($is_external) echo 'target="_blank" rel="noopener noreferrer"'; ?>
                class="<?php echo $is_active_subsub ? 'font-semibold text-white' : 'text-gray-300 hover:text-white'; ?> px-3">
                <?php echo $title; ?>
