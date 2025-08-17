@@ -135,6 +135,86 @@ if ($defender_id <= 0 || $attack_turns < 1 || $attack_turns > 10) {
     exit;
 }
 
+/**
+ * Calculate armory bonus for a given user, loadout type, and stat type
+ * 
+ * @param mysqli $link Database connection
+ * @param int $user_id User ID to calculate bonus for
+ * @param string $loadout_type Loadout type ('soldier', 'guard', etc.)
+ * @param string $stat_type Stat type to sum ('attack', 'defense', etc.)
+ * @param int $unit_count Number of units to clamp effectiveness to
+ * @param array $armory_loadouts Armory loadouts data
+ * @return array [bonus_value, owned_items_array]
+ */
+function calculate_armory_bonus($link, $user_id, $loadout_type, $stat_type, $unit_count, $armory_loadouts) {
+    // Read user armory (read-only; no lock needed)
+    $sql_armory = "SELECT item_key, quantity FROM user_armory WHERE user_id = ?";
+    $stmt_armory = mysqli_prepare($link, $sql_armory);
+    mysqli_stmt_bind_param($stmt_armory, "i", $user_id);
+    mysqli_stmt_execute($stmt_armory);
+    $armory_result = mysqli_stmt_get_result($stmt_armory);
+    $owned_items = [];
+    while ($row = mysqli_fetch_assoc($armory_result)) {
+        $owned_items[$row['item_key']] = (int)$row['quantity'];
+    }
+    mysqli_stmt_close($stmt_armory);
+
+    // Accumulate armory bonus (clamped by unit count)
+    $bonus = 0;
+    if ($unit_count > 0 && isset($armory_loadouts[$loadout_type])) {
+        foreach ($armory_loadouts[$loadout_type]['categories'] as $category) {
+            foreach ($category['items'] as $item_key => $item) {
+                if (isset($owned_items[$item_key], $item[$stat_type])) {
+                    $effective_items = min($unit_count, (int)$owned_items[$item_key]);
+                    if ($effective_items > 0) {
+                        $bonus += $effective_items * (int)$item[$stat_type];
+                    }
+                }
+            }
+        }
+    }
+    
+    return [$bonus, $owned_items];
+}
+
+/**
+ * Calculate upgrade and stat point multipliers
+ * 
+ * @param string $upgrade_type Upgrade type ('offense' or 'defense')
+ * @param int $upgrade_level Current upgrade level
+ * @param int $stat_points Stat points (strength_points or constitution_points)
+ * @param array $upgrades Upgrades data
+ * @return array [upgrade_multiplier, stat_multiplier]
+ */
+function calculate_multipliers($upgrade_type, $upgrade_level, $stat_points, $upgrades) {
+    // Calculate upgrade bonus percentage
+    $total_bonus_pct = 0.0;
+    for ($i = 1, $n = (int)$upgrade_level; $i <= $n; $i++) {
+        $total_bonus_pct += (float)($upgrades[$upgrade_type]['levels'][$i]['bonuses'][$upgrade_type] ?? 0);
+    }
+    $upgrade_mult = 1 + ($total_bonus_pct / 100.0);
+    
+    // Calculate stat point multiplier (1% per point)
+    $stat_mult = 1 + ((int)$stat_points * 0.01);
+    
+    return [$upgrade_mult, $stat_mult];
+}
+
+/**
+ * Calculate raw strength for attack or defense
+ * 
+ * @param int $unit_count Number of units (soldiers or guards)
+ * @param float $stat_mult Stat point multiplier (strength or constitution)
+ * @param int $armory_bonus Armory equipment bonus
+ * @param float $upgrade_mult Upgrade structure multiplier
+ * @return float Raw strength value
+ */
+function calculate_raw_strength($unit_count, $stat_mult, $armory_bonus, $upgrade_mult) {
+    $AVG_UNIT_POWER = 10; // coarse baseline
+    $base_power = max(0, (int)$unit_count) * $AVG_UNIT_POWER;
+    return (($base_power * $stat_mult) + $armory_bonus) * $upgrade_mult;
+}
+
 // Transaction boundary — all or nothing
 mysqli_begin_transaction($link);
 
@@ -183,83 +263,33 @@ try {
     // ─────────────────────────────────────────────────────────────────────────
     // BATTLE CALCULATION
     // ─────────────────────────────────────────────────────────────────────────
-    // Read attacker armory (read-only; no lock needed)
-    $sql_armory = "SELECT item_key, quantity FROM user_armory WHERE user_id = ?";
-    $stmt_armory = mysqli_prepare($link, $sql_armory);
-    mysqli_stmt_bind_param($stmt_armory, "i", $attacker_id);
-    mysqli_stmt_execute($stmt_armory);
-    $armory_result = mysqli_stmt_get_result($stmt_armory);
-    $attacker_owned_items = [];
-    while ($row = mysqli_fetch_assoc($armory_result)) {
-        $attacker_owned_items[$row['item_key']] = (int)$row['quantity'];
-    }
-    mysqli_stmt_close($stmt_armory);
 
-    // Read defender armory (read-only; no lock needed)
-    $sql_defender_armory = "SELECT item_key, quantity FROM user_armory WHERE user_id = ?";
-    $stmt_defender_armory = mysqli_prepare($link, $sql_defender_armory);
-    mysqli_stmt_bind_param($stmt_defender_armory, "i", $defender_id);
-    mysqli_stmt_execute($stmt_defender_armory);
-    $defender_armory_result = mysqli_stmt_get_result($stmt_defender_armory);
-    $defender_owned_items = [];
-    while ($row = mysqli_fetch_assoc($defender_armory_result)) {
-        $defender_owned_items[$row['item_key']] = (int)$row['quantity'];
-    }
-    mysqli_stmt_close($stmt_defender_armory);
+    // Calculate armory bonuses for both attacker and defender
+    [$armory_attack_bonus, $attacker_owned_items] = calculate_armory_bonus(
+        $link, $attacker_id, 'soldier', 'attack', (int)$attacker['soldiers'], $armory_loadouts
+    );
+    
+    [$armory_defense_bonus, $defender_owned_items] = calculate_armory_bonus(
+        $link, $defender_id, 'guard', 'defense', (int)$defender['guards'], $armory_loadouts
+    );
 
-    // Accumulate armory attack bonus (clamped by soldier count)
-    $armory_attack_bonus = 0;
-    $soldier_count = (int)$attacker['soldiers'];
-    if ($soldier_count > 0 && isset($armory_loadouts['soldier'])) {
-        foreach ($armory_loadouts['soldier']['categories'] as $category) {
-            foreach ($category['items'] as $item_key => $item) {
-                if (isset($attacker_owned_items[$item_key], $item['attack'])) {
-                    $effective_items = min($soldier_count, (int)$attacker_owned_items[$item_key]);
-                    if ($effective_items > 0) {
-                        $armory_attack_bonus += $effective_items * (int)$item['attack'];
-                    }
-                }
-            }
-        }
-    }
+    // Calculate upgrade and stat multipliers
+    [$offense_upgrade_mult, $strength_mult] = calculate_multipliers(
+        'offense', (int)$attacker['offense_upgrade_level'], (int)$attacker['strength_points'], $upgrades
+    );
+    
+    [$defense_upgrade_mult, $constitution_mult] = calculate_multipliers(
+        'defense', (int)$defender['defense_upgrade_level'], (int)$defender['constitution_points'], $upgrades
+    );
 
-    // Accumulate armory defense bonus (clamped by guard count)
-    $armory_defense_bonus = 0;
-    $guard_count = (int)$defender['guards'];
-    if ($guard_count > 0 && isset($armory_loadouts['guard'])) {
-        foreach ($armory_loadouts['guard']['categories'] as $category) {
-            foreach ($category['items'] as $item_key => $item) {
-                if (isset($defender_owned_items[$item_key], $item['defense'])) {
-                    $effective_items = min($guard_count, (int)$defender_owned_items[$item_key]);
-                    if ($effective_items > 0) {
-                        $armory_defense_bonus += $effective_items * (int)$item['defense'];
-                    }
-                }
-            }
-        }
-    }
-
-    // Upgrade multipliers
-    $total_offense_bonus_pct = 0.0;
-    for ($i = 1, $n = (int)$attacker['offense_upgrade_level']; $i <= $n; $i++) {
-        $total_offense_bonus_pct += (float)($upgrades['offense']['levels'][$i]['bonuses']['offense'] ?? 0);
-    }
-    $offense_upgrade_mult = 1 + ($total_offense_bonus_pct / 100.0);
-    $strength_mult = 1 + ((int)$attacker['strength_points'] * 0.01);
-
-    $total_defense_bonus_pct = 0.0;
-    for ($i = 1, $n = (int)$defender['defense_upgrade_level']; $i <= $n; $i++) {
-        $total_defense_bonus_pct += (float)($upgrades['defense']['levels'][$i]['bonuses']['defense'] ?? 0);
-    }
-    $defense_upgrade_mult = 1 + ($total_defense_bonus_pct / 100.0);
-    $constitution_mult = 1 + ((int)$defender['constitution_points'] * 0.01);
-
-    // Effective strengths
-    $AVG_UNIT_POWER   = 10; // coarse baseline
-    $base_soldier_atk = max(0, (int)$attacker['soldiers']) * $AVG_UNIT_POWER;
-    $RawAttack  = (($base_soldier_atk * $strength_mult) + $armory_attack_bonus) * $offense_upgrade_mult;
-    $base_guard_def = max(0, (int)$defender['guards']) * $AVG_UNIT_POWER;
-    $RawDefense = (($base_guard_def * $constitution_mult) + $armory_defense_bonus) * $defense_upgrade_mult;
+    // Calculate raw strengths
+    $RawAttack = calculate_raw_strength(
+        (int)$attacker['soldiers'], $strength_mult, $armory_attack_bonus, $offense_upgrade_mult
+    );
+    
+    $RawDefense = calculate_raw_strength(
+        (int)$defender['guards'], $constitution_mult, $armory_defense_bonus, $defense_upgrade_mult
+    );
 
     // Turns multiplier: sublinear + capped
     $TurnsMult = min(1 + ATK_TURNS_SOFT_EXP * (pow(max(1, $attack_turns), ATK_TURNS_SOFT_EXP) - 1), ATK_TURNS_MAX_MULT);
