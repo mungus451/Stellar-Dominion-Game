@@ -189,11 +189,23 @@ try {
     mysqli_stmt_bind_param($stmt_armory, "i", $attacker_id);
     mysqli_stmt_execute($stmt_armory);
     $armory_result = mysqli_stmt_get_result($stmt_armory);
-    $owned_items = [];
+    $attacker_owned_items = [];
     while ($row = mysqli_fetch_assoc($armory_result)) {
-        $owned_items[$row['item_key']] = (int)$row['quantity'];
+        $attacker_owned_items[$row['item_key']] = (int)$row['quantity'];
     }
     mysqli_stmt_close($stmt_armory);
+
+    // Read defender armory (read-only; no lock needed)
+    $sql_defender_armory = "SELECT item_key, quantity FROM user_armory WHERE user_id = ?";
+    $stmt_defender_armory = mysqli_prepare($link, $sql_defender_armory);
+    mysqli_stmt_bind_param($stmt_defender_armory, "i", $defender_id);
+    mysqli_stmt_execute($stmt_defender_armory);
+    $defender_armory_result = mysqli_stmt_get_result($stmt_defender_armory);
+    $defender_owned_items = [];
+    while ($row = mysqli_fetch_assoc($defender_armory_result)) {
+        $defender_owned_items[$row['item_key']] = (int)$row['quantity'];
+    }
+    mysqli_stmt_close($stmt_defender_armory);
 
     // Accumulate armory attack bonus (clamped by soldier count)
     $armory_attack_bonus = 0;
@@ -201,10 +213,26 @@ try {
     if ($soldier_count > 0 && isset($armory_loadouts['soldier'])) {
         foreach ($armory_loadouts['soldier']['categories'] as $category) {
             foreach ($category['items'] as $item_key => $item) {
-                if (isset($owned_items[$item_key], $item['attack'])) {
-                    $effective_items = min($soldier_count, (int)$owned_items[$item_key]);
+                if (isset($attacker_owned_items[$item_key], $item['attack'])) {
+                    $effective_items = min($soldier_count, (int)$attacker_owned_items[$item_key]);
                     if ($effective_items > 0) {
                         $armory_attack_bonus += $effective_items * (int)$item['attack'];
+                    }
+                }
+            }
+        }
+    }
+
+    // Accumulate armory defense bonus (clamped by guard count)
+    $armory_defense_bonus = 0;
+    $guard_count = (int)$defender['guards'];
+    if ($guard_count > 0 && isset($armory_loadouts['guard'])) {
+        foreach ($armory_loadouts['guard']['categories'] as $category) {
+            foreach ($category['items'] as $item_key => $item) {
+                if (isset($defender_owned_items[$item_key], $item['defense'])) {
+                    $effective_items = min($guard_count, (int)$defender_owned_items[$item_key]);
+                    if ($effective_items > 0) {
+                        $armory_defense_bonus += $effective_items * (int)$item['defense'];
                     }
                 }
             }
@@ -230,7 +258,8 @@ try {
     $AVG_UNIT_POWER   = 10; // coarse baseline
     $base_soldier_atk = max(0, (int)$attacker['soldiers']) * $AVG_UNIT_POWER;
     $RawAttack  = (($base_soldier_atk * $strength_mult) + $armory_attack_bonus) * $offense_upgrade_mult;
-    $RawDefense = max(0, (int)$defender['guards']) * $AVG_UNIT_POWER * $defense_upgrade_mult * $constitution_mult;
+    $base_guard_def = max(0, (int)$defender['guards']) * $AVG_UNIT_POWER;
+    $RawDefense = (($base_guard_def * $constitution_mult) + $armory_defense_bonus) * $defense_upgrade_mult;
 
     // Turns multiplier: sublinear + capped
     $TurnsMult = min(1 + ATK_TURNS_SOFT_EXP * (pow(max(1, $attack_turns), ATK_TURNS_SOFT_EXP) - 1), ATK_TURNS_MAX_MULT);
