@@ -46,7 +46,7 @@ $csrf_token = generate_csrf_token();
             <div class="content-box rounded-lg p-6 max-w-4xl mx-auto">
                 <h1 class="font-title text-3xl text-white mb-4 border-b border-gray-700 pb-3">Initiate Hostilities</h1>
                 
-                <form id="warForm" action="/war_declaration.php" method="POST" class="space-y-6">
+                <form id="warForm" action="/lib/war_actions.php" method="POST" class="space-y-6">
                     <input type="hidden" name="csrf_token" value="<?php echo htmlspecialchars($csrf_token); ?>">
                     <input type="hidden" name="action" value="declare_war">
 
@@ -103,6 +103,26 @@ $csrf_token = generate_csrf_token();
                         <button type="submit" class="w-full md:w-auto px-10 py-3 font-bold text-white bg-red-700 rounded-lg hover:bg-red-800 text-xl font-title tracking-wider">Declare War</button>
                     </div>
                 </form>
+
+                <h1 class="font-title text-3xl text-white mb-4 border-b border-gray-700 pb-3 mt-8">Declare Rivalry</h1>
+                <form id="rivalryForm" action="/lib/war_actions.php" method="POST" class="space-y-6">
+                    <input type="hidden" name="csrf_token" value="<?php echo htmlspecialchars($csrf_token); ?>">
+                    <input type="hidden" name="action" value="declare_rivalry">
+
+                    <div>
+                        <label for="rival_alliance_id" class="block mb-2 text-lg font-title text-cyan-400">Select Target Alliance</label>
+                        <select class="w-full px-3 py-2 text-gray-300 bg-gray-800 border border-gray-700 rounded-lg focus:outline-none focus:border-cyan-500" id="rival_alliance_id" name="alliance_id" required>
+                            <option value="" disabled selected>Choose an alliance to declare rivalry upon...</option>
+                            <?php foreach ($alliances as $alliance) : ?>
+                                <option value="<?= $alliance['id'] ?>">[<?= htmlspecialchars($alliance['tag']) ?>] <?= htmlspecialchars($alliance['name']) ?></option>
+                            <?php endforeach; ?>
+                        </select>
+                    </div>
+
+                    <div class="border-t border-gray-700 pt-4 text-center">
+                        <button type="submit" class="w-full md:w-auto px-10 py-3 font-bold text-white bg-yellow-700 rounded-lg hover:bg-yellow-800 text-xl font-title tracking-wider">Declare Rivalry</button>
+                    </div>
+                </form>
             </div>
         </div>
     </div>
@@ -138,6 +158,9 @@ $csrf_token = generate_csrf_token();
                 });
             });
         });
+    </script>
+    <script>
+        lucide.createIcons();
     </script>
 </body>
 </html>

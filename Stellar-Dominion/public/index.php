@@ -207,6 +207,8 @@ $routes = [
     '/forgot_password.php'  => '../template/pages/forgot_password.php',
     '/reset_password'       => '../template/pages/reset_password.php',
     '/reset_password.php'   => '../template/pages/reset_password.php',
+    '/war_declaration'         => '../template/pages/war_declaration.php',
+    '/war_declaration.php'     => '../template/pages/war_declaration.php',
     '/war_leaderboard'      => '../template/pages/war_leaderboard.php',
     '/war_leaderboard.php'  => '../template/pages/war_leaderboard.php',
     '/realm_war'               => '../template/pages/realm_war.php',
@@ -289,7 +291,7 @@ $authenticated_routes = [
     '/view_alliance', '/view_alliance.php',
     '/realm_war', '/realm_war.php',
     '/war_leaderboard', '/war_leaderboard.php',
-    '/alliance_war_history', '/alliance_war_history.php', // NEW
+    '/alliance_war_history', '/alliance_war_history.php',
     '/diplomacy', '/diplomacy.php'
 ];
 

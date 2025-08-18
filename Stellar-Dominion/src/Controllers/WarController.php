@@ -52,6 +52,7 @@ if (!isset($_SESSION["loggedin"]) || $_SESSION["loggedin"] !== true) { header("l
 // Bring in configuration (DB connection, site settings), static game data
 // (casus belli & war goal presets), and the base controller that provides $this->db.
 require_once __DIR__ . '/../../config/config.php';
+require_once __DIR__ . '/../../src/Security/CSRFProtection.php';
 require_once __DIR__ . '/../Game/GameData.php';
 require_once __DIR__ . '/BaseController.php';
 
@@ -85,6 +86,9 @@ class WarController extends BaseController
             case 'declare_war':
                 $this->declareWar();
                 break;
+            case 'declare_rivalry':
+                $this->declareRivalry();
+                break;
             case 'propose_treaty':
                 $this->proposeTreaty();
                 break;
@@ -115,15 +119,119 @@ class WarController extends BaseController
      * • Inserts a new row in `wars` with the chosen metadata and defaults.
      * • Sets a session success message and redirects the user.
      */
-    private function declareWar()
+            private function declareWar()
+        {
+            // Preset registry for casus belli
+            global $casus_belli_presets;
+            $user_id = $_SESSION['id'];
+
+            // 1. Permission Check (This part is correct and remains unchanged)
+            $sql_perms = "SELECT u.alliance_id, ar.`order` as hierarchy 
+                            FROM users u 
+                            JOIN alliance_roles ar ON u.alliance_role_id = ar.id 
+                            WHERE u.id = ?";
+            $stmt_perms = $this->db->prepare($sql_perms);
+            $stmt_perms->bind_param("i", $user_id);
+            $stmt_perms->execute();
+            $user_data = $stmt_perms->get_result()->fetch_assoc();
+            $stmt_perms->close();
+
+            if (!$user_data || !in_array($user_data['hierarchy'], [1, 2])) {
+                throw new Exception("You do not have the authority to declare war.");
+            }
+            $declarer_alliance_id = (int)$user_data['alliance_id'];
+
+            // 2. Input Validation (This part is mostly correct)
+            $declared_against_id = (int)($_POST['alliance_id'] ?? 0);
+            $casus_belli_key = $_POST['casus_belli'] ?? '';
+            $custom_casus_belli = trim($_POST['custom_casus_belli'] ?? '');
+            $war_name = trim($_POST['war_name'] ?? 'War');
+
+            if ($declarer_alliance_id === $declared_against_id) throw new Exception("You cannot declare war on yourself.");
+            if ($casus_belli_key === 'custom' && (strlen($custom_casus_belli) < 5 || strlen($custom_casus_belli) > 140)) {
+                throw new Exception("Custom reason for war must be between 5 and 140 characters.");
+            }
+            if ($casus_belli_key !== 'custom' && !isset($casus_belli_presets[$casus_belli_key])) throw new Exception("Invalid reason for war selected.");
+
+            // 3. Prepare War Data (This part is corrected)
+            $final_casus_belli_key = ($casus_belli_key === 'custom') ? null : $casus_belli_key;
+            $final_custom_casus_belli = ($casus_belli_key === 'custom') ? $custom_casus_belli : null;
+
+            // Get the four goal values directly from the form sliders
+            $goal_credits_plundered = (int)($_POST['goal_credits_plundered'] ?? 0);
+            $goal_units_killed = (int)($_POST['goal_units_killed'] ?? 0);
+            $goal_structure_damage = (int)($_POST['goal_structure_damage'] ?? 0);
+            $goal_prestige_change = (int)($_POST['goal_prestige_change'] ?? 0);
+            
+            // **FIX START**: Determine the primary goal_metric and goal_threshold
+            // We create an array of the goals to find which one has the highest value.
+            $goals = [
+                'credits_plundered' => $goal_credits_plundered,
+                'units_killed' => $goal_units_killed,
+                'structure_damage' => $goal_structure_damage,
+                'prestige_change' => $goal_prestige_change,
+            ];
+
+            // Set a default in case all goals are zero
+            $final_goal_metric = 'prestige_change';
+            $final_goal_threshold = 0;
+
+            // Find the goal with the maximum value to use as the primary metric
+            $max_value = 0;
+            foreach ($goals as $metric => $value) {
+                if ($value > $max_value) {
+                    $max_value = $value;
+                    $final_goal_metric = $metric;
+                    $final_goal_threshold = $value;
+                }
+            }
+            // **FIX END**
+
+            // 4. Insert into Database (Query is simplified and corrected)
+            $sql_insert_war = "
+                INSERT INTO wars (name, declarer_alliance_id, declared_against_alliance_id, casus_belli_key, casus_belli_custom, goal_metric, goal_threshold, goal_credits_plundered, goal_units_killed, goal_structure_damage, goal_prestige_change) 
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ";
+            $stmt_insert = $this->db->prepare($sql_insert_war);
+            // The bind_param string is updated to 'siisssiiiii' to match the 11 columns
+            $stmt_insert->bind_param("siisssiiiii",
+                $war_name,
+                $declarer_alliance_id,
+                $declared_against_id,
+                $final_casus_belli_key,
+                $final_custom_casus_belli,
+                $final_goal_metric,             // Now correctly populated
+                $final_goal_threshold,          // Now correctly populated
+                $goal_credits_plundered,
+                $goal_units_killed,
+                $goal_structure_damage,
+                $goal_prestige_change
+            );
+            $stmt_insert->execute();
+            $stmt_insert->close();
+
+            // 5. Redirect with Success Message (Unchanged)
+            $_SESSION['war_message'] = "War has been declared successfully!";
+            header("Location: /realm_war.php");
+            exit;
+        }
+
+    /**
+     * Declare a rivalry between the invoker's alliance and a target alliance.
+     *
+     * Validates:
+     * • User holds sufficient rank (hierarchy 1 or 2).
+     * • Self-rivalry is disallowed.
+     *
+     * On success:
+     * • Inserts a new row in `rivalries` with the chosen metadata and defaults.
+     * • Sets a session success message and redirects the user.
+     */
+    private function declareRivalry()
     {
-        // Preset registries provided by GameData.php
-        global $casus_belli_presets, $war_goal_presets;
         $user_id = $_SESSION['id'];
 
         // 1. Permission Check
-        //   Join users → alliance_roles to read the user's role hierarchy and alliance id.
-        //   Only high-ranking roles (order 1 or 2) are empowered to declare wars.
         $sql_perms = "SELECT u.alliance_id, ar.`order` as hierarchy 
                       FROM users u 
                       JOIN alliance_roles ar ON u.alliance_role_id = ar.id 
@@ -135,94 +243,29 @@ class WarController extends BaseController
         $stmt_perms->close();
 
         if (!$user_data || !in_array($user_data['hierarchy'], [1, 2])) {
-            // User lacks sufficient rank.
-            throw new Exception("You do not have the authority to declare war.");
+            throw new Exception("You do not have the authority to declare rivalry.");
         }
-        // Alliance declaring the war (cannot be null; enforced by auth & schema).
         $declarer_alliance_id = (int)$user_data['alliance_id'];
 
         // 2. Input Validation
-        //   Read target alliance and textual inputs from POST. Trim free-text fields.
-        $declared_against_id = (int)($_POST['alliance_id'] ?? 0);
-        $casus_belli_key = $_POST['casus_belli'] ?? '';
-        $custom_casus_belli = trim($_POST['custom_casus_belli'] ?? '');
-        $goal_key = $_POST['war_goal'] ?? '';
-        $custom_goal_label = trim($_POST['custom_war_goal'] ?? '');
-        $war_name = trim($_POST['war_name'] ?? 'War');
+        $target_alliance_id = (int)($_POST['alliance_id'] ?? 0);
 
-        // Disallow declaring war on self (same alliance id).
-        if ($declarer_alliance_id === $declared_against_id) throw new Exception("You cannot declare war on yourself.");
-        // Validate custom casus belli text length if "custom" mode is used.
-        if ($casus_belli_key === 'custom' && (strlen($custom_casus_belli) < 5 || strlen($custom_casus_belli) > 140)) {
-            throw new Exception("Custom reason for war must be between 5 and 140 characters.");
-        }
-        // Validate custom goal text length if "custom" mode is used.
-        if ($goal_key === 'custom' && (strlen($custom_goal_label) < 5 || strlen($custom_goal_label) > 100)) {
-            throw new Exception("Custom war goal must be between 5 and 100 characters.");
-        }
-        // If a preset key is provided, ensure it exists.
-        if ($casus_belli_key !== 'custom' && !isset($casus_belli_presets[$casus_belli_key])) throw new Exception("Invalid reason for war selected.");
-        if ($goal_key !== 'custom' && !isset($war_goal_presets[$goal_key])) throw new Exception("Invalid war goal selected.");
-        
-        // 3. Prepare War Data
-        //   Normalize inputs into nullable key/custom fields for persistence.
-        $final_casus_belli_key = ($casus_belli_key === 'custom') ? null : $casus_belli_key;
-        $final_custom_casus_belli = ($casus_belli_key === 'custom') ? $custom_casus_belli : null;
-
-        $goal_credits_plundered = (int)($_POST['goal_credits_plundered'] ?? 0);
-        $goal_units_killed = (int)($_POST['goal_units_killed'] ?? 0);
-        $goal_structure_damage = (int)($_POST['goal_structure_damage'] ?? 0);
-        $goal_prestige_change = (int)($_POST['goal_prestige_change'] ?? 0);
-
-        if ($goal_key === 'custom') {
-            // For custom goals, caller supplies a metric; validate metric domain.
-            $final_goal_key = null;
-            $final_custom_goal_label = $custom_goal_label;
-            $selected_metric = $_POST['custom_goal_metric'] ?? '';
-            if (!in_array($selected_metric, ['credits_plundered', 'units_killed', 'structures_destroyed', 'prestige_change'])) {
-                throw new Exception("Invalid metric selected for custom goal.");
-            }
-            $final_goal_metric = $selected_metric;
-            // Default threshold (game-tuning constant) for custom goals.
-            $final_goal_threshold = 50000; // Default threshold for custom goals
-        } else {
-            // For preset goals, pull canonical metric and threshold from the registry.
-            $goal_preset = $war_goal_presets[$goal_key];
-            $final_goal_key = $goal_key;
-            $final_custom_goal_label = null;
-            $final_goal_metric = $goal_preset['metric'];
-            $final_goal_threshold = $goal_preset['threshold'];
+        if ($declarer_alliance_id === $target_alliance_id) {
+            throw new Exception("You cannot declare rivalry on yourself.");
         }
 
-        // 4. Insert into Database
-        //   Create the war record. Additional fields (status=start, timestamps)
-        //   are assumed to be handled by schema defaults or triggers.
-        $sql_insert_war = "
-            INSERT INTO wars (name, declarer_alliance_id, declared_against_alliance_id, casus_belli_key, casus_belli_custom, goal_key, goal_custom_label, goal_metric, goal_threshold, goal_credits_plundered, goal_units_killed, goal_structure_damage, goal_prestige_change) 
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        // 3. Insert into Database
+        $sql_insert_rivalry = "
+            INSERT INTO rivalries (alliance1_id, alliance2_id) 
+            VALUES (?, ?)
         ";
-        $stmt_insert = $this->db->prepare($sql_insert_war);
-        $stmt_insert->bind_param("siissssssiiii",
-            $war_name,
-            $declarer_alliance_id, 
-            $declared_against_id, 
-            $final_casus_belli_key, 
-            $final_custom_casus_belli,
-            $final_goal_key,
-            $final_custom_goal_label,
-            $final_goal_metric,
-            $final_goal_threshold,
-            $goal_credits_plundered,
-            $goal_units_killed,
-            $goal_structure_damage,
-            $goal_prestige_change
-        );
+        $stmt_insert = $this->db->prepare($sql_insert_rivalry);
+        $stmt_insert->bind_param("ii", $declarer_alliance_id, $target_alliance_id);
         $stmt_insert->execute();
         $stmt_insert->close();
 
-        // 5. Redirect with Success Message
-        //   Provide user feedback and return them to the war UI.
-        $_SESSION['war_message'] = "War has been declared successfully!";
+        // 4. Redirect with Success Message
+        $_SESSION['war_message'] = "Rivalry declared successfully!";
         header("Location: /realm_war.php");
         exit;
     }
