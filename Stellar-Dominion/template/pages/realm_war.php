@@ -27,6 +27,17 @@ $rivalries = $controller->getRivalries();
 
             <div class="content-box rounded-lg p-6">
                 <h1 class="font-title text-3xl text-white mb-4">Realm War Hub</h1>
+                
+                <?php if(isset($_SESSION['war_message'])): ?>
+                    <div class="bg-cyan-900 border border-cyan-500/50 text-cyan-300 p-3 rounded-md text-center mb-4">
+                        <?php echo htmlspecialchars($_SESSION['war_message']); unset($_SESSION['war_message']); ?>
+                    </div>
+                <?php endif; ?>
+                <?php if(isset($_SESSION['alliance_error'])): ?>
+                     <div class="bg-red-900 border border-red-500/50 text-red-300 p-3 rounded-md text-center mb-4">
+                        <?php echo htmlspecialchars($_SESSION['alliance_error']); unset($_SESSION['alliance_error']); ?>
+                    </div>
+                <?php endif; ?>
 
                 <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
                     <div>
@@ -36,8 +47,33 @@ $rivalries = $controller->getRivalries();
                         <?php else: ?>
                             <div class="space-y-4">
                             <?php foreach ($wars as $war): 
-                                $casus_belli_text = $war['casus_belli_custom'] ?? $casus_belli_presets[$war['casus_belli_key']]['name'];
-                                $goal_text = $war['goal_custom_label'] ?? $war_goal_presets[$war['goal_key']]['name'];
+                                // --- SAFE CASUS BELLI TEXT RESOLUTION ---
+                                if (!empty($war['casus_belli_custom'])) {
+                                    $casus_belli_text = $war['casus_belli_custom'];
+                                } elseif (!empty($war['casus_belli_key']) && isset($casus_belli_presets[$war['casus_belli_key']])) {
+                                    $casus_belli_text = $casus_belli_presets[$war['casus_belli_key']]['name'];
+                                } else {
+                                    $casus_belli_text = 'A Private Matter'; // Fallback text
+                                }
+
+                                // --- SAFE GOAL TEXT RESOLUTION (NEW DYNAMIC SYSTEM) ---
+                                $metric_labels = [
+                                    'credits_plundered' => 'Plunder Credits',
+                                    'units_killed' => 'Destroy Units',
+                                    'structure_damage' => 'Inflict Structure Damage',
+                                    'prestige_change' => 'Gain Prestige'
+                                ];
+                                // This handles both old wars with goal_key and new wars with goal_metric
+                                if (!empty($war['goal_custom_label'])) {
+                                    $goal_text = $war['goal_custom_label'];
+                                } elseif (!empty($war['goal_key']) && isset($war_goal_presets[$war['goal_key']])) {
+                                    $goal_text = $war_goal_presets[$war['goal_key']]['name'];
+                                } elseif (!empty($war['goal_metric']) && isset($metric_labels[$war['goal_metric']])) {
+                                    $goal_text = $metric_labels[$war['goal_metric']];
+                                } else {
+                                    $goal_text = 'Achieve Victory'; // Fallback text
+                                }
+
                                 $progress_declarer = (int)$war['goal_progress_declarer'];
                                 $progress_declared_against = (int)$war['goal_progress_declared_against'];
                                 $threshold = (int)$war['goal_threshold'];
