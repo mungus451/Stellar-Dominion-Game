@@ -81,7 +81,7 @@ $active_page = 'structures.php';
                         </div>
                     <?php endif; ?>
 
-                    <div class="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-2 gap-4">
+                    <div class="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
                         <?php foreach ($upgrades as $type => $category):
                             $current_level = (int)$user_stats[$category['db_column']];
                             $max_level = count($category['levels']);
