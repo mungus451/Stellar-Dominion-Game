@@ -127,7 +127,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 const distance = expirationTimestamp - now;
 
                 if (distance < 0) {
-                    timerElement.style.display = 'none';
+                     timerElement.remove();
                     const idx = secondCallbacks.indexOf(updateTimer);
                     if (idx > -1) secondCallbacks.splice(idx, 1);
                     return;

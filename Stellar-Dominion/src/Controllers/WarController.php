@@ -200,8 +200,8 @@ class WarController extends BaseController
                 $declared_against_id,
                 $final_casus_belli_key,
                 $final_custom_casus_belli,
-                $final_goal_metric,             // Now correctly populated
-                $final_goal_threshold,          // Now correctly populated
+                $final_goal_metric,          // Now correctly populated
+                $final_goal_threshold,       // Now correctly populated
                 $goal_credits_plundered,
                 $goal_units_killed,
                 $goal_structure_damage,
@@ -233,9 +233,9 @@ class WarController extends BaseController
 
         // 1. Permission Check
         $sql_perms = "SELECT u.alliance_id, ar.`order` as hierarchy 
-                      FROM users u 
-                      JOIN alliance_roles ar ON u.alliance_role_id = ar.id 
-                      WHERE u.id = ?";
+                        FROM users u 
+                        JOIN alliance_roles ar ON u.alliance_role_id = ar.id 
+                        WHERE u.id = ?";
         $stmt_perms = $this->db->prepare($sql_perms);
         $stmt_perms->bind_param("i", $user_id);
         $stmt_perms->execute();
@@ -294,9 +294,9 @@ class WarController extends BaseController
 
         // Permissions check (leader/officer). Similar to declareWar permission check.
         $sql_perms = "SELECT u.alliance_id, ar.`order` as hierarchy 
-                      FROM users u 
-                      JOIN alliance_roles ar ON u.alliance_role_id = ar.id 
-                      WHERE u.id = ?";
+                        FROM users u 
+                        JOIN alliance_roles ar ON u.alliance_role_id = ar.id 
+                        WHERE u.id = ?";
         $stmt = $this->db->prepare($sql_perms);
         $stmt->bind_param("i", $user_id);
         $stmt->execute();
@@ -352,9 +352,9 @@ class WarController extends BaseController
         $user_id = $_SESSION['id'];
 
         $sql_perms = "SELECT u.alliance_id, ar.`order` as hierarchy 
-                      FROM users u 
-                      JOIN alliance_roles ar ON u.alliance_role_id = ar.id 
-                      WHERE u.id = ?";
+                        FROM users u 
+                        JOIN alliance_roles ar ON u.alliance_role_id = ar.id 
+                        WHERE u.id = ?";
         $stmt_perms = $this->db->prepare($sql_perms);
         $stmt_perms->bind_param("i", $user_id);
         $stmt_perms->execute();
@@ -377,7 +377,7 @@ class WarController extends BaseController
             throw new Exception("Treaty not found or you are not authorized to accept it.");
         }
 
-        $stmt_update = $this->db->prepare("UPDATE treaties SET status = 'active' WHERE id = ?");
+        $stmt_update = $this->db->prepare("UPDATE treaties SET status = 'active', expiration_date = NOW() + INTERVAL 15 MINUTE WHERE id = ?");
         $stmt_update->bind_param("i", $treaty_id);
         $stmt_update->execute();
         $stmt_update->close();
@@ -423,9 +423,9 @@ class WarController extends BaseController
 
         // Permissions check (leader/officer)
         $sql_perms = "SELECT u.alliance_id, ar.`order` as hierarchy
-                      FROM users u
-                      JOIN alliance_roles ar ON u.alliance_role_id = ar.id
-                      WHERE u.id = ?";
+                        FROM users u
+                        JOIN alliance_roles ar ON u.alliance_role_id = ar.id
+                        WHERE u.id = ?";
         $stmt = $this->db->prepare($sql_perms);
         $stmt->bind_param("i", $user_id);
         $stmt->execute();
@@ -512,7 +512,7 @@ class WarController extends BaseController
 
         // MVP Calculation
         $sql_mvp = "SELECT user_id, SUM(prestige_gained) as total_prestige, SUM(units_killed) as total_kills, SUM(credits_plundered) as total_plunder, SUM(structure_damage) as total_damage
-                    FROM war_battle_logs WHERE war_id = ? GROUP BY user_id";
+                        FROM war_battle_logs WHERE war_id = ? GROUP BY user_id";
         $stmt_mvp = $this->db->prepare($sql_mvp);
         $stmt_mvp->bind_param("i", $war_id);
         $stmt_mvp->execute();
