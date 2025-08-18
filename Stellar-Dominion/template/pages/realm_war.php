@@ -81,6 +81,7 @@ $rivalries = $controller->getRivalries();
                                 $percent_declared_against = $threshold > 0 ? min(100, ($progress_declared_against / $threshold) * 100) : 0;
                             ?>
                                 <div class="bg-gray-800 p-4 rounded-lg border border-gray-700">
+                                    <h4 class="font-title text-lg text-white text-center mb-2"><?php echo htmlspecialchars($war['name']); ?></h4>
                                     <div class="flex justify-between items-center">
                                         <span class="font-bold text-cyan-400">[<?php echo htmlspecialchars($war['declarer_tag']); ?>] <?php echo htmlspecialchars($war['declarer_name']); ?></span>
                                         <span class="font-title text-red-500 text-lg">VS</span>
