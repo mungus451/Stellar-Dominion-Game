@@ -294,9 +294,51 @@ class WarController extends BaseController
      */
     private function acceptTreaty()
     {
-        // Treaty identifier supplied by the client form.
         $treaty_id = (int)($_POST['treaty_id'] ?? 0);
-        // ... (permission checks, then update treaty status to 'active' and end the war)
+        $user_id = $_SESSION['id'];
+
+        $sql_perms = "SELECT u.alliance_id, ar.`order` as hierarchy 
+                      FROM users u 
+                      JOIN alliance_roles ar ON u.alliance_role_id = ar.id 
+                      WHERE u.id = ?";
+        $stmt_perms = $this->db->prepare($sql_perms);
+        $stmt_perms->bind_param("i", $user_id);
+        $stmt_perms->execute();
+        $user_data = $stmt_perms->get_result()->fetch_assoc();
+        $stmt_perms->close();
+
+        if (!$user_data || !in_array($user_data['hierarchy'], [1, 2])) {
+            throw new Exception("You do not have the authority to accept a treaty.");
+        }
+
+        $alliance_id = (int)$user_data['alliance_id'];
+
+        $stmt_treaty = $this->db->prepare("SELECT * FROM treaties WHERE id = ? AND alliance2_id = ? AND status = 'proposed'");
+        $stmt_treaty->bind_param("ii", $treaty_id, $alliance_id);
+        $stmt_treaty->execute();
+        $treaty = $stmt_treaty->get_result()->fetch_assoc();
+        $stmt_treaty->close();
+
+        if (!$treaty) {
+            throw new Exception("Treaty not found or you are not authorized to accept it.");
+        }
+
+        $stmt_update = $this->db->prepare("UPDATE treaties SET status = 'active' WHERE id = ?");
+        $stmt_update->bind_param("i", $treaty_id);
+        $stmt_update->execute();
+        $stmt_update->close();
+
+        $sql_war = "SELECT id FROM wars WHERE status = 'active' AND ((declarer_alliance_id = ? AND declared_against_alliance_id = ?) OR (declarer_alliance_id = ? AND declared_against_alliance_id = ?))";
+        $stmt_war = $this->db->prepare($sql_war);
+        $stmt_war->bind_param("iiii", $treaty['alliance1_id'], $treaty['alliance2_id'], $treaty['alliance2_id'], $treaty['alliance1_id']);
+        $stmt_war->execute();
+        $war = $stmt_war->get_result()->fetch_assoc();
+        $stmt_war->close();
+
+        if ($war) {
+            $this->endWar($war['id'], "Peace treaty accepted.");
+        }
+
         $_SESSION['war_message'] = "Treaty accepted. The war is over.";
         header("Location: /diplomacy.php");
         exit;
@@ -381,7 +423,7 @@ class WarController extends BaseController
      * extend it with prestige distribution or multi-table updates, consider
      * using a transaction to ensure atomicity.
      */
-    private function endWar(int $war_id, string $outcome_reason)
+    public function endWar(int $war_id, string $outcome_reason)
     {
         // 1. Fetch war data
         $war_id = (int)$war_id;

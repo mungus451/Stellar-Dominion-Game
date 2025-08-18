@@ -22,6 +22,26 @@ $stmt_user->close();
 
 $is_diplomat = ($user_data && in_array($user_data['hierarchy'], [1, 2]));
 
+// Fetch war stats for alignment bar
+$wars_declared = 0;
+$wars_defended = 0;
+if ($is_diplomat) {
+    $sql_war_stats = "SELECT
+        (SELECT COUNT(*) FROM wars WHERE declarer_alliance_id = ?) as wars_declared,
+        (SELECT COUNT(*) FROM wars WHERE declared_against_alliance_id = ?) as wars_defended";
+    $stmt_war_stats = $link->prepare($sql_war_stats);
+    $stmt_war_stats->bind_param("ii", $user_data['alliance_id'], $user_data['alliance_id']);
+    $stmt_war_stats->execute();
+    $war_stats = $stmt_war_stats->get_result()->fetch_assoc();
+    $stmt_war_stats->close();
+    $wars_declared = $war_stats['wars_declared'];
+    $wars_defended = $war_stats['wars_defended'];
+}
+
+$total_wars = $wars_declared + $wars_defended;
+$offensive_perc = ($total_wars > 0) ? ($wars_declared / $total_wars) * 100 : 50;
+$defensive_perc = 100 - $offensive_perc;
+
 // Fetch active wars for treaty proposals
 $active_wars = [];
 if ($is_diplomat) {
@@ -97,6 +117,20 @@ if ($is_diplomat) {
             <?php include_once __DIR__ . '/../includes/navigation.php'; ?>
             <main class="content-box rounded-lg p-6 max-w-4xl mx-auto mt-4">
                 <h1 class="font-title text-3xl text-white mb-4 border-b border-gray-700 pb-3">Diplomacy & Treaties</h1>
+
+                <div class="bg-gray-800 p-4 rounded-lg mb-6">
+                    <h2 class="font-title text-xl text-cyan-400 mb-3">Alliance Alignment</h2>
+                    <div class="flex items-center">
+                        <div class="text-red-400 font-bold">Offensive</div>
+                        <div class="flex-grow h-4 mx-4 bg-gray-700 rounded-full overflow-hidden">
+                            <div class="h-full flex">
+                                <div class="bg-red-500" style="width: <?php echo $offensive_perc; ?>%;"></div>
+                                <div class="bg-green-500" style="width: <?php echo $defensive_perc; ?>%;"></div>
+                            </div>
+                        </div>
+                        <div class="text-green-400 font-bold">Defensive</div>
+                    </div>
+                </div>
                 
                 <?php if (!$is_diplomat): ?>
                     <p class="text-red-400 text-center">You must be in a high-ranking position within your alliance to access diplomatic functions.</p>

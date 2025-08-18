@@ -470,7 +470,32 @@ try {
                 mysqli_stmt_execute($stmt_progress);
                 mysqli_stmt_close($stmt_progress);
             }
+
+    // --- AUTOMATIC WAR RESOLUTION ---
+    // Check if the war goal has been met
+    $sql_check_war = "SELECT goal_progress_declarer, goal_progress_declared_against, goal_threshold, declarer_alliance_id FROM wars WHERE id = ?";
+    $stmt_check_war = mysqli_prepare($link, $sql_check_war);
+    mysqli_stmt_bind_param($stmt_check_war, "i", $war['id']);
+    mysqli_stmt_execute($stmt_check_war);
+    $war_status = mysqli_fetch_assoc(mysqli_stmt_get_result($stmt_check_war));
+    mysqli_stmt_close($stmt_check_war);
+
+    if ($war_status) {
+        $winner_alliance_id = null;
+        if ($war_status['goal_progress_declarer'] >= $war_status['goal_threshold']) {
+            $winner_alliance_id = $war_status['declarer_alliance_id'];
+        } elseif ($war_status['goal_progress_declared_against'] >= $war_status['goal_threshold']) {
+            $winner_alliance_id = ($war_status['declarer_alliance_id'] == $alliance1) ? $alliance2 : $alliance1;
         }
+
+        if ($winner_alliance_id) {
+            require_once __DIR__ . '/WarController.php';
+            $warController = new WarController();
+            $outcome_reason = "The war goal was achieved.";
+            $warController->endWar($war['id'], $outcome_reason);
+        }
+    }
+}
 
         // Prestige changes (winner gains; loser loses half)
         $level_difference       = abs((int)$attacker['level'] - (int)$defender['level']);
