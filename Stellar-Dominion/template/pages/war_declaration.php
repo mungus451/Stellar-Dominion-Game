@@ -46,7 +46,7 @@ $csrf_token = generate_csrf_token();
             <div class="content-box rounded-lg p-6 max-w-4xl mx-auto">
                 <h1 class="font-title text-3xl text-white mb-4 border-b border-gray-700 pb-3">Initiate Hostilities</h1>
                 
-                <form id="warForm" action="/src/Controllers/WarController.php" method="POST" class="space-y-6">
+                <form id="warForm" action="/war_declaration.php" method="POST" class="space-y-6">
                     <input type="hidden" name="csrf_token" value="<?php echo htmlspecialchars($csrf_token); ?>">
                     <input type="hidden" name="action" value="declare_war">
 

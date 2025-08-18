@@ -314,7 +314,36 @@ CREATE TABLE `user_security_questions` (
   KEY `user_id` (`user_id`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
 
+-- Add a name to the wars table
+ALTER TABLE `wars` ADD `name` VARCHAR(100) NOT NULL AFTER `id`;
 
+-- Add columns for adjustable war goals
+ALTER TABLE `wars` ADD `goal_credits_plundered` BIGINT(20) NOT NULL DEFAULT 0 AFTER `goal_threshold`;
+ALTER TABLE `wars` ADD `goal_units_killed` INT(11) NOT NULL DEFAULT 0 AFTER `goal_credits_plundered`;
+ALTER TABLE `wars` ADD `goal_structure_damage` BIGINT(20) NOT NULL DEFAULT 0 AFTER `goal_units_killed`;
+ALTER TABLE `wars` ADD `goal_prestige_change` INT(11) NOT NULL DEFAULT 0 AFTER `goal_structure_damage`;
+
+-- Add columns for MVP to the war_history table
+ALTER TABLE `war_history` ADD `mvp_user_id` INT(11) NULL DEFAULT NULL AFTER `goal_text`;
+ALTER TABLE `war_history` ADD `mvp_category` VARCHAR(50) NULL DEFAULT NULL AFTER `mvp_user_id`;
+ALTER TABLE `war_history` ADD `mvp_value` BIGINT(20) NULL DEFAULT NULL AFTER `mvp_category`;
+ALTER TABLE `war_history` ADD `mvp_character_name` VARCHAR(50) NULL DEFAULT NULL AFTER `mvp_value`;
+
+-- Create a new table to track stats for MVP calculation
+CREATE TABLE `war_battle_logs` (
+  `id` INT(11) NOT NULL AUTO_INCREMENT,
+  `war_id` INT(11) NOT NULL,
+  `battle_log_id` INT(11) NOT NULL,
+  `user_id` INT(11) NOT NULL,
+  `alliance_id` INT(11) NOT NULL,
+  `prestige_gained` INT(11) NOT NULL DEFAULT 0,
+  `units_killed` INT(11) NOT NULL DEFAULT 0,
+  `credits_plundered` BIGINT(20) NOT NULL DEFAULT 0,
+  `structure_damage` BIGINT(20) NOT NULL DEFAULT 0,
+  PRIMARY KEY (`id`),
+  KEY `war_id` (`war_id`),
+  KEY `user_id` (`user_id`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
 --
 -- Constraints for dumped tables
 --
