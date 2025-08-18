@@ -33,11 +33,12 @@ $war_history = $war_history_result ? $war_history_result->fetch_all(MYSQLI_ASSOC
                                 <th class="p-2">Casus Belli</th>
                                 <th class="p-2">Outcome</th>
                                 <th class="p-2">Duration</th>
+                                <th class="p-2">MVP</th>
                             </tr>
                         </thead>
                         <tbody>
                             <?php if (empty($war_history)): ?>
-                                <tr><td colspan="4" class="p-4 text-center italic">The archives are empty. No major wars have concluded.</td></tr>
+                                <tr><td colspan="5" class="p-4 text-center italic">The archives are empty. No major wars have concluded.</td></tr>
                             <?php else: ?>
                                 <?php foreach ($war_history as $war): ?>
                                 <tr class="border-t border-gray-700 hover:bg-gray-700/50">
@@ -45,6 +46,19 @@ $war_history = $war_history_result ? $war_history_result->fetch_all(MYSQLI_ASSOC
                                     <td class="p-2"><?= htmlspecialchars($war['casus_belli_text']) ?></td>
                                     <td class="p-2 font-semibold"><?= htmlspecialchars($war['outcome']) ?></td>
                                     <td class="p-2 text-xs text-gray-400"><?= date('Y-m-d', strtotime($war['start_date'])) ?> to <?= date('Y-m-d', strtotime($war['end_date'])) ?></td>
+                                    <td class="p-2">
+                                        <?php if ($war['mvp_user_id']): ?>
+                                            <a href="/view_profile.php?id=<?= $war['mvp_user_id'] ?>" class="text-cyan-400 hover:underline">
+                                                <?= htmlspecialchars($war['mvp_character_name']) ?>
+                                            </a>
+                                            <br>
+                                            <span class="text-xs text-gray-500">
+                                                (<?= number_format($war['mvp_value']) ?> <?= ucwords(str_replace('_', ' ', $war['mvp_category'])) ?>)
+                                            </span>
+                                        <?php else: ?>
+                                            <span class="text-gray-500">N/A</span>
+                                        <?php endif; ?>
+                                    </td>
                                 </tr>
                                 <?php endforeach; ?>
                             <?php endif; ?>

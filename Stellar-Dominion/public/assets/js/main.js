@@ -33,7 +33,6 @@ document.addEventListener('DOMContentLoaded', () => {
         if (ts - lastTs >= 1000) {
             lastTs += 1000;
             for (let i = 0; i < secondCallbacks.length; i++) {
-                // Guard each callback to keep others running on error
                 try { secondCallbacks[i](); } catch (_) {}
             }
         }
@@ -53,11 +52,9 @@ document.addEventListener('DOMContentLoaded', () => {
         const onSecond = () => {
             if (totalSeconds <= 0) {
                 timerDisplay.textContent = "Processing...";
-                // Small delay, then cache-busting reload
                 setTimeout(() => {
                     window.location.href = window.location.pathname + '?t=' + Date.now();
                 }, 1500);
-                // Remove self from callbacks once done
                 const idx = secondCallbacks.indexOf(onSecond);
                 if (idx > -1) secondCallbacks.splice(idx, 1);
                 return;
@@ -119,6 +116,33 @@ document.addEventListener('DOMContentLoaded', () => {
         }
     }
 
+    // ---------- Peace Treaty Timers (attack.php) ----------
+    document.querySelectorAll('.peace-timer').forEach(timerElement => {
+        const expirationDateStr = timerElement.dataset.expiration;
+        if (expirationDateStr) {
+            const expirationTimestamp = new Date(expirationDateStr.replace(' ', 'T') + 'Z').getTime();
+
+            const updateTimer = () => {
+                const now = new Date().getTime();
+                const distance = expirationTimestamp - now;
+
+                if (distance < 0) {
+                    timerElement.style.display = 'none';
+                    const idx = secondCallbacks.indexOf(updateTimer);
+                    if (idx > -1) secondCallbacks.splice(idx, 1);
+                    return;
+                }
+
+                const minutes = Math.floor((distance % (1000 * 60 * 60)) / (1000 * 60));
+                const seconds = Math.floor((distance % (1000 * 60)) / 1000);
+                
+                timerElement.textContent = `(Ceasefire: ${String(minutes).padStart(2, '0')}:${String(seconds).padStart(2, '0')})`;
+            };
+            
+            secondCallbacks.push(updateTimer);
+        }
+    });
+
     // ---------- Point Allocation Form (levels.php) ----------
     const availablePointsEl = document.getElementById('available-points');
     const totalSpentEl = document.getElementById('total-spent');
@@ -135,7 +159,6 @@ document.addEventListener('DOMContentLoaded', () => {
             totalSpentEl.classList.toggle('text-red-500', total > getAvail());
         };
         const onInput = () => {
-            // simple debounce to reduce layout churn on rapid edits
             clearTimeout(debounceId);
             debounceId = setTimeout(updateTotal, 50);
         };
@@ -156,7 +179,6 @@ document.addEventListener('DOMContentLoaded', () => {
                 idx = (idx + 1) % adviceList.length;
                 advisorTextEl.style.opacity = 0;
                 setTimeout(() => {
-                    // textContent avoids HTML injection
                     advisorTextEl.textContent = String(adviceList[idx]);
                     advisorTextEl.style.opacity = 1;
                 }, 500);
@@ -205,7 +227,7 @@ document.addEventListener('DOMContentLoaded', () => {
         const charismaDiscount   = toFloat(trainForm?.dataset.charismaDiscount, 1);
         const refundRate         = 0.75;
 
-        // Tab switching (preserve classes/IDs)
+        // Tab switching
         const activeClasses = ['bg-gray-700', 'text-white', 'font-semibold'];
         const inactiveClasses = ['bg-gray-800', 'hover:bg-gray-700', 'text-gray-400'];
 
@@ -336,7 +358,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
             grandTotalEl.textContent = grandTotal.toLocaleString();
             if (summaryItemsEl) {
-                summaryItemsEl.textContent = ''; // clear safely
+                summaryItemsEl.textContent = '';
                 if (selectedCount === 0) {
                     const p = document.createElement('p');
                     p.className = 'text-gray-500 italic';
@@ -394,7 +416,6 @@ document.addEventListener('DOMContentLoaded', () => {
                 if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`);
                 const data = await response.json();
 
-                // Build modal HTML
                 const html = `
                     <button class="modal-close-btn text-white">
                         <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>
@@ -422,7 +443,6 @@ document.addEventListener('DOMContentLoaded', () => {
                     </div>
                 `;
                 modalContent.innerHTML = html;
-                // Add event listener to the new close button
                 modalContent.querySelector('.modal-close-btn').addEventListener('click', closeModal);
 
             } catch (error) {

@@ -148,6 +148,7 @@ class WarController extends BaseController
         $custom_casus_belli = trim($_POST['custom_casus_belli'] ?? '');
         $goal_key = $_POST['war_goal'] ?? '';
         $custom_goal_label = trim($_POST['custom_war_goal'] ?? '');
+        $war_name = trim($_POST['war_name'] ?? 'War');
 
         // Disallow declaring war on self (same alliance id).
         if ($declarer_alliance_id === $declared_against_id) throw new Exception("You cannot declare war on yourself.");
@@ -167,6 +168,11 @@ class WarController extends BaseController
         //   Normalize inputs into nullable key/custom fields for persistence.
         $final_casus_belli_key = ($casus_belli_key === 'custom') ? null : $casus_belli_key;
         $final_custom_casus_belli = ($casus_belli_key === 'custom') ? $custom_casus_belli : null;
+
+        $goal_credits_plundered = (int)($_POST['goal_credits_plundered'] ?? 0);
+        $goal_units_killed = (int)($_POST['goal_units_killed'] ?? 0);
+        $goal_structure_damage = (int)($_POST['goal_structure_damage'] ?? 0);
+        $goal_prestige_change = (int)($_POST['goal_prestige_change'] ?? 0);
 
         if ($goal_key === 'custom') {
             // For custom goals, caller supplies a metric; validate metric domain.
@@ -192,11 +198,12 @@ class WarController extends BaseController
         //   Create the war record. Additional fields (status=start, timestamps)
         //   are assumed to be handled by schema defaults or triggers.
         $sql_insert_war = "
-            INSERT INTO wars (declarer_alliance_id, declared_against_alliance_id, casus_belli_key, casus_belli_custom, goal_key, goal_custom_label, goal_metric, goal_threshold) 
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            INSERT INTO wars (name, declarer_alliance_id, declared_against_alliance_id, casus_belli_key, casus_belli_custom, goal_key, goal_custom_label, goal_metric, goal_threshold, goal_credits_plundered, goal_units_killed, goal_structure_damage, goal_prestige_change) 
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         ";
         $stmt_insert = $this->db->prepare($sql_insert_war);
-        $stmt_insert->bind_param("iisssssi", 
+        $stmt_insert->bind_param("siissssssiiii",
+            $war_name,
             $declarer_alliance_id, 
             $declared_against_id, 
             $final_casus_belli_key, 
@@ -204,7 +211,11 @@ class WarController extends BaseController
             $final_goal_key,
             $final_custom_goal_label,
             $final_goal_metric,
-            $final_goal_threshold
+            $final_goal_threshold,
+            $goal_credits_plundered,
+            $goal_units_killed,
+            $goal_structure_damage,
+            $goal_prestige_change
         );
         $stmt_insert->execute();
         $stmt_insert->close();
@@ -264,10 +275,10 @@ class WarController extends BaseController
         $_SESSION['war_message'] = "Peace treaty proposed to the opponent.";
 
         // --- From the extended version (kept intact): persist the proposal ---
-        // Persist a new treaty proposal with status 'proposed', a 7-day expiry window.
+        // Persist a new treaty proposal with status 'proposed', a 10 Minute expiry window.
         $alliance1_id = (int)$user_data['alliance_id'];
         $sql = "INSERT INTO treaties (alliance1_id, alliance2_id, treaty_type, proposer_id, status, terms, expiration_date) 
-                VALUES (?, ?, 'peace', ?, 'proposed', ?, NOW() + INTERVAL 7 DAY)";
+                VALUES (?, ?, 'peace', ?, 'proposed', ?, NOW() + INTERVAL 10 MINUTE)";
         $stmt_insert = $this->db->prepare($sql);
         $stmt_insert->bind_param("iiis", $alliance1_id, $opponent_id, $user_id, $terms);
         $stmt_insert->execute();
@@ -456,20 +467,69 @@ class WarController extends BaseController
             ? $war['goal_custom_label']
             : ($GLOBALS['war_goal_presets'][$war['goal_key']]['name'] ?? 'Unknown');
 
+        // MVP Calculation
+        $sql_mvp = "SELECT user_id, SUM(prestige_gained) as total_prestige, SUM(units_killed) as total_kills, SUM(credits_plundered) as total_plunder, SUM(structure_damage) as total_damage
+                    FROM war_battle_logs WHERE war_id = ? GROUP BY user_id";
+        $stmt_mvp = $this->db->prepare($sql_mvp);
+        $stmt_mvp->bind_param("i", $war_id);
+        $stmt_mvp->execute();
+        $mvp_result = $stmt_mvp->get_result()->fetch_all(MYSQLI_ASSOC);
+        $stmt_mvp->close();
+
+        $mvp_user_id = null;
+        $mvp_category = null;
+        $mvp_value = 0;
+        $mvp_character_name = null;
+
+        if ($mvp_result) {
+            $mvps = [];
+            foreach ($mvp_result as $row) {
+                $mvps['prestige_gained'][] = ['user_id' => $row['user_id'], 'value' => $row['total_prestige']];
+                $mvps['units_killed'][] = ['user_id' => $row['user_id'], 'value' => $row['total_kills']];
+                $mvps['credits_plundered'][] = ['user_id' => $row['user_id'], 'value' => $row['total_plunder']];
+                $mvps['structure_damage'][] = ['user_id' => $row['user_id'], 'value' => $row['total_damage']];
+            }
+
+            foreach ($mvps as $category => $users) {
+                usort($users, function ($a, $b) {
+                    return $b['value'] <=> $a['value'];
+                });
+                if ($users[0]['value'] > $mvp_value) {
+                    $mvp_value = $users[0]['value'];
+                    $mvp_user_id = $users[0]['user_id'];
+                    $mvp_category = $category;
+                }
+            }
+
+            if ($mvp_user_id) {
+                $sql_user = "SELECT character_name FROM users WHERE id = ?";
+                $stmt_user = $this->db->prepare($sql_user);
+                $stmt_user->bind_param("i", $mvp_user_id);
+                $stmt_user->execute();
+                $mvp_user = $stmt_user->get_result()->fetch_assoc();
+                $stmt_user->close();
+                $mvp_character_name = $mvp_user['character_name'];
+            }
+        }
+
         // Persist a historical snapshot for display and audit purposes.
         $stmt = $this->db->prepare(
-            "INSERT INTO war_history (war_id, declarer_alliance_name, declared_against_alliance_name, start_date, end_date, outcome, casus_belli_text, goal_text) 
-             VALUES (?, ?, ?, ?, NOW(), ?, ?, ?)"
+            "INSERT INTO war_history (war_id, declarer_alliance_name, declared_against_alliance_name, start_date, end_date, outcome, casus_belli_text, goal_text, mvp_user_id, mvp_category, mvp_value, mvp_character_name) 
+             VALUES (?, ?, ?, ?, NOW(), ?, ?, ?, ?, ?, ?, ?)"
         );
         $stmt->bind_param(
-            "issssss",
+            "isssssssisss",
             $war_id,
             $declarer,
             $declared_against,
             $war['start_date'],
             $outcome_reason,
             $casus_belli_text,
-            $goal_text
+            $goal_text,
+            $mvp_user_id,
+            $mvp_category,
+            $mvp_value,
+            $mvp_character_name
         );
         $stmt->execute();
         $stmt->close();

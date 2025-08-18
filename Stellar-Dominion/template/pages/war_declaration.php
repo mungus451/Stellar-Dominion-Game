@@ -46,12 +46,17 @@ $csrf_token = generate_csrf_token();
             <div class="content-box rounded-lg p-6 max-w-4xl mx-auto">
                 <h1 class="font-title text-3xl text-white mb-4 border-b border-gray-700 pb-3">Initiate Hostilities</h1>
                 
-                <form id="warForm" action="/war_declaration.php" method="POST" class="space-y-6">
+                <form id="warForm" action="/src/Controllers/WarController.php" method="POST" class="space-y-6">
                     <input type="hidden" name="csrf_token" value="<?php echo htmlspecialchars($csrf_token); ?>">
                     <input type="hidden" name="action" value="declare_war">
 
                     <div>
-                        <label for="alliance_id" class="block mb-2 text-lg font-title text-cyan-400">Step 1: Select Target</label>
+                        <label for="war_name" class="block mb-2 text-lg font-title text-cyan-400">Step 1: Name Your War</label>
+                        <input type="text" id="war_name" name="war_name" class="w-full px-3 py-2 text-gray-300 bg-gray-800 border border-gray-700 rounded-lg focus:outline-none focus:border-cyan-500" placeholder="e.g., The Great Expansion" required>
+                    </div>
+
+                    <div>
+                        <label for="alliance_id" class="block mb-2 text-lg font-title text-cyan-400">Step 2: Select Target</label>
                         <select class="w-full px-3 py-2 text-gray-300 bg-gray-800 border border-gray-700 rounded-lg focus:outline-none focus:border-cyan-500" id="alliance_id" name="alliance_id" required>
                             <option value="" disabled selected>Choose an alliance to declare war upon...</option>
                             <?php foreach ($alliances as $alliance) : ?>
@@ -61,7 +66,7 @@ $csrf_token = generate_csrf_token();
                     </div>
 
                     <div>
-                        <label for="casus_belli" class="block mb-2 text-lg font-title text-cyan-400">Step 2: Justify Your War (Casus Belli)</label>
+                        <label for="casus_belli" class="block mb-2 text-lg font-title text-cyan-400">Step 3: Justify Your War (Casus Belli)</label>
                         <select class="w-full px-3 py-2 text-gray-300 bg-gray-800 border border-gray-700 rounded-lg focus:outline-none focus:border-cyan-500" id="casus_belli" name="casus_belli" required>
                             <option value="" disabled selected>Select a reason...</option>
                             <?php foreach ($casus_belli_presets as $key => $details): ?>
@@ -73,23 +78,24 @@ $csrf_token = generate_csrf_token();
                     </div>
 
                     <div>
-                        <label for="war_goal" class="block mb-2 text-lg font-title text-cyan-400">Step 3: Define Your War Goal</label>
-                        <select class="w-full px-3 py-2 text-gray-300 bg-gray-800 border border-gray-700 rounded-lg focus:outline-none focus:border-cyan-500" id="war_goal" name="war_goal" required>
-                             <option value="" disabled selected>Select a primary objective...</option>
-                            <?php foreach ($war_goal_presets as $key => $details): ?>
-                                <option value="<?php echo $key; ?>"><?php echo htmlspecialchars($details['name']); ?> - <?php echo htmlspecialchars($details['description']); ?></option>
-                            <?php endforeach; ?>
-                            <option value="custom">Custom Goal...</option>
-                        </select>
-                        <div id="custom_goal_container" class="hidden mt-2 space-y-2">
-                             <input type="text" name="custom_war_goal" class="w-full px-3 py-2 text-gray-300 bg-gray-900 border border-gray-600 rounded-lg" placeholder="Enter custom goal name (5-100 characters)">
-                             <select name="custom_goal_metric" class="w-full px-3 py-2 text-gray-300 bg-gray-900 border border-gray-600 rounded-lg">
-                                 <option value="" disabled selected>Select metric to track for custom goal...</option>
-                                 <option value="credits_plundered">Credits Plundered</option>
-                                 <option value="units_killed">Units Killed</option>
-                                 <option value="structures_destroyed">Structure Damage</option>
-                                 <option value="prestige_change">Prestige Gained</option>
-                             </select>
+                        <label for="war_goal" class="block mb-2 text-lg font-title text-cyan-400">Step 4: Define Your War Goal</label>
+                        <div class="space-y-4">
+                            <div>
+                                <label for="goal_credits_plundered" class="block text-sm font-medium text-gray-300">Credits Plundered: <span id="goal_credits_plundered_value">0</span></label>
+                                <input type="range" id="goal_credits_plundered" name="goal_credits_plundered" min="0" max="1000000000" step="1000000" value="0" class="w-full h-2 bg-gray-700 rounded-lg appearance-none cursor-pointer">
+                            </div>
+                            <div>
+                                <label for="goal_units_killed" class="block text-sm font-medium text-gray-300">Units Killed: <span id="goal_units_killed_value">0</span></label>
+                                <input type="range" id="goal_units_killed" name="goal_units_killed" min="0" max="100000" step="100" value="0" class="w-full h-2 bg-gray-700 rounded-lg appearance-none cursor-pointer">
+                            </div>
+                            <div>
+                                <label for="goal_structure_damage" class="block text-sm font-medium text-gray-300">Structure Damage: <span id="goal_structure_damage_value">0</span></label>
+                                <input type="range" id="goal_structure_damage" name="goal_structure_damage" min="0" max="1000000" step="1000" value="0" class="w-full h-2 bg-gray-700 rounded-lg appearance-none cursor-pointer">
+                            </div>
+                            <div>
+                                <label for="goal_prestige_change" class="block text-sm font-medium text-gray-300">Prestige Gained: <span id="goal_prestige_change_value">0</span></label>
+                                <input type="range" id="goal_prestige_change" name="goal_prestige_change" min="0" max="5000" step="10" value="0" class="w-full h-2 bg-gray-700 rounded-lg appearance-none cursor-pointer">
+                            </div>
                         </div>
                     </div>
 
@@ -117,16 +123,19 @@ $csrf_token = generate_csrf_token();
                 }
             });
 
-            warGoalSelect.addEventListener('change', function() {
-                if (this.value === 'custom') {
-                    customGoalContainer.classList.remove('hidden');
-                    customGoalContainer.querySelector('input').required = true;
-                    customGoalContainer.querySelector('select').required = true;
-                } else {
-                    customGoalContainer.classList.add('hidden');
-                    customGoalContainer.querySelector('input').required = false;
-                    customGoalContainer.querySelector('select').required = false;
-                }
+            const sliders = [
+                { id: 'goal_credits_plundered', valueId: 'goal_credits_plundered_value' },
+                { id: 'goal_units_killed', valueId: 'goal_units_killed_value' },
+                { id: 'goal_structure_damage', valueId: 'goal_structure_damage_value' },
+                { id: 'goal_prestige_change', valueId: 'goal_prestige_change_value' },
+            ];
+
+            sliders.forEach(slider => {
+                const sliderEl = document.getElementById(slider.id);
+                const valueEl = document.getElementById(slider.valueId);
+                sliderEl.addEventListener('input', () => {
+                    valueEl.textContent = parseInt(sliderEl.value).toLocaleString();
+                });
             });
         });
     </script>
