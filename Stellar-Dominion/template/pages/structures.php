@@ -132,7 +132,11 @@ $current_page = isset($_GET['page']) ? (int)$_GET['page'] : 1;
                         ?>
                             <div class="p-2">
                                 <h3 class="font-title text-2xl text-yellow-400 mb-4">Foundation Repair</h3>
-                                <p class="mb-2">Your <strong><?php echo htmlspecialchars($fort_details['name']); ?></strong> has sustained damage. It must be at 100% health before you can upgrade to the next level.</p>
+                                <?php if ($hp_percentage < 100): ?>
+                                    <p class="mb-2">Your <strong><?php echo htmlspecialchars($fort_details['name']); ?></strong> has sustained damage. It must be at 100% health before you can upgrade to the next level.</p>
+                                <?php else: ?>
+                                    <p class="mb-2">Your <strong><?php echo htmlspecialchars($fort_details['name']); ?></strong> is in perfect condition and requires no repairs.</p>
+                                <?php endif; ?>
                                 
                                 <div class="my-4 p-4 bg-gray-800 rounded-lg">
                                     <p class="text-lg">Current Hitpoints: <span class="font-bold <?php echo ($hp_percentage < 50) ? 'text-red-400' : 'text-green-400'; ?>"><?php echo number_format($current_hp) . ' / ' . number_format($max_hp); ?> (<?php echo $hp_percentage; ?>%)</span></p>

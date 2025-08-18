@@ -121,7 +121,7 @@ if (!$alliance) { // User is not in an alliance
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <title>Stellar Dominion - Alliance</title>
+    <title>Starlight Dominion - Alliance</title>
     <link rel="stylesheet" href="/assets/css/style.css">
     <script src="https://cdn.tailwindcss.com"></script>
     <script src="https://unpkg.com/lucide@latest"></script>
