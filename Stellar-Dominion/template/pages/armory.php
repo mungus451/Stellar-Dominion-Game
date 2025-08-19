@@ -134,17 +134,17 @@ $items_per_page = 10;
                             </nav>
                         </div>
 
-                        <form id="armory-form" action="/armory" method="POST">
-                            <input type="hidden" name="action" value="upgrade_items">
-                            <input type="hidden" name="csrf_token" value="<?php echo htmlspecialchars($csrf_token, ENT_QUOTES, 'UTF-8'); ?>">
-                            
-                            <div class="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
-                                <?php foreach($current_loadout['categories'] as $cat_key => $category): ?>
-                                <div class="content-box bg-gray-800 rounded-lg p-4 border border-gray-700 flex flex-col justify-between">
-                                    <div>
-                                        <div class="flex items-center justify-between">
-                                            <h3 class="font-title text-white text-xl"><?php echo htmlspecialchars($category['title']); ?></h3>
-                                        </div>
+                        <div class="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
+                            <?php foreach($current_loadout['categories'] as $cat_key => $category): ?>
+                            <form action="/armory" method="POST" class="content-box bg-gray-800 rounded-lg p-4 border border-gray-700 flex flex-col justify-between">
+                                <input type="hidden" name="action" value="upgrade_items">
+                                <input type="hidden" name="csrf_token" value="<?php echo htmlspecialchars($csrf_token, ENT_QUOTES, 'UTF-8'); ?>">
+                                <div>
+                                    <div class="flex items-center justify-between">
+                                        <h3 class="font-title text-white text-xl"><?php echo htmlspecialchars($category['title']); ?></h3>
+                                        <button type="submit" class="bg-cyan-600 hover:bg-cyan-700 text-white font-bold py-2 px-4 rounded-lg">Upgrade</button>
+                                    </div>
+                                    <div class="armory-scroll-container max-h-80 overflow-y-auto space-y-2 p-2 mt-2">
                                         <?php 
                                         $previous_item_key = null;
                                         foreach($category['items'] as $item_key => $item):
@@ -173,26 +173,24 @@ $items_per_page = 10;
                                             $requirement_text = implode(', ', $requirements);
                                             $item_class = $is_locked ? 'opacity-60' : '';
                                         ?>
-                                        <div class="mt-3">
-                                            <div class="bg-gray-900/60 rounded p-3 border border-gray-700 <?php echo $item_class; ?>">
-                                                <p class="font-semibold text-white"><?php echo htmlspecialchars($item['name']); ?></p>
-                                                <?php if (isset($item['attack'])): ?>
-                                                    <p class="text-xs text-green-400">Attack: <?php echo $item['attack']; ?></p>
-                                                <?php elseif (isset($item['defense'])): ?>
-                                                    <p class="text-xs text-blue-400">Defense: <?php echo $item['defense']; ?></p>
-                                                <?php endif; ?>
-                                                <p class="text-xs text-yellow-400">Cost: <?php echo number_format($discounted_cost); ?></p>
-                                                <p class="text-xs">Owned: <?php echo number_format($owned_quantity); ?></p>
-                                                <?php if ($is_locked): ?>
-                                                    <p class="text-xs text-red-400 font-semibold mt-1"><?php echo $requirement_text; ?></p>
-                                                <?php endif; ?>
-                                                <?php if(!$is_locked && $previous_item_key && $previous_owned_quantity > 0): ?>
-                                                <div class="flex items-center space-x-2 ml-4">
-                                                    <input type="number" name="items[<?php echo $item_key; ?>]" min="0" max="<?php echo $previous_owned_quantity; ?>" placeholder="0" class="armory-item-quantity bg-gray-900/50 border border-gray-600 rounded-md w-20 text-center p-1" data-item-name="<?php echo htmlspecialchars($item['name']); ?>">
-                                                    <div class="text-sm">Subtotal: <span class="subtotal font-bold text-yellow-300">0</span></div>
-                                                </div>
-                                                <?php endif; ?>
+                                        <div class="bg-gray-900/60 rounded p-3 border border-gray-700 <?php echo $item_class; ?>">
+                                            <p class="font-semibold text-white"><?php echo htmlspecialchars($item['name']); ?></p>
+                                            <?php if (isset($item['attack'])): ?>
+                                                <p class="text-xs text-green-400">Attack: <?php echo $item['attack']; ?></p>
+                                            <?php elseif (isset($item['defense'])): ?>
+                                                <p class="text-xs text-blue-400">Defense: <?php echo $item['defense']; ?></p>
+                                            <?php endif; ?>
+                                            <p class="text-xs text-yellow-400">Cost: <?php echo number_format($discounted_cost); ?></p>
+                                            <p class="text-xs">Owned: <?php echo number_format($owned_quantity); ?></p>
+                                            <?php if ($is_locked): ?>
+                                                <p class="text-xs text-red-400 font-semibold mt-1"><?php echo $requirement_text; ?></p>
+                                            <?php endif; ?>
+                                            <?php if(!$is_locked && ( (isset($item['requires']) && $previous_owned_quantity > 0) || !isset($item['requires']))): ?>
+                                            <div class="flex items-center space-x-2 mt-2">
+                                                <input type="number" name="items[<?php echo $item_key; ?>]" min="0" max="<?php echo isset($item['requires']) ? $previous_owned_quantity : 9999; ?>" placeholder="0" class="armory-item-quantity bg-gray-900/50 border border-gray-600 rounded-md w-20 text-center p-1" data-item-name="<?php echo htmlspecialchars($item['name']); ?>">
+                                                <div class="text-sm">Subtotal: <span class="subtotal font-bold text-yellow-300">0</span></div>
                                             </div>
+                                            <?php endif; ?>
                                         </div>
                                         <?php 
                                         $previous_item_key = $item_key;
@@ -200,12 +198,12 @@ $items_per_page = 10;
                                         ?>
                                     </div>
                                 </div>
-                                <?php endforeach; ?>
-                            </div>
-                            <div class="text-center mt-6">
-                                <button type="submit" class="bg-cyan-600 hover:bg-cyan-700 text-white font-bold py-3 px-8 rounded-lg transition-colors">Upgrade Selected Items</button>
-                            </div>
-                        </form>
+                            </form>
+                            <?php endforeach; ?>
+                        </div>
+                        <div class="text-center mt-6">
+                            <button type="submit" form="armory-form" class="bg-cyan-600 hover:bg-cyan-700 text-white font-bold py-3 px-8 rounded-lg transition-colors">Upgrade All Selected Items</button>
+                        </div>
                     </div>
                 </main>
             </div>

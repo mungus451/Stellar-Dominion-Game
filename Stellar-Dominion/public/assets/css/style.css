@@ -198,3 +198,19 @@ input[type=number]::-webkit-outer-spin-button {
 .modal-close-btn:hover {
     background-color: rgba(255,0,0,0.5);
 }
+
+/* Custom scrollbar for armory cards */
+.armory-scroll-container::-webkit-scrollbar {
+    width: 8px;
+}
+.armory-scroll-container::-webkit-scrollbar-track {
+    background: #1f2937;
+    border-radius: 10px;
+}
+.armory-scroll-container::-webkit-scrollbar-thumb {
+    background: #4b5563;
+    border-radius: 10px;
+}
+.armory-scroll-container::-webkit-scrollbar-thumb:hover {
+    background: #6b7280;
+}
