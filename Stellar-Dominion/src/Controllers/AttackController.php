@@ -166,19 +166,25 @@ try {
     // ─────────────────────────────────────────────────────────────────────────
     // TREATY ENFORCEMENT CHECK
     // ─────────────────────────────────────────────────────────────────────────
-    if ($attacker['alliance_id'] && $defender['alliance_id']) {
-        $alliance1 = (int)$attacker['alliance_id'];
-        $alliance2 = (int)$defender['alliance_id'];
-        $sql_treaty = "SELECT id FROM treaties 
-                       WHERE status = 'active' AND expiration_date > NOW() 
-                         AND ((alliance1_id = ? AND alliance2_id = ?) OR (alliance1_id = ? AND alliance2_id = ?))";
-        $stmt_treaty = mysqli_prepare($link, $sql_treaty);
-        mysqli_stmt_bind_param($stmt_treaty, "iiii", $alliance1, $alliance2, $alliance2, $alliance1);
-        mysqli_stmt_execute($stmt_treaty);
-        $row_treaty = mysqli_stmt_get_result($stmt_treaty)->fetch_assoc();
-        mysqli_stmt_close($stmt_treaty);
-        if ($row_treaty) throw new Exception("You cannot attack this target due to an active peace treaty.");
-    }
+    //if ($attacker['alliance_id'] && $defender['alliance_id']) {
+    //    $alliance1 = (int)$attacker['alliance_id'];
+    //    $alliance2 = (int)$defender['alliance_id'];
+    //    $sql_treaty = "SELECT id FROM treaties 
+    //                   WHERE status = 'active' AND expiration_date > NOW() 
+    //                     AND ((alliance1_id = ? AND alliance2_id = ?) OR (alliance1_id = ? AND alliance2_id = ?))";
+    //    $stmt_treaty = mysqli_prepare($link, $sql_treaty);
+    //    mysqli_stmt_bind_param($stmt_treaty, "iiii", $alliance1, $alliance2, $alliance2, $alliance1);
+    //    mysqli_stmt_execute($stmt_treaty);
+    //    $row_treaty = mysqli_stmt_get_result($stmt_treaty)->fetch_assoc();
+    //    mysqli_stmt_close($stmt_treaty);
+    //    if ($row_treaty) throw new Exception("You cannot attack this target due to an active peace treaty.");
+    //}
+
+    // TREATY ENFORCEMENT CHECK (DISABLED)
+        if (!empty($attacker['alliance_id']) && !empty($defender['alliance_id'])) {
+            // Peace/ceasefire no longer enforced; attacks always allowed.
+            // (Intentionally no SQL here to save a query.)
+        }
 
     // ─────────────────────────────────────────────────────────────────────────
     // BATTLE CALCULATION

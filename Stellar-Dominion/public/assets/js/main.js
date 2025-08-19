@@ -117,31 +117,8 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 
     // ---------- Peace Treaty Timers (attack.php) ----------
-    document.querySelectorAll('.peace-timer').forEach(timerElement => {
-        const expirationDateStr = timerElement.dataset.expiration;
-        if (expirationDateStr) {
-            const expirationTimestamp = new Date(expirationDateStr.replace(' ', 'T') + 'Z').getTime();
-
-            const updateTimer = () => {
-                const now = new Date().getTime();
-                const distance = expirationTimestamp - now;
-
-                if (distance < 0) {
-                     timerElement.remove();
-                    const idx = secondCallbacks.indexOf(updateTimer);
-                    if (idx > -1) secondCallbacks.splice(idx, 1);
-                    return;
-                }
-
-                const minutes = Math.floor((distance % (1000 * 60 * 60)) / (1000 * 60));
-                const seconds = Math.floor((distance % (1000 * 60)) / 1000);
-                
-                timerElement.textContent = `(Ceasefire: ${String(minutes).padStart(2, '0')}:${String(seconds).padStart(2, '0')})`;
-            };
-            
-            secondCallbacks.push(updateTimer);
-        }
-    });
+// Remove any ceasefire/peace UI immediately (feature removed)
+document.querySelectorAll('.peace-timer').forEach(el => el.remove());
 
     // ---------- Point Allocation Form (levels.php) ----------
     const availablePointsEl = document.getElementById('available-points');
