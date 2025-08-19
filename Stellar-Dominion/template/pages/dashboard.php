@@ -308,15 +308,38 @@ $defense_rating = (int)floor(((($guard_count * 10) + $armory_defense_bonus) * $c
 
 /**
  * --- INCOME ---
- * • Base income = 5000 + (workers * 50)
+ * • Base income = 5000 + (workers * 50) + worker_armory_bonus
  * • wealth_points add +1% each multiplicatively.
  * • economy upgrades multiply via economy_upgrade_multiplier.
  * The order matches original (base -> wealth -> upgrades), and floor at end ensures integers.
  */
-$worker_income = (int)$user_stats['workers'] * 50;
+
+// --- NEW: Calculate income bonus from worker armory items ---
+$worker_armory_income_bonus = 0;
+$worker_count = (int)$user_stats['workers'];
+if ($worker_count > 0 && isset($armory_loadouts['worker'])) {
+    // Iterate through all categories and items in the worker loadout
+    foreach ($armory_loadouts['worker']['categories'] as $category) {
+        foreach ($category['items'] as $item_key => $item) {
+            // Check if the user owns this item and if it has an 'attack' stat (income bonus)
+            if (isset($owned_items[$item_key], $item['attack'])) {
+                // The number of effective items is capped by the number of workers
+                $effective_items = min($worker_count, (int)$owned_items[$item_key]);
+                if ($effective_items > 0) {
+                    // Add the bonus: (number of effective items) * (bonus per item)
+                    $worker_armory_income_bonus += $effective_items * (int)$item['attack'];
+                }
+            }
+        }
+    }
+}
+
+// The 'attack' stat on worker items acts as an income bonus.
+$worker_income = ((int)$user_stats['workers'] * 50) + $worker_armory_income_bonus; // MODIFIED LINE
 $total_base_income = 5000 + $worker_income;
 $wealth_bonus = 1 + ((float)$user_stats['wealth_points'] * 0.01);
 $credits_per_turn = (int)floor(($total_base_income * $wealth_bonus) * $economy_upgrade_multiplier);
+
 
 /**
  * --- POPULATION & UNIT AGGREGATES ---
