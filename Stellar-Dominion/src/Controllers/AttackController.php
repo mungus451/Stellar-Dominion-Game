@@ -2,72 +2,72 @@
 /**
  * src/Controllers/AttackController.php
  *
- * 
+ *
  *
  * ─────────────────────────────────────────────────────────────────────────────
  * SYSTEMS NOTES (for engineers) — Performance, Security, Fairness
  * ─────────────────────────────────────────────────────────────────────────────
  * PERF
- *  • All state changes live in a single transaction; row locks via FOR UPDATE prevent races.
- *  • Query count is low and bounded (no N+1). Armory read is O(#owned_items) with in-PHP clamp.
- *  • Minimal string ops in hot path; scalar math uses local vars, typed casts reduce zval churn.
+ * • All state changes live in a single transaction; row locks via FOR UPDATE prevent races.
+ * • Query count is low and bounded (no N+1). Armory read is O(#owned_items) with in-PHP clamp.
+ * • Minimal string ops in hot path; scalar math uses local vars, typed casts reduce zval churn.
  *
  * SECURITY
- *  • Session auth gate + CSRF check on POST.
- *  • All SQL uses prepared statements; removed two string-interpolated queries (prestige).
- *  • All arithmetic clamps prevent negative resources or overflows; no minting money/units.
- *  • Treaty & same-alliance checks block prohibited attacks (no gameplay change).
+ * • Session auth gate + CSRF check on POST.
+ * • All SQL uses prepared statements; removed two string-interpolated queries (prestige).
+ * • All arithmetic clamps prevent negative resources or overflows; no minting money/units.
+ * • Treaty & same-alliance checks block prohibited attacks (no gameplay change).
  *
  * FAIRNESS (balance)
- *  • Sublinear turns multiplier (soft exponent) + hard cap curb snowballing.
- *  • Narrow random band (±2%) preserves unpredictability without coin-flip volatility.
- *  • Guard floor halts zero-out farming; structure damage clamps ensure gradual progress.
- *  • Plunder capped by % and defender’s actual credits, with alliance tax/loan logic preserved.
+ * • Sublinear turns multiplier (soft exponent) + hard cap curb snowballing.
+ * • Narrow random band (±2%) preserves unpredictability without coin-flip volatility.
+ * • Guard floor halts zero-out farming; structure damage clamps ensure gradual progress.
+ * • Plunder capped by % and defender’s actual credits, with alliance tax/loan logic preserved.
  *
  * ─────────────────────────────────────────────────────────────────────────────
  * TUNING GUIDE (Kid-friendly; keep this near constants)
  * ─────────────────────────────────────────────────────────────────────────────
  * Imagine a soccer match:
- *  • “R” is the matchup score: your team power ÷ their team power.
- *  • Attack turns = how much energy you spend this match. More turns help, but not too much.
- *  • Random noise = a tiny “luck” factor so every game isn’t identical.
+ * • “R” is the matchup score: your team power ÷ their team power.
+ * • Attack turns = how much energy you spend this match. More turns help, but not too much.
+ * • Random noise = a tiny “luck” factor so every game isn’t identical.
  *
  * What the knobs do (use small steps!):
- *  1) ATK_TURNS_SOFT_EXP (default 0.50) — “More energy helps, but gently.”
- *     • ↑ higher = turns matter more. ↓ lower = turns matter less.
- *     • Try 0.45–0.60. Keep under 1.0 or turns will explode outcomes.
+ * 1) ATK_TURNS_SOFT_EXP (default 0.50) — “More energy helps, but gently.”
+ * • ↑ higher = turns matter more. ↓ lower = turns matter less.
+ * • Try 0.45–0.60. Keep under 1.0 or turns will explode outcomes.
  *
- *  2) ATK_TURNS_MAX_MULT (default 1.35) — “Hard ceiling for turn power.”
- *     • ↑ higher = bigger boost possible. ↓ lower = tighter fairness.
- *     • Try 1.25–1.45.
+ * 2) ATK_TURNS_MAX_MULT (default 1.35) — “Hard ceiling for turn power.”
+ * • ↑ higher = bigger boost possible. ↓ lower = tighter fairness.
+ * • Try 1.25–1.45.
  *
- *  3) UNDERDOG_MIN_RATIO_TO_WIN (default 0.85) — “How close the underdog must be.”
- *     • ↑ higher = harder for weaker team to upset. ↓ lower = more upsets.
- *     • Try 0.80–0.90.
+ * 3) UNDERDOG_MIN_RATIO_TO_WIN (default 0.85) — “How close the underdog must be.”
+ * • ↑ higher = harder for weaker team to upset. ↓ lower = more upsets.
+ * • Try 0.80–0.90.
  *
- *  4) RANDOM_NOISE_MIN/MAX (default 0.98–1.02) — “Luck wiggle.”
- *     • Wider band = more surprises; narrower = more predictable.
- *     • Try ±1–3% total band. Keep symmetrical (e.g., 0.985–1.015).
+ * 4) RANDOM_NOISE_MIN/MAX (default 0.98–1.02) — “Luck wiggle.”
+ * • Wider band = more surprises; narrower = more predictable.
+ * • Try ±1–3% total band. Keep symmetrical (e.g., 0.985–1.015).
  *
- *  5) CREDITS_STEAL_* (BASE_PCT=0.08, CAP_PCT=0.20, GROWTH=0.10) — “How much treasure.”
- *     • BASE_PCT = fair fight steal rate; GROWTH = extra for clear advantage.
- *     • CAP_PCT = ceiling so no one loses everything.
- *     • Try CAP 0.15–0.25; shift base/growth in small 0.01 steps.
+ * 5) CREDITS_STEAL_* (BASE_PCT=0.08, CAP_PCT=0.20, GROWTH=0.10) — “How much treasure.”
+ * • BASE_PCT = fair fight steal rate; GROWTH = extra for clear advantage.
+ * • CAP_PCT = ceiling so no one loses everything.
+ * • Try CAP 0.15–0.25; shift base/growth in small 0.01 steps.
  *
- *  6) GUARD_KILL_* (BASE_FRAC=0.08, ADVANTAGE_GAIN=0.07, FLOOR=10000)
- *     • BASE_FRAC = what falls when R≈1; ADVANTAGE_GAIN = extra when you’re stronger.
- *     • FLOOR protects defenders from hitting zero. Adjust FLOOR with population scale.
+ * 6) GUARD_KILL_* (BASE_FRAC=0.08, ADVANTAGE_GAIN=0.07, FLOOR=10000)
+ * • BASE_FRAC = what falls when R≈1; ADVANTAGE_GAIN = extra when you’re stronger.
+ * • FLOOR protects defenders from hitting zero. Adjust FLOOR with population scale.
  *
- *  7) STRUCT_* (BASE_DMG=1500, ADV_EXP=0.75, TURNS_EXP=0.40,
- *               MIN_IF_WIN=0.05, MAX_IF_WIN=0.25, GUARD_PROTECT_FACTOR=0.50)
- *     • ADV_EXP < 1.0 = gentle scaling with advantage; TURNS_EXP < 1.0 = gentle turns impact.
- *     • MIN/MAX_IF_WIN clamp per-win damage %; GUARD_PROTECT_FACTOR makes guards matter.
+ * 7) STRUCT_* (BASE_DMG=1500, ADV_EXP=0.75, TURNS_EXP=0.40,
+ * MIN_IF_WIN=0.05, MAX_IF_WIN=0.25, GUARD_PROTECT_FACTOR=0.50)
+ * • ADV_EXP < 1.0 = gentle scaling with advantage; TURNS_EXP < 1.0 = gentle turns impact.
+ * • MIN/MAX_IF_WIN clamp per-win damage %; GUARD_PROTECT_FACTOR makes guards matter.
  *
  * HOW TO TEST LIKE A PRO (but simple):
- *  • Pick a single knob. Change it a tiny bit (e.g., +0.05).
- *  • Simulate or play 20 attacks where power is equal (R≈1), then 20 where R≈1.2, and 20 where R≈0.9.
- *  • Check: win rates look reasonable? loot feels fair? structure damage progresses but not too fast?
- *  • If something swings too hard, undo the change or dial it back halfway.
+ * • Pick a single knob. Change it a tiny bit (e.g., +0.05).
+ * • Simulate or play 20 attacks where power is equal (R≈1), then 20 where R≈1.2, and 20 where R≈0.9.
+ * • Check: win rates look reasonable? loot feels fair? structure damage progresses but not too fast?
+ * • If something swings too hard, undo the change or dial it back halfway.
  *
  * (Tip: Don’t change many knobs at once. Small steps. Keep notes.)
  */
@@ -166,25 +166,9 @@ try {
     // ─────────────────────────────────────────────────────────────────────────
     // TREATY ENFORCEMENT CHECK
     // ─────────────────────────────────────────────────────────────────────────
-    //if ($attacker['alliance_id'] && $defender['alliance_id']) {
-    //    $alliance1 = (int)$attacker['alliance_id'];
-    //    $alliance2 = (int)$defender['alliance_id'];
-    //    $sql_treaty = "SELECT id FROM treaties 
-    //                   WHERE status = 'active' AND expiration_date > NOW() 
-    //                     AND ((alliance1_id = ? AND alliance2_id = ?) OR (alliance1_id = ? AND alliance2_id = ?))";
-    //    $stmt_treaty = mysqli_prepare($link, $sql_treaty);
-    //    mysqli_stmt_bind_param($stmt_treaty, "iiii", $alliance1, $alliance2, $alliance2, $alliance1);
-    //    mysqli_stmt_execute($stmt_treaty);
-    //    $row_treaty = mysqli_stmt_get_result($stmt_treaty)->fetch_assoc();
-    //    mysqli_stmt_close($stmt_treaty);
-    //    if ($row_treaty) throw new Exception("You cannot attack this target due to an active peace treaty.");
-    //}
-
-    // TREATY ENFORCEMENT CHECK (DISABLED)
-        if (!empty($attacker['alliance_id']) && !empty($defender['alliance_id'])) {
-            // Peace/ceasefire no longer enforced; attacks always allowed.
-            // (Intentionally no SQL here to save a query.)
-        }
+    if (!empty($attacker['alliance_id']) && !empty($defender['alliance_id'])) {
+        // Peace/ceasefire no longer enforced; attacks always allowed.
+    }
 
     // ─────────────────────────────────────────────────────────────────────────
     // BATTLE CALCULATION
@@ -217,6 +201,35 @@ try {
         }
     }
 
+    // --- NEW: Read defender armory ---
+    $sql_def_armory = "SELECT item_key, quantity FROM user_armory WHERE user_id = ?";
+    $stmt_def_armory = mysqli_prepare($link, $sql_def_armory);
+    mysqli_stmt_bind_param($stmt_def_armory, "i", $defender_id);
+    mysqli_stmt_execute($stmt_def_armory);
+    $def_armory_result = mysqli_stmt_get_result($stmt_def_armory);
+    $defender_owned_items = [];
+    while ($row = mysqli_fetch_assoc($def_armory_result)) {
+        $defender_owned_items[$row['item_key']] = (int)$row['quantity'];
+    }
+    mysqli_stmt_close($stmt_def_armory);
+
+    // --- NEW: Accumulate defender armory defense bonus (clamped by guard count) ---
+    $defender_armory_defense_bonus = 0;
+    $guard_count = (int)$defender['guards'];
+    if ($guard_count > 0 && isset($armory_loadouts['guard'])) {
+        foreach ($armory_loadouts['guard']['categories'] as $category) {
+            foreach ($category['items'] as $item_key => $item) {
+                if (isset($defender_owned_items[$item_key], $item['defense'])) {
+                    $effective_items = min($guard_count, (int)$defender_owned_items[$item_key]);
+                    if ($effective_items > 0) {
+                        $defender_armory_defense_bonus += $effective_items * (int)$item['defense'];
+                    }
+                }
+            }
+        }
+    }
+
+
     // Upgrade multipliers
     $total_offense_bonus_pct = 0.0;
     for ($i = 1, $n = (int)$attacker['offense_upgrade_level']; $i <= $n; $i++) {
@@ -235,8 +248,11 @@ try {
     // Effective strengths
     $AVG_UNIT_POWER   = 10; // coarse baseline
     $base_soldier_atk = max(0, (int)$attacker['soldiers']) * $AVG_UNIT_POWER;
+    $base_guard_def = max(0, (int)$defender['guards']) * $AVG_UNIT_POWER;
+    
     $RawAttack  = (($base_soldier_atk * $strength_mult) + $armory_attack_bonus) * $offense_upgrade_mult;
-    $RawDefense = max(0, (int)$defender['guards']) * $AVG_UNIT_POWER * $defense_upgrade_mult * $constitution_mult;
+    $RawDefense = (($base_guard_def + $defender_armory_defense_bonus) * $constitution_mult) * $defense_upgrade_mult;
+
 
     // Turns multiplier: sublinear + capped
     $TurnsMult = min(1 + ATK_TURNS_SOFT_EXP * (pow(max(1, $attack_turns), ATK_TURNS_SOFT_EXP) - 1), ATK_TURNS_MAX_MULT);
@@ -253,6 +269,8 @@ try {
     $R = $EA / $ED;
     $attacker_wins = ($R >= UNDERDOG_MIN_RATIO_TO_WIN);
     $outcome = $attacker_wins ? 'victory' : 'defeat';
+
+    // ... (The rest of the file remains unchanged)
 
     // ─────────────────────────────────────────────────────────────────────────
     // GUARD CASUALTIES WITH FLOOR
