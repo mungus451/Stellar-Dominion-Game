@@ -76,7 +76,7 @@ function send_password_email(string $toEmail, string $newPassword): bool {
             Your password has been reset. Here are your temporary login credentials:<br>
             <strong>Username:</strong> " . htmlspecialchars($toEmail, ENT_QUOTES, 'UTF-8') . "<br>
             <strong>Temporary Password:</strong> " . htmlspecialchars($newPassword, ENT_QUOTES, 'UTF-8') . "<br><br>
-            It is strongly recommended that you change this password immediately after logging in from the settings page.<br><br>
+            It is neccessary that you change this password immediately after logging in from the settings page.<br><br>
             If you did not request this, please secure your email account and contact support.";
         $mail->AltBody = "Your password has been reset.\nUsername: " . $toEmail . "\nTemporary Password: " . $newPassword . "\nPlease change this password immediately after logging in.";
 
