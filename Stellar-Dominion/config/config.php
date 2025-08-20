@@ -75,6 +75,8 @@ try {
     exit; // Stop the script from running further
 }
 
+define('APP_BASE_URL', 'https://starlightdominion.com');  // or http://starlightdominion.com if no cert yet
+
 // --- NEW: SMTP Email Configuration ---
 // Replace these with your actual email service provider's details.
 // For Gmail, use smtp.gmail.com, port 587, and generate an "App Password".

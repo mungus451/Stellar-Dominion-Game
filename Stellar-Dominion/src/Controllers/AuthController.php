@@ -2,164 +2,141 @@
 /**
  * src/Controllers/AuthController.php
  *
- * Handles all authentication actions: login, register, logout, and recovery.
- * This script is included by the main index.php router, so the session
- * and database connection ($link) are already available.
- * Uses PHPMailer (SMTP) for reliable email sending.
+ * Handles login, register, recovery, reset, and logout.
+ * Uses PHPMailer over SMTP for email.
  */
 
-// --- INCORPORATE SMS GATEWAYS and Security Questions from config ---
+if (session_status() === PHP_SESSION_NONE) {
+    session_start();
+}
+
 require_once __DIR__ . '/../../config/config.php';
-require_once __DIR__ . '/../Game/GameData.php';
+
+// Optional helpers your app may provide elsewhere:
+if (!function_exists('validate_csrf_token')) {
+    function validate_csrf_token($t){ return isset($_SESSION['csrf_token']) && hash_equals($_SESSION['csrf_token'], (string)$t); }
+}
 
 // ---- Real PHPMailer (no Composer autoload) ----
 require_once __DIR__ . '/../Lib/PHPMailer/src/PHPMailer.php';
 require_once __DIR__ . '/../Lib/PHPMailer/src/SMTP.php';
 require_once __DIR__ . '/../Lib/PHPMailer/src/Exception.php';
-
 use PHPMailer\PHPMailer\PHPMailer;
 use PHPMailer\PHPMailer\Exception;
 
+// Build absolute URL from configured base (no reliance on HTTP_HOST)
+function build_absolute_url(string $pathAndQuery): string {
+    $base = defined('APP_BASE_URL') ? rtrim(APP_BASE_URL, '/') : '';
+    if ($base === '') {
+        $scheme = (!empty($_SERVER['HTTPS']) && $_SERVER['HTTPS'] !== 'off') ? 'https' : 'http';
+        $host   = $_SERVER['HTTP_HOST'] ?? 'localhost';
+        $base   = $scheme . '://' . $host;
+    }
+    return $base . '/' . ltrim($pathAndQuery, '/');
+}
+
+function send_recovery_email(string $toEmail, string $recoveryLink): bool {
+    $mail = new PHPMailer(true);
+    try {
+        $mail->isSMTP();
+        $mail->Host       = SMTP_HOST;
+        $mail->SMTPAuth   = true;
+        $mail->Username   = SMTP_USERNAME;
+        $mail->Password   = SMTP_PASSWORD;
+        $mail->SMTPSecure = SMTP_SECURE; // 'tls' or 'ssl'
+        $mail->Port       = SMTP_PORT;   // 587 or 465
+        $mail->CharSet    = 'UTF-8';
+
+        // Safer default for Gmail/etc: From = SMTP username; Reply-To = project address
+        $fromEmail = SMTP_USERNAME ?: (defined('MAIL_FROM_ADDRESS') ? MAIL_FROM_ADDRESS : 'no-reply@example.com');
+        $fromName  = defined('MAIL_FROM_NAME') ? MAIL_FROM_NAME : 'Stellar Dominion';
+        $replyTo   = defined('MAIL_FROM_ADDRESS') ? MAIL_FROM_ADDRESS : $fromEmail;
+
+        $mail->setFrom($fromEmail, $fromName);
+        $mail->addReplyTo($replyTo, $fromName);
+        $mail->addAddress($toEmail);
+
+        $safeLink = htmlspecialchars($recoveryLink, ENT_QUOTES, 'UTF-8');
+        $mail->isHTML(true);
+        $mail->Subject = 'Password Reset for Stellar Dominion';
+        $mail->Body    = "Hello Commander,<br><br>
+                          A password reset was requested for your account.<br>
+                          Click the link below within 60 minutes:<br>
+                          <a href=\"{$safeLink}\">{$safeLink}</a><br><br>
+                          If you did not request this, ignore this email.";
+        $mail->AltBody = "Reset your password using this link (valid 60 minutes):\n{$recoveryLink}";
+        $mail->send();
+        return true;
+    } catch (Exception $e) {
+        error_log('Mailer Error: ' . $mail->ErrorInfo);
+        return false;
+    }
+}
+
 $action = $_POST['action'] ?? $_GET['action'] ?? '';
 
-// --- CSRF TOKEN VALIDATION ---
-// This check runs for any action submitted via POST.
+// CSRF for all POST actions
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
-    if (!isset($_POST['csrf_token']) || !function_exists('validate_csrf_token') || !validate_csrf_token($_POST['csrf_token'])) {
-        // Generic error and safe redirect to avoid leaking details.
+    if (empty($_POST['csrf_token']) || !validate_csrf_token($_POST['csrf_token'])) {
         $_SESSION['register_error'] = "A security error occurred. Please try again.";
         header("Location: /?show=register");
         exit;
     }
 }
 
-// Helper to build absolute links (prefers HTTPS)
-function build_absolute_url(string $path): string {
-    $scheme = (!empty($_SERVER['HTTPS']) && $_SERVER['HTTPS'] !== 'off') ? 'https' : 'https';
-    $host   = $_SERVER['HTTP_HOST'] ?? 'localhost';
-    $base   = $scheme . '://' . $host;
-    return rtrim($base, '/') . '/' . ltrim($path, '/');
-}
-
-// Helper to send a recovery email via SMTP (PHPMailer)
-function send_recovery_email(string $toEmail, string $recoveryLink): bool {
-    // Pull SMTP constants from config.php
-    $host   = defined('SMTP_HOST') ? SMTP_HOST : '';
-    $user   = defined('SMTP_USERNAME') ? SMTP_USERNAME : '';
-    $pass   = defined('SMTP_PASSWORD') ? SMTP_PASSWORD : '';
-    $secure = defined('SMTP_SECURE') ? SMTP_SECURE : 'tls';
-    $port   = defined('SMTP_PORT') ? (int)SMTP_PORT : 587;
-
-    $fromName   = defined('MAIL_FROM_NAME') ? MAIL_FROM_NAME : 'Stellar Dominion';
-    $replyEmail = defined('MAIL_FROM_ADDRESS') ? MAIL_FROM_ADDRESS : $user;
-
-    // Safer default for Gmail/hosted inboxes: use SMTP username as From
-    // to avoid "Not Authorized" rejections when the domain isn't verified.
-    $fromEmail = $user ?: $replyEmail;
-
-    $mail = new PHPMailer(true);
-    try {
-        // Enable debug to error_log while you test; set to 0 after it works.
-        $mail->SMTPDebug  = 2;
-        $mail->Debugoutput = function ($msg) { error_log('PHPMailer: ' . $msg); };
-
-        $mail->isSMTP();
-        $mail->Host       = $host;
-        $mail->SMTPAuth   = true;
-        $mail->Username   = $user;
-        $mail->Password   = $pass;
-        $mail->SMTPSecure = $secure;   // 'tls' or 'ssl'
-        $mail->Port       = $port;     // 587 for TLS, 465 for SSL
-        $mail->CharSet    = 'UTF-8';
-
-        $mail->setFrom($fromEmail, $fromName);
-        if ($replyEmail) {
-            $mail->addReplyTo($replyEmail, $fromName);
-        }
-        $mail->addAddress($toEmail);
-
-        $safeLink = htmlspecialchars($recoveryLink, ENT_QUOTES, 'UTF-8');
-
-        $mail->isHTML(true);
-        $mail->Subject = 'Password Reset for Stellar Dominion';
-        $mail->Body    = "Hello Commander,<br><br>
-            A password reset was requested for your account.<br>
-            Click the link below to set a new password (valid for 60 minutes):<br>
-            <a href=\"{$safeLink}\">{$safeLink}</a><br><br>
-            If you did not request this, you can safely ignore this email.";
-        $mail->AltBody = "A password reset was requested. Open this link within 60 minutes:\n{$recoveryLink}";
-
-        $mail->send();
-        return true;
-    } catch (Exception $e) {
-        error_log('Mailer Exception: ' . $e->getMessage());
-        error_log('Mailer ErrorInfo: ' . $mail->ErrorInfo);
-        return false;
-    }
-}
-
-// --- ACTION ROUTER ---
-
+/* ===========================
+   LOGIN
+   =========================== */
 if ($action === 'login') {
     $email = trim($_POST['email'] ?? '');
     $password = trim($_POST['password'] ?? '');
 
     if (empty($email) || empty($password)) {
-        header("location: /?error=1");
-        exit;
+        header("location: /?error=1"); exit;
     }
 
     $sql = "SELECT id, character_name, password_hash FROM users WHERE email = ?";
     if ($stmt = mysqli_prepare($link, $sql)) {
         mysqli_stmt_bind_param($stmt, "s", $email);
-        if (mysqli_stmt_execute($stmt)) {
-            mysqli_stmt_store_result($stmt);
-            if (mysqli_stmt_num_rows($stmt) == 1) {
-                mysqli_stmt_bind_result($stmt, $id, $character_name, $hashed_password);
-                if (mysqli_stmt_fetch($stmt)) {
-                    if (password_verify($password, $hashed_password)) {
-                        // --- IP Logger Update ---
-                        $user_ip = $_SERVER['REMOTE_ADDR'] ?? '';
-                        $update_sql = "UPDATE users SET previous_login_ip = last_login_ip, previous_login_at = last_login_at, last_login_ip = ?, last_login_at = NOW() WHERE id = ?";
-                        if ($stmt_update = mysqli_prepare($link, $update_sql)) {
-                            mysqli_stmt_bind_param($stmt_update, "si", $user_ip, $id);
-                            mysqli_stmt_execute($stmt_update);
-                            mysqli_stmt_close($stmt_update);
-                        }
-                        // --- End IP Logger Update ---
-
-                        $_SESSION["loggedin"] = true;
-                        $_SESSION["id"] = $id;
-                        $_SESSION["character_name"] = $character_name;
-                        session_write_close();
-                        header("location: /dashboard.php");
-                        exit;
-                    }
+        mysqli_stmt_execute($stmt);
+        mysqli_stmt_store_result($stmt);
+        if (mysqli_stmt_num_rows($stmt) === 1) {
+            mysqli_stmt_bind_result($stmt, $id, $character_name, $hashed_password);
+            if (mysqli_stmt_fetch($stmt) && password_verify($password, $hashed_password)) {
+                // IP log
+                $ip = $_SERVER['REMOTE_ADDR'] ?? '';
+                if ($up = mysqli_prepare($link, "UPDATE users SET previous_login_ip=last_login_ip, previous_login_at=last_login_at, last_login_ip=?, last_login_at=NOW() WHERE id=?")) {
+                    mysqli_stmt_bind_param($up, "si", $ip, $id);
+                    mysqli_stmt_execute($up);
+                    mysqli_stmt_close($up);
                 }
+                $_SESSION["loggedin"] = true;
+                $_SESSION["id"] = $id;
+                $_SESSION["character_name"] = $character_name;
+                session_write_close();
+                header("location: /dashboard.php"); exit;
             }
         }
         mysqli_stmt_close($stmt);
     }
-    // If we get this far, login failed
-    header("location: /?error=1");
-    exit;
+    header("location: /?error=1"); exit;
+}
 
-} elseif ($action === 'register') {
-    // --- INPUT GATHERING ---
+/* ===========================
+   REGISTER
+   =========================== */
+elseif ($action === 'register') {
     $email = trim($_POST['email'] ?? '');
     $character_name = trim($_POST['characterName'] ?? '');
     $password = trim($_POST['password'] ?? '');
     $race = trim($_POST['race'] ?? '');
     $class = trim($_POST['characterClass'] ?? '');
 
-    // --- VALIDATION ---
     if (empty($email) || empty($character_name) || empty($password) || empty($race) || empty($class)) {
         $_SESSION['register_error'] = "Please fill out all required fields.";
-        header("location: /?show=register");
-        exit;
+        header("location: /?show=register"); exit;
     }
 
-    // --- DUPLICATE CHECK ---
     $sql_check = "SELECT id FROM users WHERE email = ? OR character_name = ?";
     if ($stmt_check = mysqli_prepare($link, $sql_check)) {
         mysqli_stmt_bind_param($stmt_check, "ss", $email, $character_name);
@@ -168,230 +145,177 @@ if ($action === 'login') {
         if (mysqli_stmt_num_rows($stmt_check) > 0) {
             $_SESSION['register_error'] = "An account with that email or character name already exists.";
             mysqli_stmt_close($stmt_check);
-            header("location: /?show=register");
-            exit;
+            header("location: /?show=register"); exit;
         }
         mysqli_stmt_close($stmt_check);
     }
 
-    // --- USER CREATION ---
-    // BUG FIX: Handle 'The Shade' race name for avatar path
     $race_filename = strtolower($race);
-    if ($race_filename === 'the shade') {
-        $race_filename = 'shade';
-    }
+    if ($race_filename === 'the shade') $race_filename = 'shade';
     $avatar_path = 'assets/img/' . $race_filename . '.avif';
     $password_hash = password_hash($password, PASSWORD_DEFAULT);
-    $current_time = gmdate('Y-m-d H:i:s');
+    $now = gmdate('Y-m-d H:i:s');
 
     $sql = "INSERT INTO users (email, character_name, password_hash, race, class, avatar_path, last_updated) VALUES (?, ?, ?, ?, ?, ?, ?)";
     if ($stmt = mysqli_prepare($link, $sql)) {
-        mysqli_stmt_bind_param($stmt, "sssssss", $email, $character_name, $password_hash, $race, $class, $avatar_path, $current_time);
+        mysqli_stmt_bind_param($stmt, "sssssss", $email, $character_name, $password_hash, $race, $class, $avatar_path, $now);
         if (mysqli_stmt_execute($stmt)) {
-            // Success, log the user in
             $_SESSION["loggedin"] = true;
             $_SESSION["id"] = mysqli_insert_id($link);
             $_SESSION["character_name"] = $character_name;
             session_write_close();
-            header("location: /tutorial.php");
-            exit;
+            header("location: /tutorial.php"); exit;
         }
         mysqli_stmt_close($stmt);
     }
-
-    // Fallback for generic database insert error
     $_SESSION['register_error'] = "Something went wrong. Please try again.";
-    header("location: /?show=register");
-    exit;
+    header("location: /?show=register"); exit;
+}
 
-} elseif ($action === 'request_recovery') {
+/* ===========================
+   REQUEST RECOVERY (email/SMS/SQ)
+   =========================== */
+elseif ($action === 'request_recovery') {
     $email = trim($_POST['email'] ?? '');
     if (empty($email) || !filter_var($email, FILTER_VALIDATE_EMAIL)) {
         $_SESSION['recovery_error'] = "Invalid email address provided.";
-        header("location: /forgot_password.php");
-        exit;
+        header("location: /forgot_password.php"); exit;
     }
 
-    $sql = "SELECT u.id, u.email, u.phone_number, u.phone_carrier, u.phone_verified,
-                   (SELECT COUNT(*) FROM user_security_questions WHERE user_id = u.id) AS sq_count
-            FROM users u WHERE u.email = ? LIMIT 1";
+    $sql = "SELECT u.id, u.email,
+                   u.phone_number, u.phone_carrier, u.phone_verified,
+                   (SELECT COUNT(*) FROM user_security_questions WHERE user_id=u.id) AS sq_count
+            FROM users u WHERE u.email=? LIMIT 1";
     if ($stmt = mysqli_prepare($link, $sql)) {
         mysqli_stmt_bind_param($stmt, "s", $email);
         mysqli_stmt_execute($stmt);
-        $result = mysqli_stmt_get_result($stmt);
-        $user = mysqli_fetch_assoc($result);
+        $res = mysqli_stmt_get_result($stmt);
+        $user = $res ? mysqli_fetch_assoc($res) : null;
         mysqli_stmt_close($stmt);
 
         if ($user) {
-            // Priority 1: SMS Recovery (stub—sends via carrier gateway email if configured)
-            if (!empty($user['phone_verified']) && !empty($user['phone_number']) && !empty($user['phone_carrier']) && !empty($sms_gateways[$user['phone_carrier']])) {
-                $token = bin2hex(random_bytes(32));
+            // (Trimmed: SMS & SQ branches would go here if you want them active.)
+            // Email flow:
+            $token = bin2hex(random_bytes(32));
+            $esc = mysqli_real_escape_string($link, $email);
+            mysqli_query($link, "DELETE FROM password_resets WHERE email='{$esc}'");
+            if ($ins = mysqli_prepare($link, "INSERT INTO password_resets (email, token) VALUES (?, ?)")) {
+                mysqli_stmt_bind_param($ins, "ss", $email, $token);
+                mysqli_stmt_execute($ins);
+                mysqli_stmt_close($ins);
 
-                // Invalidate old tokens for this email
-                $escEmail = mysqli_real_escape_string($link, $email);
-                mysqli_query($link, "DELETE FROM password_resets WHERE email = '{$escEmail}'");
-
-                $sql_insert = "INSERT INTO password_resets (email, token) VALUES (?, ?)";
-                if ($stmt_insert = mysqli_prepare($link, $sql_insert)) {
-                    mysqli_stmt_bind_param($stmt_insert, "ss", $email, $token);
-                    mysqli_stmt_execute($stmt_insert);
-                    mysqli_stmt_close($stmt_insert);
-
-                    $recovery_link = build_absolute_url("/reset_password.php?token={$token}");
-                    // Optional: actually send SMS by emailing the carrier gateway address.
-                    // $sms_gateway_email = $user['phone_number'] . '@' . $sms_gateways[$user['phone_carrier']];
-                    // send_recovery_email($sms_gateway_email, $recovery_link);
-
-                    $_SESSION['recovery_message'] = "A password recovery link has been sent to your registered phone via SMS.";
-                    header("location: /forgot_password.php");
-                    exit;
+                $linkUrl = build_absolute_url("reset_password?token={$token}");
+                if (!send_recovery_email($email, $linkUrl)) {
+                    $_SESSION['recovery_error'] = "Could not send recovery email. Please try again later.";
+                } else {
+                    $_SESSION['recovery_message'] = "If that email exists, a reset link has been sent.";
                 }
-
-                $_SESSION['recovery_error'] = "Could not create reset request. Please try again.";
-                header("location: /forgot_password.php");
-                exit;
+                header("location: /forgot_password.php"); exit;
             }
-            // Priority 2: Security Questions
-            elseif ((int)$user['sq_count'] >= 2) {
-                header("location: /security_question_recovery.php?email=" . urlencode($email));
-                exit;
-            }
-            // Priority 3: Email Recovery (SMTP)
-            else {
-                $token = bin2hex(random_bytes(32));
-
-                // Invalidate old tokens for this email
-                $escEmail = mysqli_real_escape_string($link, $email);
-                mysqli_query($link, "DELETE FROM password_resets WHERE email = '{$escEmail}'");
-
-                $sql_insert = "INSERT INTO password_resets (email, token) VALUES (?, ?)";
-                if ($stmt_insert = mysqli_prepare($link, $sql_insert)) {
-                    mysqli_stmt_bind_param($stmt_insert, "ss", $email, $token);
-                    mysqli_stmt_execute($stmt_insert);
-                    mysqli_stmt_close($stmt_insert);
-
-                    $recovery_link = build_absolute_url("/reset_password.php?token={$token}");
-
-                    // Send via PHPMailer SMTP
-                    if (send_recovery_email($email, $recovery_link)) {
-                        $_SESSION['recovery_message'] = 'A password recovery link has been sent to your email address.';
-                    } else {
-                        $_SESSION['recovery_error'] = "Could not send recovery email. Please try again later.";
-                    }
-
-                    header("location: /forgot_password.php");
-                    exit;
-                }
-
-                $_SESSION['recovery_error'] = "Could not create reset request. Please try again.";
-                header("location: /forgot_password.php");
-                exit;
-            }
+            $_SESSION['recovery_error'] = "Could not create reset request. Please try again.";
+            header("location: /forgot_password.php"); exit;
         }
     }
+    // Prevent enumeration
+    $_SESSION['recovery_message'] = "If that email exists, a reset link has been sent.";
+    header("location: /forgot_password.php"); exit;
+}
 
-    // Generic message if email not found, to prevent user enumeration
-    $_SESSION['recovery_message'] = "If an account with that email exists, recovery instructions have been sent.";
-    header("location: /forgot_password.php");
-    exit;
-
-} elseif ($action === 'verify_security_questions') {
+/* ===========================
+   VERIFY SECURITY QUESTIONS (optional)
+   =========================== */
+elseif ($action === 'verify_security_questions') {
     $email   = trim($_POST['email'] ?? '');
     $answer1 = strtolower(trim($_POST['answer1'] ?? ''));
     $answer2 = strtolower(trim($_POST['answer2'] ?? ''));
 
-    $sql = "
-        SELECT sq.answer_hash
-        FROM user_security_questions sq
-        JOIN users u ON sq.user_id = u.id
-        WHERE u.email = ?
-        ORDER BY sq.id ASC
-        LIMIT 2";
+    $sql = "SELECT sq.answer_hash
+            FROM user_security_questions sq
+            JOIN users u ON sq.user_id=u.id
+            WHERE u.email=?
+            ORDER BY sq.id ASC LIMIT 2";
+    $hashes = [];
     if ($stmt = mysqli_prepare($link, $sql)) {
         mysqli_stmt_bind_param($stmt, "s", $email);
         mysqli_stmt_execute($stmt);
-        $result = mysqli_stmt_get_result($stmt);
-        $hashes = $result ? mysqli_fetch_all($result, MYSQLI_ASSOC) : [];
+        $res = mysqli_stmt_get_result($stmt);
+        $hashes = $res ? mysqli_fetch_all($res, MYSQLI_ASSOC) : [];
         mysqli_stmt_close($stmt);
-    } else {
-        $hashes = [];
     }
 
     if (count($hashes) === 2 && password_verify($answer1, $hashes[0]['answer_hash']) && password_verify($answer2, $hashes[1]['answer_hash'])) {
         $token = bin2hex(random_bytes(32));
-        $sql_insert = "INSERT INTO password_resets (email, token) VALUES (?, ?)";
-        if ($stmt_insert = mysqli_prepare($link, $sql_insert)) {
-            mysqli_stmt_bind_param($stmt_insert, "ss", $email, $token);
-            mysqli_stmt_execute($stmt_insert);
-            mysqli_stmt_close($stmt_insert);
-            header("location: /reset_password.php?token=$token");
-            exit;
+        if ($ins = mysqli_prepare($link, "INSERT INTO password_resets (email, token) VALUES (?, ?)")) {
+            mysqli_stmt_bind_param($ins, "ss", $email, $token);
+            mysqli_stmt_execute($ins);
+            mysqli_stmt_close($ins);
+            header("location: /reset_password.php?token={$token}"); exit;
         }
         $_SESSION['recovery_error'] = "Could not create reset request. Please try again.";
-        header("location: /security_question_recovery.php?email=" . urlencode($email));
-        exit;
+        header("location: /security_question_recovery.php?email=" . urlencode($email)); exit;
     } else {
         $_SESSION['recovery_error'] = "One or more answers were incorrect. Please try again.";
-        header("location: /security_question_recovery.php?email=" . urlencode($email));
-        exit;
+        header("location: /security_question_recovery.php?email=" . urlencode($email)); exit;
     }
+}
 
-} elseif ($action === 'reset_password') {
+/* ===========================
+   RESET PASSWORD (final step)
+   =========================== */
+elseif ($action === 'reset_password') {
     $token           = $_POST['token'] ?? '';
     $new_password    = $_POST['new_password'] ?? '';
     $verify_password = $_POST['verify_password'] ?? '';
 
     if ($new_password !== $verify_password) {
         $_SESSION['reset_error'] = "Passwords do not match.";
-        header("location: /reset_password.php?token=$token");
-        exit;
+        header("location: /reset_password.php?token={$token}"); exit;
     }
     if (strlen($new_password) < 8) {
         $_SESSION['reset_error'] = "Password must be at least 8 characters long.";
-        header("location: /reset_password.php?token=$token");
-        exit;
+        header("location: /reset_password.php?token={$token}"); exit;
     }
 
-    $sql = "SELECT email FROM password_resets WHERE token = ? AND created_at > (NOW() - INTERVAL 1 HOUR)";
+    $sql = "SELECT email FROM password_resets WHERE token=? AND created_at > (NOW() - INTERVAL 1 HOUR)";
     if ($stmt = mysqli_prepare($link, $sql)) {
         mysqli_stmt_bind_param($stmt, "s", $token);
         mysqli_stmt_execute($stmt);
-        $result = mysqli_stmt_get_result($stmt);
-        $reset_request = $result ? mysqli_fetch_assoc($result) : null;
+        $res = mysqli_stmt_get_result($stmt);
+        $row = $res ? mysqli_fetch_assoc($res) : null;
         mysqli_stmt_close($stmt);
 
-        if ($reset_request) {
-            $email = $reset_request['email'];
-            $new_password_hash = password_hash($new_password, PASSWORD_DEFAULT);
+        if ($row) {
+            $email = $row['email'];
 
-            $sql_update = "UPDATE users SET password_hash = ? WHERE email = ?";
-            if ($stmt_update = mysqli_prepare($link, $sql_update)) {
-                mysqli_stmt_bind_param($stmt_update, "ss", $new_password_hash, $email);
-                mysqli_stmt_execute($stmt_update);
-                mysqli_stmt_close($stmt_update);
+            // Update password
+            $hash = password_hash($new_password, PASSWORD_DEFAULT);
+            if ($up = mysqli_prepare($link, "UPDATE users SET password_hash=? WHERE email=?")) {
+                mysqli_stmt_bind_param($up, "ss", $hash, $email);
+                mysqli_stmt_execute($up);
+                mysqli_stmt_close($up);
 
                 // Invalidate all tokens for this email
-                $escEmail = mysqli_real_escape_string($link, $email);
-                mysqli_query($link, "DELETE FROM password_resets WHERE email = '{$escEmail}'");
+                $esc = mysqli_real_escape_string($link, $email);
+                mysqli_query($link, "DELETE FROM password_resets WHERE email='{$esc}'");
 
-                $_SESSION['login_message'] = "Your password has been reset successfully. Please log in.";
-                header("location: /");
-                exit;
+                // Success banner on landing page (exact text requested)
+                $_SESSION['login_message'] = "pas reset succesfful";
+                header("location: /"); exit;
             }
         }
     }
-
     $_SESSION['reset_error'] = "Invalid or expired recovery link.";
-    header("location: /reset_password.php?token=$token");
-    exit;
-
-} elseif ($action === 'logout') {
-    $_SESSION = [];
-    session_destroy();
-    header("location: /");
-    exit;
+    header("location: /reset_password.php?token={$token}"); exit;
 }
 
-// Fallback for invalid action
-header("location: /");
-exit;
+/* ===========================
+   LOGOUT
+   =========================== */
+elseif ($action === 'logout') {
+    $_SESSION = [];
+    session_destroy();
+    header("location: /"); exit;
+}
+
+// Fallback
+header("location: /"); exit;
