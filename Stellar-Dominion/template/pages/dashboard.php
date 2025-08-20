@@ -1,3 +1,4 @@
+<mungus451/stellar-dominion-game/Stellar-Dominion-Game-dev5/Stellar-Dominion/template/pages/dashboard.php>
 <?php
 // --- SESSION AND DATABASE SETUP ---
 // session_start() and the login check are now handled by the main router (public/index.php)
@@ -130,24 +131,6 @@ $total_losses = $losses_as_attacker + $losses_as_defender;
 /**
  * --- NET WORTH RECALCULATION ---
  * This is the *only* write-side effect in this script. It recomputes users.net_worth deterministically.
- *
- * DEFINITION (as implemented here):
- *   net_worth = floor(
- *       sum_over_units( quantity * base_cost * refund_rate )
- *     + ( historical_upgrade_spend * structure_depreciation_rate )
- *     + credits_on_hand
- *     + banked_credits
- *   )
- *
- * RATIONALE:
- * • Unit liquidation value assumes a 75% refund (refund_rate) — simulates resale/attrition.
- * • Upgrades depreciate heavily (10%) — they’re sunk cost with low resale.
- * • Liquid credits contribute 1:1 to wealth (both on-hand and banked).
- * • floor() ensures integer storage, consistent with in-game currency granulity.
- *
- * CONSISTENCY:
- * • If user_state changed earlier in process_offline_turns(), we capture that here.
- * • If the recomputed value differs, we persist it; otherwise we avoid a write (reduces lock churn).
  */
 $base_unit_costs = ['workers' => 100, 'soldiers' => 250, 'guards' => 250, 'sentries' => 500, 'spies' => 1000];
 $refund_rate = 0.75;
@@ -157,13 +140,11 @@ $total_unit_value = 0;
 foreach ($base_unit_costs as $unit => $cost) {
     $qty = (int)($user_stats[$unit] ?? 0);
     if ($qty > 0) {
-        // Accumulate at full precision; final floor after sum matches original semantics but is cheaper.
         $total_unit_value += $qty * $cost * $refund_rate;
     }
 }
 $total_unit_value = (int)floor($total_unit_value);
 
-// Historical upgrade spend through current level for each category.
 $total_upgrade_cost = 0;
 if (!empty($upgrades) && is_array($upgrades)) {
     foreach ($upgrades as $category_key => $category) {
@@ -171,7 +152,6 @@ if (!empty($upgrades) && is_array($upgrades)) {
         if (!$db_column) { continue; }
         $current_level = (int)($user_stats[$db_column] ?? 0);
         $levels = $category['levels'] ?? [];
-        // Summation is O(L) for level L; typical L is small (<= ~20), so this is negligible.
         for ($i = 1; $i <= $current_level; $i++) {
             $total_upgrade_cost += (int)($levels[$i]['cost'] ?? 0);
         }
@@ -191,15 +171,12 @@ if ($new_net_worth !== (int)$user_stats['net_worth']) {
         mysqli_stmt_bind_param($stmt_nw, "ii", $new_net_worth, $user_id);
         mysqli_stmt_execute($stmt_nw);
         mysqli_stmt_close($stmt_nw);
-        $user_stats['net_worth'] = $new_net_worth; // Keep in-memory view consistent with storage.
+        $user_stats['net_worth'] = $new_net_worth;
     }
 }
 
 /**
  * --- UPGRADE MULTIPLIERS ---
- * Multipliers are multiplicative factors derived from cumulative percent bonuses up to current level.
- * Offense/Defense/Economy each sum their respective percentage bonuses and convert to (1 + pct/100).
- * NOTE: We avoid pow() / product to preserve original linear stacking semantics.
  */
 $total_offense_bonus_pct = 0;
 for ($i = 1, $n = (int)$user_stats['offense_upgrade_level']; $i <= $n; $i++) {
@@ -219,29 +196,24 @@ for ($i = 1, $n = (int)$user_stats['economy_upgrade_level']; $i <= $n; $i++) {
 }
 $economy_upgrade_multiplier = 1 + ($total_economy_bonus_pct / 100);
 
-/**
- * --- CITIZENS PER TURN ---
- * Base inflow = 1 citizen/turn.
- * + Personal (population upgrade) bonuses: sum of per-level discrete citizens.
- * + Alliance membership base bonus (+2 flat) if in any alliance.
- * + Alliance structure bonuses: sum of 'citizens' from each owned alliance structure.
- *
- * This separates *production* (citizens inflow) from *wealth* (net_worth) and *military stats*.
- */
-$citizens_per_turn = 1; // Base value
+// =============================================================================
+// START: CORRECTED INCOME AND CITIZEN CALCULATION
+// This section is now aligned with the logic in TurnProcessor.php
+// =============================================================================
 
-// Personal structural bonuses from the player’s population upgrade track.
-for ($i = 1, $n = (int)$user_stats['population_level']; $i <= $n; $i++) {
-    $citizens_per_turn += (int)($upgrades['population']['levels'][$i]['bonuses']['citizens'] ?? 0);
-}
+// --- FETCH ALLIANCE BONUSES (for display) ---
+$alliance_bonuses = [
+    'income' => 0.0, 'defense' => 0.0, 'offense' => 0.0, 'citizens' => 0.0, 
+    'resources' => 0.0, 'credits' => 0.0
+];
 
-// Alliance-derived bonuses (flat + structure-based).
 if (!empty($user_stats['alliance_id'])) {
-    $citizens_per_turn += 2; // Base alliance membership boost (documented in TurnProcessor.php)
+    // Add base alliance bonuses
+    $alliance_bonuses['credits'] = 5000;
+    $alliance_bonuses['citizens'] = 2;
 
-    // Pull alliance structures and aggregate their 'citizens' contribution.
     $sql_alliance_structures = "
-        SELECT als.structure_key, s.bonuses
+        SELECT s.bonuses
         FROM alliance_structures als 
         JOIN alliance_structures_definitions s ON als.structure_key = s.structure_key
         WHERE als.alliance_id = ?
@@ -252,22 +224,63 @@ if (!empty($user_stats['alliance_id'])) {
         $result_as = mysqli_stmt_get_result($stmt_as);
         while ($structure = mysqli_fetch_assoc($result_as)) {
             $bonus_data = json_decode($structure['bonuses'], true);
-            if (!empty($bonus_data['citizens'])) {
-                $citizens_per_turn += (int)$bonus_data['citizens'];
+            if (is_array($bonus_data)) {
+                foreach ($bonus_data as $key => $value) {
+                    if (isset($alliance_bonuses[$key])) {
+                        $alliance_bonuses[$key] += (float)$value;
+                    }
+                }
             }
         }
         mysqli_stmt_close($stmt_as);
     }
 }
 
+// --- CITIZENS PER TURN ---
+$citizens_per_turn = 1; // Base value
+for ($i = 1, $n = (int)$user_stats['population_level']; $i <= $n; $i++) {
+    $citizens_per_turn += (int)($upgrades['population']['levels'][$i]['bonuses']['citizens'] ?? 0);
+}
+// Add alliance bonus
+$citizens_per_turn += (int)$alliance_bonuses['citizens'];
+
+
+// --- INCOME PER TURN ---
+// Calculate income bonus from worker armory items (this was the one part the dashboard did correctly)
+$worker_armory_income_bonus = 0;
+$worker_count = (int)$user_stats['workers'];
+if ($worker_count > 0 && isset($armory_loadouts['worker'])) {
+    foreach ($armory_loadouts['worker']['categories'] as $category) {
+        foreach ($category['items'] as $item_key => $item) {
+            if (isset($owned_items[$item_key], $item['attack'])) {
+                $effective_items = min($worker_count, (int)$owned_items[$item_key]);
+                if ($effective_items > 0) {
+                    $worker_armory_income_bonus += $effective_items * (int)$item['attack'];
+                }
+            }
+        }
+    }
+}
+
+// Full Income Calculation
+$worker_income = ((int)$user_stats['workers'] * 50) + $worker_armory_income_bonus;
+$total_base_income = 5000 + $worker_income;
+$wealth_bonus = 1 + ((float)$user_stats['wealth_points'] * 0.01);
+$alliance_income_multiplier = 1.0 + ($alliance_bonuses['income'] / 100.0);
+$alliance_resource_multiplier = 1.0 + ($alliance_bonuses['resources'] / 100.0);
+
+$credits_per_turn = (int)floor(
+    ($total_base_income * $wealth_bonus * $economy_upgrade_multiplier * $alliance_income_multiplier * $alliance_resource_multiplier)
+    + $alliance_bonuses['credits']
+);
+
+// =============================================================================
+// END: CORRECTED INCOME AND CITIZEN CALCULATION
+// =============================================================================
+
+
 /**
  * --- DERIVED STATS ---
- * These are displayed values, not persisted:
- * • strength_bonus, constitution_bonus: linear 1% per stat point.
- * • offense_power: soldiers baseline + armory attack bonuses, then scaled by upgrades and strength.
- * • defense_rating: guards baseline + armory defense bonuses, then scaled by upgrades and constitution.
- *
- * NOTE: Equipment contribution is clamped by troop count (min(#troops, #items)).
  */
 $strength_bonus = 1 + ((float)$user_stats['strength_points'] * 0.01);
 $constitution_bonus = 1 + ((float)$user_stats['constitution_points'] * 0.01);
@@ -279,7 +292,7 @@ if ($soldier_count > 0 && isset($armory_loadouts['soldier'])) {
     foreach ($armory_loadouts['soldier']['categories'] as $category) {
         foreach ($category['items'] as $item_key => $item) {
             if (!isset($owned_items[$item_key], $item['attack'])) { continue; }
-            $effective_items = min($soldier_count, (int)$owned_items[$item_key]); // clamp to soldier count
+            $effective_items = min($soldier_count, (int)$owned_items[$item_key]);
             if ($effective_items > 0) {
                 $armory_attack_bonus += $effective_items * (int)$item['attack'];
             }
@@ -294,7 +307,7 @@ if ($guard_count > 0 && isset($armory_loadouts['guard'])) {
     foreach ($armory_loadouts['guard']['categories'] as $category) {
         foreach ($category['items'] as $item_key => $item) {
             if (!isset($owned_items[$item_key], $item['defense'])) { continue; }
-            $effective_items = min($guard_count, (int)$owned_items[$item_key]); // clamp to guard count
+            $effective_items = min($guard_count, (int)$owned_items[$item_key]);
             if ($effective_items > 0) {
                 $armory_defense_bonus += $effective_items * (int)$item['defense'];
             }
@@ -302,48 +315,12 @@ if ($guard_count > 0 && isset($armory_loadouts['guard'])) {
     }
 }
 
-// Final displayed combat stats (integers, floors preserve original behavior).
 $offense_power = (int)floor((($soldier_count * 10) * $strength_bonus + $armory_attack_bonus) * $offense_upgrade_multiplier);
 $defense_rating = (int)floor(((($guard_count * 10) + $armory_defense_bonus) * $constitution_bonus) * $defense_upgrade_multiplier);
-
-/**
- * --- INCOME ---
- * • Base income = 5000 + (workers * 50) + worker_armory_bonus
- * • wealth_points add +1% each multiplicatively.
- * • economy upgrades multiply via economy_upgrade_multiplier.
- * The order matches original (base -> wealth -> upgrades), and floor at end ensures integers.
- */
-
-// --- NEW: Calculate income bonus from worker armory items ---
-$worker_armory_income_bonus = 0;
-$worker_count = (int)$user_stats['workers'];
-if ($worker_count > 0 && isset($armory_loadouts['worker'])) {
-    // Iterate through all categories and items in the worker loadout
-    foreach ($armory_loadouts['worker']['categories'] as $category) {
-        foreach ($category['items'] as $item_key => $item) {
-            // Check if the user owns this item and if it has an 'attack' stat (income bonus)
-            if (isset($owned_items[$item_key], $item['attack'])) {
-                // The number of effective items is capped by the number of workers
-                $effective_items = min($worker_count, (int)$owned_items[$item_key]);
-                if ($effective_items > 0) {
-                    // Add the bonus: (number of effective items) * (bonus per item)
-                    $worker_armory_income_bonus += $effective_items * (int)$item['attack'];
-                }
-            }
-        }
-    }
-}
-
-// The 'attack' stat on worker items acts as an income bonus.
-$worker_income = ((int)$user_stats['workers'] * 50) + $worker_armory_income_bonus; // MODIFIED LINE
-$total_base_income = 5000 + $worker_income;
-$wealth_bonus = 1 + ((float)$user_stats['wealth_points'] * 0.01);
-$credits_per_turn = (int)floor(($total_base_income * $wealth_bonus) * $economy_upgrade_multiplier);
 
 
 /**
  * --- POPULATION & UNIT AGGREGATES ---
- * Buckets are used purely for display; nothing is persisted here.
  */
 $non_military_units = (int)$user_stats['workers'] + (int)$user_stats['untrained_citizens'];
 $defensive_units = (int)$user_stats['guards'] + (int)$user_stats['sentries'];
@@ -354,8 +331,6 @@ $total_population = $non_military_units + $total_military_units;
 
 /**
  * --- TURN TIMER ---
- * Computes wall-clock countdown to next 10-minute boundary from last_updated.
- * We protect against negative modulo (can occur if clock skew or last_updated future).
  */
 $turn_interval_minutes = 10;
 $last_updated = new DateTime($user_stats['last_updated'], new DateTimeZone('UTC'));
@@ -367,12 +342,8 @@ if ($seconds_until_next_turn < 0) { $seconds_until_next_turn = 0; }
 $minutes_until_next_turn = (int)floor($seconds_until_next_turn / 60);
 $seconds_remainder = $seconds_until_next_turn % 60;
 
-// Connection closed only after all reads/writes are done to release pooled resources early.
-// (Note: If later code paths add more queries, move this accordingly.)
 mysqli_close($link);
 
-// --- PAGE IDENTIFICATION ---
-// Used by navigation to highlight current view; string literal preserved.
 $active_page = 'dashboard.php';
 ?>
 <!DOCTYPE html>
@@ -395,7 +366,6 @@ $active_page = 'dashboard.php';
             <div class="grid grid-cols-1 lg:grid-cols-4 gap-4 p-4">
                 <aside class="lg:col-span-1 space-y-4">
                     <?php 
-                        // advisor.php expects $user_xp and $user_level in scope; we surface from $user_stats for compatibility.
                         $user_xp = $user_stats['experience'];
                         $user_level = $user_stats['level'];
                         include_once __DIR__ . '/../includes/advisor.php'; 

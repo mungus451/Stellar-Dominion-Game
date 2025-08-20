@@ -1,3 +1,4 @@
+<mungus451/stellar-dominion-game/Stellar-Dominion-Game-dev5/Stellar-Dominion/src/Game/GameFunctions.php>
 <?php
 /**
  * src/Game/GameFunctions.php
@@ -64,12 +65,14 @@ function check_and_process_levelup($user_id, $link) {
 }
 
 function process_offline_turns(mysqli $link, int $user_id): void {
-    $sql_check = "SELECT last_updated, workers, wealth_points, economy_upgrade_level, population_level FROM users WHERE id = ?";
+    // Use all available game data
+    global $upgrades, $armory_loadouts;
+
+    $sql_check = "SELECT id, last_updated, workers, wealth_points, economy_upgrade_level, population_level, alliance_id FROM users WHERE id = ?";
     if($stmt_check = mysqli_prepare($link, $sql_check)) {
         mysqli_stmt_bind_param($stmt_check, "i", $user_id);
         mysqli_stmt_execute($stmt_check);
-        $result_check = mysqli_stmt_get_result($stmt_check);
-        $user_check_data = mysqli_fetch_assoc($result_check);
+        $user_check_data = mysqli_fetch_assoc(mysqli_stmt_get_result($stmt_check));
         mysqli_stmt_close($stmt_check);
 
         if ($user_check_data) {
@@ -80,28 +83,88 @@ function process_offline_turns(mysqli $link, int $user_id): void {
             $turns_to_process = floor($minutes_since_last_update / $turn_interval_minutes);
 
             if ($turns_to_process > 0) {
-                global $upgrades; // Make sure to access the global $upgrades array
+                // --- START: FULL INCOME CALCULATION ---
+
+                // Fetch User's Armory
+                $owned_items = [];
+                $sql_armory = "SELECT item_key, quantity FROM user_armory WHERE user_id = ?";
+                if ($stmt_armory = mysqli_prepare($link, $sql_armory)) {
+                    mysqli_stmt_bind_param($stmt_armory, "i", $user_id);
+                    mysqli_stmt_execute($stmt_armory);
+                    $armory_result = mysqli_stmt_get_result($stmt_armory);
+                    while ($row = mysqli_fetch_assoc($armory_result)) {
+                        $owned_items[$row['item_key']] = (int)$row['quantity'];
+                    }
+                    mysqli_stmt_close($stmt_armory);
+                }
+
+                // Fetch Alliance Bonuses
+                $alliance_bonuses = ['income' => 0.0, 'resources' => 0.0, 'citizens' => 0, 'credits' => 0];
+                if (!empty($user_check_data['alliance_id'])) {
+                    $alliance_bonuses['credits'] = 5000;
+                    $alliance_bonuses['citizens'] = 2;
+                    $sql_alliance_structures = "SELECT s.bonuses FROM alliance_structures als JOIN alliance_structures_definitions s ON als.structure_key = s.structure_key WHERE als.alliance_id = ?";
+                    if ($stmt_as = mysqli_prepare($link, $sql_alliance_structures)) {
+                        mysqli_stmt_bind_param($stmt_as, "i", $user_check_data['alliance_id']);
+                        mysqli_stmt_execute($stmt_as);
+                        $result_as = mysqli_stmt_get_result($stmt_as);
+                        while ($structure = mysqli_fetch_assoc($result_as)) {
+                            $bonus_data = json_decode($structure['bonuses'], true);
+                            if (is_array($bonus_data)) {
+                                foreach ($bonus_data as $key => $value) {
+                                    if (isset($alliance_bonuses[$key])) $alliance_bonuses[$key] += (float)$value;
+                                }
+                            }
+                        }
+                        mysqli_stmt_close($stmt_as);
+                    }
+                }
+                
+                // Calculate Worker Armory Bonus
+                $worker_armory_income_bonus = 0;
+                $worker_count = (int)$user_check_data['workers'];
+                if ($worker_count > 0 && isset($armory_loadouts['worker'])) {
+                    foreach ($armory_loadouts['worker']['categories'] as $category) {
+                        foreach ($category['items'] as $item_key => $item) {
+                            if (isset($owned_items[$item_key], $item['attack'])) {
+                                $effective_items = min($worker_count, $owned_items[$item_key]);
+                                if ($effective_items > 0) $worker_armory_income_bonus += $effective_items * (int)$item['attack'];
+                            }
+                        }
+                    }
+                }
+                
+                // Final Income Calculation
                 $total_economy_bonus_pct = 0;
                 for ($i = 1; $i <= $user_check_data['economy_upgrade_level']; $i++) {
                     $total_economy_bonus_pct += $upgrades['economy']['levels'][$i]['bonuses']['income'] ?? 0;
                 }
                 $economy_upgrade_multiplier = 1 + ($total_economy_bonus_pct / 100);
 
+                $worker_income = ($worker_count * 50) + $worker_armory_income_bonus;
+                $base_income_per_turn = 5000 + $worker_income;
+                $wealth_bonus = 1 + ($user_check_data['wealth_points'] * 0.01);
+                $alliance_income_mult = 1.0 + ($alliance_bonuses['income'] / 100.0);
+                $alliance_resource_mult = 1.0 + ($alliance_bonuses['resources'] / 100.0);
+
+                $income_per_turn = (int)floor(
+                    ($base_income_per_turn * $wealth_bonus * $economy_upgrade_multiplier * $alliance_income_mult * $alliance_resource_mult)
+                    + $alliance_bonuses['credits']
+                );
+                
+                // Final Citizens per turn
                 $citizens_per_turn = 1;
                 for ($i = 1; $i <= $user_check_data['population_level']; $i++) {
                     $citizens_per_turn += $upgrades['population']['levels'][$i]['bonuses']['citizens'] ?? 0;
                 }
+                $citizens_per_turn += (int)$alliance_bonuses['citizens'];
 
-                $worker_income = $user_check_data['workers'] * 50;
-                $base_income_per_turn = 5000 + $worker_income;
-                $wealth_bonus = 1 + ($user_check_data['wealth_points'] * 0.01);
-                $income_per_turn = floor(($base_income_per_turn * $wealth_bonus) * $economy_upgrade_multiplier);
-                
                 $gained_credits = $income_per_turn * $turns_to_process;
                 $gained_attack_turns = $turns_to_process * 2;
                 $gained_citizens = $turns_to_process * $citizens_per_turn;
                 
-                // --- FIX: Corrected the date format string to use colons for time ---
+                // --- END: FULL INCOME CALCULATION ---
+                
                 $current_utc_time_str = gmdate('Y-m-d H:i:s');
                 $sql_update = "UPDATE users SET attack_turns = attack_turns + ?, untrained_citizens = untrained_citizens + ?, credits = credits + ?, last_updated = ? WHERE id = ?";
                 if($stmt_update = mysqli_prepare($link, $sql_update)){
