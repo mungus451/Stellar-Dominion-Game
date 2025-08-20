@@ -42,7 +42,7 @@ function send_password_email(string $toEmail, string $newPassword): bool {
     $secure = defined('SMTP_SECURE') ? SMTP_SECURE : 'tls';
     $port   = defined('SMTP_PORT') ? (int)SMTP_PORT : 587;
 
-    $fromName   = defined('MAIL_FROM_NAME') ? MAIL_FROM_NAME : 'Stellar Dominion';
+    $fromName   = defined('MAIL_FROM_NAME') ? MAIL_FROM_NAME : 'Starlight Dominion';
     $replyEmail = defined('MAIL_FROM_ADDRESS') ? MAIL_FROM_ADDRESS : $user;
 
     // Safer default for Gmail/hosted inboxes: use SMTP username as From
@@ -71,7 +71,7 @@ function send_password_email(string $toEmail, string $newPassword): bool {
         $mail->addAddress($toEmail);
 
         $mail->isHTML(true);
-        $mail->Subject = 'Your Stellar Dominion Credentials';
+        $mail->Subject = 'Your Starlight Dominion Credentials';
         $mail->Body    = "Hello Commander,<br><br>
             Your password has been reset. Here are your temporary login credentials:<br>
             <strong>Username:</strong> " . htmlspecialchars($toEmail, ENT_QUOTES, 'UTF-8') . "<br>
