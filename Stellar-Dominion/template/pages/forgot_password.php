@@ -36,7 +36,7 @@ $_SESSION['csrf_token'] = generate_csrf_token();
                         <?php echo htmlspecialchars($_SESSION['recovery_error']); unset($_SESSION['recovery_error']); ?>
                     </div>
                 <?php endif; ?>
-                <p class="text-center mb-4">Enter your account's email address. If an account is found, recovery instructions will be sent to the primary method on file (Email, SMS, or Security Questions).</p>
+                <p class="text-center mb-4">Enter your account's email address. If an account is found, recovery instructions will be sent to the primary method on file (Only Email at this time).</p>
                 <form action="/AuthController.php" method="POST" class="space-y-4">
                     <input type="hidden" name="action" value="request_recovery">
                     <input type="hidden" name="csrf_token" value="<?php echo htmlspecialchars($_SESSION['csrf_token']); ?>">
