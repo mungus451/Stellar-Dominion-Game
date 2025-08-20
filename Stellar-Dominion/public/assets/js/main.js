@@ -1,13 +1,7 @@
 /**
  * Stellar Dominion - Main JavaScript File (Optimized)
  *
- * Shared logic for timers, icons, and page helpers.
- * Changes:
- *  - One requestAnimationFrame “second ticker” powers all 1s timers (less overhead).
- *  - Pauses timers when the tab is hidden (Page Visibility API) to save CPU.
- *  - Strict number parsing with radix and NaN guards.
- *  - Safer DOM updates (no unsafe innerHTML for dynamic content).
- *  - Drift-corrected setInterval countdown for deposits.
+ * This version includes the final, correct logic for the Armory "Max" buttons.
  */
 document.addEventListener('DOMContentLoaded', () => {
     // Icon init (keep reference)
@@ -117,8 +111,7 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 
     // ---------- Peace Treaty Timers (attack.php) ----------
-// Remove any ceasefire/peace UI immediately (feature removed)
-document.querySelectorAll('.peace-timer').forEach(el => el.remove());
+    document.querySelectorAll('.peace-timer').forEach(el => el.remove());
 
     // ---------- Point Allocation Form (levels.php) ----------
     const availablePointsEl = document.getElementById('available-points');
@@ -296,6 +289,8 @@ document.querySelectorAll('.peace-timer').forEach(el => el.remove());
         const summaryItemsEl = document.getElementById('summary-items');
         const grandTotalEl   = document.getElementById('grand-total');
         const quantityInputs = armoryForm.querySelectorAll('.armory-item-quantity');
+        const availableCreditsEl = document.querySelector('#armory-summary [data-amount]');
+        const availableCredits = toInt(availableCreditsEl?.dataset.amount, 0);
 
         const updateArmoryCost = () => {
             let grandTotal = 0;
@@ -306,7 +301,7 @@ document.querySelectorAll('.peace-timer').forEach(el => el.remove());
                 const quantity = toInt(input.value, 0);
                 const itemRow = input.closest('.armory-item');
                 const costEl = itemRow?.querySelector('[data-cost]');
-                const subtotalEl = itemRow?.querySelector('.subtotal');
+                const subtotalEl = input.closest('.flex').querySelector('.subtotal');
                 const cost = toInt(costEl?.dataset.cost, 0);
                 const subtotal = quantity * cost;
 
@@ -348,8 +343,37 @@ document.querySelectorAll('.peace-timer').forEach(el => el.remove());
         };
 
         quantityInputs.forEach(input => input.addEventListener('input', updateArmoryCost, { passive: true }));
-        updateArmoryCost();
+        
+        armoryForm.querySelectorAll('.armory-max-btn').forEach(btn => {
+            btn.addEventListener('click', (e) => {
+                const clickedInput = e.currentTarget.previousElementSibling;
+                const itemRow = clickedInput.closest('.armory-item');
+                const costEl = itemRow?.querySelector('[data-cost]');
+                const cost = toInt(costEl?.dataset.cost, 0);
+                if (cost === 0) return;
+
+                let otherCost = 0;
+                quantityInputs.forEach(input => {
+                    if (input !== clickedInput) {
+                        const otherItemRow = input.closest('.armory-item');
+                        const otherCostEl = otherItemRow?.querySelector('[data-cost]');
+                        const otherItemCost = toInt(otherCostEl?.dataset.cost, 0);
+                        otherCost += toInt(input.value, 0) * otherItemCost;
+                    }
+                });
+
+                const remainingCredits = Math.max(0, availableCredits - otherCost);
+                const maxByCredits = Math.floor(remainingCredits / cost);
+                const maxByPrereq = toInt(clickedInput.getAttribute('max'), Infinity);
+                
+                clickedInput.value = Math.min(maxByCredits, maxByPrereq);
+                updateArmoryCost();
+            });
+        });
+
+        updateArmoryCost(); // Initial call
     }
+
 
     // ---------- Advisor Mobile Toggle ----------
     const toggleButton = document.getElementById('toggle-advisor-btn');

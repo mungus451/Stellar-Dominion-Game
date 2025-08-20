@@ -109,6 +109,7 @@ $items_per_page = 10;
                         <div class="border-t border-gray-600 mt-3 pt-3">
                             <p class="flex justify-between"><span>Grand Total:</span> <span id="grand-total" class="font-bold text-yellow-300">0</span></p>
                             <p class="flex justify-between text-xs"><span>Your Credits:</span> <span data-amount="<?php echo $user_stats['credits']; ?>"><?php echo number_format($user_stats['credits']); ?></span></p>
+                            <button type="submit" form="armory-form" class="mt-4 w-full bg-cyan-600 hover:bg-cyan-700 text-white font-bold py-2 rounded-lg">Purchase All</button>
                         </div>
                     </div>
                 </aside>
@@ -144,7 +145,6 @@ $items_per_page = 10;
                                     <div>
                                         <div class="flex items-center justify-between">
                                             <h3 class="font-title text-white text-xl"><?php echo htmlspecialchars($category['title']); ?></h3>
-                                            <button type="submit" class="bg-cyan-600 hover:bg-cyan-700 text-white font-bold py-2 px-4 rounded-lg">Upgrade</button>
                                         </div>
                                         <div class="armory-scroll-container max-h-80 overflow-y-auto space-y-2 p-2 mt-2">
                                             <?php 
@@ -175,21 +175,22 @@ $items_per_page = 10;
                                                 $requirement_text = implode(', ', $requirements);
                                                 $item_class = $is_locked ? 'opacity-60' : '';
                                             ?>
-                                            <div class="bg-gray-900/60 rounded p-3 border border-gray-700 <?php echo $item_class; ?>">
+                                            <div class="armory-item bg-gray-900/60 rounded p-3 border border-gray-700 <?php echo $item_class; ?>">
                                                 <p class="font-semibold text-white"><?php echo htmlspecialchars($item['name']); ?></p>
                                                 <?php if (isset($item['attack'])): ?>
                                                     <p class="text-xs text-green-400">Attack: <?php echo $item['attack']; ?></p>
                                                 <?php elseif (isset($item['defense'])): ?>
                                                     <p class="text-xs text-blue-400">Defense: <?php echo $item['defense']; ?></p>
                                                 <?php endif; ?>
-                                                <p class="text-xs text-yellow-400">Cost: <?php echo number_format($discounted_cost); ?></p>
+                                                <p class="text-xs text-yellow-400" data-cost="<?php echo $discounted_cost; ?>">Cost: <?php echo number_format($discounted_cost); ?></p>
                                                 <p class="text-xs">Owned: <?php echo number_format($owned_quantity); ?></p>
                                                 <?php if ($is_locked): ?>
                                                     <p class="text-xs text-red-400 font-semibold mt-1"><?php echo $requirement_text; ?></p>
                                                 <?php endif; ?>
                                                 <?php if(!$is_locked && ( (isset($item['requires']) && $previous_owned_quantity > 0) || !isset($item['requires']))): ?>
                                                 <div class="flex items-center space-x-2 mt-2">
-                                                    <input type="number" name="items[<?php echo $item_key; ?>]" min="0" max="<?php echo isset($item['requires']) ? $previous_owned_quantity : 9999; ?>" placeholder="0" class="armory-item-quantity bg-gray-900/50 border border-gray-600 rounded-md w-20 text-center p-1" data-item-name="<?php echo htmlspecialchars($item['name']); ?>">
+                                                    <input type="number" name="items[<?php echo $item_key; ?>]" min="0" max="<?php echo isset($item['requires']) ? $previous_owned_quantity : 999999; ?>" placeholder="0" class="armory-item-quantity bg-gray-900/50 border border-gray-600 rounded-md w-20 text-center p-1" data-item-name="<?php echo htmlspecialchars($item['name']); ?>">
+                                                    <button type="button" class="armory-max-btn text-xs bg-cyan-800 hover:bg-cyan-700 text-white font-semibold py-1 px-2 rounded-md">Max</button>
                                                     <div class="text-sm">Subtotal: <span class="subtotal font-bold text-yellow-300">0</span></div>
                                                 </div>
                                                 <?php endif; ?>
@@ -199,6 +200,9 @@ $items_per_page = 10;
                                             endforeach; 
                                             ?>
                                         </div>
+                                    </div>
+                                    <div class="mt-auto pt-4">
+                                         <button type="submit" class="w-full bg-cyan-600 hover:bg-cyan-700 text-white font-bold py-2 px-4 rounded-lg">Upgrade</button>
                                     </div>
                                 </div>
                                 <?php endforeach; ?>
