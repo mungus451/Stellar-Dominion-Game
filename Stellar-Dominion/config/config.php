@@ -75,4 +75,18 @@ try {
     exit; // Stop the script from running further
 }
 
+// --- NEW: SMTP Email Configuration ---
+// Replace these with your actual email service provider's details.
+// For Gmail, use smtp.gmail.com, port 587, and generate an "App Password".
+define('SMTP_HOST', 'smtp.gmail.com');
+define('SMTP_USERNAME', 'starlightdominiongame@gmail.com');
+define('SMTP_PASSWORD', 'luup rkzt sazl sznv');
+define('SMTP_PORT', 587);
+define('SMTP_SECURE', 'tls'); // Use 'ssl' for port 465
+
+// This is the "From" address that will appear on your emails
+define('MAIL_FROM_ADDRESS', 'no-reply@starlightdominion.com');
+define('MAIL_FROM_NAME', 'Starlight Dominion');
+
+
 ?>

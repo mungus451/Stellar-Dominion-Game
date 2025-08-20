@@ -250,8 +250,11 @@ $routes = [
     '/war_archives.php'        => '../template/pages/war_archives.php',
     '/diplomacy'               => '../template/pages/diplomacy.php',
     '/diplomacy.php'           => '../template/pages/diplomacy.php',
+
     // Action Handlers
     '/auth.php'                  => '../src/Controllers/AuthController.php',
+    '/auth'                      => '../src/Controllers/AuthController.php',       // ← ADDED (pretty URL)
+    '/AuthController.php'        => '../src/Controllers/AuthController.php',       // ← ADDED (catch direct hits)
     '/lib/train.php'             => '../src/Controllers/TrainingController.php',
     '/lib/untrain.php'           => '../src/Controllers/TrainingController.php',
     '/lib/recruitment_actions.php' => '../src/Controllers/RecruitmentController.php',
@@ -315,7 +318,7 @@ $authenticated_routes = [
 //   of the script and to prevent any accidental output.
 if (array_key_exists($request_uri, $routes)) {
     // Check if the route requires authentication
-    if (in_array($request_uri, $authenticated_routes)) {
+    if (in_array($request_uri, $authenticated_routes, true)) {
         if (!isset($_SESSION["loggedin"]) || $_SESSION["loggedin"] !== true) {
             header("location: /"); // Redirect unauthenticated users to the landing page.
             exit;

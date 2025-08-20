@@ -5,6 +5,9 @@ if (session_status() == PHP_SESSION_NONE) {
     session_start();
 }
 
+// This function should be available from config.php or a security include
+require_once __DIR__ . '/../../src/Security/CSRFProtection.php';
+
 // Generate and store the CSRF token in the session.
 $_SESSION['csrf_token'] = generate_csrf_token();
 ?>
@@ -33,11 +36,9 @@ $_SESSION['csrf_token'] = generate_csrf_token();
                         <?php echo htmlspecialchars($_SESSION['recovery_error']); unset($_SESSION['recovery_error']); ?>
                     </div>
                 <?php endif; ?>
-                <p class="text-center mb-4">Enter your email address to begin the recovery process. You will be directed to use SMS or answer security questions based on your account settings.</p>
-                <!-- The form now points to the correct controller and includes the CSRF token -->
-                <form action="/src/Controllers/AuthController.php" method="POST" class="space-y-4">
+                <p class="text-center mb-4">Enter your account's email address. If an account is found, recovery instructions will be sent to the primary method on file (Email, SMS, or Security Questions).</p>
+                <form action="/AuthController.php" method="POST" class="space-y-4">
                     <input type="hidden" name="action" value="request_recovery">
-                    <!-- Hidden CSRF token field to be sent with the form -->
                     <input type="hidden" name="csrf_token" value="<?php echo htmlspecialchars($_SESSION['csrf_token']); ?>">
                     <div>
                         <label for="email" class="font-semibold text-white">Email Address</label>
