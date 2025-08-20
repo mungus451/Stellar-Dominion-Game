@@ -3,6 +3,8 @@
  *
  * This version includes the final, correct logic for the Armory "Max" buttons.
  */
+
+
 document.addEventListener('DOMContentLoaded', () => {
     // Icon init (keep reference)
     if (typeof lucide !== 'undefined') {

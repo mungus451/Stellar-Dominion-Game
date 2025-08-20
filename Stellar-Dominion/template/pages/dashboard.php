@@ -1,4 +1,3 @@
-<mungus451/stellar-dominion-game/Stellar-Dominion-Game-dev5/Stellar-Dominion/template/pages/dashboard.php>
 <?php
 // --- SESSION AND DATABASE SETUP ---
 // session_start() and the login check are now handled by the main router (public/index.php)
@@ -18,7 +17,6 @@ require_once __DIR__ . '/../../src/Game/GameFunctions.php';
 process_offline_turns($link, $_SESSION["id"]);
 
 // --- DATA FETCHING FOR DISPLAY ---
-// We fetch the entire user row once. This keeps a single source of truth for downstream computations.
 $user_stats = [];
 if ($user_id > 0) {
     $sql = "SELECT * FROM users WHERE id = ?";
@@ -31,12 +29,6 @@ if ($user_id > 0) {
     }
 }
 
-/**
- * Populate defaults for any potentially absent columns.
- * WHY: Production safety. Undefined indices cause PHP notices and may vary across migrations.
- * This ensures downstream math is total-order deterministic and avoids fragile isset() chains.
- * NOTE: We deliberately retain the same keys and their usage patterns.
- */
 $user_stats += [
     'id' => $user_id,
     'alliance_id' => $user_stats['alliance_id'] ?? null,
@@ -56,7 +48,7 @@ $user_stats += [
     'defense_upgrade_level' => $user_stats['defense_upgrade_level'] ?? 0,
     'economy_upgrade_level' => $user_stats['economy_upgrade_level'] ?? 0,
     'population_level' => $user_stats['population_level'] ?? 0,
-    'last_updated' => $user_stats['last_updated'] ?? gmdate('Y-m-d H:i:s'), // Fallback avoids negative modulo below.
+    'last_updated' => $user_stats['last_updated'] ?? gmdate('Y-m-d H:i:s'),
     'experience' => $user_stats['experience'] ?? 0,
     'level' => $user_stats['level'] ?? 1,
     'race' => $user_stats['race'] ?? '',
@@ -69,7 +61,6 @@ $user_stats += [
 ];
 
 // --- FETCH ARMORY DATA ---
-// Shape: owned_items[item_key] => integer quantity. Used to clamp per-unit equipment contribution.
 $owned_items = [];
 if ($user_id > 0) {
     $sql_armory = "SELECT item_key, quantity FROM user_armory WHERE user_id = ?";
@@ -85,7 +76,6 @@ if ($user_id > 0) {
 }
 
 // --- FETCH ALLIANCE INFO ---
-// We only surface name/tag for UX. This avoids over-fetching alliance state here.
 $alliance_info = null;
 if (!empty($user_stats['alliance_id'])) {
     $sql_alliance = "SELECT name, tag FROM alliances WHERE id = ?";
@@ -97,16 +87,8 @@ if (!empty($user_stats['alliance_id'])) {
     }
 }
 
-/**
- * --- FETCH COMBAT RECORD (single pass) ---
- * We collapse three separate COUNT(*) queries into one scan using conditional SUMs.
- * Complexity: O(k) in #rows where attacker_id=user_id OR defender_id=user_id.
- * Indexing guidance (DBA note): composite indexes on (attacker_id, outcome) and
- * (defender_id, outcome) or a partial covering index can accelerate this aggregation.
- */
-$wins = 0;
-$losses_as_attacker = 0;
-$losses_as_defender = 0;
+// --- COMBAT RECORD ---
+$wins = 0; $losses_as_attacker = 0; $losses_as_defender = 0;
 if ($user_id > 0) {
     $sql_battles = "
         SELECT
@@ -128,20 +110,15 @@ if ($user_id > 0) {
 }
 $total_losses = $losses_as_attacker + $losses_as_defender;
 
-/**
- * --- NET WORTH RECALCULATION ---
- * This is the *only* write-side effect in this script. It recomputes users.net_worth deterministically.
- */
+// --- NET WORTH RECALC ---
 $base_unit_costs = ['workers' => 100, 'soldiers' => 250, 'guards' => 250, 'sentries' => 500, 'spies' => 1000];
 $refund_rate = 0.75;
-$structure_depreciation_rate = 0.10; // Upgrades contribute only 10% to net worth.
+$structure_depreciation_rate = 0.10;
 
 $total_unit_value = 0;
 foreach ($base_unit_costs as $unit => $cost) {
     $qty = (int)($user_stats[$unit] ?? 0);
-    if ($qty > 0) {
-        $total_unit_value += $qty * $cost * $refund_rate;
-    }
+    if ($qty > 0) $total_unit_value += $qty * $cost * $refund_rate;
 }
 $total_unit_value = (int)floor($total_unit_value);
 
@@ -175,9 +152,7 @@ if ($new_net_worth !== (int)$user_stats['net_worth']) {
     }
 }
 
-/**
- * --- UPGRADE MULTIPLIERS ---
- */
+// --- UPGRADE MULTIPLIERS ---
 $total_offense_bonus_pct = 0;
 for ($i = 1, $n = (int)$user_stats['offense_upgrade_level']; $i <= $n; $i++) {
     $total_offense_bonus_pct += (float)($upgrades['offense']['levels'][$i]['bonuses']['offense'] ?? 0);
@@ -196,25 +171,19 @@ for ($i = 1, $n = (int)$user_stats['economy_upgrade_level']; $i <= $n; $i++) {
 }
 $economy_upgrade_multiplier = 1 + ($total_economy_bonus_pct / 100);
 
-// =============================================================================
-// START: CORRECTED INCOME AND CITIZEN CALCULATION
-// This section is now aligned with the logic in TurnProcessor.php
-// =============================================================================
-
-// --- FETCH ALLIANCE BONUSES (for display) ---
+// --- ALLIANCE BONUSES & TURN MATH ---
 $alliance_bonuses = [
-    'income' => 0.0, 'defense' => 0.0, 'offense' => 0.0, 'citizens' => 0.0, 
+    'income' => 0.0, 'defense' => 0.0, 'offense' => 0.0, 'citizens' => 0.0,
     'resources' => 0.0, 'credits' => 0.0
 ];
 
 if (!empty($user_stats['alliance_id'])) {
-    // Add base alliance bonuses
     $alliance_bonuses['credits'] = 5000;
     $alliance_bonuses['citizens'] = 2;
 
     $sql_alliance_structures = "
         SELECT s.bonuses
-        FROM alliance_structures als 
+        FROM alliance_structures als
         JOIN alliance_structures_definitions s ON als.structure_key = s.structure_key
         WHERE als.alliance_id = ?
     ";
@@ -226,9 +195,7 @@ if (!empty($user_stats['alliance_id'])) {
             $bonus_data = json_decode($structure['bonuses'], true);
             if (is_array($bonus_data)) {
                 foreach ($bonus_data as $key => $value) {
-                    if (isset($alliance_bonuses[$key])) {
-                        $alliance_bonuses[$key] += (float)$value;
-                    }
+                    if (isset($alliance_bonuses[$key])) $alliance_bonuses[$key] += (float)$value;
                 }
             }
         }
@@ -236,17 +203,12 @@ if (!empty($user_stats['alliance_id'])) {
     }
 }
 
-// --- CITIZENS PER TURN ---
-$citizens_per_turn = 1; // Base value
+$citizens_per_turn = 1;
 for ($i = 1, $n = (int)$user_stats['population_level']; $i <= $n; $i++) {
     $citizens_per_turn += (int)($upgrades['population']['levels'][$i]['bonuses']['citizens'] ?? 0);
 }
-// Add alliance bonus
 $citizens_per_turn += (int)$alliance_bonuses['citizens'];
 
-
-// --- INCOME PER TURN ---
-// Calculate income bonus from worker armory items (this was the one part the dashboard did correctly)
 $worker_armory_income_bonus = 0;
 $worker_count = (int)$user_stats['workers'];
 if ($worker_count > 0 && isset($armory_loadouts['worker'])) {
@@ -254,15 +216,12 @@ if ($worker_count > 0 && isset($armory_loadouts['worker'])) {
         foreach ($category['items'] as $item_key => $item) {
             if (isset($owned_items[$item_key], $item['attack'])) {
                 $effective_items = min($worker_count, (int)$owned_items[$item_key]);
-                if ($effective_items > 0) {
-                    $worker_armory_income_bonus += $effective_items * (int)$item['attack'];
-                }
+                if ($effective_items > 0) $worker_armory_income_bonus += $effective_items * (int)$item['attack'];
             }
         }
     }
 }
 
-// Full Income Calculation
 $worker_income = ((int)$user_stats['workers'] * 50) + $worker_armory_income_bonus;
 $total_base_income = 5000 + $worker_income;
 $wealth_bonus = 1 + ((float)$user_stats['wealth_points'] * 0.01);
@@ -274,18 +233,10 @@ $credits_per_turn = (int)floor(
     + $alliance_bonuses['credits']
 );
 
-// =============================================================================
-// END: CORRECTED INCOME AND CITIZEN CALCULATION
-// =============================================================================
-
-
-/**
- * --- DERIVED STATS ---
- */
+// --- DERIVED STATS ---
 $strength_bonus = 1 + ((float)$user_stats['strength_points'] * 0.01);
 $constitution_bonus = 1 + ((float)$user_stats['constitution_points'] * 0.01);
 
-// Armory -> Offense
 $armory_attack_bonus = 0;
 $soldier_count = (int)$user_stats['soldiers'];
 if ($soldier_count > 0 && isset($armory_loadouts['soldier'])) {
@@ -293,14 +244,11 @@ if ($soldier_count > 0 && isset($armory_loadouts['soldier'])) {
         foreach ($category['items'] as $item_key => $item) {
             if (!isset($owned_items[$item_key], $item['attack'])) { continue; }
             $effective_items = min($soldier_count, (int)$owned_items[$item_key]);
-            if ($effective_items > 0) {
-                $armory_attack_bonus += $effective_items * (int)$item['attack'];
-            }
+            if ($effective_items > 0) $armory_attack_bonus += $effective_items * (int)$item['attack'];
         }
     }
 }
 
-// Armory -> Defense
 $armory_defense_bonus = 0;
 $guard_count = (int)$user_stats['guards'];
 if ($guard_count > 0 && isset($armory_loadouts['guard'])) {
@@ -308,9 +256,7 @@ if ($guard_count > 0 && isset($armory_loadouts['guard'])) {
         foreach ($category['items'] as $item_key => $item) {
             if (!isset($owned_items[$item_key], $item['defense'])) { continue; }
             $effective_items = min($guard_count, (int)$owned_items[$item_key]);
-            if ($effective_items > 0) {
-                $armory_defense_bonus += $effective_items * (int)$item['defense'];
-            }
+            if ($effective_items > 0) $armory_defense_bonus += $effective_items * (int)$item['defense'];
         }
     }
 }
@@ -318,10 +264,7 @@ if ($guard_count > 0 && isset($armory_loadouts['guard'])) {
 $offense_power = (int)floor((($soldier_count * 10) * $strength_bonus + $armory_attack_bonus) * $offense_upgrade_multiplier);
 $defense_rating = (int)floor(((($guard_count * 10) + $armory_defense_bonus) * $constitution_bonus) * $defense_upgrade_multiplier);
 
-
-/**
- * --- POPULATION & UNIT AGGREGATES ---
- */
+// --- POPULATION & TURN TIMER ---
 $non_military_units = (int)$user_stats['workers'] + (int)$user_stats['untrained_citizens'];
 $defensive_units = (int)$user_stats['guards'] + (int)$user_stats['sentries'];
 $offensive_units = (int)$user_stats['soldiers'];
@@ -329,9 +272,6 @@ $utility_units = (int)$user_stats['spies'];
 $total_military_units = $defensive_units + $offensive_units + $utility_units;
 $total_population = $non_military_units + $total_military_units;
 
-/**
- * --- TURN TIMER ---
- */
 $turn_interval_minutes = 10;
 $last_updated = new DateTime($user_stats['last_updated'], new DateTimeZone('UTC'));
 $now = new DateTime('now', new DateTimeZone('UTC'));
@@ -347,15 +287,19 @@ mysqli_close($link);
 $active_page = 'dashboard.php';
 ?>
 <!DOCTYPE html>
-<html lang="en">
+<html lang="en"
+      x-data="{ panels: { eco:true, mil:true, pop:true, fleet:true, sec:true } }">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Starlight Dominion - Dashboard</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <script src="https://unpkg.com/lucide@latest"></script>
+    <!-- Alpine.js -->
+    <script defer src="https://unpkg.com/alpinejs@3.x.x/dist/cdn.min.js"></script>
     <link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@700&family=Roboto:wght@400;500;700&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="assets/css/style.css">
+    <style>[x-cloak]{display:none!important}</style>
 </head>
 <body class="text-gray-400 antialiased">
     <div class="min-h-screen bg-cover bg-center bg-fixed" style="background-image: url('/assets/img/backgroundAlt.avif');">
@@ -386,46 +330,99 @@ $active_page = 'dashboard.php';
                         </div>
                     </div>
 
-                    <div class="grid grid-cols-1 md-grid-cols-2 md:grid-cols-2 gap-4">
+                    <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                        <!-- Economic Overview -->
                         <div class="content-box rounded-lg p-4 space-y-3">
-                            <h3 class="font-title text-cyan-400 border-b border-gray-600 pb-2 mb-2 flex items-center"><i data-lucide="banknote" class="w-5 h-5 mr-2"></i>Economic Overview</h3>
-                            <div class="flex justify-between text-sm"><span>Credits on Hand:</span> <span class="text-white font-semibold"><?php echo number_format($user_stats['credits']); ?></span></div>
-                            <div class="flex justify-between text-sm"><span>Banked Credits:</span> <span class="text-white font-semibold"><?php echo number_format($user_stats['banked_credits']); ?></span></div>
-                            <div class="flex justify-between text-sm"><span>Income per Turn:</span> <span class="text-green-400 font-semibold">+<?php echo number_format($credits_per_turn); ?></span></div>
-                            <div class="flex justify-between text-sm"><span>Net Worth:</span> <span class="text-yellow-300 font-semibold"><?php echo number_format($user_stats['net_worth']); ?></span></div>
+                            <div class="flex items-center justify-between border-b border-gray-600 pb-2 mb-2">
+                                <h3 class="font-title text-cyan-400 flex items-center">
+                                    <i data-lucide="banknote" class="w-5 h-5 mr-2"></i>Economic Overview
+                                </h3>
+                                <button type="button" class="text-sm px-2 py-1 rounded bg-gray-800 hover:bg-gray-700"
+                                    @click="panels.eco = !panels.eco"
+                                    x-text="panels.eco ? 'Hide' : 'Show'"></button>
+                            </div>
+                            <div x-show="panels.eco" x-transition x-cloak>
+                                <div class="flex justify-between text-sm"><span>Credits on Hand:</span> <span class="text-white font-semibold"><?php echo number_format($user_stats['credits']); ?></span></div>
+                                <div class="flex justify-between text-sm"><span>Banked Credits:</span> <span class="text-white font-semibold"><?php echo number_format($user_stats['banked_credits']); ?></span></div>
+                                <div class="flex justify-between text-sm"><span>Income per Turn:</span> <span class="text-green-400 font-semibold">+<?php echo number_format($credits_per_turn); ?></span></div>
+                                <div class="flex justify-between text-sm"><span>Net Worth:</span> <span class="text-yellow-300 font-semibold"><?php echo number_format($user_stats['net_worth']); ?></span></div>
+                            </div>
                         </div>
-                         <div class="content-box rounded-lg p-4 space-y-3">
-                            <h3 class="font-title text-cyan-400 border-b border-gray-600 pb-2 mb-2 flex items-center"><i data-lucide="swords" class="w-5 h-5 mr-2"></i>Military Command</h3>
-                            <div class="flex justify-between text-sm"><span>Offense Power:</span> <span class="text-white font-semibold"><?php echo number_format($offense_power); ?></span></div>
-                            <div class="flex justify-between text-sm"><span>Defense Rating:</span> <span class="text-white font-semibold"><?php echo number_format($defense_rating); ?></span></div>
-                            <div class="flex justify-between text-sm"><span>Attack Turns:</span> <span class="text-white font-semibold"><?php echo number_format($user_stats['attack_turns']); ?></span></div>
-                            <div class="flex justify-between text-sm"><span>Combat Record (W/L):</span> <span class="text-white font-semibold"><span class="text-green-400"><?php echo $wins; ?></span> / <span class="text-red-400"><?php echo $total_losses; ?></span></span></div>
-                        </div>
+
+                        <!-- Military Command -->
                         <div class="content-box rounded-lg p-4 space-y-3">
-                            <h3 class="font-title text-cyan-400 border-b border-gray-600 pb-2 mb-2 flex items-center"><i data-lucide="users" class="w-5 h-5 mr-2"></i>Population Census</h3>
-                            <div class="flex justify-between text-sm"><span>Total Population:</span> <span class="text-white font-semibold"><?php echo number_format($total_population); ?></span></div>
-                            <div class="flex justify-between text-sm"><span>Citizens per Turn:</span> <span class="text-green-400 font-semibold">+<?php echo number_format($citizens_per_turn); ?></span></div>
-                            <div class="flex justify-between text-sm"><span>Untrained Citizens:</span> <span class="text-white font-semibold"><?php echo number_format($user_stats['untrained_citizens']); ?></span></div>
-                            <div class="flex justify-between text-sm"><span>Non-Military (Workers):</span> <span class="text-white font-semibold"><?php echo number_format($user_stats['workers']); ?></span></div>
+                            <div class="flex items-center justify-between border-b border-gray-600 pb-2 mb-2">
+                                <h3 class="font-title text-cyan-400 flex items-center">
+                                    <i data-lucide="swords" class="w-5 h-5 mr-2"></i>Military Command
+                                </h3>
+                                <button type="button" class="text-sm px-2 py-1 rounded bg-gray-800 hover:bg-gray-700"
+                                    @click="panels.mil = !panels.mil"
+                                    x-text="panels.mil ? 'Hide' : 'Show'"></button>
+                            </div>
+                            <div x-show="panels.mil" x-transition x-cloak>
+                                <div class="flex justify-between text-sm"><span>Offense Power:</span> <span class="text-white font-semibold"><?php echo number_format($offense_power); ?></span></div>
+                                <div class="flex justify-between text-sm"><span>Defense Rating:</span> <span class="text-white font-semibold"><?php echo number_format($defense_rating); ?></span></div>
+                                <div class="flex justify-between text-sm"><span>Attack Turns:</span> <span class="text-white font-semibold"><?php echo number_format($user_stats['attack_turns']); ?></span></div>
+                                <div class="flex justify-between text-sm"><span>Combat Record (W/L):</span> <span class="text-white font-semibold"><span class="text-green-400"><?php echo $wins; ?></span> / <span class="text-red-400"><?php echo $total_losses; ?></span></span></div>
+                            </div>
                         </div>
+
+                        <!-- Population Census -->
                         <div class="content-box rounded-lg p-4 space-y-3">
-                            <h3 class="font-title text-cyan-400 border-b border-gray-600 pb-2 mb-2 flex items-center"><i data-lucide="rocket" class="w-5 h-5 mr-2"></i>Fleet Composition</h3>
-                            <div class="flex justify-between text-sm"><span>Total Military:</span> <span class="text-white font-semibold"><?php echo number_format($total_military_units); ?></span></div>
-                            <div class="flex justify-between text-sm"><span>Offensive (Soldiers):</span> <span class="text-white font-semibold"><?php echo number_format($offensive_units); ?></span></div>
-                            <div class="flex justify-between text-sm"><span>Defensive (Guards/Sentries):</span> <span class="text-white font-semibold"><?php echo number_format($defensive_units); ?></span></div>
-                             <div class="flex justify-between text-sm"><span>Utility (Spies):</span> <span class="text-white font-semibold"><?php echo number_format($utility_units); ?></span></div>
+                            <div class="flex items-center justify-between border-b border-gray-600 pb-2 mb-2">
+                                <h3 class="font-title text-cyan-400 flex items-center">
+                                    <i data-lucide="users" class="w-5 h-5 mr-2"></i>Population Census
+                                </h3>
+                                <button type="button" class="text-sm px-2 py-1 rounded bg-gray-800 hover:bg-gray-700"
+                                    @click="panels.pop = !panels.pop"
+                                    x-text="panels.pop ? 'Hide' : 'Show'"></button>
+                            </div>
+                            <div x-show="panels.pop" x-transition x-cloak>
+                                <div class="flex justify-between text-sm"><span>Total Population:</span> <span class="text-white font-semibold"><?php echo number_format($total_population); ?></span></div>
+                                <div class="flex justify-between text-sm"><span>Citizens per Turn:</span> <span class="text-green-400 font-semibold">+<?php echo number_format($citizens_per_turn); ?></span></div>
+                                <div class="flex justify-between text-sm"><span>Untrained Citizens:</span> <span class="text-white font-semibold"><?php echo number_format($user_stats['untrained_citizens']); ?></span></div>
+                                <div class="flex justify-between text-sm"><span>Non-Military (Workers):</span> <span class="text-white font-semibold"><?php echo number_format($user_stats['workers']); ?></span></div>
+                            </div>
+                        </div>
+
+                        <!-- Fleet Composition -->
+                        <div class="content-box rounded-lg p-4 space-y-3">
+                            <div class="flex items-center justify-between border-b border-gray-600 pb-2 mb-2">
+                                <h3 class="font-title text-cyan-400 flex items-center">
+                                    <i data-lucide="rocket" class="w-5 h-5 mr-2"></i>Fleet Composition
+                                </h3>
+                                <button type="button" class="text-sm px-2 py-1 rounded bg-gray-800 hover:bg-gray-700"
+                                    @click="panels.fleet = !panels.fleet"
+                                    x-text="panels.fleet ? 'Hide' : 'Show'"></button>
+                            </div>
+                            <div x-show="panels.fleet" x-transition x-cloak>
+                                <div class="flex justify-between text-sm"><span>Total Military:</span> <span class="text-white font-semibold"><?php echo number_format($total_military_units); ?></span></div>
+                                <div class="flex justify-between text-sm"><span>Offensive (Soldiers):</span> <span class="text-white font-semibold"><?php echo number_format($offensive_units); ?></span></div>
+                                <div class="flex justify-between text-sm"><span>Defensive (Guards/Sentries):</span> <span class="text-white font-semibold"><?php echo number_format($defensive_units); ?></span></div>
+                                <div class="flex justify-between text-sm"><span>Utility (Spies):</span> <span class="text-white font-semibold"><?php echo number_format($utility_units); ?></span></div>
+                            </div>
                         </div>
                     </div>
                     
+                    <!-- Security Information -->
                     <div class="content-box rounded-lg p-4 space-y-3 mt-4">
-                        <h3 class="font-title text-cyan-400 border-b border-gray-600 pb-2 mb-2 flex items-center"><i data-lucide="shield-check" class="w-5 h-5 mr-2"></i>Security Information</h3>
-                        <div class="flex justify-between text-sm"><span>Current IP Address:</span> <span class="text-white font-semibold"><?php echo htmlspecialchars($_SERVER['REMOTE_ADDR']); ?></span></div>
-                        <?php if (!empty($user_stats['previous_login_at'])): ?>
-                            <div class="flex justify-between text-sm"><span>Previous Login:</span> <span class="text-white font-semibold"><?php echo date("F j, Y, g:i a", strtotime($user_stats['previous_login_at'])); ?> UTC</span></div>
-                            <div class="flex justify-between text-sm"><span>Previous IP Address:</span> <span class="text-white font-semibold"><?php echo htmlspecialchars($user_stats['previous_login_ip']); ?></span></div>
-                        <?php else: ?>
-                            <p class="text-sm text-gray-400">Previous login information is not yet available.</p>
-                        <?php endif; ?>
+                        <div class="flex items-center justify-between border-b border-gray-600 pb-2 mb-2">
+                            <h3 class="font-title text-cyan-400 flex items-center">
+                                <i data-lucide="shield-check" class="w-5 h-5 mr-2"></i>Security Information
+                            </h3>
+                            <button type="button" class="text-sm px-2 py-1 rounded bg-gray-800 hover:bg-gray-700"
+                                @click="panels.sec = !panels.sec"
+                                x-text="panels.sec ? 'Hide' : 'Show'"></button>
+                        </div>
+                        <div x-show="panels.sec" x-transition x-cloak>
+                            <div class="flex justify-between text-sm"><span>Current IP Address:</span> <span class="text-white font-semibold"><?php echo htmlspecialchars($_SERVER['REMOTE_ADDR']); ?></span></div>
+                            <?php if (!empty($user_stats['previous_login_at'])): ?>
+                                <div class="flex justify-between text-sm"><span>Previous Login:</span> <span class="text-white font-semibold"><?php echo date("F j, Y, g:i a", strtotime($user_stats['previous_login_at'])); ?> UTC</span></div>
+                                <div class="flex justify-between text-sm"><span>Previous IP Address:</span> <span class="text-white font-semibold"><?php echo htmlspecialchars($user_stats['previous_login_ip']); ?></span></div>
+                            <?php else: ?>
+                                <p class="text-sm text-gray-400">Previous login information is not yet available.</p>
+                            <?php endif; ?>
+                        </div>
                     </div>
                 </main>
             </div>

@@ -92,6 +92,7 @@ if (in_array($active_page, ['war_declaration.php', 'view_alliances.php', 'view_a
 
 ?>
 <header class="text-center mb-4">
+    <script src="https://cdn.jsdelivr.net/npm/alpinejs@3.x.x/dist/cdn.min.js" defer></script>
     <h1 class="text-5xl font-title text-cyan-400" style="text-shadow: 0 0 8px rgba(6, 182, 212, 0.7);">STARLIGHT DOMINION</h1>
 </header>
 
