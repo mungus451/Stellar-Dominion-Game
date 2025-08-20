@@ -293,7 +293,11 @@ $max_loan = $credit_rating_map[$user_data['credit_rating']] ?? 0;
                                     <tr class="border-t border-gray-700">
                                         <td class="p-2"><?php echo $log['timestamp']; ?></td>
                                         <td class="p-2 font-bold <?php echo ($log['type'] == 'deposit' || $log['type'] == 'tax' || $log['type'] == 'loan_repaid') ? 'text-green-400' : 'text-red-400'; ?>"><?php echo ucfirst(str_replace('_', ' ', $log['type'])); ?></td>
-                                        <td class="p-2"><?php echo htmlspecialchars($log['description']); ?><br><em class="text-xs text-gray-500"><?php echo htmlspecialchars($log['comment']); ?></em></td>
+                                        
+                                        <td class="p-2">
+                                            <?php echo htmlspecialchars($log['description'] ?? ''); ?><br>
+                                            <em class="text-xs text-gray-500"><?php echo htmlspecialchars($log['comment'] ?? ''); ?></em>
+                                        </td>
                                         <td class="p-2 text-right font-semibold <?php echo ($log['type'] == 'deposit' || $log['type'] == 'tax' || $log['type'] == 'loan_repaid') ? 'text-green-400' : 'text-red-400'; ?>">
                                             <?php echo (($log['type'] == 'deposit' || $log['type'] == 'tax' || $log['type'] == 'loan_repaid') ? '+' : '-') . number_format($log['amount']); ?>
                                         </td>
