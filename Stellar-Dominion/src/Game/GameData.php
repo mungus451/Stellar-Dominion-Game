@@ -2,9 +2,15 @@
 /**
  * src/Game/GameData.php
  *
- * Central repository for all static game data, such as upgrade trees
- * and alliance structure definitions.
+ * Central repository for all static game data
  */
+
+$soldier_tiers = [
+    'soldiers' => ['name' => 'Soldier', 'hp' => 3, 'cost' => 1000, 'requires' => null],
+    'holo_knights' => ['name' => 'Holo-Knight', 'hp' => 25, 'cost' => 10000, 'requires' => 'soldiers'],
+    'warp_barons' => ['name' => 'Warp Baron', 'hp' => 50, 'cost' => 25000, 'requires' => 'holo_knights'],
+    'rage_cyborgs' => ['name' => 'Rage Cyborg', 'hp' => 100, 'cost' => 45000, 'requires' => 'warp_barons'],
+];
 
 $upgrades = [
     'fortifications' => [
