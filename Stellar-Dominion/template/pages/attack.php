@@ -6,11 +6,6 @@
  * - POST -> delegates to AttackController (unchanged)
  * - GET without user_id -> Target List view (with rivalry + peace timers)
  * - GET with user_id -> Single Target "Launch Attack" view with treaty countdown
- *
- * Optimizations:
- * - Prepared statements for dynamic SQL
- * - Skips heavy list query in single-target mode
- * - Defensive checks for session/auth/data existence
  */
 
 $active_page = 'attack.php';
@@ -116,6 +111,8 @@ if ($defender_id > 0) {
     <!-- Keep original references -->
     <script src="https://cdn.tailwindcss.com"></script>
     <script src="https://unpkg.com/lucide@latest"></script>
+    <script defer src="https://unpkg.com/alpinejs@3.x.x/dist/cdn.min.js"></script>
+    <style>[x-cloak]{display:none!important}</style>
     <link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@700&family=Roboto:wght@400;500;700&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="assets/css/style.css">
 </head>
@@ -127,13 +124,23 @@ if ($defender_id > 0) {
 
         <?php if ($defender_id > 0): ?>
             <!-- ===================== Single Target: Launch Attack ===================== -->
-            <main class="content-box rounded-lg p-6 max-w-2xl mx-auto mt-4">
+            <main
+              class="content-box rounded-lg p-6 max-w-2xl mx-auto mt-4"
+              x-data="singleTarget({
+                  treaty: '<?= $treaty_expiration ? htmlspecialchars($treaty_expiration, ENT_QUOTES, 'UTF-8') : '' ?>'
+              })"
+              x-init="init()"
+            >
                 <h1 class="font-title text-3xl text-white mb-2">
                     Attacking: <?= htmlspecialchars($defender_info['character_name']) ?>
                     <?php if (isset($defender_info['alliance_tag'])): ?>
                         <span class="text-cyan-400">[<?= htmlspecialchars($defender_info['alliance_tag']) ?>]</span>
                         <?php if ($treaty_expiration): ?>
-                            <span id="peace-timer" class="text-yellow-400 text-lg ml-2"
+                            <span id="peace-timer"
+                                  class="text-yellow-400 text-lg ml-2"
+                                  x-cloak
+                                  x-show="hasTreaty"
+                                  x-text="peaceLabel"
                                   title="A peace treaty is active. Attacking will have reduced effectiveness."></span>
                         <?php endif; ?>
                     <?php endif; ?>
@@ -148,7 +155,7 @@ if ($defender_id > 0) {
                 <p class="text-sm text-gray-500 mb-4">Select your fleet and issue the attack order.</p>
 
                 <!-- Keep original action reference -->
-                <form action="/src/Controllers/AttackController.php" method="POST" class="space-y-4">
+                <form action="/src/Controllers/AttackController.php" method="POST" class="space-y-4" x-data="unitsForm()">
                     <input type="hidden" name="defender_id" value="<?= (int)$defender_id ?>">
                     <input type="hidden" name="csrf_token" value="<?= htmlspecialchars($csrf_token, ENT_QUOTES, 'UTF-8') ?>">
 
@@ -158,24 +165,29 @@ if ($defender_id > 0) {
                             <div class="bg-gray-800 p-3 rounded-lg text-center">
                                 <label for="fighters" class="block font-bold">Fighters</label>
                                 <input type="number" name="units[fighter]" id="fighters"
+                                       x-model.number="fighters"
                                        class="w-full bg-gray-900 border border-gray-600 rounded-md p-2 mt-1" min="0" placeholder="0">
                             </div>
                             <div class="bg-gray-800 p-3 rounded-lg text-center">
                                 <label for="bombers" class="block font-bold">Bombers</label>
                                 <input type="number" name="units[bomber]" id="bombers"
+                                       x-model.number="bombers"
                                        class="w-full bg-gray-900 border border-gray-600 rounded-md p-2 mt-1" min="0" placeholder="0">
                             </div>
                             <div class="bg-gray-800 p-3 rounded-lg text-center">
                                 <label for="frigates" class="block font-bold">Frigates</label>
                                 <input type="number" name="units[frigate]" id="frigates"
+                                       x-model.number="frigates"
                                        class="w-full bg-gray-900 border border-gray-600 rounded-md p-2 mt-1" min="0" placeholder="0">
                             </div>
                             <div class="bg-gray-800 p-3 rounded-lg text-center">
                                 <label for="destroyers" class="block font-bold">Destroyers</label>
                                 <input type="number" name="units[destroyer]" id="destroyers"
+                                       x-model.number="destroyers"
                                        class="w-full bg-gray-900 border border-gray-600 rounded-md p-2 mt-1" min="0" placeholder="0">
                             </div>
                         </div>
+                        <p class="mt-2 text-xs text-gray-400">Total selected: <span class="text-white font-semibold" x-text="total"></span></p>
                     </div>
 
                     <div class="border-t border-gray-700 pt-4">
@@ -383,8 +395,13 @@ if ($defender_id > 0) {
                                                             <span class="text-cyan-400">[<?php echo htmlspecialchars($target['alliance_tag']); ?>]</span>
                                                         <?php endif; ?>
                                                         <?php if($row_treaty_expiration): ?>
-                                                            <span class="peace-timer text-yellow-400 text-sm ml-2"
-                                                                  data-expiration="<?php echo htmlspecialchars($row_treaty_expiration, ENT_QUOTES, 'UTF-8'); ?>"></span>
+                                                            <span
+                                                              class="text-yellow-400 text-sm ml-2"
+                                                              x-data="rowPeaceTimer('<?= htmlspecialchars($row_treaty_expiration, ENT_QUOTES, 'UTF-8'); ?>')"
+                                                              x-init="start()"
+                                                              x-cloak
+                                                              x-text="label">
+                                                            </span>
                                                         <?php endif; ?>
                                                         <?php if($is_rival): ?>
                                                             <span class="text-xs align-middle font-semibold bg-red-800 text-red-300 border border-red-500 px-2 py-1 rounded-full ml-1">RIVAL</span>
@@ -428,7 +445,7 @@ if ($defender_id > 0) {
     </div>
 </div>
 
-<!-- Modal (unchanged) -->
+<!-- Modal (unchanged; main.js controls this via IDs/classes) -->
 <div id="profile-modal" class="hidden fixed inset-0 bg-black bg-opacity-70 z-50 flex items-center justify-center p-4">
     <div id="profile-modal-content" class="bg-dark-translucent backdrop-blur-md rounded-lg shadow-2xl w-full max-w-lg mx-auto border border-cyan-400/30 relative">
         <div class="text-center p-8">Loading profile...</div>
@@ -438,68 +455,58 @@ if ($defender_id > 0) {
 <!-- Keep original script reference -->
 <script src="assets/js/main.js" defer></script>
 
-<?php if ($defender_id > 0): ?>
-<!-- Single-target treaty countdown -->
 <script>
-document.addEventListener('DOMContentLoaded', function() {
-    const expirationDateStr = '<?php echo $treaty_expiration ? htmlspecialchars($treaty_expiration, ENT_QUOTES, "UTF-8") : ''; ?>';
-    const timerElement = document.getElementById('peace-timer');
-
-    if (expirationDateStr && timerElement) {
-        const expirationTimestamp = new Date(expirationDateStr.replace(' ', 'T') + 'Z').getTime();
-
-        const countdownInterval = setInterval(function() {
-            const now = new Date().getTime();
-            const distance = expirationTimestamp - now;
-
-            if (distance < 0) {
-                clearInterval(countdownInterval);
-                timerElement.style.display = 'none';
-                return;
-            }
-
-            const minutes = Math.floor((distance % (1000 * 60 * 60)) / (1000 * 60));
-            const seconds = Math.floor((distance % (1000 * 60)) / 1000);
-
-            const displayMinutes = minutes.toString().padStart(2, '0');
-            const displaySeconds = seconds.toString().padStart(2, '0');
-
-            timerElement.textContent = `(Ceasefire: ${displayMinutes}:${displaySeconds})`;
-        }, 1000);
-    }
-});
-</script>
-<?php else: ?>
-<!-- List-view per-row treaty countdowns -->
-<script>
-document.addEventListener('DOMContentLoaded', function() {
-    const nodes = document.querySelectorAll('.peace-timer[data-expiration]');
-    if (!nodes.length) return;
-
-    function updateNode(el) {
-        const exp = el.getAttribute('data-expiration');
-        if (!exp) return;
-        const ts = new Date(exp.replace(' ', 'T') + 'Z').getTime();
+/* ---------- Alpine helpers (no references changed) ---------- */
+function fmtMMSS(msRemaining){
+  const m = Math.floor((msRemaining % (1000*60*60)) / (1000*60));
+  const s = Math.floor((msRemaining % (1000*60)) / 1000);
+  return `(${String(m).padStart(2,'0')}:${String(s).padStart(2,'0')})`;
+}
+function singleTarget({treaty}) {
+  return {
+    hasTreaty: Boolean(treaty),
+    peaceLabel: '',
+    _timer: null,
+    init(){
+      if(!this.hasTreaty) return;
+      const exp = new Date((treaty || '').replace(' ', 'T') + 'Z').getTime();
+      const tick = () => {
         const now = Date.now();
-        const distance = ts - now;
-
-        if (distance <= 0) {
-            el.style.display = 'none';
-            return;
+        const dist = exp - now;
+        if (dist <= 0) {
+          this.hasTreaty = false;
+          clearInterval(this._timer);
+        } else {
+          this.peaceLabel = `Ceasefire: ${fmtMMSS(dist)}`;
         }
-        const minutes = Math.floor((distance % (1000 * 60 * 60)) / (1000 * 60));
-        const seconds = Math.floor((distance % (1000 * 60)) / 1000);
-        el.textContent = `(Ceasefire: ${String(minutes).padStart(2,'0')}:${String(seconds).padStart(2,'0')})`;
+      };
+      tick();
+      this._timer = setInterval(tick, 1000);
     }
-
-    function tick() {
-        nodes.forEach(updateNode);
+  }
+}
+function rowPeaceTimer(expStr){
+  return {
+    label: '',
+    _t: null,
+    start(){
+      const exp = new Date((expStr || '').replace(' ', 'T') + 'Z').getTime();
+      const tick = () => {
+        const now = Date.now(), dist = exp - now;
+        if (dist <= 0) { this.label=''; clearInterval(this._t); return; }
+        this.label = `Ceasefire: ${fmtMMSS(dist)}`;
+      };
+      tick();
+      this._t = setInterval(tick, 1000);
     }
-
-    tick();
-    setInterval(tick, 1000);
-});
+  }
+}
+function unitsForm(){
+  return {
+    fighters:0, bombers:0, frigates:0, destroyers:0,
+    get total(){ return (this.fighters||0)+(this.bombers||0)+(this.frigates||0)+(this.destroyers||0); }
+  }
+}
 </script>
-<?php endif; ?>
 </body>
 </html>
