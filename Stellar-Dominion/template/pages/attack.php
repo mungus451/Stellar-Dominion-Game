@@ -115,6 +115,46 @@ if ($defender_id > 0) {
     <style>[x-cloak]{display:none!important}</style>
     <link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@700&family=Roboto:wght@400;500;700&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="assets/css/style.css">
+
+    <!-- Mobile row wrap styling (keeps desktop table intact) -->
+    <style>
+      @media (max-width: 640px) {
+        .attack-table thead { display: none; }
+        .attack-table { border-collapse: separate; border-spacing: 0 .5rem; }
+        .attack-table tbody tr {
+          display: block;
+          background: rgba(31,41,55,.65);
+          border: 1px solid rgba(75,85,99,.6);
+          border-radius: .5rem;
+          padding: .5rem .75rem;
+          margin-bottom: .5rem;
+        }
+        .attack-table tbody td {
+          display: grid;
+          grid-template-columns: 7.5rem 1fr;
+          align-items: center;
+          gap: .25rem;
+          padding: .25rem 0;
+          border: 0;
+        }
+        .attack-table tbody td[data-label="Username"] {
+          grid-template-columns: 1fr;
+        }
+        .attack-table tbody td::before {
+          content: attr(data-label);
+          font-size: .70rem;
+          color: #9CA3AF;
+          text-transform: uppercase;
+          letter-spacing: .06em;
+        }
+        .attack-table tbody td .profile-modal-trigger img {
+          width: 2.5rem; height: 2.5rem;
+        }
+        .attack-table tbody td.action-cell {
+          display: flex; justify-content: flex-end;
+        }
+      }
+    </style>
 </head>
 <body class="text-gray-400 antialiased">
 <div class="min-h-screen bg-cover bg-center bg-fixed" style="background-image: url('/assets/img/backgroundAlt.avif');">
@@ -299,7 +339,7 @@ if ($defender_id > 0) {
                         <h3 class="font-title text-cyan-400 border-b border-gray-600 pb-2 mb-3">Target List</h3>
 
                         <div class="overflow-x-auto">
-                            <table class="w-full text-sm text-left">
+                            <table class="attack-table w-full text-sm text-left">
                                 <thead class="bg-gray-800">
                                 <tr>
                                     <th class="p-2">Rank</th>
@@ -374,8 +414,11 @@ if ($defender_id > 0) {
                                     $is_self = ((int)$target['id'] === (int)$user_id);
                                     ?>
                                     <tr class="border-t border-gray-700 hover:bg-gray-700/50 <?php if ($is_self) echo 'bg-cyan-900/30'; ?>">
-                                        <td class="p-2 font-bold text-cyan-400"><?php echo (int)$target['rank']; ?></td>
-                                        <td class="p-2">
+                                        <td class="p-2 font-bold text-cyan-400" data-label="Rank">
+                                            <?php echo (int)$target['rank']; ?>
+                                        </td>
+
+                                        <td class="p-2" data-label="Username">
                                             <div class="flex items-center">
                                                 <div class="relative mr-3">
                                                     <button type="button" class="profile-modal-trigger" data-profile-id="<?php echo (int)$target['id']; ?>">
@@ -388,8 +431,8 @@ if ($defender_id > 0) {
                                                     ?>
                                                     <span class="absolute -bottom-1 -right-1 block h-3 w-3 rounded-full <?php echo $is_online ? 'bg-green-500' : 'bg-red-500'; ?> border-2 border-gray-800" title="<?php echo $is_online ? 'Online' : 'Offline'; ?>"></span>
                                                 </div>
-                                                <div>
-                                                    <p class="font-bold text-white">
+                                                <div class="min-w-0">
+                                                    <p class="font-bold text-white truncate">
                                                         <?php echo htmlspecialchars($target['character_name']); ?>
                                                         <?php if($target['alliance_tag']): ?>
                                                             <span class="text-cyan-400">[<?php echo htmlspecialchars($target['alliance_tag']); ?>]</span>
@@ -411,10 +454,12 @@ if ($defender_id > 0) {
                                                 </div>
                                             </div>
                                         </td>
-                                        <td class="p-2"><?php echo number_format($target_current_credits); ?></td>
-                                        <td class="p-2"><?php echo number_format($target['army_size']); ?></td>
-                                        <td class="p-2"><?php echo (int)$target['level']; ?></td>
-                                        <td class="p-2 text-right">
+
+                                        <td class="p-2" data-label="Credits"><?php echo number_format($target_current_credits); ?></td>
+                                        <td class="p-2" data-label="Army Size"><?php echo number_format($target['army_size']); ?></td>
+                                        <td class="p-2" data-label="Level"><?php echo (int)$target['level']; ?></td>
+
+                                        <td class="p-2 text-right action-cell" data-label="Action">
                                             <?php
                                             if ($is_self) {
                                                 echo '<span class="text-gray-500 text-xs italic">This is you</span>';
@@ -460,7 +505,7 @@ if ($defender_id > 0) {
 function fmtMMSS(msRemaining){
   const m = Math.floor((msRemaining % (1000*60*60)) / (1000*60));
   const s = Math.floor((msRemaining % (1000*60)) / 1000);
-  return `(${String(m).padStart(2,'0')}:${String(s).padStart(2,'0')})`;
+  return `${String(m).padStart(2,'0')}:${String(s).padStart(2,'0')}`;
 }
 function singleTarget({treaty}) {
   return {
@@ -485,22 +530,22 @@ function singleTarget({treaty}) {
     }
   }
 }
-function rowPeaceTimer(expStr){
-  return {
-    label: '',
-    _t: null,
-    start(){
-      const exp = new Date((expStr || '').replace(' ', 'T') + 'Z').getTime();
-      const tick = () => {
-        const now = Date.now(), dist = exp - now;
-        if (dist <= 0) { this.label=''; clearInterval(this._t); return; }
-        this.label = `Ceasefire: ${fmtMMSS(dist)}`;
-      };
-      tick();
-      this._t = setInterval(tick, 1000);
-    }
-  }
-}
+//function rowPeaceTimer(expStr){
+//  return {
+//    label: '',
+//    _t: null,
+//    start(){
+//      const exp = new Date((expStr || '').replace(' ', 'T') + 'Z').getTime();
+//      const tick = () => {
+//       const dist = exp - Date.now();
+//        if (dist <= 0) { this.label=''; clearInterval(this._t); return; }
+//        this.label = `Ceasefire: ${fmtMMSS(dist)}`;
+//      };
+//      tick();
+//      this._t = setInterval(tick, 1000);
+//    }
+//  }
+//}
 function unitsForm(){
   return {
     fighters:0, bombers:0, frigates:0, destroyers:0,
