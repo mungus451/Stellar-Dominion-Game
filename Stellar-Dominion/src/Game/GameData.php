@@ -461,56 +461,56 @@ $alliance_structures_definitions = [
             'description' => 'Improves overall resource generation for all members.',
             'cost' => 750000000,
             'bonus_text' => '+10% resource generation',
-            'bonuses' => json_encode(['resources' => 10])
+            'bonuses' => json_encode(['resources' => 10,  'citizens' => 3])
         ],
         'deep_space_mining_facility' => [
             'name' => 'Deep Space Mining Facility',
             'description' => 'Harvests rare minerals from deep space.',
             'cost' => 950000000,
             'bonus_text' => '+13% resource generation',
-            'bonuses' => json_encode(['resources' => 13])
+            'bonuses' => json_encode(['resources' => 13,  'citizens' => 6])
         ],
         'asteroid_processing_station' => [
             'name' => 'Asteroid Processing Station',
             'description' => 'Extracts and refines asteroid resources.',
             'cost' => 1100000000,
             'bonus_text' => '+15% resource generation',
-            'bonuses' => json_encode(['resources' => 15])
+            'bonuses' => json_encode(['resources' => 15,  'citizens' => 10])
         ],
         'quantum_resource_labs' => [
             'name' => 'Quantum Resource Labs',
             'description' => 'Researches quantum methods for resource multiplication.',
             'cost' => 1300000000,
             'bonus_text' => '+18% resource generation',
-            'bonuses' => json_encode(['resources' => 18])
+            'bonuses' => json_encode(['resources' => 18,  'citizens' => 14])
         ],
         'fusion_reactor_array' => [
             'name' => 'Fusion Reactor Array',
             'description' => 'Generates massive amounts of clean energy.',
             'cost' => 1500000000,
             'bonus_text' => '+20% resource generation',
-            'bonuses' => json_encode(['resources' => 20])
+            'bonuses' => json_encode(['resources' => 20,  'citizens' => 19])
         ],
         'stellar_refinery' => [
             'name' => 'Stellar Refinery',
             'description' => 'Refines stellar gases into usable materials.',
             'cost' => 1750000000,
             'bonus_text' => '+23% resource generation',
-            'bonuses' => json_encode(['resources' => 23])
+            'bonuses' => json_encode(['resources' => 23,  'citizens' => 24])
         ],
         'dimension_harvester' => [
             'name' => 'Dimension Harvester',
             'description' => 'Pulls rare matter from parallel realities.',
             'cost' => 2000000000,
             'bonus_text' => '+27% resource generation',
-            'bonuses' => json_encode(['resources' => 27])
+            'bonuses' => json_encode(['resources' => 27,  'citizens' => 29])
         ],
         'cosmic_forge' => [
             'name' => 'Cosmic Forge',
             'description' => 'The ultimate facility for infinite resource creation.',
             'cost' => 2500000000,
             'bonus_text' => '+30% resource generation',
-            'bonuses' => json_encode(['resources' => 30])
+            'bonuses' => json_encode(['resources' => 30,  'citizens' => 35])
         ],
 
         // All-Stat Boosters
