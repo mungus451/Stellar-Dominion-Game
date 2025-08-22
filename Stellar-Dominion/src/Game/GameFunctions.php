@@ -103,7 +103,7 @@ function process_offline_turns(mysqli $link, int $user_id): void {
                 if (!empty($user_check_data['alliance_id'])) {
                     // Set base alliance bonuses
                     $alliance_bonuses['credits'] = 5000;
-                    $alliance_bonuses['citizens'] = 2;
+                    //$alliance_bonuses['citizens'] = 2;
 
                     // 1. Query the database for OWNED structure keys
                     $sql_owned_structures = "SELECT structure_key FROM alliance_structures WHERE alliance_id = ?";

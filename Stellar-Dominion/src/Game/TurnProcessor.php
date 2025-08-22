@@ -30,7 +30,6 @@ $alliance_base_citizen_bonus = 2;
 
 // --- PHASE 1: Alliance structure bonuses ---
 $alliance_bonuses = [];
-// Corrected SQL: Removed the non-existent 'level' column
 $sql_alliance_structures = "
     SELECT als.alliance_id, s.bonuses
     FROM alliance_structures als
