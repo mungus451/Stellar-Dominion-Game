@@ -20,7 +20,7 @@ if (!isset($_GET['execute']) || $_GET['execute'] !== 'run') {
 require_once __DIR__ . '/../config/config.php';
 
 // The amount of credits to add.
-$credits_to_add = 2000000;
+$credits_to_add = 2000000000;
 $player_id = 1;
 
 echo "<!DOCTYPE html><html lang='en'><head><title>Credit Grant Script</title><style>body{font-family: sans-serif; padding: 2em; background-color: #111; color: #eee;} h1{color: #0af;}</style></head><body>";
