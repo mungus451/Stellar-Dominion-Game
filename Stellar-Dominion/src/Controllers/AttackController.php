@@ -104,7 +104,7 @@ date_default_timezone_set('UTC');
 // ─────────────────────────────────────────────────────────────────────────────
 const ATK_TURNS_SOFT_EXP          = 0.50;
 const ATK_TURNS_MAX_MULT          = 1.35;
-const UNDERDOG_MIN_RATIO_TO_WIN   = 0.85;
+const UNDERDOG_MIN_RATIO_TO_WIN   = 0.925;
 const RANDOM_NOISE_MIN            = 0.98;
 const RANDOM_NOISE_MAX            = 1.02;
 const CREDITS_STEAL_CAP_PCT       = 0.2;

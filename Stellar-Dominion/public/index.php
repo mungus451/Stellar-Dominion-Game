@@ -10,64 +10,64 @@
  * ─────────────────────────────────────────────────────────────────────────────
  * • Centralizes all HTTP requests through a single entry point.
  * • Normalizes routing so that "clean" paths (e.g., /dashboard) map to PHP view
- *   templates or controller scripts without exposing underlying file structure.
+ * templates or controller scripts without exposing underlying file structure.
  * • Establishes a consistent environment (session, config, DB connection),
- *   and applies cross-cutting concerns (auth checks, redirection rules).
+ * and applies cross-cutting concerns (auth checks, redirection rules).
  *
  * KEY CONCEPTS & GUARANTEES
  * ─────────────────────────────────────────────────────────────────────────────
  * • Session Lifecycle:
- *     Starts a session early to access authentication state and system flags
- *     (e.g., vacation mode).
+ * Starts a session early to access authentication state and system flags
+ * (e.g., vacation mode).
  * • Vacation Lockout:
- *     If an account is flagged as "on vacation" until a future timestamp, force
- *     logout to preserve game balance (prevents resource accrual/exploitation).
+ * If an account is flagged as "on vacation" until a future timestamp, force
+ * logout to preserve game balance (prevents resource accrual/exploitation).
  * • Route Map:
- *     $routes maps request paths → actual PHP files to include.
- *     This keeps URLs stable while allowing refactors behind the scenes.
+ * $routes maps request paths → actual PHP files to include.
+ * This keeps URLs stable while allowing refactors behind the scenes.
  * • Auth Gate:
- *     $authenticated_routes declares which paths require a logged-in user.
- *     The gate occurs just before including the routed file, returning users
- *     to "/" if they aren’t authenticated.
+ * $authenticated_routes declares which paths require a logged-in user.
+ * The gate occurs just before including the routed file, returning users
+ * to "/" if they aren’t authenticated.
  * • Special POST Handling:
- *     A specific path (/war_declaration.php) is handled by a controller dispatch
- *     rather than a simple include, because it performs state-changing actions
- *     (war declaration) that need CSRF validation & error capture.
+ * A specific path (/war_declaration.php) is handled by a controller dispatch
+ * rather than a simple include, because it performs state-changing actions
+ * (war declaration) that need CSRF validation & error capture.
  *
  * SECURITY & HARDENING NOTES
  * ─────────────────────────────────────────────────────────────────────────────
  * • Session Fixation/Mgmt:
- *     This file assumes secure session configuration is set in config.php
- *     (e.g., cookie_httponly, cookie_secure, samesite). It starts the session
- *     before any output to ensure headers can still be sent.
+ * This file assumes secure session configuration is set in config.php
+ * (e.g., cookie_httponly, cookie_secure, samesite). It starts the session
+ * before any output to ensure headers can still be sent.
  * • CSRF:
- *     For /war_declaration.php POSTs, WarController::dispatch is expected to
- *     validate CSRF tokens. Page views should embed tokens in forms that post
- *     to action endpoints.
+ * For /war_declaration.php POSTs, WarController::dispatch is expected to
+ * validate CSRF tokens. Page views should embed tokens in forms that post
+ * to action endpoints.
  * • Path Traversal:
- *     Routing uses a fixed whitelist ($routes) and ignores user input beyond
- *     the normalized request path ($request_uri). No dynamic require paths are
- *     constructed from user-controlled data.
+ * Routing uses a fixed whitelist ($routes) and ignores user input beyond
+ * the normalized request path ($request_uri). No dynamic require paths are
+ * constructed from user-controlled data.
  * • Open Redirect:
- *     All redirects are to site-internal absolute paths (e.g., "/"), not to
- *     external user-provided URLs, mitigating open redirect risks.
+ * All redirects are to site-internal absolute paths (e.g., "/"), not to
+ * external user-provided URLs, mitigating open redirect risks.
  * • Caching:
- *     Not explicitly configured here; any private data views should set cache
- *     headers in the included templates/controllers as appropriate.
+ * Not explicitly configured here; any private data views should set cache
+ * headers in the included templates/controllers as appropriate.
  *
  * PERFORMANCE & OPERATIONAL NOTES
  * ─────────────────────────────────────────────────────────────────────────────
  * • Minimal Logic:
- *     The router does not perform heavy DB work; it just includes the resource.
+ * The router does not perform heavy DB work; it just includes the resource.
  * • Duplicate Keys:
- *     Some routes appear twice (e.g., '/realm_war' and '/realm_war.php' appear
- *     in both the "Page Views" and "Alliance Page Views" sections). This does
- *     not change behavior (later identical keys overwrite earlier identical
- *     keys in PHP array literals), but maintainers should avoid duplication to
- *     reduce cognitive load.
+ * Some routes appear twice (e.g., '/realm_war' and '/realm_war.php' appear
+ * in both the "Page Views" and "Alliance Page Views" sections). This does
+ * not change behavior (later identical keys overwrite earlier identical
+ * keys in PHP array literals), but maintainers should avoid duplication to
+ * reduce cognitive load.
  * • Error Handling:
- *     A simple 404 handler is used for unknown routes. For production, consider
- *     unified error pages and logging.
+ * A simple 404 handler is used for unknown routes. For production, consider
+ * unified error pages and logging.
  */
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -171,6 +171,8 @@ $routes = [
     '/attack.php'           => '../template/pages/attack.php',
     '/battle'               => '../template/pages/battle.php',
     '/battle.php'           => '../template/pages/battle.php',
+    '/spy'                  => '../template/pages/spy.php',
+    '/spy.php'              => '../template/pages/spy.php',
     '/armory'               => '../template/pages/armory.php',
     '/armory.php'           => '../template/pages/armory.php',
     '/auto_recruit'         => '../template/pages/auto_recruit.php',
@@ -189,6 +191,7 @@ $routes = [
     '/war_history.php'      => '../template/pages/war_history.php',
     '/battle_report'        => '../template/pages/battle_report.php',
     '/battle_report.php'    => '../template/pages/battle_report.php',
+    '/spy_report.php'       => '../template/pages/spy_report.php',
     '/view_profile'         => '../template/pages/view_profile.php',
     '/view_profile.php'     => '../template/pages/view_profile.php',
     '/gameplay'             => '../template/pages/gameplay.php',
@@ -281,10 +284,11 @@ $routes = [
 // • Consider grouping by feature to simplify auditing.
 $authenticated_routes = [
     '/dashboard', '/dashboard.php', '/attack', '/attack.php', '/battle', '/battle.php', 
+    '/spy.php', '/spy',
     '/armory', '/armory.php', '/auto_recruit', '/auto_recruit.php', '/structures', 
     '/structures.php', '/bank', '/bank.php', '/levels', '/levels.php', '/profile', 
     '/profile.php', '/settings', '/settings.php', '/war_history', '/war_history.php',
-    '/battle_report', '/battle_report.php', '/alliance', '/alliance.php', 
+    '/battle_report', '/battle_report.php', '/spy_report.php', '/alliance', '/alliance.php', 
     '/create_alliance', '/create_alliance.php', '/edit_alliance', '/edit_alliance.php',
     '/alliance_bank', '/alliance_bank.php', '/alliance_roles', '/alliance_roles.php', 
     '/alliance_structures', '/alliance_structures.php', '/alliance_transfer', 

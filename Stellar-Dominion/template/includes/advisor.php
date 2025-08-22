@@ -27,6 +27,11 @@ $advice_repository = [
         "The more turns you use in an attack, the more credits you can plunder on a victory.",
         "Check a target's level. A higher level may indicate a more formidable opponent."
     ],
+    'spy.php' => [
+        "Intelligence is key. Use spy missions to gain an advantage over your opponents.",
+        "A successful assassination can cripple an opponent's economy or military.",
+        "Sabotage missions can weaken an empire's foundations, making them vulnerable to attack."
+    ],
     'battle.php' => [
         "Train your untrained citizens into specialized units to expand your dominion.",
         "Workers increase your income, while Soldiers and Guards form your military might.",
@@ -103,14 +108,11 @@ if (isset($minutes_until_next_turn) && isset($seconds_remainder)) {
 
 ?>
 
-<!-- The main container now has the 'advisor-container' class for the JS to target -->
 <div class="content-box rounded-lg p-4 advisor-container">
     <h3 class="font-title text-cyan-400 border-b border-gray-600 pb-2 mb-2">A.I. Advisor</h3>
     
-    <!-- ADDED: The toggle button for mobile view -->
     <button id="toggle-advisor-btn" class="mobile-only-button">-</button>
 
-    <!-- ADDED: A wrapper div for the content that will be toggled -->
     <div id="advisor-content">
         <p id="advisor-text" class="text-sm transition-opacity duration-500" data-advice='<?php echo $advice_json; ?>'>
             <?php echo $current_advice_list[0]; // Display the first piece of advice initially ?>
