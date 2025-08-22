@@ -2,7 +2,7 @@
 /**
  * spy_report.php
  *
- * Displays a detailed report of a spy mission.
+ * Displays a detailed report of a spy mission with different layouts per mission type.
  */
 
 if (session_status() == PHP_SESSION_NONE) {
@@ -36,7 +36,7 @@ if (!$log) {
         $player_name = 'Your Spy';
         $opponent_name = 'Target';
     } else {
-        $player_name = 'Target';
+        $player_name = 'Your Defenses';
         $opponent_name = 'Enemy Spy';
     }
 
@@ -88,20 +88,48 @@ if (!$log) {
                         <div class="bg-black/70 p-4 rounded-md text-white space-y-4">
                             <h4 class="font-title text-center border-b border-gray-600 pb-2 mb-4">Mission Debriefing</h4>
                             <p class="text-center font-bold text-lg <?php echo $header_color; ?>"><?php echo $summary_text; ?></p>
-
-                            <div class="bg-gray-800/50 p-3 rounded-lg">
-                                <h5 class="font-bold border-b border-gray-600 pb-1 mb-2">Mission Details</h5>
-                                <ul class="space-y-1 text-sm">
-                                    <li class="flex justify-between"><span>Mission Type:</span> <span class="font-semibold text-white"><?= ucfirst($log['mission_type']) ?></span></li>
-                                    <?php if ($log['mission_type'] === 'intelligence' && $log['intel_gathered']): ?>
-                                        <li class="flex justify-between"><span>Intel Gathered:</span> <span class="font-semibold text-yellow-400"><?= htmlspecialchars($log['intel_gathered']) ?></span></li>
-                                    <?php elseif ($log['mission_type'] === 'assassination'): ?>
-                                        <li class="flex justify-between"><span>Units Killed:</span> <span class="font-semibold text-red-400"><?= number_format($log['units_killed']) ?></span></li>
-                                    <?php elseif ($log['mission_type'] === 'sabotage'): ?>
-                                        <li class="flex justify-between"><span>Structure Damage:</span> <span class="font-semibold text-red-400"><?= number_format($log['structure_damage']) ?> HP</span></li>
-                                    <?php endif; ?>
-                                </ul>
-                            </div>
+                            
+                            <?php if ($log['mission_type'] === 'intelligence'): ?>
+                                <div class="bg-gray-800/50 p-3 rounded-lg">
+                                    <h5 class="font-bold border-b border-gray-600 pb-1 mb-2">Intelligence Details</h5>
+                                    <ul class="space-y-1 text-sm">
+                                        <li class="flex justify-between"><span>Mission Type:</span> <span class="font-semibold text-white">Intelligence</span></li>
+                                        <?php if ($player_won && !empty($log['intel_gathered'])):
+                                            $intel = json_decode($log['intel_gathered'], true);
+                                            if (is_array($intel)):
+                                                foreach($intel as $key => $value):
+                                        ?>
+                                            <li class="flex justify-between"><span><?php echo htmlspecialchars($key); ?>:</span> <span class="font-semibold text-yellow-400"><?php echo htmlspecialchars($value); ?></span></li>
+                                        <?php   endforeach;
+                                            endif;
+                                        else: ?>
+                                            <li class="flex justify-between"><span>Intel Gathered:</span> <span class="font-semibold text-red-400">None</span></li>
+                                        <?php endif; ?>
+                                    </ul>
+                                </div>
+                            <?php else: // Layout for Assassination and Sabotage ?>
+                                <div class="grid grid-cols-1 md:grid-cols-2 gap-4 text-sm">
+                                    <div class="bg-gray-800/50 p-3 rounded-lg">
+                                        <h5 class="font-bold border-b border-gray-600 pb-1 mb-2">Your Spy Force</h5>
+                                        <ul class="space-y-1">
+                                            <li class="flex justify-between"><span>Spy Strength:</span> <span class="font-semibold text-white"><?php echo number_format($log['attacker_spy_power']); ?></span></li>
+                                            <li class="flex justify-between"><span>XP Gained:</span> <span class="font-semibold text-yellow-400">+<?php echo number_format($log['attacker_xp_gained']); ?></span></li>
+                                        </ul>
+                                    </div>
+                                    <div class="bg-gray-800/50 p-3 rounded-lg">
+                                         <h5 class="font-bold border-b border-gray-600 pb-1 mb-2">Target's Defenses</h5>
+                                         <ul class="space-y-1">
+                                            <li class="flex justify-between"><span>Sentry Defense:</span> <span class="font-semibold text-white"><?php echo number_format($log['defender_sentry_power']); ?></span></li>
+                                            <li class="flex justify-between"><span>XP Gained:</span> <span class="font-semibold text-yellow-400">+<?php echo number_format($log['defender_xp_gained']); ?></span></li>
+                                            <?php if ($log['mission_type'] === 'assassination' && $log['units_killed'] > 0): ?>
+                                                <li class="flex justify-between"><span>Units Assassinated:</span> <span class="font-semibold text-red-400">-<?php echo number_format($log['units_killed']); ?></span></li>
+                                            <?php elseif ($log['mission_type'] === 'sabotage' && $log['structure_damage'] > 0): ?>
+                                                <li class="flex justify-between"><span>Foundation Damage:</span> <span class="font-semibold text-red-400">-<?php echo number_format($log['structure_damage']); ?> HP</span></li>
+                                            <?php endif; ?>
+                                         </ul>
+                                    </div>
+                                </div>
+                            <?php endif; ?>
                         </div>
                     </div>
 
