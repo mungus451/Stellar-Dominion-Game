@@ -455,61 +455,61 @@ $alliance_structures_definitions = [
             'bonuses' => json_encode(['citizens' => 30])
         ],
 
-        // Resource Boosters
+         // Resource Boosters
         'galactic_research_hub' => [
             'name' => 'Galactic Research Hub',
-            'description' => 'Improves overall resource generation for all members.',
+            'description' => 'Improves resource generation and attracts new citizens for all members.',
             'cost' => 750000000,
-            'bonus_text' => '+10% resource generation',
+            'bonus_text' => '+10% resource generation, +3 citizens per turn',
             'bonuses' => json_encode(['resources' => 10,  'citizens' => 3])
         ],
         'deep_space_mining_facility' => [
             'name' => 'Deep Space Mining Facility',
-            'description' => 'Harvests rare minerals from deep space.',
+            'description' => 'Harvests rare minerals from deep space and supports colonization efforts.',
             'cost' => 950000000,
-            'bonus_text' => '+13% resource generation',
+            'bonus_text' => '+13% resource generation, +6 citizens per turn',
             'bonuses' => json_encode(['resources' => 13,  'citizens' => 6])
         ],
         'asteroid_processing_station' => [
             'name' => 'Asteroid Processing Station',
-            'description' => 'Extracts and refines asteroid resources.',
+            'description' => 'Extracts asteroid resources and provides habitats for skilled workers.',
             'cost' => 1100000000,
-            'bonus_text' => '+15% resource generation',
+            'bonus_text' => '+15% resource generation, +10 citizens per turn',
             'bonuses' => json_encode(['resources' => 15,  'citizens' => 10])
         ],
         'quantum_resource_labs' => [
             'name' => 'Quantum Resource Labs',
-            'description' => 'Researches quantum methods for resource multiplication.',
+            'description' => 'Researches resource multiplication and expands population capacity.',
             'cost' => 1300000000,
-            'bonus_text' => '+18% resource generation',
+            'bonus_text' => '+18% resource generation, +14 citizens per turn',
             'bonuses' => json_encode(['resources' => 18,  'citizens' => 14])
         ],
         'fusion_reactor_array' => [
             'name' => 'Fusion Reactor Array',
-            'description' => 'Generates massive amounts of clean energy.',
+            'description' => 'Generates massive energy, powering new population centers.',
             'cost' => 1500000000,
-            'bonus_text' => '+20% resource generation',
+            'bonus_text' => '+20% resource generation, +19 citizens per turn',
             'bonuses' => json_encode(['resources' => 20,  'citizens' => 19])
         ],
         'stellar_refinery' => [
             'name' => 'Stellar Refinery',
-            'description' => 'Refines stellar gases into usable materials.',
+            'description' => 'Refines stellar gases and supports large orbital habitats.',
             'cost' => 1750000000,
-            'bonus_text' => '+23% resource generation',
+            'bonus_text' => '+23% resource generation, +24 citizens per turn',
             'bonuses' => json_encode(['resources' => 23,  'citizens' => 24])
         ],
         'dimension_harvester' => [
             'name' => 'Dimension Harvester',
-            'description' => 'Pulls rare matter from parallel realities.',
+            'description' => 'Pulls rare matter and colonists from parallel realities.',
             'cost' => 2000000000,
-            'bonus_text' => '+27% resource generation',
+            'bonus_text' => '+27% resource generation, +29 citizens per turn',
             'bonuses' => json_encode(['resources' => 27,  'citizens' => 29])
         ],
         'cosmic_forge' => [
             'name' => 'Cosmic Forge',
-            'description' => 'The ultimate facility for infinite resource creation.',
+            'description' => 'The ultimate facility for infinite resource and population creation.',
             'cost' => 2500000000,
-            'bonus_text' => '+30% resource generation',
+            'bonus_text' => '+30% resource generation, +35 citizens per turn',
             'bonuses' => json_encode(['resources' => 30,  'citizens' => 35])
         ],
 
