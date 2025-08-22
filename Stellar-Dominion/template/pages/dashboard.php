@@ -207,7 +207,7 @@ if (!empty($user_stats['alliance_id'])) {
     }
 }
 
-$citizens_per_turn = 1;
+$citizens_per_turn = 0; // Initialize at 0, bonuses will be added.
 for ($i = 1, $n = (int)$user_stats['population_level']; $i <= $n; $i++) {
     $citizens_per_turn += (int)($upgrades['population']['levels'][$i]['bonuses']['citizens'] ?? 0);
 }

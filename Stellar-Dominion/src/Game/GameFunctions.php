@@ -164,7 +164,7 @@ function process_offline_turns(mysqli $link, int $user_id): void {
                 );
                 
                 // Final Citizens per turn
-                $citizens_per_turn = 1;
+                $citizens_per_turn = 0; // Initialize at 0 for consistency.
                 for ($i = 1; $i <= $user_check_data['population_level']; $i++) {
                     $citizens_per_turn += $upgrades['population']['levels'][$i]['bonuses']['citizens'] ?? 0;
                 }
