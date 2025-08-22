@@ -30,15 +30,15 @@ $alliance_base_citizen_bonus = 2;
 
 // --- PHASE 1: Alliance structure bonuses ---
 $alliance_bonuses = [];
+// Corrected SQL: Removed the non-existent 'level' column
 $sql_alliance_structures = "
-    SELECT als.alliance_id, als.structure_key, als.level, s.bonuses
+    SELECT als.alliance_id, s.bonuses
     FROM alliance_structures als
     JOIN alliance_structures_definitions s ON als.structure_key = s.structure_key
 ";
 if ($result_structures = mysqli_query($link, $sql_alliance_structures)) {
     while ($structure = mysqli_fetch_assoc($result_structures)) {
-        $aid   = (int)$structure['alliance_id'];
-        $level = (int)$structure['level'];
+        $aid = (int)$structure['alliance_id'];
         if (!isset($alliance_bonuses[$aid])) {
             $alliance_bonuses[$aid] = ['income'=>0.0, 'defense'=>0.0, 'offense'=>0.0, 'citizens'=>0.0, 'resources'=>0.0];
         }
@@ -46,7 +46,8 @@ if ($result_structures = mysqli_query($link, $sql_alliance_structures)) {
         if (is_array($bonus_data)) {
             foreach ($bonus_data as $key => $value) {
                 if (array_key_exists($key, $alliance_bonuses[$aid])) {
-                    $alliance_bonuses[$aid][$key] += ((float)$value) * $level;
+                    // Corrected Logic: Removed multiplication by 'level'
+                    $alliance_bonuses[$aid][$key] += (float)$value;
                 }
             }
         }

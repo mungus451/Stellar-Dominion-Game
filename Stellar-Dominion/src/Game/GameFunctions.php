@@ -99,20 +99,31 @@ function process_offline_turns(mysqli $link, int $user_id): void {
                 }
 
                 // Fetch Alliance Bonuses
-                $alliance_bonuses = ['income' => 0.0, 'resources' => 0.0, 'citizens' => 0, 'credits' => 0];
+                $alliance_bonuses = ['income' => 0.0, 'resources' => 0.0, 'citizens' => 0, 'credits' => 0, 'defense' => 0.0, 'offense' => 0.0];
                 if (!empty($user_check_data['alliance_id'])) {
+                    // Set base alliance bonuses
                     $alliance_bonuses['credits'] = 5000;
                     $alliance_bonuses['citizens'] = 2;
-                    $sql_alliance_structures = "SELECT s.bonuses FROM alliance_structures als JOIN alliance_structures_definitions s ON als.structure_key = s.structure_key WHERE als.alliance_id = ?";
-                    if ($stmt_as = mysqli_prepare($link, $sql_alliance_structures)) {
+
+                    // 1. Query the database for OWNED structure keys
+                    $sql_owned_structures = "SELECT structure_key FROM alliance_structures WHERE alliance_id = ?";
+                    if ($stmt_as = mysqli_prepare($link, $sql_owned_structures)) {
                         mysqli_stmt_bind_param($stmt_as, "i", $user_check_data['alliance_id']);
                         mysqli_stmt_execute($stmt_as);
                         $result_as = mysqli_stmt_get_result($stmt_as);
+
+                        // 2. Loop through keys and look up bonuses in GameData.php
+                        global $alliance_structures_definitions; // Ensure the global variable is accessible
                         while ($structure = mysqli_fetch_assoc($result_as)) {
-                            $bonus_data = json_decode($structure['bonuses'], true);
-                            if (is_array($bonus_data)) {
-                                foreach ($bonus_data as $key => $value) {
-                                    if (isset($alliance_bonuses[$key])) $alliance_bonuses[$key] += (float)$value;
+                            $key = $structure['structure_key'];
+                            if (isset($alliance_structures_definitions[$key])) {
+                                $bonus_data = json_decode($alliance_structures_definitions[$key]['bonuses'], true);
+                                if (is_array($bonus_data)) {
+                                    foreach ($bonus_data as $bonus_key => $value) {
+                                        if (isset($alliance_bonuses[$bonus_key])) {
+                                            $alliance_bonuses[$bonus_key] += $value;
+                                        }
+                                    }
                                 }
                             }
                         }
