@@ -140,7 +140,7 @@ $seconds_remainder = $seconds_until_next_turn % 60;
                                         <div x-show="tab === 'intelligence'">
                                             <p>Gather intelligence on the target's empire. A random 5 data points will be revealed on success.</p>
                                         </div>
-                                        <div x-show="tab === 'assassination'">
+                                       <div x-show="tab === 'assassination'"> 
                                             <p>Attempt to assassinate a portion of the target's units.</p>
                                             <div class="mt-4">
                                                 <label for="assassination_target" class="block text-sm font-medium text-gray-300">Target Unit Type</label>
@@ -149,7 +149,7 @@ $seconds_remainder = $seconds_until_next_turn % 60;
                                                     <option value="soldiers">Soldiers</option>
                                                     <option value="guards">Guards</option>
                                                 </select>
-                                            </div>
+                                            </div> -
                                         </div>
                                         <div x-show="tab === 'sabotage'">
                                             <p>Sabotage the target's empire foundation, causing damage.</p>
