@@ -104,7 +104,7 @@ date_default_timezone_set('UTC');
 // ─────────────────────────────────────────────────────────────────────────────
 const ATK_TURNS_SOFT_EXP          = 0.50;
 const ATK_TURNS_MAX_MULT          = 1.35;
-const UNDERDOG_MIN_RATIO_TO_WIN   = 0.925;
+const UNDERDOG_MIN_RATIO_TO_WIN   = 0.945;
 const RANDOM_NOISE_MIN            = 0.98;
 const RANDOM_NOISE_MAX            = 1.02;
 const CREDITS_STEAL_CAP_PCT       = 0.2;
@@ -162,6 +162,22 @@ try {
     if (!$attacker || !$defender) throw new Exception("Could not retrieve combatant data.");
     if ($attacker['alliance_id'] !== NULL && $attacker['alliance_id'] === $defender['alliance_id']) throw new Exception("You cannot attack a member of your own alliance.");
     if ((int)$attacker['attack_turns'] < $attack_turns) throw new Exception("Not enough attack turns.");
+    
+    // --- BATTLE FATIGUE CHECK ---
+    $sql_fatigue = "SELECT COUNT(id) as attack_count FROM battle_logs WHERE attacker_id = ? AND defender_id = ? AND battle_time > NOW() - INTERVAL 2 HOUR";
+    $stmt_fatigue = mysqli_prepare($link, $sql_fatigue);
+    mysqli_stmt_bind_param($stmt_fatigue, "ii", $attacker_id, $defender_id);
+    mysqli_stmt_execute($stmt_fatigue);
+    $attack_count_recent = (int)mysqli_fetch_assoc(mysqli_stmt_get_result($stmt_fatigue))['attack_count'];
+    mysqli_stmt_close($stmt_fatigue);
+
+    $fatigue_casualties = 0;
+    if ($attack_count_recent >= 10) {
+        $attacks_over_limit = $attack_count_recent - 9; // 11th attack (count is 10) is 1 over the limit
+        $penalty_percentage = 0.001 * $attacks_over_limit;
+        $fatigue_casualties = (int)floor($attacker['soldiers'] * $penalty_percentage);
+    }
+
 
     // ─────────────────────────────────────────────────────────────────────────
     // TREATY ENFORCEMENT CHECK
@@ -400,8 +416,8 @@ try {
         $attacker_net_gain = max(0, $actual_stolen - $alliance_tax - $loan_repayment);
 
         // Apply deltas
-        $stmt_att_update = mysqli_prepare($link, "UPDATE users SET credits = credits + ?, experience = experience + ? WHERE id = ?");
-        mysqli_stmt_bind_param($stmt_att_update, "iii", $attacker_net_gain, $attacker_xp_gained, $attacker_id);
+        $stmt_att_update = mysqli_prepare($link, "UPDATE users SET credits = credits + ?, experience = experience + ?, soldiers = GREATEST(0, soldiers - ?) WHERE id = ?");
+        mysqli_stmt_bind_param($stmt_att_update, "iiii", $attacker_net_gain, $attacker_xp_gained, $fatigue_casualties, $attacker_id);
         mysqli_stmt_execute($stmt_att_update);
         mysqli_stmt_close($stmt_att_update);
 
@@ -411,9 +427,9 @@ try {
         mysqli_stmt_close($stmt_def_update);
 
     } else {
-        // Defeat: XP only
-        $stmt_att_update = mysqli_prepare($link, "UPDATE users SET experience = experience + ? WHERE id = ?");
-        mysqli_stmt_bind_param($stmt_att_update, "ii", $attacker_xp_gained, $attacker_id);
+        // Defeat: XP and fatigue casualties only
+        $stmt_att_update = mysqli_prepare($link, "UPDATE users SET experience = experience + ?, soldiers = GREATEST(0, soldiers - ?) WHERE id = ?");
+        mysqli_stmt_bind_param($stmt_att_update, "iii", $attacker_xp_gained, $fatigue_casualties, $attacker_id);
         mysqli_stmt_execute($stmt_att_update);
         mysqli_stmt_close($stmt_att_update);
 
@@ -478,13 +494,12 @@ try {
             $progress_value = 0;
             switch ($war['goal_metric']) {
                 case 'credits_plundered':   $progress_value = $logged_stolen;    break;
-                case 'units_killed':        $progress_value = $guards_lost;      break;
-                case 'structures_destroyed':$progress_value = $structure_damage; break;
+                case 'units_killed':        $progress_value = $guards_lost_log;      break;
+                case 'structure_damage':    $progress_value = $structure_damage_log; break;
                 case 'prestige_change':     /* applied below */                   break;
             }
             if ($progress_value > 0) {
                 $progress_column = ($alliance1 === (int)$war['declarer_alliance_id']) ? 'goal_progress_declarer' : 'goal_progress_declared_against';
-                // Whitelist column name to prevent SQLi via identifier (defensive)
                 if (!in_array($progress_column, ['goal_progress_declarer','goal_progress_declared_against'], true)) {
                     throw new Exception("Invalid war progress column.");
                 }
@@ -495,31 +510,30 @@ try {
                 mysqli_stmt_close($stmt_progress);
             }
 
-    // --- AUTOMATIC WAR RESOLUTION ---
-    // Check if the war goal has been met
-    $sql_check_war = "SELECT goal_progress_declarer, goal_progress_declared_against, goal_threshold, declarer_alliance_id FROM wars WHERE id = ?";
-    $stmt_check_war = mysqli_prepare($link, $sql_check_war);
-    mysqli_stmt_bind_param($stmt_check_war, "i", $war['id']);
-    mysqli_stmt_execute($stmt_check_war);
-    $war_status = mysqli_fetch_assoc(mysqli_stmt_get_result($stmt_check_war));
-    mysqli_stmt_close($stmt_check_war);
+            // --- AUTOMATIC WAR RESOLUTION ---
+            $sql_check_war = "SELECT goal_progress_declarer, goal_progress_declared_against, goal_threshold, declarer_alliance_id FROM wars WHERE id = ?";
+            $stmt_check_war = mysqli_prepare($link, $sql_check_war);
+            mysqli_stmt_bind_param($stmt_check_war, "i", $war['id']);
+            mysqli_stmt_execute($stmt_check_war);
+            $war_status = mysqli_fetch_assoc(mysqli_stmt_get_result($stmt_check_war));
+            mysqli_stmt_close($stmt_check_war);
 
-    if ($war_status) {
-        $winner_alliance_id = null;
-        if ($war_status['goal_progress_declarer'] >= $war_status['goal_threshold']) {
-            $winner_alliance_id = $war_status['declarer_alliance_id'];
-        } elseif ($war_status['goal_progress_declared_against'] >= $war_status['goal_threshold']) {
-            $winner_alliance_id = ($war_status['declarer_alliance_id'] == $alliance1) ? $alliance2 : $alliance1;
-        }
+            if ($war_status) {
+                $winner_alliance_id = null;
+                if ($war_status['goal_progress_declarer'] >= $war_status['goal_threshold']) {
+                    $winner_alliance_id = $war_status['declarer_alliance_id'];
+                } elseif ($war_status['goal_progress_declared_against'] >= $war_status['goal_threshold']) {
+                    $winner_alliance_id = ($war_status['declarer_alliance_id'] == $alliance1) ? $alliance2 : $alliance1;
+                }
 
-        if ($winner_alliance_id) {
-            require_once __DIR__ . '/WarController.php';
-            $warController = new WarController();
-            $outcome_reason = "The war goal was achieved.";
-            $warController->endWar($war['id'], $outcome_reason);
+                if ($winner_alliance_id) {
+                    require_once __DIR__ . '/WarController.php';
+                    $warController = new WarController();
+                    $outcome_reason = "The war goal was achieved.";
+                    $warController->endWar($war['id'], $outcome_reason);
+                }
+            }
         }
-    }
-}
 
         // Prestige changes (winner gains; loser loses half)
         $level_difference       = abs((int)$attacker['level'] - (int)$defender['level']);
@@ -570,12 +584,12 @@ try {
 
     // Battle log
     $sql_log = "INSERT INTO battle_logs 
-        (attacker_id, defender_id, attacker_name, defender_name, outcome, credits_stolen, attack_turns_used, attacker_damage, defender_damage, attacker_xp_gained, defender_xp_gained, guards_lost, structure_damage) 
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)";
+        (attacker_id, defender_id, attacker_name, defender_name, outcome, credits_stolen, attack_turns_used, attacker_damage, defender_damage, attacker_xp_gained, defender_xp_gained, guards_lost, structure_damage, attacker_soldiers_lost) 
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)";
     $stmt_log = mysqli_prepare($link, $sql_log);
     mysqli_stmt_bind_param(
         $stmt_log,
-        "iisssiiiiiiii",
+        "iisssiiiiiiiii",
         $attacker_id,
         $defender_id,
         $attacker['character_name'],
@@ -588,7 +602,8 @@ try {
         $attacker_xp_gained,
         $defender_xp_gained,
         $guards_lost_log,
-        $structure_damage_log
+        $structure_damage_log,
+        $fatigue_casualties
     );
     mysqli_stmt_execute($stmt_log);
     $battle_log_id = mysqli_insert_id($link);

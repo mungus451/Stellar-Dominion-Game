@@ -37,9 +37,12 @@ if (!$profile_data) { header("location: /attack.php"); exit; } // Target not fou
 // Fetch viewer's data to check for alliance match and for sidebar stats
 $viewer_data = null;
 $viewer_permissions = ['can_invite_members' => 0];
+$minutes_until_next_turn = 0;
+$seconds_remainder = 0;
+
 if ($is_logged_in) {
     $sql_viewer = "
-        SELECT u.credits, u.untrained_citizens, u.level, u.attack_turns, u.last_updated, u.alliance_id,
+        SELECT u.credits, u.untrained_citizens, u.level, u.experience, u.attack_turns, u.last_updated, u.alliance_id,
                ar.can_invite_members
         FROM users u
         LEFT JOIN alliance_roles ar ON u.alliance_role_id = ar.id
@@ -50,6 +53,14 @@ if ($is_logged_in) {
     $viewer_data = mysqli_fetch_assoc(mysqli_stmt_get_result($stmt_viewer));
     $viewer_permissions['can_invite_members'] = $viewer_data['can_invite_members'] ?? 0;
     mysqli_stmt_close($stmt_viewer);
+
+    // Calculate timers for the advisor panel to prevent reloads
+    $now = new DateTime('now', new DateTimeZone('UTC'));
+    $turn_interval_minutes = 10;
+    $last_updated = new DateTime($viewer_data['last_updated'], new DateTimeZone('UTC'));
+    $seconds_until_next_turn = ($turn_interval_minutes * 60) - (($now->getTimestamp() - $last_updated->getTimestamp()) % ($turn_interval_minutes * 60));
+    $minutes_until_next_turn = floor($seconds_until_next_turn / 60);
+    $seconds_remainder = $seconds_until_next_turn % 60;
 }
 
 // Rivalry Check
@@ -100,7 +111,7 @@ $active_page = 'attack.php'; // Keep the 'BATTLE' main nav active
                 <aside class="lg:col-span-1 space-y-4">
                     <?php 
                         $user_stats = $viewer_data;
-                        $user_xp = 0; // Not needed for advisor on this page view
+                        $user_xp = $viewer_data['experience'];
                         $user_level = $viewer_data['level'];
                         include_once __DIR__ . '/../includes/advisor.php'; 
                     ?>
@@ -185,6 +196,7 @@ $active_page = 'attack.php'; // Keep the 'BATTLE' main nav active
                                 </h2>
                                 <p class="text-lg text-cyan-300"><?php echo htmlspecialchars(ucfirst($profile_data['race']) . ' ' . ucfirst($profile_data['class'])); ?></p>
                                 <p class="text-sm">Level: <?php echo $profile_data['level']; ?></p>
+                                <p class="text-sm">Commander ID: <?php echo $profile_data['id']; ?></p>
                                 <?php if ($profile_data['alliance_name']): ?>
                                     <p class="text-sm">Alliance: <span class="font-bold">[<?php echo htmlspecialchars($profile_data['alliance_tag']); ?>] <?php echo htmlspecialchars($profile_data['alliance_name']); ?></span></p>
                                 <?php endif; ?>
@@ -210,6 +222,6 @@ $active_page = 'attack.php'; // Keep the 'BATTLE' main nav active
             </div>
         </div>
     </div>
-    <script src="/assets/js/main.js" defer></script>
+    <script src="/assets/js/main.js?v=1.0.1" defer></script>
 </body>
 </html>
