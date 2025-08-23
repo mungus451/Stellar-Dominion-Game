@@ -214,3 +214,21 @@ input[type=number]::-webkit-outer-spin-button {
 .armory-scroll-container::-webkit-scrollbar-thumb:hover {
     background: #6b7280;
 }
+
+/* --- Header & Navigation --- */
+.nav-link {
+    border-bottom: 2px solid transparent;
+    transition: all 0.3s ease;
+}
+
+.nav-link.active,
+.nav-link:hover {
+    border-bottom-color: #06b6d4; /* cyan-500 */
+    color: #ffffff;
+    transform: translateY(-2px);
+}
+
+/* --- Footer --- */
+footer {
+    border-top: 1px solid #374151; /* gray-700 */
+}
