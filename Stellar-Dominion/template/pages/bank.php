@@ -1,4 +1,5 @@
 <?php
+// --- PAGE CONFIGURATION ---
 $page_title = 'Bank';
 $active_page = 'bank.php';
 
@@ -9,42 +10,26 @@ if (session_status() == PHP_SESSION_NONE) {
 if (!isset($_SESSION["loggedin"]) || $_SESSION["loggedin"] !== true) { header("location: /index.php"); exit; }
 require_once __DIR__ . '/../../config/config.php';
 
-// --- FORM SUBMISSION HANDLING (MOVED TO TOP FOR CLARITY) ---
+// --- FORM SUBMISSION HANDLING ---
 if ($_SERVER["REQUEST_METHOD"] == "POST") {
-    // This now correctly uses the function from the included config file
-    if (!isset($_POST['csrf_token']) || !validate_csrf_token($_POST['csrf_token'])) {
-        $_SESSION['bank_error'] = "A security error occurred. Please try again.";
-        header("Location: bank.php");
-        exit;
-    }
-    
-    // The rest of your form handling logic...
+    // The BankController handles its own CSRF check and all form logic
     require_once __DIR__ . '/../../src/Controllers/BankController.php';
     exit;
 }
+// --- END FORM HANDLING ---
 
-// Generate CSRF tokens for the forms on this page
-$csrf_token_deposit = generate_csrf_token('bank_deposit');
-$csrf_token_withdraw = generate_csrf_token('bank_withdraw');
-$csrf_token_transfer = generate_csrf_token('bank_transfer');
-
-
-// --- INCLUDE THE UNIVERSAL HEADER ---
-include_once __DIR__ . '/../includes/header.php';
-
-
-// --- DATA FETCHING & CALCULATIONS (from your provided code) ---
+// --- DATA FETCHING AND PREPARATION FOR PAGE DISPLAY ---
 date_default_timezone_set('UTC');
 $user_id = (int)$_SESSION['id'];
 $now = new DateTime('now', new DateTimeZone('UTC'));
 
 // Fetch user stats
-$sql = "SELECT credits, banked_credits, untrained_citizens, level, experience, attack_turns, last_updated, deposits_today, last_deposit_timestamp FROM users WHERE id = ?";
-$stmt = mysqli_prepare($link, $sql);
-mysqli_stmt_bind_param($stmt, "i", $user_id);
-mysqli_stmt_execute($stmt);
-$user_stats = mysqli_fetch_assoc(mysqli_stmt_get_result($stmt));
-mysqli_stmt_close($stmt);
+$sql_user = "SELECT credits, banked_credits, untrained_citizens, level, experience, attack_turns, last_updated, deposits_today, last_deposit_timestamp FROM users WHERE id = ?";
+$stmt_user = mysqli_prepare($link, $sql_user);
+mysqli_stmt_bind_param($stmt_user, "i", $user_id);
+mysqli_stmt_execute($stmt_user);
+$user_stats = mysqli_fetch_assoc(mysqli_stmt_get_result($stmt_user));
+mysqli_stmt_close($stmt_user);
 
 // Fetch transactions
 $sql_transactions = "SELECT transaction_type, amount, transaction_time FROM bank_transactions WHERE user_id = ? ORDER BY transaction_time DESC LIMIT 5";
@@ -54,8 +39,7 @@ mysqli_stmt_execute($stmt_transactions);
 $transactions_result = mysqli_stmt_get_result($stmt_transactions);
 mysqli_stmt_close($stmt_transactions);
 
-
-// Calculations for deposit slots, timers, etc.
+// --- Calculations for Timers, Deposits, etc. ---
 $max_deposits = min(10, 3 + floor(((int)$user_stats['level']) / 10));
 $recovered_slots = 0;
 $last_deposit_time = null;
@@ -80,6 +64,9 @@ $last_updated = new DateTime($user_stats['last_updated'], new DateTimeZone('UTC'
 $seconds_until_next_turn = ($turn_interval_minutes * 60) - (($now->getTimestamp() - $last_updated->getTimestamp()) % ($turn_interval_minutes * 60));
 $minutes_until_next_turn = floor($seconds_until_next_turn / 60);
 $seconds_remainder = $seconds_until_next_turn % 60;
+
+// --- INCLUDE UNIVERSAL HEADER ---
+include_once __DIR__ . '/../includes/header.php';
 ?>
 
 <aside class="lg:col-span-1 space-y-4">
@@ -130,7 +117,7 @@ $seconds_remainder = $seconds_until_next_turn % 60;
                     x-text="panels.deposit ? 'Hide' : 'Show'"></button>
             </div>
             <div x-show="panels.deposit" x-transition x-cloak>
-                <input type="hidden" name="csrf_token" value="<?php echo htmlspecialchars($csrf_token_deposit); ?>">
+                <?php echo csrf_token_field('bank_deposit'); ?>
                 <p class="text-xs text-gray-400">You can deposit up to 80% of your credits on hand.</p>
                 <input type="number" id="deposit-amount" name="amount" min="1" max="<?php echo (int)$max_deposit_amount; ?>" placeholder="0" class="w-full bg-gray-900/50 border border-gray-700 rounded-lg px-4 py-2 text-white focus:outline-none focus:ring-2 focus:ring-cyan-500" required>
                 <div class="flex justify-between text-sm">
@@ -148,7 +135,7 @@ $seconds_remainder = $seconds_until_next_turn % 60;
                     x-text="panels.withdraw ? 'Hide' : 'Show'"></button>
             </div>
             <div x-show="panels.withdraw" x-transition x-cloak>
-                <input type="hidden" name="csrf_token" value="<?php echo htmlspecialchars($csrf_token_withdraw); ?>">
+                <?php echo csrf_token_field('bank_withdraw'); ?>
                 <p class="text-xs text-gray-400">Withdraw credits to use them for purchases.</p>
                 <input type="number" id="withdraw-amount" name="amount" min="1" max="<?php echo (int)$user_stats['banked_credits']; ?>" placeholder="0" class="w-full bg-gray-900/50 border border-gray-700 rounded-lg px-4 py-2 text-white focus:outline-none focus:ring-2 focus:ring-cyan-500" required>
                 <div class="flex justify-between text-sm">
@@ -172,7 +159,7 @@ $seconds_remainder = $seconds_until_next_turn % 60;
         <div x-show="panels.transfer" x-transition x-cloak>
             <p class="text-xs text-gray-400 mb-3">Send credits directly to another player. A small fee may apply.</p>
             <form action="/bank.php" method="POST" class="space-y-3">
-                <input type="hidden" name="csrf_token" value="<?php echo htmlspecialchars($csrf_token_transfer); ?>">
+                <?php echo csrf_token_field('bank_transfer'); ?>
                 <div class="form-group">
                     <label for="transfer-id" class="block text-sm font-medium text-gray-300">Target Commander ID</label>
                     <input type="number" id="transfer-id" name="target_id" placeholder="Enter Player ID" class="mt-1 w-full bg-gray-900/50 border border-gray-700 rounded-lg px-4 py-2 text-white focus:outline-none focus:ring-2 focus:ring-cyan-500" required>
@@ -215,6 +202,6 @@ $seconds_remainder = $seconds_until_next_turn % 60;
 </main>
 
 <?php
-// Include the universal footer
+// --- INCLUDE UNIVERSAL FOOTER ---
 include_once __DIR__ . '/../includes/footer.php';
 ?>
