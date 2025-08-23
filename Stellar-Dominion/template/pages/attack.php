@@ -108,7 +108,6 @@ if ($defender_id > 0) {
     <meta charset="UTF-8">
     <title>Stellar Dominion - Attack</title>
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <!-- Keep original references -->
     <script src="https://cdn.tailwindcss.com"></script>
     <script src="https://unpkg.com/lucide@latest"></script>
     <script defer src="https://unpkg.com/alpinejs@3.x.x/dist/cdn.min.js"></script>
@@ -116,7 +115,6 @@ if ($defender_id > 0) {
     <link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@700&family=Roboto:wght@400;500;700&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="assets/css/style.css">
 
-    <!-- Mobile row wrap styling (keeps desktop table intact) -->
     <style>
       @media (max-width: 640px) {
         .attack-table thead { display: none; }
@@ -163,7 +161,6 @@ if ($defender_id > 0) {
         <?php include_once __DIR__ .  '/../includes/navigation.php'; ?>
 
         <?php if ($defender_id > 0): ?>
-            <!-- ===================== Single Target: Launch Attack ===================== -->
             <main
               class="content-box rounded-lg p-6 max-w-2xl mx-auto mt-4"
               x-data="singleTarget({
@@ -194,7 +191,6 @@ if ($defender_id > 0) {
 
                 <p class="text-sm text-gray-500 mb-4">Select your fleet and issue the attack order.</p>
 
-                <!-- Keep original action reference -->
                 <form action="/src/Controllers/AttackController.php" method="POST" class="space-y-4" x-data="unitsForm()">
                     <input type="hidden" name="defender_id" value="<?= (int)$defender_id ?>">
                     <input type="hidden" name="csrf_token" value="<?= htmlspecialchars($csrf_token, ENT_QUOTES, 'UTF-8') ?>">
@@ -240,7 +236,6 @@ if ($defender_id > 0) {
             </main>
 
         <?php else: ?>
-            <!-- ===================== Target List ===================== -->
             <div class="grid grid-cols-1 lg:grid-cols-4 gap-4 p-4">
                 <aside class="lg:col-span-1 space-y-4">
                     <?php
@@ -490,15 +485,13 @@ if ($defender_id > 0) {
     </div>
 </div>
 
-<!-- Modal (unchanged; main.js controls this via IDs/classes) -->
 <div id="profile-modal" class="hidden fixed inset-0 bg-black bg-opacity-70 z-50 flex items-center justify-center p-4">
     <div id="profile-modal-content" class="bg-dark-translucent backdrop-blur-md rounded-lg shadow-2xl w-full max-w-lg mx-auto border border-cyan-400/30 relative">
         <div class="text-center p-8">Loading profile...</div>
     </div>
 </div>
 
-<!-- Keep original script reference -->
-<script src="assets/js/main.js" defer></script>
+<script src="assets/js/main.js?v=1.0.1" defer></script>
 
 <script>
 /* ---------- Alpine helpers (no references changed) ---------- */
