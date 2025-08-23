@@ -7,7 +7,7 @@ date_default_timezone_set('UTC'); // Canonicalizes all server-side time arithmet
 require_once __DIR__ . '/../../config/config.php';
 require_once __DIR__ . '/../../src/Game/GameData.php'; // Provides $upgrades and $armory_loadouts metadata structures (read-only)
 
-$csrf_token = generate_csrf_token(); // Generate token for the repair form
+$csrf_token = generate_csrf_token('repair_structure');
 $user_id = (int)($_SESSION['id'] ?? 0);
 
 require_once __DIR__ . '/../../src/Game/GameFunctions.php';
@@ -328,6 +328,7 @@ $active_page = 'dashboard.php';
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Starlight Dominion - Dashboard</title>
+    <meta name="csrf-token" content="<?php echo $csrf_token; ?>">
     <script src="https://cdn.tailwindcss.com"></script>
     <script src="https://unpkg.com/lucide@latest"></script>
     <script defer src="https://unpkg.com/alpinejs@3.x.x/dist/cdn.min.js"></script>
@@ -351,6 +352,7 @@ $active_page = 'dashboard.php';
                 </aside>
 
                 <main class="lg:col-span-3 space-y-4">
+                    <div id="dashboard-ajax-message" class="hidden p-3 rounded-md text-center"></div>
                     <div class="content-box rounded-lg p-4">
                         <div class="flex flex-col md:flex-row items-center gap-4">
                             <img src="<?php echo htmlspecialchars($user_stats['avatar_path'] ?? 'https://via.placeholder.com/100'); ?>" alt="Avatar" class="w-24 h-24 rounded-full border-2 border-gray-600 object-cover flex-shrink-0">
@@ -367,15 +369,11 @@ $active_page = 'dashboard.php';
                     <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
                         <div class="content-box rounded-lg p-4 space-y-3">
                             <div class="flex items-center justify-between border-b border-gray-600 pb-2 mb-2">
-                                <h3 class="font-title text-cyan-400 flex items-center">
-                                    <i data-lucide="banknote" class="w-5 h-5 mr-2"></i>Economic Overview
-                                </h3>
-                                <button type="button" class="text-sm px-2 py-1 rounded bg-gray-800 hover:bg-gray-700"
-                                    @click="panels.eco = !panels.eco"
-                                    x-text="panels.eco ? 'Hide' : 'Show'"></button>
+                                <h3 class="font-title text-cyan-400 flex items-center"><i data-lucide="banknote" class="w-5 h-5 mr-2"></i>Economic Overview</h3>
+                                <button type="button" class="text-sm px-2 py-1 rounded bg-gray-800 hover:bg-gray-700" @click="panels.eco = !panels.eco" x-text="panels.eco ? 'Hide' : 'Show'"></button>
                             </div>
                             <div x-show="panels.eco" x-transition x-cloak>
-                                <div class="flex justify-between text-sm"><span>Credits on Hand:</span> <span class="text-white font-semibold"><?php echo number_format($user_stats['credits']); ?></span></div>
+                                <div class="flex justify-between text-sm"><span>Credits on Hand:</span> <span id="credits-on-hand-display" class="text-white font-semibold"><?php echo number_format($user_stats['credits']); ?></span></div>
                                 <div class="flex justify-between text-sm"><span>Banked Credits:</span> <span class="text-white font-semibold"><?php echo number_format($user_stats['banked_credits']); ?></span></div>
                                 <div class="flex justify-between text-sm"><span>Income per Turn:</span> <span class="text-green-400 font-semibold">+<?php echo number_format($credits_per_turn); ?></span></div>
                                 <div class="flex justify-between text-sm"><span>Net Worth:</span> <span class="text-yellow-300 font-semibold"><?php echo number_format($user_stats['net_worth']); ?></span></div>
@@ -384,12 +382,8 @@ $active_page = 'dashboard.php';
 
                         <div class="content-box rounded-lg p-4 space-y-3">
                             <div class="flex items-center justify-between border-b border-gray-600 pb-2 mb-2">
-                                <h3 class="font-title text-cyan-400 flex items-center">
-                                    <i data-lucide="swords" class="w-5 h-5 mr-2"></i>Military Command
-                                </h3>
-                                <button type="button" class="text-sm px-2 py-1 rounded bg-gray-800 hover:bg-gray-700"
-                                    @click="panels.mil = !panels.mil"
-                                    x-text="panels.mil ? 'Hide' : 'Show'"></button>
+                                <h3 class="font-title text-cyan-400 flex items-center"><i data-lucide="swords" class="w-5 h-5 mr-2"></i>Military Command</h3>
+                                <button type="button" class="text-sm px-2 py-1 rounded bg-gray-800 hover:bg-gray-700" @click="panels.mil = !panels.mil" x-text="panels.mil ? 'Hide' : 'Show'"></button>
                             </div>
                             <div x-show="panels.mil" x-transition x-cloak>
                                 <div class="flex justify-between text-sm"><span>Offense Power:</span> <span class="text-white font-semibold"><?php echo number_format($offense_power); ?></span></div>
@@ -401,12 +395,8 @@ $active_page = 'dashboard.php';
 
                         <div class="content-box rounded-lg p-4 space-y-3">
                             <div class="flex items-center justify-between border-b border-gray-600 pb-2 mb-2">
-                                <h3 class="font-title text-cyan-400 flex items-center">
-                                    <i data-lucide="users" class="w-5 h-5 mr-2"></i>Population Census
-                                </h3>
-                                <button type="button" class="text-sm px-2 py-1 rounded bg-gray-800 hover:bg-gray-700"
-                                    @click="panels.pop = !panels.pop"
-                                    x-text="panels.pop ? 'Hide' : 'Show'"></button>
+                                <h3 class="font-title text-cyan-400 flex items-center"><i data-lucide="users" class="w-5 h-5 mr-2"></i>Population Census</h3>
+                                <button type="button" class="text-sm px-2 py-1 rounded bg-gray-800 hover:bg-gray-700" @click="panels.pop = !panels.pop" x-text="panels.pop ? 'Hide' : 'Show'"></button>
                             </div>
                             <div x-show="panels.pop" x-transition x-cloak>
                                 <div class="flex justify-between text-sm"><span>Total Population:</span> <span class="text-white font-semibold"><?php echo number_format($total_population); ?></span></div>
@@ -417,13 +407,9 @@ $active_page = 'dashboard.php';
                         </div>
 
                         <div class="content-box rounded-lg p-4 space-y-3">
-                            <div class="flex items-center justify-between border-b border-gray-600 pb-2 mb-2">
-                                <h3 class="font-title text-cyan-400 flex items-center">
-                                    <i data-lucide="rocket" class="w-5 h-5 mr-2"></i>Fleet Composition
-                                </h3>
-                                <button type="button" class="text-sm px-2 py-1 rounded bg-gray-800 hover:bg-gray-700"
-                                    @click="panels.fleet = !panels.fleet"
-                                    x-text="panels.fleet ? 'Hide' : 'Show'"></button>
+                             <div class="flex items-center justify-between border-b border-gray-600 pb-2 mb-2">
+                                <h3 class="font-title text-cyan-400 flex items-center"><i data-lucide="rocket" class="w-5 h-5 mr-2"></i>Fleet Composition</h3>
+                                <button type="button" class="text-sm px-2 py-1 rounded bg-gray-800 hover:bg-gray-700" @click="panels.fleet = !panels.fleet" x-text="panels.fleet ? 'Hide' : 'Show'"></button>
                             </div>
                             <div x-show="panels.fleet" x-transition x-cloak>
                                 <div class="flex justify-between text-sm"><span>Total Military:</span> <span class="text-white font-semibold"><?php echo number_format($total_military_units); ?></span></div>
@@ -438,12 +424,8 @@ $active_page = 'dashboard.php';
                     <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
                         <div class="content-box rounded-lg p-4 space-y-3">
                             <div class="flex items-center justify-between border-b border-gray-600 pb-2 mb-2">
-                                <h3 class="font-title text-cyan-400 flex items-center">
-                                    <i data-lucide="eye" class="w-5 h-5 mr-2"></i>Espionage Overview
-                                </h3>
-                                <button type="button" class="text-sm px-2 py-1 rounded bg-gray-800 hover:bg-gray-700"
-                                    @click="panels.esp = !panels.esp"
-                                    x-text="panels.esp ? 'Hide' : 'Show'"></button>
+                                <h3 class="font-title text-cyan-400 flex items-center"><i data-lucide="eye" class="w-5 h-5 mr-2"></i>Espionage Overview</h3>
+                                <button type="button" class="text-sm px-2 py-1 rounded bg-gray-800 hover:bg-gray-700" @click="panels.esp = !panels.esp" x-text="panels.esp ? 'Hide' : 'Show'"></button>
                             </div>
                             <div x-show="panels.esp" x-transition x-cloak>
                                 <div class="flex justify-between text-sm"><span>Spy Offense:</span> <span class="text-white font-semibold"><?php echo number_format($spy_offense); ?></span></div>
@@ -453,12 +435,8 @@ $active_page = 'dashboard.php';
 
                         <div class="content-box rounded-lg p-4 space-y-3">
                             <div class="flex items-center justify-between border-b border-gray-600 pb-2 mb-2">
-                                <h3 class="font-title text-cyan-400 flex items-center">
-                                    <i data-lucide="shield-check" class="w-5 h-5 mr-2"></i>Structure Status
-                                </h3>
-                                <button type="button" class="text-sm px-2 py-1 rounded bg-gray-800 hover:bg-gray-700"
-                                    @click="panels.structure = !panels.structure"
-                                    x-text="panels.structure ? 'Hide' : 'Show'"></button>
+                                <h3 class="font-title text-cyan-400 flex items-center"><i data-lucide="shield-check" class="w-5 h-5 mr-2"></i>Structure Status</h3>
+                                <button type="button" class="text-sm px-2 py-1 rounded bg-gray-800 hover:bg-gray-700" @click="panels.structure = !panels.structure" x-text="panels.structure ? 'Hide' : 'Show'"></button>
                             </div>
                             <div x-show="panels.structure" x-transition x-cloak>
                                 <?php
@@ -471,17 +449,13 @@ $active_page = 'dashboard.php';
                                     $hp_to_repair = max(0, $max_hp - $current_hp);
                                     $repair_cost = $hp_to_repair * 10;
                                 ?>
-                                    <div class="text-sm"><span>Foundation Health:</span> <span class="font-semibold <?php echo ($hp_percentage < 50) ? 'text-red-400' : 'text-green-400'; ?>"><?php echo number_format($current_hp) . ' / ' . number_format($max_hp); ?> (<?php echo $hp_percentage; ?>%)</span></div>
+                                    <div class="text-sm"><span>Foundation Health:</span> <span id="structure-hp-text" class="font-semibold <?php echo ($hp_percentage < 50) ? 'text-red-400' : 'text-green-400'; ?>"><?php echo number_format($current_hp) . ' / ' . number_format($max_hp); ?> (<?php echo $hp_percentage; ?>%)</span></div>
                                     <div class="w-full bg-gray-700 rounded-full h-2.5 mt-1 border border-gray-600">
-                                        <div class="bg-cyan-500 h-2.5 rounded-full" style="width: <?php echo $hp_percentage; ?>%"></div>
+                                        <div id="structure-hp-bar" class="bg-cyan-500 h-2.5 rounded-full" style="width: <?php echo $hp_percentage; ?>%"></div>
                                     </div>
                                     <div class="flex justify-between items-center mt-2">
-                                        <span class="text-xs">Repair Cost: <span class="font-semibold text-yellow-300"><?php echo number_format($repair_cost); ?></span></span>
-                                        <form action="/structures.php" method="POST">
-                                            <input type="hidden" name="action" value="repair_structure">
-                                            <input type="hidden" name="csrf_token" value="<?php echo $csrf_token; ?>">
-                                            <button type="submit" class="text-xs bg-green-700 hover:bg-green-600 text-white font-bold py-1 px-2 rounded-md <?php if ($user_stats['credits'] < $repair_cost || $current_hp >= $max_hp) echo 'opacity-50 cursor-not-allowed'; ?>" <?php if ($user_stats['credits'] < $repair_cost || $current_hp >= $max_hp) echo 'disabled'; ?>>Repair</button>
-                                        </form>
+                                        <span class="text-xs">Repair Cost: <span id="repair-cost-text" class="font-semibold text-yellow-300"><?php echo number_format($repair_cost); ?></span></span>
+                                        <button id="repair-structure-btn" type="button" class="text-xs bg-green-700 hover:bg-green-600 text-white font-bold py-1 px-2 rounded-md <?php if ($user_stats['credits'] < $repair_cost || $current_hp >= $max_hp) echo 'opacity-50 cursor-not-allowed'; ?>" <?php if ($user_stats['credits'] < $repair_cost || $current_hp >= $max_hp) echo 'disabled'; ?>>Repair</button>
                                     </div>
                                 <?php } else { ?>
                                     <p class="text-sm text-gray-400 italic">You have not built any foundations yet. Visit the <a href="/structures.php" class="text-cyan-400 hover:underline">Structures</a> page to begin.</p>
@@ -492,12 +466,8 @@ $active_page = 'dashboard.php';
                     
                     <div class="content-box rounded-lg p-4 space-y-3 mt-4">
                         <div class="flex items-center justify-between border-b border-gray-600 pb-2 mb-2">
-                            <h3 class="font-title text-cyan-400 flex items-center">
-                                <i data-lucide="shield-check" class="w-5 h-5 mr-2"></i>Security Information
-                            </h3>
-                            <button type="button" class="text-sm px-2 py-1 rounded bg-gray-800 hover:bg-gray-700"
-                                @click="panels.sec = !panels.sec"
-                                x-text="panels.sec ? 'Hide' : 'Show'"></button>
+                             <h3 class="font-title text-cyan-400 flex items-center"><i data-lucide="shield-check" class="w-5 h-5 mr-2"></i>Security Information</h3>
+                            <button type="button" class="text-sm px-2 py-1 rounded bg-gray-800 hover:bg-gray-700" @click="panels.sec = !panels.sec" x-text="panels.sec ? 'Hide' : 'Show'"></button>
                         </div>
                         <div x-show="panels.sec" x-transition x-cloak>
                             <div class="flex justify-between text-sm"><span>Current IP Address:</span> <span class="text-white font-semibold"><?php echo htmlspecialchars($_SERVER['REMOTE_ADDR']); ?></span></div>
@@ -513,6 +483,6 @@ $active_page = 'dashboard.php';
             </div>
         </div>
     </div>
-    <script src="assets/js/main.js?v=1.0.1" defer></script>
+    <script src="assets/js/main.js?v=1.0.2" defer></script>
 </body>
 </html>

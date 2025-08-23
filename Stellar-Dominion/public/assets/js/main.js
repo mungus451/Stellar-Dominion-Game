@@ -455,11 +455,74 @@ document.addEventListener('DOMContentLoaded', () => {
             }
         });
     });
+    
+    // --- AJAX Repair Button (Dashboard) ---
+    const repairBtn = document.getElementById('repair-structure-btn');
+    if (repairBtn) {
+        repairBtn.addEventListener('click', async () => {
+            const token = document.querySelector('meta[name="csrf-token"]')?.content;
+            if (!token) {
+                alert('Security token not found. Please refresh the page.');
+                return;
+            }
+
+            repairBtn.disabled = true;
+            repairBtn.textContent = 'Repairing...';
+
+            const formData = new FormData();
+            formData.append('csrf_token', token);
+
+            try {
+                const response = await fetch('/api/repair_structure.php', {
+                    method: 'POST',
+                    body: formData
+                });
+                const result = await response.json();
+                
+                const msgEl = document.getElementById('dashboard-ajax-message');
+                msgEl.textContent = result.message;
+                msgEl.classList.remove('hidden', 'bg-red-900', 'border-red-500/50', 'text-red-300', 'bg-cyan-900', 'border-cyan-500/50', 'text-cyan-300');
+
+                if (result.success) {
+                    msgEl.classList.add('bg-cyan-900', 'border-cyan-500/50', 'text-cyan-300');
+                    
+                    // Update UI elements
+                    const creditsDisplay = document.getElementById('credits-on-hand-display');
+                    const sidebarCreditsDisplay = document.querySelector('.stats-container #stats-content li:first-child span:last-child');
+                    const hpText = document.getElementById('structure-hp-text');
+                    const hpBar = document.getElementById('structure-hp-bar');
+
+                    if (creditsDisplay) creditsDisplay.textContent = result.new_credits.toLocaleString();
+                    if (sidebarCreditsDisplay) sidebarCreditsDisplay.textContent = result.new_credits.toLocaleString();
+                    if (hpText) hpText.textContent = `${result.new_hp.toLocaleString()} / ${result.max_hp.toLocaleString()} (100%)`;
+                    if (hpBar) hpBar.style.width = '100%';
+                    
+                    repairBtn.textContent = 'Repaired';
+                    // The button is already disabled, so it will stay that way.
+                } else {
+                    msgEl.classList.add('bg-red-900', 'border-red-500/50', 'text-red-300');
+                    repairBtn.disabled = false;
+                    repairBtn.textContent = 'Repair';
+                }
+
+                setTimeout(() => msgEl.classList.add('hidden'), 5000);
+
+            } catch (error) {
+                alert('An unexpected error occurred. Please check the console.');
+                console.error('Repair error:', error);
+                repairBtn.disabled = false;
+                repairBtn.textContent = 'Repair';
+            }
+        });
+    }
+
 
     // Close modal if clicking on the background overlay
-    modal.addEventListener('click', (e) => {
-        if (e.target === modal) {
-            closeModal();
-        }
-    });
+    if (modal) {
+        modal.addEventListener('click', (e) => {
+            if (e.target === modal) {
+                closeModal();
+            }
+        });
+    }
 });
