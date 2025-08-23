@@ -3,6 +3,7 @@
  * src/Controllers/ArmoryController.php - Tiered Progression Version
  *
  * Handles purchasing multiple items from the armory, enforcing prerequisites.
+ * Returns JSON for AJAX requests.
  */
 
 // Start the session if not already started
@@ -12,8 +13,9 @@ if (session_status() == PHP_SESSION_NONE) {
 
 // Ensure the user is logged in
 if (!isset($_SESSION["loggedin"]) || $_SESSION["loggedin"] !== true) {
-    // Silently exit if not logged in.
-    // In a real application, you might redirect to a login page.
+    header('Content-Type: application/json');
+    http_response_code(403);
+    echo json_encode(['success' => false, 'message' => 'Authentication required.']);
     exit;
 }
 
@@ -27,14 +29,17 @@ $action = $_POST['action'] ?? '';
 
 // Only proceed if the action is to purchase items
 if ($action !== 'upgrade_items') {
-    header("location: /armory.php");
+    header('Content-Type: application/json');
+    http_response_code(400);
+    echo json_encode(['success' => false, 'message' => 'Invalid action.']);
     exit;
 }
 
 // --- CSRF TOKEN VALIDATION ---
 if (!isset($_POST['csrf_token']) || !validate_csrf_token($_POST['csrf_token'])) {
-    $_SESSION['armory_error'] = "Security token validation failed. Please try again.";
-    header("location: /armory.php");
+    header('Content-Type: application/json');
+    http_response_code(403);
+    echo json_encode(['success' => false, 'message' => 'Security token validation failed. Please try again.']);
     exit;
 }
 // --- END CSRF VALIDATION ---
@@ -45,8 +50,9 @@ $items_to_upgrade = array_filter($_POST['items'] ?? [], function($quantity) {
 });
 
 if (empty($items_to_upgrade)) {
-    $_SESSION['armory_error'] = "No items selected for upgrade.";
-    header("location: /armory.php");
+    header('Content-Type: application/json');
+    http_response_code(400);
+    echo json_encode(['success' => false, 'message' => 'No items selected for upgrade.']);
     exit;
 }
 
@@ -154,16 +160,49 @@ try {
     mysqli_stmt_close($stmt_remove);
     
     check_and_process_levelup($user_id, $link);
-
     mysqli_commit($link);
-    $_SESSION['armory_message'] = "Items successfully upgraded for " . number_format($total_cost) . " credits! Gained " . number_format($experience_gained) . " XP (" . number_format($initial_xp) . " -> " . number_format($final_xp) . ").";
+
+    // After successful commit, fetch updated data to return
+    $sql_updated_user = "SELECT credits, experience, level, level_up_points FROM users WHERE id = ?";
+    $stmt_updated_user = mysqli_prepare($link, $sql_updated_user);
+    mysqli_stmt_bind_param($stmt_updated_user, "i", $user_id);
+    mysqli_stmt_execute($stmt_updated_user);
+    $updated_user_data = mysqli_fetch_assoc(mysqli_stmt_get_result($stmt_updated_user));
+    mysqli_stmt_close($stmt_updated_user);
+
+    // Fetch the complete updated armory to return
+    $sql_new_armory = "SELECT item_key, quantity FROM user_armory WHERE user_id = ?";
+    $stmt_new_armory = mysqli_prepare($link, $sql_new_armory);
+    mysqli_stmt_bind_param($stmt_new_armory, "i", $user_id);
+    mysqli_stmt_execute($stmt_new_armory);
+    $new_armory_result = mysqli_stmt_get_result($stmt_new_armory);
+    $updated_armory = [];
+    while($row = mysqli_fetch_assoc($new_armory_result)) {
+        $updated_armory[$row['item_key']] = $row['quantity'];
+    }
+    mysqli_stmt_close($stmt_new_armory);
+
+    header('Content-Type: application/json');
+    echo json_encode([
+        'success' => true,
+        'message' => "Items successfully upgraded for " . number_format($total_cost) . " credits! Gained " . number_format($experience_gained) . " XP.",
+        'data' => [
+            'new_credits' => $updated_user_data['credits'],
+            'new_experience' => $updated_user_data['experience'],
+            'new_level' => $updated_user_data['level'],
+            'updated_armory' => $updated_armory
+        ]
+    ]);
 
 } catch (Exception $e) {
     mysqli_rollback($link);
-    $_SESSION['armory_error'] = "Error: " . $e->getMessage();
+    header('Content-Type: application/json');
+    http_response_code(400); // Bad Request for user-facing errors
+    echo json_encode([
+        'success' => false,
+        'message' => "Error: " . $e->getMessage()
+    ]);
 }
 
-// Redirect back to the armory page
-header("location: /armory.php");
 exit;
 ?>

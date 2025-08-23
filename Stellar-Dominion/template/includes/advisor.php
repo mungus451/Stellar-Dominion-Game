@@ -121,11 +121,11 @@ if (isset($minutes_until_next_turn) && isset($seconds_remainder)) {
         <?php if (isset($user_xp) && isset($user_level)): ?>
         <div class="mt-3 pt-3 border-t border-gray-600">
             <div class="flex justify-between text-xs mb-1">
-                <span class="text-white font-semibold">Level <?php echo $user_level; ?> Progress</span>
-                <span class="text-gray-400"><?php echo number_format($user_xp) . ' / ' . number_format($xp_for_next_level); ?> XP</span>
+                <span id="advisor-level-display" class="text-white font-semibold">Level <?php echo $user_level; ?> Progress</span>
+                <span id="advisor-xp-display" class="text-gray-400"><?php echo number_format($user_xp) . ' / ' . number_format($xp_for_next_level); ?> XP</span>
             </div>
             <div class="w-full bg-gray-700 rounded-full h-2.5" title="<?php echo $xp_progress_pct; ?>%">
-                <div class="bg-cyan-500 h-2.5 rounded-full" style="width: <?php echo $xp_progress_pct; ?>%"></div>
+                <div id="advisor-xp-bar" class="bg-cyan-500 h-2.5 rounded-full" style="width: <?php echo $xp_progress_pct; ?>%"></div>
             </div>
         </div>
         <?php endif; ?>
@@ -138,7 +138,7 @@ if (isset($minutes_until_next_turn) && isset($seconds_remainder)) {
     <div id="stats-content">
         <ul class="space-y-2 text-sm">
             <?php if(isset($user_stats['credits'])): ?>
-                <li class="flex justify-between"><span>Credits:</span> <span class="text-white font-semibold"><?php echo number_format($user_stats['credits']); ?></span></li>
+                <li class="flex justify-between"><span>Credits:</span> <span id="advisor-credits-display" class="text-white font-semibold"><?php echo number_format($user_stats['credits']); ?></span></li>
             <?php endif; ?>
             <?php if(isset($user_stats['banked_credits'])): ?>
                 <li class="flex justify-between"><span>Banked Credits:</span> <span class="text-white font-semibold"><?php echo number_format($user_stats['banked_credits']); ?></span></li>
@@ -147,7 +147,7 @@ if (isset($minutes_until_next_turn) && isset($seconds_remainder)) {
                 <li class="flex justify-between"><span>Citizens:</span> <span class="text-white font-semibold"><?php echo number_format($user_stats['untrained_citizens']); ?></span></li>
             <?php endif; ?>
             <?php if(isset($user_stats['level'])): ?>
-                <li class="flex justify-between"><span>Level:</span> <span class="text-white font-semibold"><?php echo $user_stats['level']; ?></span></li>
+                <li class="flex justify-between"><span>Level:</span> <span id="advisor-level-value" class="text-white font-semibold"><?php echo $user_stats['level']; ?></span></li>
             <?php endif; ?>
             <?php if(isset($user_stats['attack_turns'])): ?>
                 <li class="flex justify-between"><span>Attack Turns:</span> <span class="text-white font-semibold"><?php echo $user_stats['attack_turns']; ?></span></li>
