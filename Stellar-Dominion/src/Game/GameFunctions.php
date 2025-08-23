@@ -1,4 +1,3 @@
-<mungus451/stellar-dominion-game/Stellar-Dominion-Game-dev5/Stellar-Dominion/src/Game/GameFunctions.php>
 <?php
 /**
  * src/Game/GameFunctions.php
@@ -66,7 +65,7 @@ function check_and_process_levelup($user_id, $link) {
 
 function process_offline_turns(mysqli $link, int $user_id): void {
     // Use all available game data
-    global $upgrades, $armory_loadouts;
+    global $upgrades, $armory_loadouts, $alliance_structures_definitions;
 
     $sql_check = "SELECT id, last_updated, workers, wealth_points, economy_upgrade_level, population_level, alliance_id FROM users WHERE id = ?";
     if($stmt_check = mysqli_prepare($link, $sql_check)) {
@@ -103,7 +102,7 @@ function process_offline_turns(mysqli $link, int $user_id): void {
                 if (!empty($user_check_data['alliance_id'])) {
                     // Set base alliance bonuses
                     $alliance_bonuses['credits'] = 5000;
-                    //$alliance_bonuses['citizens'] = 2;
+                    $alliance_bonuses['citizens'] = 2;
 
                     // 1. Query the database for OWNED structure keys
                     $sql_owned_structures = "SELECT structure_key FROM alliance_structures WHERE alliance_id = ?";
@@ -113,7 +112,6 @@ function process_offline_turns(mysqli $link, int $user_id): void {
                         $result_as = mysqli_stmt_get_result($stmt_as);
 
                         // 2. Loop through keys and look up bonuses in GameData.php
-                        global $alliance_structures_definitions; // Ensure the global variable is accessible
                         while ($structure = mysqli_fetch_assoc($result_as)) {
                             $key = $structure['structure_key'];
                             if (isset($alliance_structures_definitions[$key])) {
@@ -164,7 +162,7 @@ function process_offline_turns(mysqli $link, int $user_id): void {
                 );
                 
                 // Final Citizens per turn
-                $citizens_per_turn = 0; // Initialize at 0 for consistency.
+                $citizens_per_turn = 1; // Base of 1 citizen per turn
                 for ($i = 1; $i <= $user_check_data['population_level']; $i++) {
                     $citizens_per_turn += $upgrades['population']['levels'][$i]['bonuses']['citizens'] ?? 0;
                 }

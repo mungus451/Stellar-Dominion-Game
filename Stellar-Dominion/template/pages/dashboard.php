@@ -46,6 +46,7 @@ $user_stats += [
     'wealth_points' => $user_stats['wealth_points'] ?? 0,
     'offense_upgrade_level' => $user_stats['offense_upgrade_level'] ?? 0,
     'defense_upgrade_level' => $user_stats['defense_upgrade_level'] ?? 0,
+    'spy_upgrade_level' => $user_stats['spy_upgrade_level'] ?? 0,
     'economy_upgrade_level' => $user_stats['economy_upgrade_level'] ?? 0,
     'population_level' => $user_stats['population_level'] ?? 0,
     'last_updated' => $user_stats['last_updated'] ?? gmdate('Y-m-d H:i:s'),
@@ -180,7 +181,7 @@ $alliance_bonuses = [
 if (!empty($user_stats['alliance_id'])) {
     // Set base alliance bonuses
     $alliance_bonuses['credits'] = 5000;
-    //$alliance_bonuses['citizens'] = 2;
+    $alliance_bonuses['citizens'] = 2;
 
     // 1. Query the database for OWNED structure keys
     $sql_owned_structures = "SELECT structure_key FROM alliance_structures WHERE alliance_id = ?";
@@ -207,7 +208,7 @@ if (!empty($user_stats['alliance_id'])) {
     }
 }
 
-$citizens_per_turn = 0; // Initialize at 0, bonuses will be added.
+$citizens_per_turn = 1; // Base of 1 citizen per turn
 for ($i = 1, $n = (int)$user_stats['population_level']; $i <= $n; $i++) {
     $citizens_per_turn += (int)($upgrades['population']['levels'][$i]['bonuses']['citizens'] ?? 0);
 }
@@ -267,13 +268,14 @@ if ($guard_count > 0 && isset($armory_loadouts['guard'])) {
 
 $offense_power = (int)floor((($soldier_count * 10) * $strength_bonus + $armory_attack_bonus) * $offense_upgrade_multiplier);
 $defense_rating = (int)floor(((($guard_count * 10) + $armory_defense_bonus) * $constitution_bonus) * $defense_upgrade_multiplier);
+$spy_offense = (int)$user_stats['spies'] * (10 + (int)$user_stats['spy_upgrade_level'] * 2);
+$sentry_defense = (int)$user_stats['sentries'] * (10 + (int)$user_stats['defense_upgrade_level'] * 2);
 
 // --- POPULATION & TURN TIMER ---
 $non_military_units = (int)$user_stats['workers'] + (int)$user_stats['untrained_citizens'];
-$defensive_units = (int)$user_stats['guards'] + (int)$user_stats['sentries'];
 $offensive_units = (int)$user_stats['soldiers'];
 $utility_units = (int)$user_stats['spies'];
-$total_military_units = $defensive_units + $offensive_units + $utility_units;
+$total_military_units = $offensive_units + (int)$user_stats['guards'] + (int)$user_stats['sentries'] + $utility_units;
 $total_population = $non_military_units + $total_military_units;
 
 $turn_interval_minutes = 10;
@@ -292,14 +294,13 @@ $active_page = 'dashboard.php';
 ?>
 <!DOCTYPE html>
 <html lang="en"
-      x-data="{ panels: { eco:true, mil:true, pop:true, fleet:true, sec:true } }">
+      x-data="{ panels: { eco:true, mil:true, pop:true, fleet:true, sec:true, esp:true } }">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Starlight Dominion - Dashboard</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <script src="https://unpkg.com/lucide@latest"></script>
-    <!-- Alpine.js -->
     <script defer src="https://unpkg.com/alpinejs@3.x.x/dist/cdn.min.js"></script>
     <link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@700&family=Roboto:wght@400;500;700&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="assets/css/style.css">
@@ -335,7 +336,6 @@ $active_page = 'dashboard.php';
                     </div>
 
                     <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
-                        <!-- Economic Overview -->
                         <div class="content-box rounded-lg p-4 space-y-3">
                             <div class="flex items-center justify-between border-b border-gray-600 pb-2 mb-2">
                                 <h3 class="font-title text-cyan-400 flex items-center">
@@ -353,7 +353,6 @@ $active_page = 'dashboard.php';
                             </div>
                         </div>
 
-                        <!-- Military Command -->
                         <div class="content-box rounded-lg p-4 space-y-3">
                             <div class="flex items-center justify-between border-b border-gray-600 pb-2 mb-2">
                                 <h3 class="font-title text-cyan-400 flex items-center">
@@ -371,7 +370,6 @@ $active_page = 'dashboard.php';
                             </div>
                         </div>
 
-                        <!-- Population Census -->
                         <div class="content-box rounded-lg p-4 space-y-3">
                             <div class="flex items-center justify-between border-b border-gray-600 pb-2 mb-2">
                                 <h3 class="font-title text-cyan-400 flex items-center">
@@ -389,7 +387,6 @@ $active_page = 'dashboard.php';
                             </div>
                         </div>
 
-                        <!-- Fleet Composition -->
                         <div class="content-box rounded-lg p-4 space-y-3">
                             <div class="flex items-center justify-between border-b border-gray-600 pb-2 mb-2">
                                 <h3 class="font-title text-cyan-400 flex items-center">
@@ -402,13 +399,28 @@ $active_page = 'dashboard.php';
                             <div x-show="panels.fleet" x-transition x-cloak>
                                 <div class="flex justify-between text-sm"><span>Total Military:</span> <span class="text-white font-semibold"><?php echo number_format($total_military_units); ?></span></div>
                                 <div class="flex justify-between text-sm"><span>Offensive (Soldiers):</span> <span class="text-white font-semibold"><?php echo number_format($offensive_units); ?></span></div>
-                                <div class="flex justify-between text-sm"><span>Defensive (Guards/Sentries):</span> <span class="text-white font-semibold"><?php echo number_format($defensive_units); ?></span></div>
+                                <div class="flex justify-between text-sm"><span>Defensive (Guards):</span> <span class="text-white font-semibold"><?php echo number_format($user_stats['guards']); ?></span></div>
+                                <div class="flex justify-between text-sm"><span>Defensive (Sentries):</span> <span class="text-white font-semibold"><?php echo number_format($user_stats['sentries']); ?></span></div>
                                 <div class="flex justify-between text-sm"><span>Utility (Spies):</span> <span class="text-white font-semibold"><?php echo number_format($utility_units); ?></span></div>
                             </div>
                         </div>
                     </div>
                     
-                    <!-- Security Information -->
+                    <div class="content-box rounded-lg p-4 space-y-3">
+                        <div class="flex items-center justify-between border-b border-gray-600 pb-2 mb-2">
+                            <h3 class="font-title text-cyan-400 flex items-center">
+                                <i data-lucide="eye" class="w-5 h-5 mr-2"></i>Espionage Overview
+                            </h3>
+                            <button type="button" class="text-sm px-2 py-1 rounded bg-gray-800 hover:bg-gray-700"
+                                @click="panels.esp = !panels.esp"
+                                x-text="panels.esp ? 'Hide' : 'Show'"></button>
+                        </div>
+                        <div x-show="panels.esp" x-transition x-cloak>
+                            <div class="flex justify-between text-sm"><span>Spy Offense:</span> <span class="text-white font-semibold"><?php echo number_format($spy_offense); ?></span></div>
+                            <div class="flex justify-between text-sm"><span>Sentry Defense:</span> <span class="text-white font-semibold"><?php echo number_format($sentry_defense); ?></span></div>
+                        </div>
+                    </div>
+                    
                     <div class="content-box rounded-lg p-4 space-y-3 mt-4">
                         <div class="flex items-center justify-between border-b border-gray-600 pb-2 mb-2">
                             <h3 class="font-title text-cyan-400 flex items-center">

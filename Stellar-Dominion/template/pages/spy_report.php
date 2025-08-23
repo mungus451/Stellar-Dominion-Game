@@ -133,8 +133,13 @@ if (!$log) {
                         </div>
                     </div>
 
-                    <div class="text-center mt-6">
-                        <a href="/spy.php" class="bg-cyan-600 hover:bg-cyan-700 text-white font-bold py-2 px-6 rounded-lg">Return to Spy Missions</a>
+                    <div class="text-center mt-6 flex justify-center items-center space-x-4">
+                        <a href="/spy.php" class="bg-gray-600 hover:bg-gray-700 text-white font-bold py-2 px-6 rounded-lg">Spy Missions</a>
+                        <?php if ($is_attacker): ?>
+                            <a href="/view_profile.php?id=<?php echo $log['defender_id']; ?>" class="bg-purple-600 hover:bg-purple-700 text-white font-bold py-2 px-6 rounded-lg">Spy Again</a>
+                        <?php else: ?>
+                            <a href="/view_profile.php?id=<?php echo $log['attacker_id']; ?>" class="bg-red-600 hover:bg-red-700 text-white font-bold py-2 px-6 rounded-lg">Retaliate</a>
+                        <?php endif; ?>
                     </div>
                 <?php endif; ?>
             </div>

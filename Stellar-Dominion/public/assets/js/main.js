@@ -436,6 +436,8 @@ document.addEventListener('DOMContentLoaded', () => {
                             <div><span class="font-semibold">Workers:</span> <span class="text-white">${parseInt(data.workers).toLocaleString()}</span></div>
                             <div><span class="font-semibold">Soldiers:</span> <span class="text-white">${parseInt(data.soldiers).toLocaleString()}</span></div>
                             <div><span class="font-semibold">Guards:</span> <span class="text-white">${parseInt(data.guards).toLocaleString()}</span></div>
+                            <div><span class="font-semibold">Sentries:</span> <span class="text-white">${parseInt(data.sentries).toLocaleString()}</span></div>
+                            <div><span class="font-semibold">Spies:</span> <span class="text-white">${parseInt(data.spies).toLocaleString()}</span></div>
                         </div>
                         <div class="mt-4">
                             <h4 class="font-semibold text-cyan-400">Biography</h4>
