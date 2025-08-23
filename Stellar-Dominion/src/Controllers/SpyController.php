@@ -59,8 +59,8 @@ try {
         $attempt_count = (int)mysqli_fetch_assoc(mysqli_stmt_get_result($stmt_rate))['attempt_count'];
         mysqli_stmt_close($stmt_rate);
 
-        if ($attempt_count >= 5) {
-            throw new Exception("Rate limit exceeded. You can only attempt to assassinate this commander 5 times every 2 hours.");
+        if ($attempt_count >= 3) {
+            throw new Exception("Rate limit exceeded. You can only attempt to assassinate this commander 3 times every 2 hours.");
         }
     }
 
