@@ -266,10 +266,39 @@ if ($guard_count > 0 && isset($armory_loadouts['guard'])) {
     }
 }
 
+// --- NEW: Sentry Armory Bonus ---
+$armory_sentry_bonus = 0;
+$sentry_count = (int)$user_stats['sentries'];
+if ($sentry_count > 0 && isset($armory_loadouts['sentry'])) {
+    foreach ($armory_loadouts['sentry']['categories'] as $category) {
+        foreach ($category['items'] as $item_key => $item) {
+            if (isset($owned_items[$item_key], $item['defense'])) {
+                $effective_items = min($sentry_count, (int)$owned_items[$item_key]);
+                if ($effective_items > 0) $armory_sentry_bonus += $effective_items * (int)$item['defense'];
+            }
+        }
+    }
+}
+
+// --- NEW: Spy Armory Bonus ---
+$armory_spy_bonus = 0;
+$spy_count = (int)$user_stats['spies'];
+if ($spy_count > 0 && isset($armory_loadouts['spy'])) {
+    foreach ($armory_loadouts['spy']['categories'] as $category) {
+        foreach ($category['items'] as $item_key => $item) {
+            if (isset($owned_items[$item_key], $item['attack'])) {
+                $effective_items = min($spy_count, (int)$owned_items[$item_key]);
+                if ($effective_items > 0) $armory_spy_bonus += $effective_items * (int)$item['attack'];
+            }
+        }
+    }
+}
+
 $offense_power = (int)floor((($soldier_count * 10) * $strength_bonus + $armory_attack_bonus) * $offense_upgrade_multiplier);
 $defense_rating = (int)floor(((($guard_count * 10) + $armory_defense_bonus) * $constitution_bonus) * $defense_upgrade_multiplier);
-$spy_offense = (int)$user_stats['spies'] * (10 + (int)$user_stats['spy_upgrade_level'] * 2);
-$sentry_defense = (int)$user_stats['sentries'] * (10 + (int)$user_stats['defense_upgrade_level'] * 2);
+$spy_offense = (int)floor((($spy_count * 10) + $armory_spy_bonus) * $offense_upgrade_multiplier);
+$sentry_defense = (int)floor(((($sentry_count * 10) + $armory_sentry_bonus)) * $defense_upgrade_multiplier);
+
 
 // --- POPULATION & TURN TIMER ---
 $non_military_units = (int)$user_stats['workers'] + (int)$user_stats['untrained_citizens'];
@@ -404,20 +433,20 @@ $active_page = 'dashboard.php';
                                 <div class="flex justify-between text-sm"><span>Utility (Spies):</span> <span class="text-white font-semibold"><?php echo number_format($utility_units); ?></span></div>
                             </div>
                         </div>
-                    </div>
-                    
-                    <div class="content-box rounded-lg p-4 space-y-3">
-                        <div class="flex items-center justify-between border-b border-gray-600 pb-2 mb-2">
-                            <h3 class="font-title text-cyan-400 flex items-center">
-                                <i data-lucide="eye" class="w-5 h-5 mr-2"></i>Espionage Overview
-                            </h3>
-                            <button type="button" class="text-sm px-2 py-1 rounded bg-gray-800 hover:bg-gray-700"
-                                @click="panels.esp = !panels.esp"
-                                x-text="panels.esp ? 'Hide' : 'Show'"></button>
-                        </div>
-                        <div x-show="panels.esp" x-transition x-cloak>
-                            <div class="flex justify-between text-sm"><span>Spy Offense:</span> <span class="text-white font-semibold"><?php echo number_format($spy_offense); ?></span></div>
-                            <div class="flex justify-between text-sm"><span>Sentry Defense:</span> <span class="text-white font-semibold"><?php echo number_format($sentry_defense); ?></span></div>
+
+                        <div class="content-box rounded-lg p-4 space-y-3">
+                            <div class="flex items-center justify-between border-b border-gray-600 pb-2 mb-2">
+                                <h3 class="font-title text-cyan-400 flex items-center">
+                                    <i data-lucide="eye" class="w-5 h-5 mr-2"></i>Espionage Overview
+                                </h3>
+                                <button type="button" class="text-sm px-2 py-1 rounded bg-gray-800 hover:bg-gray-700"
+                                    @click="panels.esp = !panels.esp"
+                                    x-text="panels.esp ? 'Hide' : 'Show'"></button>
+                            </div>
+                            <div x-show="panels.esp" x-transition x-cloak>
+                                <div class="flex justify-between text-sm"><span>Spy Offense:</span> <span class="text-white font-semibold"><?php echo number_format($spy_offense); ?></span></div>
+                                <div class="flex justify-between text-sm"><span>Sentry Defense:</span> <span class="text-white font-semibold"><?php echo number_format($sentry_defense); ?></span></div>
+                            </div>
                         </div>
                     </div>
                     
@@ -444,6 +473,6 @@ $active_page = 'dashboard.php';
             </div>
         </div>
     </div>
-    <script src="assets/js/main.js" defer></script>
+    <script src="assets/js/main.js?v=1.0.1" defer></script>
 </body>
 </html>
