@@ -12,85 +12,13 @@ date_default_timezone_set('UTC');
 
 // --- FORM SUBMISSION HANDLING ---
 if ($_SERVER["REQUEST_METHOD"] == "POST") {
-    protect_csrf();
-    $action = $_POST['action'] ?? '';
-
-    mysqli_begin_transaction($link);
-    try {
-        switch ($action) {
-            case 'vacation_mode':
-                $vacation_end_date = date('Y-m-d H:i:s', strtotime('+2 weeks'));
-                $sql_vacation = "UPDATE users SET vacation_until = ? WHERE id = ?";
-                $stmt_vacation = mysqli_prepare($link, $sql_vacation);
-                mysqli_stmt_bind_param($stmt_vacation, "si", $vacation_end_date, $user_id);
-                mysqli_stmt_execute($stmt_vacation);
-                mysqli_stmt_close($stmt_vacation);
-                $_SESSION['settings_message'] = "Vacation mode has been activated for 2 weeks.";
-                break;
-
-            case 'change_email':
-                $new_email = filter_var($_POST['new_email'], FILTER_VALIDATE_EMAIL);
-                if (!$new_email) throw new Exception("Invalid email format.");
-                $sql_email = "UPDATE users SET email = ? WHERE id = ?";
-                $stmt_email = mysqli_prepare($link, $sql_email);
-                mysqli_stmt_bind_param($stmt_email, "si", $new_email, $user_id);
-                mysqli_stmt_execute($stmt_email);
-                mysqli_stmt_close($stmt_email);
-                $_SESSION['settings_message'] = "Email updated successfully.";
-                break;
-
-            case 'change_password':
-                $current_password = $_POST['current_password'] ?? '';
-                $new_password = $_POST['new_password'] ?? '';
-                $confirm_password = $_POST['verify_password'] ?? '';
-                if (empty($current_password) || empty($new_password) || empty($confirm_password)) throw new Exception("All password fields are required.");
-                if ($new_password !== $confirm_password) throw new Exception("New passwords do not match.");
-                if (strlen($new_password) < 8) throw new Exception("New password must be at least 8 characters long.");
-
-                $sql_fetch_pass = "SELECT password_hash FROM users WHERE id = ?";
-                $stmt_fetch_pass = mysqli_prepare($link, $sql_fetch_pass);
-                mysqli_stmt_bind_param($stmt_fetch_pass, "i", $user_id);
-                mysqli_stmt_execute($stmt_fetch_pass);
-                $user = mysqli_fetch_assoc(mysqli_stmt_get_result($stmt_fetch_pass));
-                mysqli_stmt_close($stmt_fetch_pass);
-                if (!$user || !password_verify($current_password, $user['password_hash'])) throw new Exception("Incorrect current password.");
-
-                $new_password_hash = password_hash($new_password, PASSWORD_DEFAULT);
-                $sql_update_pass = "UPDATE users SET password_hash = ? WHERE id = ?";
-                $stmt_update_pass = mysqli_prepare($link, $sql_update_pass);
-                mysqli_stmt_bind_param($stmt_update_pass, "si", $new_password_hash, $user_id);
-                mysqli_stmt_execute($stmt_update_pass);
-                mysqli_stmt_close($stmt_update_pass);
-                $_SESSION['settings_message'] = "Password updated successfully.";
-                break;
-
-            case 'set_security_questions':
-                $q1 = $_POST['question1']; $a1 = $_POST['answer1'];
-                $q2 = $_POST['question2']; $a2 = $_POST['answer2'];
-                if (empty($q1) || empty($a1) || empty($q2) || empty($a2)) throw new Exception("Both questions and answers are required.");
-                if ($q1 === $q2) throw new Exception("You must select two different questions.");
-                $a1_hash = password_hash(strtolower($a1), PASSWORD_DEFAULT);
-                $a2_hash = password_hash(strtolower($a2), PASSWORD_DEFAULT);
-                $sql_set_sq = "INSERT INTO user_security_questions (user_id, question_id, answer_hash) VALUES (?, ?, ?), (?, ?, ?)";
-                $stmt_set_sq = mysqli_prepare($link, $sql_set_sq);
-                mysqli_stmt_bind_param($stmt_set_sq, "iisiss", $user_id, $q1, $a1_hash, $user_id, $q2, $a2_hash);
-                mysqli_stmt_execute($stmt_set_sq);
-                mysqli_stmt_close($stmt_set_sq);
-                $_SESSION['settings_message'] = "Security questions have been set.";
-                break;
-        }
-        mysqli_commit($link);
-    } catch (Exception $e) {
-        mysqli_rollback($link);
-        $_SESSION['settings_error'] = "Error: " . $e->getMessage();
-    }
-    $current_tab = $_GET['tab'] ?? 'general';
-    header("Location: settings.php?tab=".$current_tab);
+    // All form submissions are now handled by the SettingsController
+    require_once __DIR__ . '/../../src/Controllers/SettingsController.php';
     exit;
 }
 
 // --- DATA FETCHING ---
-$sql = "SELECT credits, untrained_citizens, level, experience, attack_turns, last_updated, email, vacation_until, phone_number, phone_carrier, phone_verified FROM users WHERE id = ?";
+$sql = "SELECT credits, untrained_citizens, level, experience, attack_turns, last_updated, email, vacation_until, phone_number, phone_carrier, phone_verified, character_name FROM users WHERE id = ?";
 $stmt = mysqli_prepare($link, $sql);
 mysqli_stmt_bind_param($stmt, "i", $user_id);
 mysqli_stmt_execute($stmt);
@@ -182,8 +110,7 @@ $current_tab = $_GET['tab'] ?? 'general';
                             </nav>
                         </div>
 
-                        <!-- GENERAL -->
-                        <div id="general-content" x-show="tab==='general'">
+                        <div id="general-content" x-show="tab==='general'" class="space-y-4">
                             <div class="content-box rounded-lg p-4 space-y-3">
                                 <h3 class="font-title text-white">Vacation Mode</h3>
                                 <?php if ($is_vacation_active && $vacation_end): ?>
@@ -192,17 +119,31 @@ $current_tab = $_GET['tab'] ?? 'general';
                                 <?php else: ?>
                                     <p class="text-sm">Vacation mode allows you to temporarily disable your account. While in vacation mode, your account will be protected from attacks.</p>
                                     <p class="text-xs text-gray-500">Vacations are limited to once every quarter and last for 2 weeks.</p>
-                                    <form action="" method="POST" class="mt-4">
+                                    <form action="/settings.php" method="POST" class="mt-4">
                                         <?php echo csrf_token_field('vacation_mode'); ?>
                                         <button type="submit" name="action" value="vacation_mode" class="w-full bg-cyan-600 hover:bg-cyan-700 text-white font-bold py-2 rounded-lg">Start Vacation</button>
                                     </form>
                                 <?php endif; ?>
                             </div>
+                            
+                            <div class="content-box rounded-lg p-4 space-y-3">
+                                <h3 class="font-title text-white">Change Character Name</h3>
+                                <p class="text-sm">Changing your character name costs <strong>1,000,000 Credits</strong>. This action is irreversible.</p>
+                                <p class="text-xs text-gray-500">Current Name: <strong class="text-white"><?php echo htmlspecialchars($user_stats['character_name']); ?></strong></p>
+                                <form action="/settings.php" method="POST" class="mt-4">
+                                    <?php echo csrf_token_field('change_character_name'); ?>
+                                    <div>
+                                        <label for="new_character_name" class="text-sm text-gray-400">New Character Name</label>
+                                        <input type="text" id="new_character_name" name="new_character_name" 
+                                               class="w-full bg-gray-900/50 border border-gray-700 rounded-lg px-4 py-2 mt-1 text-white focus:outline-none focus:ring-2 focus:ring-cyan-500" required>
+                                    </div>
+                                    <button type="submit" name="action" value="change_character_name" class="mt-2 w-full bg-cyan-600 hover:bg-cyan-700 text-white font-bold py-2 rounded-lg">Change Name (1,000,000 Credits)</button>
+                                </form>
+                            </div>
                         </div>
 
-                        <!-- RECOVERY -->
                         <div id="recovery-content" x-show="tab==='recovery'" class="space-y-4">
-                            <form action="" method="POST" class="content-box rounded-lg p-4 space-y-3" x-data="{ email: '' }">
+                            <form action="/settings.php" method="POST" class="content-box rounded-lg p-4 space-y-3" x-data="{ email: '' }">
                                 <?php echo csrf_token_field('change_email'); ?>
                                 <h3 class="font-title text-white">Change Email</h3>
                                 <div>
@@ -215,7 +156,7 @@ $current_tab = $_GET['tab'] ?? 'general';
                                 <button type="submit" name="action" value="change_email" class="w-full bg-cyan-600 hover:bg-cyan-700 text-white font-bold py-2 rounded-lg">Save Email</button>
                             </form>
 
-                            <form action="" method="POST" class="content-box rounded-lg p-4 space-y-3" x-data="passwordForm()">
+                            <form action="/settings.php" method="POST" class="content-box rounded-lg p-4 space-y-3" x-data="passwordForm()">
                                 <?php echo csrf_token_field('change_password'); ?>
                                 <h3 class="font-title text-white">Change Password</h3>
                                 <div class="relative">
@@ -242,13 +183,13 @@ $current_tab = $_GET['tab'] ?? 'general';
                                 <?php if ($sq_count >= 2): ?>
                                     <p class="text-green-400">You have set up security questions for account recovery.</p>
                                     <p class="text-xs text-gray-400">To change them, you must reset them first.</p>
-                                    <form action="" method="POST" class="mt-2">
+                                    <form action="/settings.php" method="POST" class="mt-2">
                                         <?php echo csrf_token_field('reset_security_questions'); ?>
                                         <button type="submit" name="action" value="reset_security_questions" class="w-full bg-yellow-600 hover:bg-yellow-700 text-white font-bold py-2 rounded-lg">Reset Questions</button>
                                     </form>
                                 <?php else: ?>
                                     <p>Set up two security questions as an alternative recovery method. Answers are case-insensitive.</p>
-                                    <form action="" method="POST" class="space-y-3 mt-2">
+                                    <form action="/settings.php" method="POST" class="space-y-3 mt-2">
                                         <?php echo csrf_token_field('set_security_questions'); ?>
                                         <div>
                                             <label for="question1" class="text-sm">Question 1</label>
@@ -285,7 +226,6 @@ $current_tab = $_GET['tab'] ?? 'general';
                             </div>
                         </div>
 
-                        <!-- DANGER -->
                         <div id="danger-content" x-show="tab==='danger'">
                             <div class="content-box rounded-lg p-4 space-y-3 border-2 border-red-500/50">
                                 <h3 class="font-title text-red-400">Reset Account</h3>
@@ -331,6 +271,6 @@ $current_tab = $_GET['tab'] ?? 'general';
       function securityQuestions(){ return { q1:'', q2:'', a1:'', a2:'' }; }
     </script>
 
-    <script src="assets/js/main.js" defer></script>
+    <script src="assets/js/main.js?v=1.0.1" defer></script>
 </body>
 </html>
