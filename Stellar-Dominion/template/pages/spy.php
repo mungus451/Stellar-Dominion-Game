@@ -141,15 +141,7 @@ $seconds_remainder = $seconds_until_next_turn % 60;
                                             <p>Gather intelligence on the target's empire. A random 5 data points will be revealed on success.</p>
                                         </div>
                                        <div x-show="tab === 'assassination'"> 
-                                            <p>Attempt to assassinate a portion of the target's units.</p>
-                                            <div class="mt-4">
-                                                <label for="assassination_target" class="block text-sm font-medium text-gray-300">Target Unit Type</label>
-                                                <select name="assassination_target" id="assassination_target" class="mt-1 block w-full bg-gray-900 border border-gray-600 rounded-md shadow-sm py-2 px-3 focus:outline-none focus:ring-purple-500 focus:border-purple-500 sm:text-sm">
-                                                    <option value="workers">Workers</option>
-                                                    <option value="soldiers">Soldiers</option>
-                                                    <option value="guards">Guards</option>
-                                                </select>
-                                            </div> -
+                                            <p class="text-yellow-400">Feature under maintenance, apologies.</p>
                                         </div>
                                         <div x-show="tab === 'sabotage'">
                                             <p>Sabotage the target's empire foundation, causing damage.</p>
@@ -162,7 +154,7 @@ $seconds_remainder = $seconds_until_next_turn % 60;
 
                                         <div class="mt-6 flex justify-end space-x-4">
                                             <button type="button" @click="document.getElementById('spy-modal').classList.add('hidden')" class="bg-gray-600 hover:bg-gray-700 text-white font-bold py-2 px-4 rounded-lg">Cancel</button>
-                                            <button type="submit" class="bg-purple-600 hover:bg-purple-700 text-white font-bold py-2 px-4 rounded-lg">Launch Mission</button>
+                                            <button type="submit" class="bg-purple-600 hover:bg-purple-700 text-white font-bold py-2 px-4 rounded-lg" :disabled="tab === 'assassination'">Launch Mission</button>
                                         </div>
                                     </form>
                                 </div>
