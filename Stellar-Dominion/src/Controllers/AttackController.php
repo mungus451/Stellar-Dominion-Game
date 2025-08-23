@@ -2,100 +2,34 @@
 /**
  * src/Controllers/AttackController.php
  *
- *
- *
- * ─────────────────────────────────────────────────────────────────────────────
- * SYSTEMS NOTES (for engineers) — Performance, Security, Fairness
- * ─────────────────────────────────────────────────────────────────────────────
- * PERF
- * • All state changes live in a single transaction; row locks via FOR UPDATE prevent races.
- * • Query count is low and bounded (no N+1). Armory read is O(#owned_items) with in-PHP clamp.
- * • Minimal string ops in hot path; scalar math uses local vars, typed casts reduce zval churn.
- *
- * SECURITY
- * • Session auth gate + CSRF check on POST.
- * • All SQL uses prepared statements; removed two string-interpolated queries (prestige).
- * • All arithmetic clamps prevent negative resources or overflows; no minting money/units.
- * • Treaty & same-alliance checks block prohibited attacks (no gameplay change).
- *
- * FAIRNESS (balance)
- * • Sublinear turns multiplier (soft exponent) + hard cap curb snowballing.
- * • Narrow random band (±2%) preserves unpredictability without coin-flip volatility.
- * • Guard floor halts zero-out farming; structure damage clamps ensure gradual progress.
- * • Plunder capped by % and defender’s actual credits, with alliance tax/loan logic preserved.
- *
- * ─────────────────────────────────────────────────────────────────────────────
- * TUNING GUIDE (Kid-friendly; keep this near constants)
- * ─────────────────────────────────────────────────────────────────────────────
- * Imagine a soccer match:
- * • “R” is the matchup score: your team power ÷ their team power.
- * • Attack turns = how much energy you spend this match. More turns help, but not too much.
- * • Random noise = a tiny “luck” factor so every game isn’t identical.
- *
- * What the knobs do (use small steps!):
- * 1) ATK_TURNS_SOFT_EXP (default 0.50) — “More energy helps, but gently.”
- * • ↑ higher = turns matter more. ↓ lower = turns matter less.
- * • Try 0.45–0.60. Keep under 1.0 or turns will explode outcomes.
- *
- * 2) ATK_TURNS_MAX_MULT (default 1.35) — “Hard ceiling for turn power.”
- * • ↑ higher = bigger boost possible. ↓ lower = tighter fairness.
- * • Try 1.25–1.45.
- *
- * 3) UNDERDOG_MIN_RATIO_TO_WIN (default 0.85) — “How close the underdog must be.”
- * • ↑ higher = harder for weaker team to upset. ↓ lower = more upsets.
- * • Try 0.80–0.90.
- *
- * 4) RANDOM_NOISE_MIN/MAX (default 0.98–1.02) — “Luck wiggle.”
- * • Wider band = more surprises; narrower = more predictable.
- * • Try ±1–3% total band. Keep symmetrical (e.g., 0.985–1.015).
- *
- * 5) CREDITS_STEAL_* (BASE_PCT=0.08, CAP_PCT=0.20, GROWTH=0.10) — “How much treasure.”
- * • BASE_PCT = fair fight steal rate; GROWTH = extra for clear advantage.
- * • CAP_PCT = ceiling so no one loses everything.
- * • Try CAP 0.15–0.25; shift base/growth in small 0.01 steps.
- *
- * 6) GUARD_KILL_* (BASE_FRAC=0.08, ADVANTAGE_GAIN=0.07, FLOOR=10000)
- * • BASE_FRAC = what falls when R≈1; ADVANTAGE_GAIN = extra when you’re stronger.
- * • FLOOR protects defenders from hitting zero. Adjust FLOOR with population scale.
- *
- * 7) STRUCT_* (BASE_DMG=1500, ADV_EXP=0.75, TURNS_EXP=0.40,
- * MIN_IF_WIN=0.05, MAX_IF_WIN=0.25, GUARD_PROTECT_FACTOR=0.50)
- * • ADV_EXP < 1.0 = gentle scaling with advantage; TURNS_EXP < 1.0 = gentle turns impact.
- * • MIN/MAX_IF_WIN clamp per-win damage %; GUARD_PROTECT_FACTOR makes guards matter.
- *
- * HOW TO TEST LIKE A PRO (but simple):
- * • Pick a single knob. Change it a tiny bit (e.g., +0.05).
- * • Simulate or play 20 attacks where power is equal (R≈1), then 20 where R≈1.2, and 20 where R≈0.9.
- * • Check: win rates look reasonable? loot feels fair? structure damage progresses but not too fast?
- * • If something swings too hard, undo the change or dial it back halfway.
- *
- * (Tip: Don’t change many knobs at once. Small steps. Keep notes.)
+ * This is the fully corrected controller with proper CSRF validation.
  */
 
-// Ensure a PHP session exists before accessing $_SESSION.
 if (session_status() == PHP_SESSION_NONE) {
     session_start();
 }
-
-// Authorization gate
 if (!isset($_SESSION["loggedin"]) || $_SESSION["loggedin"] !== true) {
     header("location: index.html");
     exit;
 }
 
-// Includes
 require_once __DIR__ . '/../../config/config.php';
 require_once __DIR__ . '/../Game/GameData.php';
 require_once __DIR__ . '/../Game/GameFunctions.php';
 
-// CSRF
+// --- CSRF TOKEN VALIDATION (CORRECTED) ---
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
-    if (!isset($_POST['csrf_token']) || !validate_csrf_token($_POST['csrf_token'])) {
+    $token = $_POST['csrf_token'] ?? '';
+    $action = $_POST['csrf_action'] ?? 'default'; // Get the action from the form
+
+    // Validate the token against the specific action
+    if (!validate_csrf_token($token, $action)) {
         $_SESSION['attack_error'] = "A security error occurred (Invalid Token). Please try again.";
         header("location: /attack.php");
         exit;
     }
 }
+// --- END CSRF VALIDATION ---
 
 date_default_timezone_set('UTC');
 
