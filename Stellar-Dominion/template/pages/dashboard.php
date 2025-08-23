@@ -1,4 +1,15 @@
+
 <?php
+
+// Set the page title for the header
+$page_title = 'Dashboard';
+
+// Set the active page for the navigation
+$active_page = 'dashboard.php';
+
+
+
+
 // --- SESSION AND DATABASE SETUP ---
 // session_start() and the login check are now handled by the main router (public/index.php)
 date_default_timezone_set('UTC'); // Canonicalizes all server-side time arithmetic to UTC to avoid DST drift.
@@ -9,6 +20,10 @@ require_once __DIR__ . '/../../src/Game/GameData.php'; // Provides $upgrades and
 
 $csrf_token = generate_csrf_token('repair_structure');
 $user_id = (int)($_SESSION['id'] ?? 0);
+
+// Include the universal header
+include_once __DIR__ . '/../includes/header.php';
+
 
 require_once __DIR__ . '/../../src/Game/GameFunctions.php';
 
@@ -319,30 +334,10 @@ $seconds_remainder = $seconds_until_next_turn % 60;
 
 mysqli_close($link);
 
-$active_page = 'dashboard.php';
-?>
-<!DOCTYPE html>
-<html lang="en"
-      x-data="{ panels: { eco:true, mil:true, pop:true, fleet:true, sec:true, esp:true, structure: true } }">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Starlight Dominion - Dashboard</title>
-    <meta name="csrf-token" content="<?php echo $csrf_token; ?>">
-    <script src="https://cdn.tailwindcss.com"></script>
-    <script src="https://unpkg.com/lucide@latest"></script>
-    <script defer src="https://unpkg.com/alpinejs@3.x.x/dist/cdn.min.js"></script>
-    <link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@700&family=Roboto:wght@400;500;700&display=swap" rel="stylesheet">
-    <link rel="stylesheet" href="assets/css/style.css">
-    <style>[x-cloak]{display:none!important}</style>
-</head>
-<body class="text-gray-400 antialiased">
-    <div class="min-h-screen bg-cover bg-center bg-fixed" style="background-image: url('/assets/img/backgroundAlt.avif');">
-        <div class="container mx-auto p-4 md:p-8">
-            
-            <?php include_once __DIR__ . '/../includes/navigation.php'; ?>
 
-            <div class="grid grid-cols-1 lg:grid-cols-4 gap-4 p-4">
+?>
+
+
                 <aside class="lg:col-span-1 space-y-4">
                     <?php 
                         $user_xp = $user_stats['experience'];
@@ -480,9 +475,10 @@ $active_page = 'dashboard.php';
                         </div>
                     </div>
                 </main>
-            </div>
-        </div>
-    </div>
-    <script src="assets/js/main.js?v=1.0.2" defer></script>
-</body>
-</html>
+
+
+                <?php
+                    // Include the universal footer
+                    include_once __DIR__ . '/../includes/footer.php';
+                    ?>
+            
