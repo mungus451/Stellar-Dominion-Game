@@ -7,7 +7,7 @@ date_default_timezone_set('UTC'); // Canonicalizes all server-side time arithmet
 require_once __DIR__ . '/../../config/config.php';
 require_once __DIR__ . '/../../src/Game/GameData.php'; // Provides $upgrades and $armory_loadouts metadata structures (read-only)
 
-// Explicit cast prevents accidental string injection and quiets strict typing paths.
+$csrf_token = generate_csrf_token(); // Generate token for the repair form
 $user_id = (int)($_SESSION['id'] ?? 0);
 
 require_once __DIR__ . '/../../src/Game/GameFunctions.php';
@@ -49,6 +49,8 @@ $user_stats += [
     'spy_upgrade_level' => $user_stats['spy_upgrade_level'] ?? 0,
     'economy_upgrade_level' => $user_stats['economy_upgrade_level'] ?? 0,
     'population_level' => $user_stats['population_level'] ?? 0,
+    'fortification_level' => $user_stats['fortification_level'] ?? 0,
+    'fortification_hitpoints' => $user_stats['fortification_hitpoints'] ?? 0,
     'last_updated' => $user_stats['last_updated'] ?? gmdate('Y-m-d H:i:s'),
     'experience' => $user_stats['experience'] ?? 0,
     'level' => $user_stats['level'] ?? 1,
@@ -266,7 +268,6 @@ if ($guard_count > 0 && isset($armory_loadouts['guard'])) {
     }
 }
 
-// --- NEW: Sentry Armory Bonus ---
 $armory_sentry_bonus = 0;
 $sentry_count = (int)$user_stats['sentries'];
 if ($sentry_count > 0 && isset($armory_loadouts['sentry'])) {
@@ -280,7 +281,6 @@ if ($sentry_count > 0 && isset($armory_loadouts['sentry'])) {
     }
 }
 
-// --- NEW: Spy Armory Bonus ---
 $armory_spy_bonus = 0;
 $spy_count = (int)$user_stats['spies'];
 if ($spy_count > 0 && isset($armory_loadouts['spy'])) {
@@ -323,7 +323,7 @@ $active_page = 'dashboard.php';
 ?>
 <!DOCTYPE html>
 <html lang="en"
-      x-data="{ panels: { eco:true, mil:true, pop:true, fleet:true, sec:true, esp:true } }">
+      x-data="{ panels: { eco:true, mil:true, pop:true, fleet:true, sec:true, esp:true, structure: true } }">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
@@ -433,7 +433,9 @@ $active_page = 'dashboard.php';
                                 <div class="flex justify-between text-sm"><span>Utility (Spies):</span> <span class="text-white font-semibold"><?php echo number_format($utility_units); ?></span></div>
                             </div>
                         </div>
-
+                    </div>
+                    
+                    <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
                         <div class="content-box rounded-lg p-4 space-y-3">
                             <div class="flex items-center justify-between border-b border-gray-600 pb-2 mb-2">
                                 <h3 class="font-title text-cyan-400 flex items-center">
@@ -446,6 +448,44 @@ $active_page = 'dashboard.php';
                             <div x-show="panels.esp" x-transition x-cloak>
                                 <div class="flex justify-between text-sm"><span>Spy Offense:</span> <span class="text-white font-semibold"><?php echo number_format($spy_offense); ?></span></div>
                                 <div class="flex justify-between text-sm"><span>Sentry Defense:</span> <span class="text-white font-semibold"><?php echo number_format($sentry_defense); ?></span></div>
+                            </div>
+                        </div>
+
+                        <div class="content-box rounded-lg p-4 space-y-3">
+                            <div class="flex items-center justify-between border-b border-gray-600 pb-2 mb-2">
+                                <h3 class="font-title text-cyan-400 flex items-center">
+                                    <i data-lucide="shield-check" class="w-5 h-5 mr-2"></i>Structure Status
+                                </h3>
+                                <button type="button" class="text-sm px-2 py-1 rounded bg-gray-800 hover:bg-gray-700"
+                                    @click="panels.structure = !panels.structure"
+                                    x-text="panels.structure ? 'Hide' : 'Show'"></button>
+                            </div>
+                            <div x-show="panels.structure" x-transition x-cloak>
+                                <?php
+                                $current_fort_level = (int)$user_stats['fortification_level'];
+                                if ($current_fort_level > 0) {
+                                    $fort_details = $upgrades['fortifications']['levels'][$current_fort_level];
+                                    $max_hp = (int)$fort_details['hitpoints'];
+                                    $current_hp = (int)$user_stats['fortification_hitpoints'];
+                                    $hp_percentage = ($max_hp > 0) ? floor(($current_hp / $max_hp) * 100) : 0;
+                                    $hp_to_repair = max(0, $max_hp - $current_hp);
+                                    $repair_cost = $hp_to_repair * 10;
+                                ?>
+                                    <div class="text-sm"><span>Foundation Health:</span> <span class="font-semibold <?php echo ($hp_percentage < 50) ? 'text-red-400' : 'text-green-400'; ?>"><?php echo number_format($current_hp) . ' / ' . number_format($max_hp); ?> (<?php echo $hp_percentage; ?>%)</span></div>
+                                    <div class="w-full bg-gray-700 rounded-full h-2.5 mt-1 border border-gray-600">
+                                        <div class="bg-cyan-500 h-2.5 rounded-full" style="width: <?php echo $hp_percentage; ?>%"></div>
+                                    </div>
+                                    <div class="flex justify-between items-center mt-2">
+                                        <span class="text-xs">Repair Cost: <span class="font-semibold text-yellow-300"><?php echo number_format($repair_cost); ?></span></span>
+                                        <form action="/structures.php" method="POST">
+                                            <input type="hidden" name="action" value="repair_structure">
+                                            <input type="hidden" name="csrf_token" value="<?php echo $csrf_token; ?>">
+                                            <button type="submit" class="text-xs bg-green-700 hover:bg-green-600 text-white font-bold py-1 px-2 rounded-md <?php if ($user_stats['credits'] < $repair_cost || $current_hp >= $max_hp) echo 'opacity-50 cursor-not-allowed'; ?>" <?php if ($user_stats['credits'] < $repair_cost || $current_hp >= $max_hp) echo 'disabled'; ?>>Repair</button>
+                                        </form>
+                                    </div>
+                                <?php } else { ?>
+                                    <p class="text-sm text-gray-400 italic">You have not built any foundations yet. Visit the <a href="/structures.php" class="text-cyan-400 hover:underline">Structures</a> page to begin.</p>
+                                <?php } ?>
                             </div>
                         </div>
                     </div>
