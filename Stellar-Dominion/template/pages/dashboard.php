@@ -7,9 +7,6 @@ $page_title = 'Dashboard';
 // Set the active page for the navigation
 $active_page = 'dashboard.php';
 
-
-
-
 // --- SESSION AND DATABASE SETUP ---
 // session_start() and the login check are now handled by the main router (public/index.php)
 date_default_timezone_set('UTC'); // Canonicalizes all server-side time arithmetic to UTC to avoid DST drift.
