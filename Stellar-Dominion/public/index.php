@@ -189,6 +189,8 @@ $routes = [
     '/settings.php'         => '../template/pages/settings.php',
     '/war_history'          => '../template/pages/war_history.php',
     '/war_history.php'      => '../template/pages/war_history.php',
+    '/spy_history'          => '../template/pages/spy_history.php',
+    '/spy_history.php'      => '../template/pages/spy_history.php',
     '/battle_report'        => '../template/pages/battle_report.php',
     '/battle_report.php'    => '../template/pages/battle_report.php',
     '/spy_report.php'       => '../template/pages/spy_report.php',
@@ -284,7 +286,7 @@ $routes = [
 // • Consider grouping by feature to simplify auditing.
 $authenticated_routes = [
     '/dashboard', '/dashboard.php', '/attack', '/attack.php', '/battle', '/battle.php', 
-    '/spy.php', '/spy',
+    '/spy.php', '/spy', '/spy_history.php', '/spy_history',
     '/armory', '/armory.php', '/auto_recruit', '/auto_recruit.php', '/structures', 
     '/structures.php', '/bank', '/bank.php', '/levels', '/levels.php', '/profile', 
     '/profile.php', '/settings', '/settings.php', '/war_history', '/war_history.php',

@@ -92,8 +92,8 @@ try {
 
     // --- XP Calculation ---
     $level_diff_attacker = ((int)$defender['level']) - ((int)$attacker['level']);
-    $attacker_xp_gained = max(1, (int)floor(($outcome == 'success' ? rand(50, 75) : rand(10, 20)) * $attack_turns * max(0.1, 1 + ($level_diff_attacker * 0.05))));
-    $defender_xp_gained = max(1, (int)floor(($outcome == 'success' ? rand(10, 20) : rand(25, 40)) * max(0.1, 1 - ($level_diff_attacker * 0.05))));
+    $attacker_xp_gained  = max(1, (int)floor(($outcome == 'success' ? rand(200, 300) : rand(40, 80)) * $attack_turns * max(0.1, 1 + ($level_diff_attacker * 0.05))));
+    $defender_xp_gained  = max(1, (int)floor(($outcome == 'success' ? rand(40, 80) : rand(100, 160)) * max(0.1, 1 - ($level_diff_attacker * 0.05))));
 
 
     $intel_gathered = null;
