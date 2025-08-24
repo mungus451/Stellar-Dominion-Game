@@ -1,4 +1,3 @@
-
 <?php
 
 // Set the page title for the header
@@ -14,19 +13,17 @@ date_default_timezone_set('UTC'); // Canonicalizes all server-side time arithmet
 // --- CORRECTED FILE PATHS ---
 require_once __DIR__ . '/../../config/config.php';
 require_once __DIR__ . '/../../src/Game/GameData.php'; // Provides $upgrades and $armory_loadouts metadata structures (read-only)
+require_once __DIR__ . '/../../src/Game/GameFunctions.php'; // <- canonical income + offline processing
 
 $csrf_token = generate_csrf_token('repair_structure');
 $user_id = (int)($_SESSION['id'] ?? 0);
 
-// Include the universal header
-include_once __DIR__ . '/../includes/header.php';
-
-
-require_once __DIR__ . '/../../src/Game/GameFunctions.php';
-
 // Turn compaction side-effect: this function may mutate persistent state (credits, citizens, etc.)
 // based on elapsed turns. We intentionally call it *before* reading user rows to reflect current state.
-process_offline_turns($link, $_SESSION["id"]);
+// (Also releases any 30m “assassination → untrained” batches.)
+if ($user_id > 0) {
+    process_offline_turns($link, $user_id);
+}
 
 // --- DATA FETCHING FOR DISPLAY ---
 $user_stats = [];
@@ -167,7 +164,7 @@ if ($new_net_worth !== (int)$user_stats['net_worth']) {
     }
 }
 
-// --- UPGRADE MULTIPLIERS ---
+// --- UPGRADE MULTIPLIERS (for combat stats display only) ---
 $total_offense_bonus_pct = 0;
 for ($i = 1, $n = (int)$user_stats['offense_upgrade_level']; $i <= $n; $i++) {
     $total_offense_bonus_pct += (float)($upgrades['offense']['levels'][$i]['bonuses']['offense'] ?? 0);
@@ -180,79 +177,12 @@ for ($i = 1, $n = (int)$user_stats['defense_upgrade_level']; $i <= $n; $i++) {
 }
 $defense_upgrade_multiplier = 1 + ($total_defense_bonus_pct / 100);
 
-$total_economy_bonus_pct = 0;
-for ($i = 1, $n = (int)$user_stats['economy_upgrade_level']; $i <= $n; $i++) {
-    $total_economy_bonus_pct += (float)($upgrades['economy']['levels'][$i]['bonuses']['income'] ?? 0);
-}
-$economy_upgrade_multiplier = 1 + ($total_economy_bonus_pct / 100);
+// --- CANONICAL PER-TURN ECONOMY (SINGLE SOURCE OF TRUTH) ---
+$summary = calculate_income_summary($link, $user_id, $user_stats);
+$credits_per_turn  = (int)$summary['income_per_turn'];
+$citizens_per_turn = (int)$summary['citizens_per_turn'];
 
-// --- ALLIANCE BONUSES & TURN MATH ---
-$alliance_bonuses = [
-    'income' => 0.0, 'defense' => 0.0, 'offense' => 0.0, 'citizens' => 0.0,
-    'resources' => 0.0, 'credits' => 0.0
-];
-
-if (!empty($user_stats['alliance_id'])) {
-    // Set base alliance bonuses
-    $alliance_bonuses['credits'] = 5000;
-    $alliance_bonuses['citizens'] = 2;
-
-    // 1. Query the database for OWNED structure keys
-    $sql_owned_structures = "SELECT structure_key FROM alliance_structures WHERE alliance_id = ?";
-    if ($stmt_as = mysqli_prepare($link, $sql_owned_structures)) {
-        mysqli_stmt_bind_param($stmt_as, "i", $user_stats['alliance_id']);
-        mysqli_stmt_execute($stmt_as);
-        $result_as = mysqli_stmt_get_result($stmt_as);
-
-        // 2. Loop through keys and look up bonuses in GameData.php
-        while ($structure = mysqli_fetch_assoc($result_as)) {
-            $key = $structure['structure_key'];
-            if (isset($alliance_structures_definitions[$key])) {
-                $bonus_data = json_decode($alliance_structures_definitions[$key]['bonuses'], true);
-                if (is_array($bonus_data)) {
-                    foreach ($bonus_data as $bonus_key => $value) {
-                        if (isset($alliance_bonuses[$bonus_key])) {
-                            $alliance_bonuses[$bonus_key] += $value;
-                        }
-                    }
-                }
-            }
-        }
-        mysqli_stmt_close($stmt_as);
-    }
-}
-
-$citizens_per_turn = 1; // Base of 1 citizen per turn
-for ($i = 1, $n = (int)$user_stats['population_level']; $i <= $n; $i++) {
-    $citizens_per_turn += (int)($upgrades['population']['levels'][$i]['bonuses']['citizens'] ?? 0);
-}
-$citizens_per_turn += (int)$alliance_bonuses['citizens'];
-
-$worker_armory_income_bonus = 0;
-$worker_count = (int)$user_stats['workers'];
-if ($worker_count > 0 && isset($armory_loadouts['worker'])) {
-    foreach ($armory_loadouts['worker']['categories'] as $category) {
-        foreach ($category['items'] as $item_key => $item) {
-            if (isset($owned_items[$item_key], $item['attack'])) {
-                $effective_items = min($worker_count, (int)$owned_items[$item_key]);
-                if ($effective_items > 0) $worker_armory_income_bonus += $effective_items * (int)$item['attack'];
-            }
-        }
-    }
-}
-
-$worker_income = ((int)$user_stats['workers'] * 50) + $worker_armory_income_bonus;
-$total_base_income = 5000 + $worker_income;
-$wealth_bonus = 1 + ((float)$user_stats['wealth_points'] * 0.01);
-$alliance_income_multiplier = 1.0 + ($alliance_bonuses['income'] / 100.0);
-$alliance_resource_multiplier = 1.0 + ($alliance_bonuses['resources'] / 100.0);
-
-$credits_per_turn = (int)floor(
-    ($total_base_income * $wealth_bonus * $economy_upgrade_multiplier * $alliance_income_multiplier * $alliance_resource_multiplier)
-    + $alliance_bonuses['credits']
-);
-
-// --- DERIVED STATS ---
+// --- DERIVED COMBAT STATS (unchanged) ---
 $strength_bonus = 1 + ((float)$user_stats['strength_points'] * 0.01);
 $constitution_bonus = 1 + ((float)$user_stats['constitution_points'] * 0.01);
 
@@ -311,7 +241,6 @@ $defense_rating = (int)floor(((($guard_count * 10) + $armory_defense_bonus) * $c
 $spy_offense = (int)floor((($spy_count * 10) + $armory_spy_bonus) * $offense_upgrade_multiplier);
 $sentry_defense = (int)floor(((($sentry_count * 10) + $armory_sentry_bonus)) * $defense_upgrade_multiplier);
 
-
 // --- POPULATION & TURN TIMER ---
 $non_military_units = (int)$user_stats['workers'] + (int)$user_stats['untrained_citizens'];
 $offensive_units = (int)$user_stats['soldiers'];
@@ -329,11 +258,11 @@ if ($seconds_until_next_turn < 0) { $seconds_until_next_turn = 0; }
 $minutes_until_next_turn = (int)floor($seconds_until_next_turn / 60);
 $seconds_remainder = $seconds_until_next_turn % 60;
 
-mysqli_close($link);
+// Include the universal header AFTER data is ready (advisor needs some of it)
+include_once __DIR__ . '/../includes/header.php';
 
-
+// (Optional) We keep the connection open; footer doesn’t require DB, but other includes might.
 ?>
-
 
                 <aside class="lg:col-span-1 space-y-4">
                     <?php 
@@ -473,9 +402,7 @@ mysqli_close($link);
                     </div>
                 </main>
 
-
                 <?php
                     // Include the universal footer
                     include_once __DIR__ . '/../includes/footer.php';
-                    ?>
-            
+                ?>
