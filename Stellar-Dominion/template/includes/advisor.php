@@ -215,7 +215,7 @@ if ($viewer_user_id > 0) {
 
             <?php if(($recovering_untrained ?? 0) > 0): ?>
                 <li class="flex justify-between text-amber-300">
-                    <span>Recovering (30m lock):</span>
+                    <span>Recovering (lock):</span>
                     <span><?php echo number_format((int)$recovering_untrained); ?></span>
                 </li>
             <?php endif; ?>
