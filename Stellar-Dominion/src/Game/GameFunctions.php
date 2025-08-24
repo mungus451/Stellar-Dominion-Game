@@ -13,11 +13,8 @@
  * @param mysqli $link The active database connection.
  */
 function check_and_process_levelup($user_id, $link) {
-    // Begin a transaction for safety, although it might be called within another transaction.
-    // Using savepoints would be more advanced, but a simple transaction is safe enough here.
     mysqli_begin_transaction($link);
     try {
-        // Fetch the user's current state, locking the row.
         $sql_get = "SELECT level, experience, level_up_points FROM users WHERE id = ? FOR UPDATE";
         $stmt_get = mysqli_prepare($link, $sql_get);
         mysqli_stmt_bind_param($stmt_get, "i", $user_id);
@@ -27,26 +24,21 @@ function check_and_process_levelup($user_id, $link) {
 
         if (!$user) { throw new Exception("User not found during level-up check."); }
 
-        $current_level = $user['level'];
-        $current_xp = $user['experience'];
-        $current_points = $user['level_up_points'];
-        $leveled_up = false;
+        $current_level  = (int)$user['level'];
+        $current_xp     = (int)$user['experience'];
+        $current_points = (int)$user['level_up_points'];
+        $leveled_up     = false;
 
-        // The XP required for the next level is based on the current level.
         $xp_needed = floor(1000 * pow($current_level, 1.5));
 
-        // Loop to handle multiple level-ups from a large XP gain
         while ($current_xp >= $xp_needed && $xp_needed > 0) {
-            $leveled_up = true;
-            $current_xp -= $xp_needed; // Subtract the cost of the level-up
-            $current_level++;          // Increase level
-            $current_points++;         // Grant a proficiency point
-
-            // Recalculate the XP needed for the new current level
+            $leveled_up   = true;
+            $current_xp  -= $xp_needed;
+            $current_level++;
+            $current_points++;
             $xp_needed = floor(1000 * pow($current_level, 1.5));
         }
 
-        // If a level-up occurred, update the database
         if ($leveled_up) {
             $sql_update = "UPDATE users SET level = ?, experience = ?, level_up_points = ? WHERE id = ?";
             $stmt_update = mysqli_prepare($link, $sql_update);
@@ -54,16 +46,70 @@ function check_and_process_levelup($user_id, $link) {
             mysqli_stmt_execute($stmt_update);
             mysqli_stmt_close($stmt_update);
         }
-        
         mysqli_commit($link);
-
     } catch (Exception $e) {
         mysqli_rollback($link);
-        // Silently fail for now, or add logging for debugging.
+        // Optional: error_log($e->getMessage());
+    }
+}
+
+/**
+ * Releases queued untrained units whose 30-min lock expired, moving them into users.untrained_citizens.
+ * Uses your exact columns: quantity, available_at.
+ */
+function release_untrained_units(mysqli $link, int $specific_user_id): void {
+    // Quick existence check for table/columns (defensive)
+    $chk = mysqli_query(
+        $link,
+        "SELECT 1 FROM information_schema.columns
+         WHERE table_schema = DATABASE() AND table_name='untrained_units'
+           AND column_name IN ('user_id','unit_type','quantity','available_at')"
+    );
+    if (!$chk || mysqli_num_rows($chk) < 4) { if ($chk) mysqli_free_result($chk); return; }
+    mysqli_free_result($chk);
+
+    // Aggregate how many are ready for this user
+    $sql_sum = "SELECT COALESCE(SUM(quantity),0) AS total
+                  FROM untrained_units
+                 WHERE user_id = ? AND available_at <= UTC_TIMESTAMP()";
+    $stmtS = mysqli_prepare($link, $sql_sum);
+    mysqli_stmt_bind_param($stmtS, "i", $specific_user_id);
+    mysqli_stmt_execute($stmtS);
+    $resS = mysqli_stmt_get_result($stmtS);
+    $rowS = $resS ? mysqli_fetch_assoc($resS) : ['total'=>0];
+    if ($resS) mysqli_free_result($resS);
+    mysqli_stmt_close($stmtS);
+
+    $totalReady = (int)$rowS['total'];
+    if ($totalReady <= 0) return;
+
+    mysqli_begin_transaction($link);
+    try {
+        // Credit to user's untrained_citizens
+        $sqlU = "UPDATE users SET untrained_citizens = untrained_citizens + ? WHERE id = ?";
+        $stmtU = mysqli_prepare($link, $sqlU);
+        mysqli_stmt_bind_param($stmtU, "ii", $totalReady, $specific_user_id);
+        mysqli_stmt_execute($stmtU);
+        mysqli_stmt_close($stmtU);
+
+        // Delete consumed rows
+        $sqlD = "DELETE FROM untrained_units WHERE user_id = ? AND available_at <= UTC_TIMESTAMP()";
+        $stmtD = mysqli_prepare($link, $sqlD);
+        mysqli_stmt_bind_param($stmtD, "i", $specific_user_id);
+        mysqli_stmt_execute($stmtD);
+        mysqli_stmt_close($stmtD);
+
+        mysqli_commit($link);
+    } catch (Throwable $e) {
+        mysqli_rollback($link);
+        error_log("release_untrained_units() error: " . $e->getMessage());
     }
 }
 
 function process_offline_turns(mysqli $link, int $user_id): void {
+    // Drain any expired 30-min locks into users.untrained_citizens for this user.
+    release_untrained_units($link, $user_id);
+
     // Use all available game data
     global $upgrades, $armory_loadouts, $alliance_structures_definitions;
 
@@ -168,9 +214,9 @@ function process_offline_turns(mysqli $link, int $user_id): void {
                 }
                 $citizens_per_turn += (int)$alliance_bonuses['citizens'];
 
-                $gained_credits = $income_per_turn * $turns_to_process;
-                $gained_attack_turns = $turns_to_process * 2;
-                $gained_citizens = $turns_to_process * $citizens_per_turn;
+                $gained_credits       = $income_per_turn * $turns_to_process;
+                $gained_attack_turns  = $turns_to_process * 2;
+                $gained_citizens      = $turns_to_process * $citizens_per_turn;
                 
                 // --- END: FULL INCOME CALCULATION ---
                 

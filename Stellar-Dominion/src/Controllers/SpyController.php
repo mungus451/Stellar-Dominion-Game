@@ -17,80 +17,48 @@ require_once __DIR__ . '/../Game/GameFunctions.php';
 
 // --- CSRF TOKEN VALIDATION (CORRECTED) ---
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
-    // Get the token and the action from the submitted form
-    $token = $_POST['csrf_token'] ?? '';
+    $token  = $_POST['csrf_token']  ?? '';
     $action = $_POST['csrf_action'] ?? 'default';
-
-    // Validate the token against the specific action
     if (!validate_csrf_token($token, $action)) {
         $_SESSION['spy_error'] = "A security error occurred (Invalid Token). Please try again.";
         header("location: /spy.php");
         exit;
     }
 }
-// --- END CSRF VALIDATION ---
 
 date_default_timezone_set('UTC');
 
 /* ─────────────────────────────────────────────────────────────────────────────
  * TUNING (no fatigue knobs)
  * ────────────────────────────────────────────────────────────────────────────*/
-const SPY_TURNS_SOFT_EXP        = 0.50;  // sublinear benefit from turns
-const SPY_TURNS_MAX_MULT        = 1.35;  // hard cap on turns impact
-const SPY_RANDOM_BAND           = 0.02;  // ±2% luck
-const SPY_MIN_SUCCESS_RATIO     = 1.20;  // required effective ratio to succeed
+const SPY_TURNS_SOFT_EXP        = 0.50;
+const SPY_TURNS_MAX_MULT        = 1.35;
+const SPY_RANDOM_BAND           = 0.02;
+const SPY_MIN_SUCCESS_RATIO     = 1.20;
 
-// Assassination kill % (of target units), scaled by effective ratio
-const SPY_ASSASSINATE_KILL_MIN    = 0.02;  // 2%
-const SPY_ASSASSINATE_KILL_MAX    = 0.06;  // 6%
+const SPY_ASSASSINATE_KILL_MIN  = 0.02;
+const SPY_ASSASSINATE_KILL_MAX  = 0.06;
 
-// Sabotage damage % of remaining fortification HP
-const SPY_SABOTAGE_DMG_MIN        = 0.04;  // 4%
-const SPY_SABOTAGE_DMG_MAX        = 0.10;  // 10%
+const SPY_SABOTAGE_DMG_MIN      = 0.04;
+const SPY_SABOTAGE_DMG_MAX      = 0.10;
 
-// XP ranges
-const SPY_XP_ATTACKER_MIN         = 100;
-const SPY_XP_ATTACKER_MAX         = 160;
-const SPY_XP_DEFENDER_MIN         = 40;
-const SPY_XP_DEFENDER_MAX         = 80;
+const SPY_XP_ATTACKER_MIN       = 100;
+const SPY_XP_ATTACKER_MAX       = 160;
+const SPY_XP_DEFENDER_MIN       = 40;
+const SPY_XP_DEFENDER_MAX       = 80;
 
-// Intel config
-const SPY_INTEL_DRAW_COUNT        = 5;     // pick 5 of 10 stats
+const SPY_INTEL_DRAW_COUNT      = 5;
 
-// Rate limiting — applies ONLY to assassination
+// NOTE: assassination rate limit knobs exist but disabled pending schema.
 const SPY_ASSASSINATE_WINDOW_HRS  = 2;
 const SPY_ASSASSINATE_MAX_TRIES   = 2;
 
-/* ─────────────────────────────────────────────────────────────────────────────
- * Helpers
- * ────────────────────────────────────────────────────────────────────────────*/
 function clamp_int($v, $min, $max) { return max($min, min($max, (int)$v)); }
 function clamp_float($v, $min, $max){ return max($min, min($max, (float)$v)); }
-
-function turns_multiplier(int $turns): float {
-    $soft = pow(max(1, $turns), SPY_TURNS_SOFT_EXP);
-    return min($soft, SPY_TURNS_MAX_MULT);
-}
-
-function luck_scalar(): float {
-    $band = SPY_RANDOM_BAND;
-    $delta = (mt_rand(0, 10000) / 10000.0) * (2 * $band) - $band;
-    return 1.0 + $delta;
-}
-
-function decide_success(float $attack_power, float $def_power, int $turns): array {
-    $ratio = ($def_power > 0) ? ($attack_power / $def_power) : 100.0;
-    $effective = $ratio * turns_multiplier($turns) * luck_scalar();
-    return [ $effective >= SPY_MIN_SUCCESS_RATIO, $ratio, $effective ];
-}
-
-function bounded_rand_pct(float $minPct, float $maxPct): float {
-    $minPct = clamp_float($minPct, 0.0, 1.0);
-    $maxPct = clamp_float($maxPct, 0.0, 1.0);
-    if ($maxPct < $minPct) $maxPct = $minPct;
-    $r = mt_rand(0, 10000) / 10000.0;
-    return $minPct + ($maxPct - $minPct) * $r;
-}
+function turns_multiplier(int $t): float { $s = pow(max(1,$t), SPY_TURNS_SOFT_EXP); return min($s, SPY_TURNS_MAX_MULT); }
+function luck_scalar(): float { $b = SPY_RANDOM_BAND; $d = (mt_rand(0,10000)/10000.0)*(2*$b)-$b; return 1.0+$d; }
+function decide_success(float $a, float $d, int $t): array { $r = ($d>0)?($a/$d):100.0; $e = $r*turns_multiplier($t)*luck_scalar(); return [$e>=SPY_MIN_SUCCESS_RATIO,$r,$e]; }
+function bounded_rand_pct(float $min, float $max): float { $min=clamp_float($min,0,1); $max=clamp_float($max,0,1); if($max<$min)$max=$min; $r=mt_rand(0,10000)/10000.0; return $min+($max-$min)*$r; }
 
 function xp_gain_attacker(int $turns, int $level_diff): int {
     $base = mt_rand(SPY_XP_ATTACKER_MIN, SPY_XP_ATTACKER_MAX);
@@ -98,7 +66,6 @@ function xp_gain_attacker(int $turns, int $level_diff): int {
     $scaleDelta = max(0.1, 1.0 + (0.05 * $level_diff));
     return max(1, (int)floor($base * $scaleTurns * $scaleDelta));
 }
-
 function xp_gain_defender(int $turns, int $level_diff): int {
     $base = mt_rand(SPY_XP_DEFENDER_MIN, SPY_XP_DEFENDER_MAX);
     $scaleTurns = max(0.75, min(1.25, sqrt(max(1, $turns)) / 2));
@@ -117,13 +84,11 @@ $assassination_target = $_POST['assassination_target'] ?? '';
 
 if ($defender_id <= 0 || $attack_turns < 1 || $attack_turns > 10 || $mission_type === '') {
     $_SESSION['spy_error'] = "Invalid mission parameters.";
-    header("location: /spy.php");
-    exit;
+    header("location: /spy.php"); exit;
 }
 if ($mission_type === 'assassination' && !in_array($assassination_target, ['workers','soldiers','guards'], true)) {
     $_SESSION['spy_error'] = "Invalid assassination target.";
-    header("location: /spy.php");
-    exit;
+    header("location: /spy.php"); exit;
 }
 
 /* ─────────────────────────────────────────────────────────────────────────────
@@ -131,9 +96,6 @@ if ($mission_type === 'assassination' && !in_array($assassination_target, ['work
  * ────────────────────────────────────────────────────────────────────────────*/
 mysqli_begin_transaction($link);
 try {
-    // NOTE: Rate limiting for assassination is DISABLED because the old database schema is missing the `mission_time` column.
-    // To enable this, please run the ALTER TABLE command provided previously.
-
     // Lock attacker
     $sqlA = "SELECT id, character_name, attack_turns, spies, sentries, level, spy_upgrade_level, defense_upgrade_level, constitution_points
              FROM users WHERE id = ? FOR UPDATE";
@@ -144,12 +106,8 @@ try {
     mysqli_stmt_close($stmtA);
     if (!$attacker) throw new Exception("Attacker not found.");
 
-    if ((int)$attacker['attack_turns'] < $attack_turns) {
-        throw new Exception("Not enough attack turns.");
-    }
-    if ((int)$attacker['spies'] <= 0) {
-        throw new Exception("You need spies to conduct missions.");
-    }
+    if ((int)$attacker['attack_turns'] < $attack_turns) throw new Exception("Not enough attack turns.");
+    if ((int)$attacker['spies'] <= 0)                   throw new Exception("You need spies to conduct missions.");
 
     // Lock defender
     $sqlD = "SELECT * FROM users WHERE id = ? FOR UPDATE";
@@ -160,36 +118,31 @@ try {
     mysqli_stmt_close($stmtD);
     if (!$defender) throw new Exception("Defender not found.");
 
-    // Keep defender up-to-date before intel snapshot
+    // Keep defender up to date before intel snapshot
     process_offline_turns($link, $defender_id);
 
-    // Fetch defender's armory
+    // Armory for intel calcs
     $sql_armory = "SELECT item_key, quantity FROM user_armory WHERE user_id = ?";
     $stmt_armory = mysqli_prepare($link, $sql_armory);
     mysqli_stmt_bind_param($stmt_armory, "i", $defender_id);
     mysqli_stmt_execute($stmt_armory);
     $armory_result = mysqli_stmt_get_result($stmt_armory);
     $defender_armory = [];
-    while($row = mysqli_fetch_assoc($armory_result)) {
-        $defender_armory[$row['item_key']] = $row['quantity'];
-    }
+    while($row = mysqli_fetch_assoc($armory_result)) { $defender_armory[$row['item_key']] = $row['quantity']; }
     mysqli_stmt_close($stmt_armory);
 
     // Powers
     $attacker_spy_power  = max(1, (int)$attacker['spies'])    * (10 + (int)$attacker['spy_upgrade_level'] * 2);
     $defender_sentry_pow = max(1, (int)$defender['sentries']) * (10 + (int)$defender['defense_upgrade_level'] * 2);
 
-    // Resolve outcome (no fatigue in the formula)
     [ $success, $raw_ratio, $effective_ratio ] = decide_success($attacker_spy_power, $defender_sentry_pow, $attack_turns);
 
-    // XP
     $level_diff = ((int)$defender['level']) - ((int)$attacker['level']);
     $attacker_xp_gained = xp_gain_attacker($attack_turns, $level_diff);
     $defender_xp_gained = xp_gain_defender($attack_turns, $level_diff);
 
-    // Outputs
     $intel_gathered_json = null;
-    $units_killed        = 0;
+    $units_killed        = 0; // we keep this name for existing UI
     $structure_damage    = 0;
     $outcome             = $success ? 'success' : 'failure';
 
@@ -214,7 +167,6 @@ try {
                     'Sentries'         => (int)$defender['sentries'],
                     'Spies'            => (int)$defender['spies'],
                 ];
-
                 $keys = array_keys($pool);
                 shuffle($keys);
                 $selected = array_slice($keys, 0, SPY_INTEL_DRAW_COUNT);
@@ -227,16 +179,29 @@ try {
             case 'assassination': {
                 $pct = bounded_rand_pct(SPY_ASSASSINATE_KILL_MIN, SPY_ASSASSINATE_KILL_MAX)
                        * min(1.5, max(0.75, $effective_ratio));
-                $target_field = $assassination_target;
-                $current = max(0, (int)$defender[$target_field]);
-                $kills = (int)floor($current * $pct);
-                if ($kills > 0) {
-                    $sql_kill = "UPDATE users SET {$target_field} = GREATEST(0, {$target_field} - ?) WHERE id = ?";
-                    $stmtK = mysqli_prepare($link, $sql_kill);
-                    mysqli_stmt_bind_param($stmtK, "ii", $kills, $defender_id);
-                    mysqli_stmt_execute($stmtK);
-                    mysqli_stmt_close($stmtK);
-                    $units_killed = $kills;
+                $target_field = $assassination_target; // 'workers'|'soldiers'|'guards'
+                $current      = max(0, (int)$defender[$target_field]);
+                $converted    = (int)floor($current * $pct);
+
+                if ($converted > 0) {
+                    // Subtract from target pool
+                    $sql_dec = "UPDATE users SET {$target_field} = GREATEST(0, {$target_field} - ?) WHERE id = ?";
+                    $stmtDec = mysqli_prepare($link, $sql_dec);
+                    mysqli_stmt_bind_param($stmtDec, "ii", $converted, $defender_id);
+                    mysqli_stmt_execute($stmtDec);
+                    mysqli_stmt_close($stmtDec);
+
+                    // Queue for 30-minute lock (uses your exact columns)
+                    $sql_queue = "INSERT INTO untrained_units (user_id, unit_type, quantity, penalty_ends, available_at)
+                                  VALUES (?, ?, ?, UNIX_TIMESTAMP(UTC_TIMESTAMP() + INTERVAL 30 MINUTE),
+                                              UTC_TIMESTAMP() + INTERVAL 30 MINUTE)";
+                    $stmtQ = mysqli_prepare($link, $sql_queue);
+                    mysqli_stmt_bind_param($stmtQ, "isi", $defender_id, $target_field, $converted);
+                    mysqli_stmt_execute($stmtQ);
+                    mysqli_stmt_close($stmtQ);
+
+                    // Keep legacy UI happy
+                    $units_killed = $converted;
                 }
                 break;
             }
@@ -277,7 +242,6 @@ try {
     check_and_process_levelup($attacker_id, $link);
     check_and_process_levelup($defender_id, $link);
 
-    // Log
     $sql_log = "
         INSERT INTO spy_logs
             (attacker_id, defender_id, mission_type, outcome, intel_gathered,
@@ -316,11 +280,9 @@ try {
     exit;
 }
 
-// --- CALCULATION HELPER FUNCTIONS ---
-
+/* ---- Helper calcs used above (unchanged from your current controller) ---- */
 function calculate_income_per_turn($link, $user_id, $user_stats, $upgrades) {
-    // This is a simplified version for a single user, alliance bonuses would require more queries.
-    $worker_income = (int)$user_stats['workers'] * 50; // Using a fixed value from game settings
+    $worker_income = (int)$user_stats['workers'] * 50;
     $base_income = 5000 + $worker_income;
     $wealth_bonus = 1 + ((float)$user_stats['wealth_points'] * 0.01);
 
@@ -329,58 +291,47 @@ function calculate_income_per_turn($link, $user_id, $user_stats, $upgrades) {
         $total_economy_bonus_pct += (float)($upgrades['economy']['levels'][$i]['bonuses']['income'] ?? 0);
     }
     $economy_upgrade_multiplier = 1 + ($total_economy_bonus_pct / 100);
-
-    // Note: This does not include alliance bonuses for simplicity in this context.
     return (int)floor($base_income * $wealth_bonus * $economy_upgrade_multiplier);
 }
-
 function calculate_offense_power($link, $user_id, $user_stats, $upgrades, $owned_items) {
     global $armory_loadouts;
     $soldier_count = (int)$user_stats['soldiers'];
     $strength_bonus = 1 + ((float)$user_stats['strength_points'] * 0.01);
-    
     $total_offense_bonus_pct = 0;
     for ($i = 1, $n = (int)$user_stats['offense_upgrade_level']; $i <= $n; $i++) {
         $total_offense_bonus_pct += (float)($upgrades['offense']['levels'][$i]['bonuses']['offense'] ?? 0);
     }
     $offense_upgrade_multiplier = 1 + ($total_offense_bonus_pct / 100);
-
     $armory_attack_bonus = 0;
     if ($soldier_count > 0 && isset($armory_loadouts['soldier'])) {
         foreach ($armory_loadouts['soldier']['categories'] as $category) {
             foreach ($category['items'] as $item_key => $item) {
-                if (!isset($owned_items[$item_key], $item['attack'])) { continue; }
+                if (!isset($owned_items[$item_key], $item['attack'])) continue;
                 $effective_items = min($soldier_count, (int)$owned_items[$item_key]);
                 if ($effective_items > 0) $armory_attack_bonus += $effective_items * (int)$item['attack'];
             }
         }
     }
-
     return (int)floor((($soldier_count * 10) * $strength_bonus + $armory_attack_bonus) * $offense_upgrade_multiplier);
 }
-
 function calculate_defense_power($link, $user_id, $user_stats, $upgrades, $owned_items) {
     global $armory_loadouts;
     $guard_count = (int)$user_stats['guards'];
     $constitution_bonus = 1 + ((float)$user_stats['constitution_points'] * 0.01);
-    
     $total_defense_bonus_pct = 0;
     for ($i = 1, $n = (int)$user_stats['defense_upgrade_level']; $i <= $n; $i++) {
         $total_defense_bonus_pct += (float)($upgrades['defense']['levels'][$i]['bonuses']['defense'] ?? 0);
     }
     $defense_upgrade_multiplier = 1 + ($total_defense_bonus_pct / 100);
-
     $armory_defense_bonus = 0;
     if ($guard_count > 0 && isset($armory_loadouts['guard'])) {
         foreach ($armory_loadouts['guard']['categories'] as $category) {
             foreach ($category['items'] as $item_key => $item) {
-                if (!isset($owned_items[$item_key], $item['defense'])) { continue; }
+                if (!isset($owned_items[$item_key], $item['defense'])) continue;
                 $effective_items = min($guard_count, (int)$owned_items[$item_key]);
                 if ($effective_items > 0) $armory_defense_bonus += $effective_items * (int)$item['defense'];
             }
         }
     }
-
     return (int)floor(((($guard_count * 10) + $armory_defense_bonus) * $constitution_bonus) * $defense_upgrade_multiplier);
 }
-?>
