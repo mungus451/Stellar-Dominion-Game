@@ -120,11 +120,6 @@ if ($defender_id <= 0 || $attack_turns < 1 || $attack_turns > 10 || $mission_typ
     header("location: /spy.php");
     exit;
 }
-if ($mission_type === 'assassination') {
-    $_SESSION['spy_error'] = "Feature under maintenance, apologies.";
-    header("location: /spy.php");
-    exit;
-}
 if ($mission_type === 'assassination' && !in_array($assassination_target, ['workers','soldiers','guards'], true)) {
     $_SESSION['spy_error'] = "Invalid assassination target.";
     header("location: /spy.php");
