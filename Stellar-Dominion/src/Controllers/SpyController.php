@@ -1,11 +1,6 @@
 <?php
 /**
  * src/Controllers/SpyController.php
- *
- * Tunable like AttackController, but:
- * - NO fatigue mechanics whatsoever.
- * - ONLY assassination is rate-limited (5 per 2 hours per target).
- * - Intelligence and sabotage have NO rate limit.
  */
 
 if (session_status() == PHP_SESSION_NONE) {
@@ -20,13 +15,20 @@ require_once __DIR__ . '/../../config/config.php';
 require_once __DIR__ . '/../Game/GameData.php';
 require_once __DIR__ . '/../Game/GameFunctions.php';
 
+// --- CSRF TOKEN VALIDATION (CORRECTED) ---
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
-    if (!isset($_POST['csrf_token']) || !validate_csrf_token($_POST['csrf_token'])) {
+    // Get the token and the action from the submitted form
+    $token = $_POST['csrf_token'] ?? '';
+    $action = $_POST['csrf_action'] ?? 'default';
+
+    // Validate the token against the specific action
+    if (!validate_csrf_token($token, $action)) {
         $_SESSION['spy_error'] = "A security error occurred (Invalid Token). Please try again.";
         header("location: /spy.php");
         exit;
     }
 }
+// --- END CSRF VALIDATION ---
 
 date_default_timezone_set('UTC');
 

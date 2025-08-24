@@ -1,34 +1,36 @@
 <?php
 /**
- * src/Controllers/TrainingController.php
- *
- * This script handles the server-side logic for both training and disbanding units. 
- * It receives form data from 'battle.php', validates the request, calculates costs or refunds, 
- * checks for sufficient resources, and updates the player's data in the database.
- *
- * It uses a MySQL transaction to ensure that all database operations succeed or fail together, 
- * preventing data corruption.
+ * src/Controllers/SpyController.php
  */
 
-// --- SESSION AND DATABASE SETUP ---
 if (session_status() == PHP_SESSION_NONE) {
     session_start();
 }
-if(!isset($_SESSION["loggedin"]) || $_SESSION["loggedin"] !== true){ header("location: /index.html"); exit; }
+if (!isset($_SESSION["loggedin"]) || $_SESSION["loggedin"] !== true) {
+    header("location: index.html");
+    exit;
+}
 
-// Correct path from src/Controllers/ to the root config/ folder
 require_once __DIR__ . '/../../config/config.php';
-require_once __DIR__ . '/../../src/Game/GameFunctions.php';
+require_once __DIR__ . '/../Game/GameData.php';
+require_once __DIR__ . '/../Game/GameFunctions.php';
 
-// --- CSRF TOKEN VALIDATION ---
+// --- CSRF TOKEN VALIDATION (CORRECTED) ---
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
-    if (!isset($_POST['csrf_token']) || !validate_csrf_token($_POST['csrf_token'])) {
-        $_SESSION['training_error'] = "A security error occurred (Invalid Token). Please try again.";
-        header("location: /battle.php");
+    // Get the token and the action from the submitted form
+    $token = $_POST['csrf_token'] ?? '';
+    $action = $_POST['csrf_action'] ?? 'default';
+
+    // Validate the token against the specific action
+    if (!validate_csrf_token($token, $action)) {
+        $_SESSION['spy_error'] = "A security error occurred (Invalid Token). Please try again.";
+        header("location: /spy.php");
         exit;
     }
 }
 // --- END CSRF VALIDATION ---
+
+date_default_timezone_set('UTC');
 
 // --- SHARED DEFINITIONS ---
 $base_unit_costs = [

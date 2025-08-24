@@ -1,337 +1,134 @@
 <?php
 /**
- * src/Controllers/SpyController.php
+ * src/Controllers/StructureController.php
  *
- * Tunable like AttackController, but:
- * - NO fatigue mechanics whatsoever.
- * - ONLY assassination is rate-limited (5 per 2 hours per target).
- * - Intelligence and sabotage have NO rate limit.
+ * Handles logic for purchasing, selling, and repairing structures.
  */
-
 if (session_status() == PHP_SESSION_NONE) {
     session_start();
 }
-if (!isset($_SESSION["loggedin"]) || $_SESSION["loggedin"] !== true) {
-    header("location: index.html");
-    exit;
-}
+if (!isset($_SESSION["loggedin"]) || $_SESSION["loggedin"] !== true) { header("location: /index.html"); exit; }
 
+// --- FILE INCLUDES ---
 require_once __DIR__ . '/../../config/config.php';
 require_once __DIR__ . '/../Game/GameData.php';
 require_once __DIR__ . '/../Game/GameFunctions.php';
 
+// --- CSRF TOKEN VALIDATION (CORRECTED) ---
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
-    if (!isset($_POST['csrf_token']) || !validate_csrf_token($_POST['csrf_token'])) {
-        $_SESSION['spy_error'] = "A security error occurred (Invalid Token). Please try again.";
-        header("location: /spy.php");
+    $token = $_POST['csrf_token'] ?? '';
+    $action = $_POST['csrf_action'] ?? 'default';
+
+    // This now correctly validates the token against the action from the form
+    if (!validate_csrf_token($token, $action)) {
+        $_SESSION['build_error'] = "A security error occurred (Invalid Token). Please try again.";
+        header("location: /structures.php");
         exit;
     }
 }
+// --- END CSRF VALIDATION ---
 
-date_default_timezone_set('UTC');
+$user_id = $_SESSION['id'];
+$post_action = $_POST['action'] ?? ''; // Renamed to avoid conflict with CSRF action
 
-/* ─────────────────────────────────────────────────────────────────────────────
- * TUNING (no fatigue knobs)
- * ────────────────────────────────────────────────────────────────────────────*/
-const SPY_TURNS_SOFT_EXP        = 0.50;  // sublinear benefit from turns
-const SPY_TURNS_MAX_MULT        = 1.35;  // hard cap on turns impact
-const SPY_RANDOM_BAND           = 0.02;  // ±2% luck
-const SPY_MIN_SUCCESS_RATIO     = 1.20;  // required effective ratio to succeed
-
-// Assassination kill % (of target units), scaled by effective ratio
-const SPY_ASSASSINATE_KILL_MIN    = 0.02;  // 2%
-const SPY_ASSASSINATE_KILL_MAX    = 0.06;  // 6%
-
-// Sabotage damage % of remaining fortification HP
-const SPY_SABOTAGE_DMG_MIN        = 0.04;  // 4%
-const SPY_SABOTAGE_DMG_MAX        = 0.10;  // 10%
-
-// XP ranges
-const SPY_XP_ATTACKER_MIN         = 100;
-const SPY_XP_ATTACKER_MAX         = 160;
-const SPY_XP_DEFENDER_MIN         = 40;
-const SPY_XP_DEFENDER_MAX         = 80;
-
-// Intel config
-const SPY_INTEL_DRAW_COUNT        = 5;     // pick 5 of 10 stats
-
-// Rate limiting — applies ONLY to assassination
-const SPY_ASSASSINATE_WINDOW_HRS  = 2;
-const SPY_ASSASSINATE_MAX_TRIES   = 5;
-
-/* ─────────────────────────────────────────────────────────────────────────────
- * Helpers
- * ────────────────────────────────────────────────────────────────────────────*/
-function clamp_int($v, $min, $max) { return max($min, min($max, (int)$v)); }
-function clamp_float($v, $min, $max){ return max($min, min($max, (float)$v)); }
-
-function turns_multiplier(int $turns): float {
-    $soft = pow(max(1, $turns), SPY_TURNS_SOFT_EXP);
-    return min($soft, SPY_TURNS_MAX_MULT);
-}
-
-function luck_scalar(): float {
-    $band = SPY_RANDOM_BAND;
-    $delta = (mt_rand(0, 10000) / 10000.0) * (2 * $band) - $band;
-    return 1.0 + $delta;
-}
-
-function decide_success(float $attack_power, float $def_power, int $turns): array {
-    $ratio = ($def_power > 0) ? ($attack_power / $def_power) : 100.0;
-    $effective = $ratio * turns_multiplier($turns) * luck_scalar();
-    return [ $effective >= SPY_MIN_SUCCESS_RATIO, $ratio, $effective ];
-}
-
-function bounded_rand_pct(float $minPct, float $maxPct): float {
-    $minPct = clamp_float($minPct, 0.0, 1.0);
-    $maxPct = clamp_float($maxPct, 0.0, 1.0);
-    if ($maxPct < $minPct) $maxPct = $minPct;
-    $r = mt_rand(0, 10000) / 10000.0;
-    return $minPct + ($maxPct - $minPct) * $r;
-}
-
-function xp_gain_attacker(int $turns, int $level_diff): int {
-    $base = mt_rand(SPY_XP_ATTACKER_MIN, SPY_XP_ATTACKER_MAX);
-    $scaleTurns = max(0.75, min(1.5, sqrt(max(1, $turns)) / 2));
-    $scaleDelta = max(0.1, 1.0 + (0.05 * $level_diff));
-    return max(1, (int)floor($base * $scaleTurns * $scaleDelta));
-}
-
-function xp_gain_defender(int $turns, int $level_diff): int {
-    $base = mt_rand(SPY_XP_DEFENDER_MIN, SPY_XP_DEFENDER_MAX);
-    $scaleTurns = max(0.75, min(1.25, sqrt(max(1, $turns)) / 2));
-    $scaleDelta = max(0.1, 1.0 - (0.05 * $level_diff));
-    return max(1, (int)floor($base * $scaleTurns * $scaleDelta));
-}
-
-/* ─────────────────────────────────────────────────────────────────────────────
- * Inputs
- * ────────────────────────────────────────────────────────────────────────────*/
-$attacker_id          = (int)$_SESSION["id"];
-$defender_id          = isset($_POST['defender_id'])    ? (int)$_POST['defender_id'] : 0;
-$attack_turns         = isset($_POST['attack_turns'])   ? (int)$_POST['attack_turns'] : 0;
-$mission_type         = $_POST['mission_type']         ?? '';
-$assassination_target = $_POST['assassination_target'] ?? '';
-
-if ($defender_id <= 0 || $attack_turns < 1 || $attack_turns > 10 || $mission_type === '') {
-    $_SESSION['spy_error'] = "Invalid mission parameters.";
-    header("location: /spy.php");
-    exit;
-}
-if ($mission_type === 'assassination' && !in_array($assassination_target, ['workers','soldiers','guards'], true)) {
-    $_SESSION['spy_error'] = "Invalid assassination target.";
-    header("location: /spy.php");
-    exit;
-}
-
-/* ─────────────────────────────────────────────────────────────────────────────
- * Transaction & Locks
- * ────────────────────────────────────────────────────────────────────────────*/
 mysqli_begin_transaction($link);
 try {
-    // Rate limit ONLY for assassination
-    if ($mission_type === 'assassination') {
-        $sql_rate = "
-            SELECT COUNT(id) AS attempt_count
-            FROM spy_logs
-            WHERE attacker_id = ? AND defender_id = ?
-              AND mission_type = 'assassination'
-              AND mission_time > (NOW() - INTERVAL ? HOUR)
-        ";
-        $stmt_rate = mysqli_prepare($link, $sql_rate);
-        $hrs = SPY_ASSASSINATE_WINDOW_HRS;
-        mysqli_stmt_bind_param($stmt_rate, "iii", $attacker_id, $defender_id, $hrs);
-        mysqli_stmt_execute($stmt_rate);
-        $attempt_count = (int)mysqli_fetch_assoc(mysqli_stmt_get_result($stmt_rate))['attempt_count'];
-        mysqli_stmt_close($stmt_rate);
+    // Get all necessary user data, locking the row for the transaction.
+    $sql_get_user = "SELECT * FROM users WHERE id = ? FOR UPDATE";
+    $stmt_get_user = mysqli_prepare($link, $sql_get_user);
+    mysqli_stmt_bind_param($stmt_get_user, "i", $user_id);
+    mysqli_stmt_execute($stmt_get_user);
+    $user_stats = mysqli_fetch_assoc(mysqli_stmt_get_result($stmt_get_user));
+    mysqli_stmt_close($stmt_get_user);
 
-        if ($attempt_count >= SPY_ASSASSINATE_MAX_TRIES) {
-            throw new Exception("Rate limit exceeded. You can only attempt to assassinate this commander "
-                . SPY_ASSASSINATE_MAX_TRIES . " times every " . SPY_ASSASSINATE_WINDOW_HRS . " hours.");
+    if (!$user_stats) {
+        throw new Exception("User data could not be loaded.");
+    }
+
+    if ($post_action === 'purchase_structure') {
+        $upgrade_type = $_POST['upgrade_type'] ?? '';
+        $target_level = (int)($_POST['target_level'] ?? 0);
+
+        if (!isset($upgrades[$upgrade_type])) {
+            throw new Exception("Invalid upgrade type specified.");
         }
-    }
 
-    // Lock attacker
-    $sqlA = "SELECT id, character_name, attack_turns, spies, sentries, level, spy_upgrade_level, defense_upgrade_level, constitution_points
-             FROM users WHERE id = ? FOR UPDATE";
-    $stmtA = mysqli_prepare($link, $sqlA);
-    mysqli_stmt_bind_param($stmtA, "i", $attacker_id);
-    mysqli_stmt_execute($stmtA);
-    $attacker = mysqli_fetch_assoc(mysqli_stmt_get_result($stmtA));
-    mysqli_stmt_close($stmtA);
-    if (!$attacker) throw new Exception("Attacker not found.");
+        $category = $upgrades[$upgrade_type];
+        $current_level = (int)$user_stats[$category['db_column']];
 
-    if ((int)$attacker['attack_turns'] < $attack_turns) {
-        throw new Exception("Not enough attack turns.");
-    }
-    if ((int)$attacker['spies'] <= 0) {
-        throw new Exception("You need spies to conduct missions.");
-    }
+        if ($target_level !== $current_level + 1) {
+            throw new Exception("Sequence error. You can only build the next available upgrade.");
+        }
 
-    // Lock defender
-    $sqlD = "SELECT id, character_name, level, workers, soldiers, guards, sentries,
-                    fortification_hitpoints, spy_upgrade_level, defense_upgrade_level, constitution_points
-             FROM users WHERE id = ? FOR UPDATE";
-    $stmtD = mysqli_prepare($link, $sqlD);
-    mysqli_stmt_bind_param($stmtD, "i", $defender_id);
-    mysqli_stmt_execute($stmtD);
-    $defender = mysqli_fetch_assoc(mysqli_stmt_get_result($stmtD));
-    mysqli_stmt_close($stmtD);
-    if (!$defender) throw new Exception("Defender not found.");
+        $next_details = $category['levels'][$target_level] ?? null;
+        if (!$next_details) {
+            throw new Exception("Upgrade level does not exist.");
+        }
 
-    // Keep defender up-to-date before intel snapshot
-    process_offline_turns($link, $defender_id);
-
-    // Fetch defender's armory
-    $sql_armory = "SELECT item_key, quantity FROM user_armory WHERE user_id = ?";
-    $stmt_armory = mysqli_prepare($link, $sql_armory);
-    mysqli_stmt_bind_param($stmt_armory, "i", $defender_id);
-    mysqli_stmt_execute($stmt_armory);
-    $armory_result = mysqli_stmt_get_result($stmt_armory);
-    $defender_armory = [];
-    while($row = mysqli_fetch_assoc($armory_result)) {
-        $defender_armory[$row['item_key']] = $row['quantity'];
-    }
-    mysqli_stmt_close($stmt_armory);
-
-    // Powers
-    $attacker_spy_power  = max(1, (int)$attacker['spies'])    * (10 + (int)$attacker['spy_upgrade_level'] * 2);
-    $defender_sentry_pow = max(1, (int)$defender['sentries']) * (10 + (int)$defender['defense_upgrade_level'] * 2);
-
-    // Resolve outcome (no fatigue in the formula)
-    [ $success, $raw_ratio, $effective_ratio ] = decide_success($attacker_spy_power, $defender_sentry_pow, $attack_turns);
-
-    // XP
-    $level_diff = ((int)$defender['level']) - ((int)$attacker['level']);
-    $attacker_xp_gained = xp_gain_attacker($attack_turns, $level_diff);
-    $defender_xp_gained = xp_gain_defender($attack_turns, $level_diff);
-
-    // Outputs
-    $intel_gathered_json = null;
-    $units_killed        = 0;
-    $structure_damage    = 0;
-    $outcome             = $success ? 'success' : 'failure';
-
-    if ($success) {
-        switch ($mission_type) {
-            case 'intelligence': {
-                $def_income  = calculate_income_per_turn($link, $defender_id, $defender, $upgrades);
-                $def_offense = calculate_offense_power($link, $defender_id, $defender, $upgrades, $defender_armory);
-                $def_defense = calculate_defense_power($link, $defender_id, $defender, $upgrades, $defender_armory);
-                $def_spy_off = max(1, (int)$defender['spies'])    * (10 + (int)$defender['spy_upgrade_level'] * 2);
-                $def_sentry  = max(1, (int)$defender['sentries']) * (10 + (int)$defender['defense_upgrade_level'] * 2);
-
-                $pool = [
-                    'Offense Power'    => $def_offense,
-                    'Defense Power'    => $def_defense,
-                    'Spy Offense'      => $def_spy_off,
-                    'Sentry Defense'   => $def_sentry,
-                    'Credits/Turn'     => (int)$def_income,
-                    'Workers'          => (int)$defender['workers'],
-                    'Soldiers'         => (int)$defender['soldiers'],
-                    'Guards'           => (int)$defender['guards'],
-                    'Sentries'         => (int)$defender['sentries'],
-                    'Spies'            => (int)$defender['spies'],
-                ];
-
-                $keys = array_keys($pool);
-                shuffle($keys);
-                $selected = array_slice($keys, 0, SPY_INTEL_DRAW_COUNT);
-                $intel = [];
-                foreach ($selected as $k) { $intel[$k] = $pool[$k]; }
-                $intel_gathered_json = json_encode($intel);
-                break;
-            }
-
-            case 'assassination': {
-                $pct = bounded_rand_pct(SPY_ASSASSINATE_KILL_MIN, SPY_ASSASSINATE_KILL_MAX)
-                       * min(1.5, max(0.75, $effective_ratio));
-                $target_field = $assassination_target;
-                $current = max(0, (int)$defender[$target_field]);
-                $kills = (int)floor($current * $pct);
-                if ($kills > 0) {
-                    $sql_kill = "UPDATE users SET {$target_field} = GREATEST(0, {$target_field} - ?) WHERE id = ?";
-                    $stmtK = mysqli_prepare($link, $sql_kill);
-                    mysqli_stmt_bind_param($stmtK, "ii", $kills, $defender_id);
-                    mysqli_stmt_execute($stmtK);
-                    mysqli_stmt_close($stmtK);
-                    $units_killed = $kills;
-                }
-                break;
-            }
-
-            case 'sabotage': {
-                $hp_now = max(0, (int)$defender['fortification_hitpoints']);
-                if ($hp_now > 0) {
-                    $pct = bounded_rand_pct(SPY_SABOTAGE_DMG_MIN, SPY_SABOTAGE_DMG_MAX)
-                           * min(1.5, max(0.75, $effective_ratio));
-                    $dmg = (int)floor($hp_now * $pct);
-                    if ($dmg > 0) {
-                        $sql_dmg = "UPDATE users SET fortification_hitpoints = GREATEST(0, fortification_hitpoints - ?) WHERE id = ?";
-                        $stmtS = mysqli_prepare($link, $sql_dmg);
-                        mysqli_stmt_bind_param($stmtS, "ii", $dmg, $defender_id);
-                        mysqli_stmt_execute($stmtS);
-                        mysqli_stmt_close($stmtS);
-                        $structure_damage = $dmg;
-                    }
-                }
-                break;
+        // Check all requirements
+        if (isset($next_details['level_req']) && $user_stats['level'] < $next_details['level_req']) {
+            throw new Exception("You do not meet the level requirement.");
+        }
+        if (isset($next_details['fort_req'])) {
+            $required_fort_level = $next_details['fort_req'];
+            $req_fort_details = $upgrades['fortifications']['levels'][$required_fort_level];
+            if ($user_stats['fortification_level'] < $required_fort_level || $user_stats['fortification_hitpoints'] < $req_fort_details['hitpoints']) {
+                throw new Exception("Your empire foundation is not advanced enough or is damaged.");
             }
         }
+
+        $charisma_discount = 1 - ($user_stats['charisma_points'] * 0.01);
+        $final_cost = floor($next_details['cost'] * $charisma_discount);
+
+        if ($user_stats['credits'] < $final_cost) {
+            throw new Exception("Not enough credits. Cost: " . number_format($final_cost));
+        }
+
+        // Execute the upgrade
+        $db_column = $category['db_column'];
+        $hitpoints_update_sql_part = "";
+        if ($upgrade_type === 'fortifications') {
+            $new_max_hp = $next_details['hitpoints'];
+            $hitpoints_update_sql_part = ", fortification_hitpoints = " . (int)$new_max_hp;
+        }
+
+        $sql_update = "UPDATE users SET credits = credits - ?, `$db_column` = ? $hitpoints_update_sql_part WHERE id = ?";
+        $stmt_update = mysqli_prepare($link, $sql_update);
+        mysqli_stmt_bind_param($stmt_update, "iii", $final_cost, $target_level, $user_id);
+        mysqli_stmt_execute($stmt_update);
+        mysqli_stmt_close($stmt_update);
+        
+        $_SESSION['build_message'] = "Upgrade successful: " . $next_details['name'] . " built!";
+
+    } elseif ($post_action === 'repair_structure') {
+        $current_fort_level = (int)$user_stats['fortification_level'];
+        if ($current_fort_level <= 0) { throw new Exception("No foundation to repair."); }
+
+        $max_hp = $upgrades['fortifications']['levels'][$current_fort_level]['hitpoints'];
+        $hp_to_repair = max(0, $max_hp - (int)$user_stats['fortification_hitpoints']);
+        $repair_cost = $hp_to_repair * 10;
+
+        if ((int)$user_stats['credits'] < $repair_cost) { throw new Exception("Not enough credits to repair."); }
+        if ($hp_to_repair <= 0) { throw new Exception("Foundation is already at full health."); }
+
+        $sql_repair = "UPDATE users SET credits = credits - ?, fortification_hitpoints = ? WHERE id = ?";
+        $stmt_repair = mysqli_prepare($link, $sql_repair);
+        mysqli_stmt_bind_param($stmt_repair, "iii", $repair_cost, $max_hp, $user_id);
+        mysqli_stmt_execute($stmt_repair);
+        mysqli_stmt_close($stmt_repair);
+        
+        $_SESSION['build_message'] = "Foundation repaired successfully for " . number_format($repair_cost) . " credits!";
+
+    } else {
+        throw new Exception("Invalid structure action.");
     }
-
-    // Spend turns + award XP
-    $sql_upA = "UPDATE users SET attack_turns = attack_turns - ?, experience = experience + ? WHERE id = ?";
-    $stmtUA = mysqli_prepare($link, $sql_upA);
-    mysqli_stmt_bind_param($stmtUA, "iii", $attack_turns, $attacker_xp_gained, $attacker_id);
-    mysqli_stmt_execute($stmtUA);
-    mysqli_stmt_close($stmtUA);
-
-    $sql_upD = "UPDATE users SET experience = experience + ? WHERE id = ?";
-    $stmtUD = mysqli_prepare($link, $sql_upD);
-    mysqli_stmt_bind_param($stmtUD, "ii", $defender_xp_gained, $defender_id);
-    mysqli_stmt_execute($stmtUD);
-    mysqli_stmt_close($stmtUD);
-
-    check_and_process_levelup($attacker_id, $link);
-    check_and_process_levelup($defender_id, $link);
-
-    // Log
-    $sql_log = "
-        INSERT INTO spy_logs
-            (attacker_id, defender_id, mission_type, outcome, intel_gathered_json,
-             units_killed, structure_damage, attack_turns, attacker_spy_power, defender_sentry_power,
-             attacker_xp_gained, defender_xp_gained, mission_time)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NOW())
-    ";
-    $stmtL = mysqli_prepare($link, $sql_log);
-    mysqli_stmt_bind_param(
-        $stmtL,
-        "iisssiiiiiii",
-        $attacker_id,
-        $defender_id,
-        $mission_type,
-        $outcome,
-        $intel_gathered_json,
-        $units_killed,
-        $structure_damage,
-        $attack_turns,
-        $attacker_spy_power,
-        $defender_sentry_pow,
-        $attacker_xp_gained,
-        $defender_xp_gained
-    );
-    mysqli_stmt_execute($stmtL);
-    $log_id = mysqli_insert_id($link);
-    mysqli_stmt_close($stmtL);
 
     mysqli_commit($link);
-    header("location: /spy_report.php?id=" . $log_id);
-    exit;
 
 } catch (Exception $e) {
     mysqli_rollback($link);
-    $_SESSION['spy_error'] = "Mission failed: " . $e->getMessage();
-    header("location: /spy.php");
-    exit;
+    $_SESSION['build_error'] = "Error: " . $e->getMessage();
 }
+
+header("location: /structures.php");
+exit;

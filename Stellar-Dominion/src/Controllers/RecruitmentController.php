@@ -11,9 +11,14 @@ if (!isset($_SESSION["loggedin"]) || $_SESSION["loggedin"] !== true) { exit; }
 
 require_once __DIR__ . '/../../config/config.php';
 
-// --- CSRF TOKEN VALIDATION ---
+// --- CSRF TOKEN VALIDATION (CORRECTED) ---
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
-    if (!isset($_POST['csrf_token']) || !validate_csrf_token($_POST['csrf_token'])) {
+    // Get the token and the action from the submitted form
+    $token = $_POST['csrf_token'] ?? '';
+    $action = $_POST['csrf_action'] ?? 'default';
+
+    // Validate the token against the specific action
+    if (!validate_csrf_token($token, $action)) {
         $_SESSION['recruiter_error'] = "A security error occurred (Invalid Token). Please try again.";
         header("location: /auto_recruit.php");
         exit;
@@ -23,10 +28,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
 $recruiter_id = $_SESSION['id'];
 $recruited_id = isset($_POST['recruited_id']) ? (int)$_POST['recruited_id'] : 0;
-$action = $_POST['action'] ?? '';
+$post_action = $_POST['action'] ?? ''; // Renamed to avoid conflict with CSRF action
 $auto_mode = isset($_POST['auto']) ? '1' : '0';
 
-if ($action !== 'recruit' || $recruited_id <= 0 || $recruiter_id == $recruited_id) {
+if ($post_action !== 'recruit' || $recruited_id <= 0 || $recruiter_id == $recruited_id) {
     header("location: /auto_recruit.php");
     exit;
 }
@@ -58,13 +63,10 @@ try {
     }
 
     // Process the recruitment
-    // 1. Give 1 citizen to the recruiter
     mysqli_query($link, "UPDATE users SET untrained_citizens = untrained_citizens + 1 WHERE id = $recruiter_id");
-
-    // 2. Give 1 citizen to the recruited user
     mysqli_query($link, "UPDATE users SET untrained_citizens = untrained_citizens + 1 WHERE id = $recruited_id");
 
-    // 3. Log the recruitment
+    // Log the recruitment
     $sql_log = "INSERT INTO daily_recruits (recruiter_id, recruited_id, recruit_date, recruit_count) VALUES (?, ?, CURDATE(), 1) ON DUPLICATE KEY UPDATE recruit_count = recruit_count + 1";
     $stmt_log = mysqli_prepare($link, $sql_log);
     mysqli_stmt_bind_param($stmt_log, "ii", $recruiter_id, $recruited_id);

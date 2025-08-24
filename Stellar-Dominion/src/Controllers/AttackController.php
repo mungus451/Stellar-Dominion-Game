@@ -38,7 +38,7 @@ date_default_timezone_set('UTC');
 // ─────────────────────────────────────────────────────────────────────────────
 const ATK_TURNS_SOFT_EXP          = 0.50;
 const ATK_TURNS_MAX_MULT          = 1.35;
-const UNDERDOG_MIN_RATIO_TO_WIN   = 0.945;
+const UNDERDOG_MIN_RATIO_TO_WIN   = 0.985;
 const RANDOM_NOISE_MIN            = 0.98;
 const RANDOM_NOISE_MAX            = 1.02;
 const CREDITS_STEAL_CAP_PCT       = 0.2;
@@ -102,7 +102,7 @@ try {
     // --- BATTLE FATIGUE CHECK ---
     // -------------------------------------------------------------------------
 
-    $sql_fatigue = "SELECT COUNT(id) as attack_count FROM battle_logs WHERE attacker_id = ? AND defender_id = ? AND battle_time > NOW() - INTERVAL 2 HOUR";
+    $sql_fatigue = "SELECT COUNT(id) as attack_count FROM battle_logs WHERE attacker_id = ? AND defender_id = ? AND battle_time > NOW() - INTERVAL 1 HOUR";
     $stmt_fatigue = mysqli_prepare($link, $sql_fatigue);
     mysqli_stmt_bind_param($stmt_fatigue, "ii", $attacker_id, $defender_id);
     mysqli_stmt_execute($stmt_fatigue);

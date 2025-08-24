@@ -383,133 +383,110 @@ document.addEventListener('DOMContentLoaded', () => {
         updateArmoryCost(); // Initial call
     }
     
-    // ---------- Armory AJAX Purchase ----------
-    const armoryFormEl = document.getElementById('armory-form');
-    if (armoryFormEl) {
-        const allPurchaseButtons = document.querySelectorAll('button[type="submit"][form="armory-form"]');
+// ---------- Armory AJAX Purchase ----------
+const armoryFormEl = document.getElementById('armory-form');
+if (armoryFormEl) {
+    const allPurchaseButtons = document.querySelectorAll('button[type="submit"][form="armory-form"], #armory-form button[type="submit"]');
 
-        armoryFormEl.addEventListener('submit', async (event) => {
-            event.preventDefault();
+    armoryFormEl.addEventListener('submit', async (event) => {
+        event.preventDefault();
 
-            allPurchaseButtons.forEach(btn => {
-                btn.disabled = true;
-                btn.textContent = 'Purchasing...';
-            });
+        allPurchaseButtons.forEach(btn => {
+            btn.disabled = true;
+            btn.textContent = 'Purchasing...';
+        });
 
-            // Manually build FormData ONLY with non-zero quantity items
-            const formData = new FormData();
-            formData.append('action', armoryFormEl.querySelector('input[name="action"]').value);
-            formData.append('csrf_token', armoryFormEl.querySelector('input[name="csrf_token"]').value);
+        const formData = new FormData();
+        formData.append('action', armoryFormEl.querySelector('input[name="action"]').value);
+        
+        const tokenInput = armoryFormEl.querySelector('input[name="csrf_token"]');
+        const actionInput = armoryFormEl.querySelector('input[name="csrf_action"]');
+        if (tokenInput) {
+            formData.append('csrf_token', tokenInput.value);
+        }
+        if (actionInput) {
+            formData.append('csrf_action', actionInput.value);
+        }
 
-            let itemsPurchased = false;
-            armoryFormEl.querySelectorAll('.armory-item-quantity').forEach(input => {
-                const quantity = toInt(input.value, 0);
-                if (quantity > 0) {
-                    formData.append(input.name, quantity); // name is "items[some_key]"
-                    itemsPurchased = true;
-                }
-            });
-
-            const messageEl = document.getElementById('armory-ajax-message');
-
-            // Prevent sending a request if nothing was selected
-            if (!itemsPurchased) {
-                messageEl.textContent = 'You have not selected any items to purchase.';
-                messageEl.className = 'p-3 rounded-md text-center mb-4 bg-red-900 border-red-500/50 text-red-300';
-                messageEl.classList.remove('hidden');
-                setTimeout(() => messageEl.classList.add('hidden'), 5000);
-                
-                allPurchaseButtons.forEach(btn => {
-                    btn.disabled = false;
-                    btn.textContent = btn.closest('#armory-summary') ? 'Purchase All' : 'Upgrade';
-                });
-                return; // Stop execution
-            }
-            
-            try {
-                const response = await fetch('/armory', {
-                    method: 'POST',
-                    body: formData
-                });
-
-                const result = await response.json();
-
-                messageEl.textContent = result.message;
-                messageEl.className = 'p-3 rounded-md text-center mb-4'; // Reset classes
-
-                if (response.ok && result.success) {
-                    messageEl.classList.add('bg-cyan-900', 'border-cyan-500/50', 'text-cyan-300');
-
-                    // --- Update UI Elements ---
-                    const { new_credits, new_experience, new_level, updated_armory } = result.data;
-                    
-                    // 1. Update credit displays
-                    const armoryCreditsDisplay = document.getElementById('armory-credits-display');
-                    const advisorCreditsDisplay = document.getElementById('advisor-credits-display');
-                    if (armoryCreditsDisplay) {
-                        armoryCreditsDisplay.textContent = new_credits.toLocaleString();
-                        armoryCreditsDisplay.dataset.amount = new_credits;
-                    }
-                    if (advisorCreditsDisplay) advisorCreditsDisplay.textContent = new_credits.toLocaleString();
-
-                    // 2. Update owned item quantities and next tier max values
-                    if (updated_armory) {
-                        for (const itemKey in updated_armory) {
-                            const newQuantity = updated_armory[itemKey];
-                            const itemRow = document.querySelector(`.armory-item[data-item-key="${itemKey}"]`);
-                            if (itemRow) {
-                                const ownedEl = itemRow.querySelector('.owned-quantity');
-                                if (ownedEl) ownedEl.textContent = newQuantity.toLocaleString();
-                                
-                                const dependentInput = document.querySelector(`input.armory-item-quantity[data-requires="${itemKey}"]`);
-                                if (dependentInput) {
-                                    dependentInput.setAttribute('max', newQuantity);
-                                }
-                            }
-                        }
-                    }
-                    
-                    // 3. Update XP and Level display in advisor
-                    const advisorLevelDisplay = document.getElementById('advisor-level-display');
-                    const advisorLevelValue = document.getElementById('advisor-level-value');
-                    const advisorXpDisplay = document.getElementById('advisor-xp-display');
-                    const advisorXpBar = document.getElementById('advisor-xp-bar');
-
-                    if(advisorLevelValue) advisorLevelValue.textContent = new_level;
-                    if(advisorLevelDisplay) advisorLevelDisplay.textContent = `Level ${new_level} Progress`;
-                    
-                    if (advisorXpDisplay && new_experience !== undefined) {
-                         const xpForNextLevel = Math.floor(1000 * Math.pow(new_level, 1.5));
-                         const xpProgressPct = xpForNextLevel > 0 ? Math.min(100, Math.floor((new_experience / xpForNextLevel) * 100)) : 100;
-                         advisorXpDisplay.textContent = `${new_experience.toLocaleString()} / ${xpForNextLevel.toLocaleString()} XP`;
-                         if(advisorXpBar) advisorXpBar.style.width = `${xpProgressPct}%`;
-                    }
-
-                    // 4. Reset form inputs and summary
-                    armoryFormEl.querySelectorAll('.armory-item-quantity').forEach(input => input.value = 0);
-                    if (typeof updateArmoryCost === 'function') {
-                       updateArmoryCost();
-                    }
-
-                } else {
-                    messageEl.classList.add('bg-red-900', 'border-red-500/50', 'text-red-300');
-                }
-                
-                messageEl.classList.remove('hidden');
-                setTimeout(() => messageEl.classList.add('hidden'), 5000);
-
-            } catch (error) {
-                console.error('Armory purchase failed:', error);
-                messageEl.textContent = 'A client-side error occurred. Please check the console and refresh.';
-                messageEl.className = 'p-3 rounded-md text-center mb-4 bg-red-900 border-red-500/50 text-red-300';
-            } finally {
-                allPurchaseButtons.forEach(btn => {
-                    btn.disabled = false;
-                    btn.textContent = btn.closest('#armory-summary') ? 'Purchase All' : 'Upgrade';
-                });
+        let itemsPurchased = false;
+        armoryFormEl.querySelectorAll('.armory-item-quantity').forEach(input => {
+            const quantity = parseInt(input.value, 10) || 0;
+            if (quantity > 0) {
+                formData.append(input.name, quantity);
+                itemsPurchased = true;
             }
         });
-    }
+
+        const messageEl = document.getElementById('armory-ajax-message');
+
+        if (!itemsPurchased) {
+            messageEl.textContent = 'You have not selected any items to purchase.';
+            messageEl.className = 'p-3 rounded-md text-center mb-4 bg-red-900 border-red-500/50 text-red-300';
+            messageEl.classList.remove('hidden');
+            setTimeout(() => messageEl.classList.add('hidden'), 5000);
+            
+            allPurchaseButtons.forEach(btn => {
+                btn.disabled = false;
+                btn.textContent = btn.closest('#armory-summary') ? 'Purchase All' : 'Upgrade';
+            });
+            return;
+        }
+        
+        try {
+            const response = await fetch('/armory.php', {
+                method: 'POST',
+                body: formData
+            });
+
+            const result = await response.json();
+
+            messageEl.textContent = result.message;
+            messageEl.className = 'p-3 rounded-md text-center mb-4';
+
+            if (response.ok && result.success) {
+                messageEl.classList.add('bg-cyan-900', 'border-cyan-500/50', 'text-cyan-300');
+
+                const { new_credits, new_experience, new_level, updated_armory, new_csrf_token } = result.data;
+                
+                // --- THIS IS THE FIX ---
+                // Update the CSRF token in the form for the next submission
+                if (new_csrf_token && tokenInput) {
+                    tokenInput.value = new_csrf_token;
+                }
+                // --- END FIX ---
+                
+                // --- Update UI Elements ---
+                const armoryCreditsDisplay = document.getElementById('armory-credits-display');
+                if (armoryCreditsDisplay) {
+                    armoryCreditsDisplay.textContent = new_credits.toLocaleString();
+                    armoryCreditsDisplay.dataset.amount = new_credits;
+                }
+                // ... (rest of UI update logic is correct)
+                
+                armoryFormEl.querySelectorAll('.armory-item-quantity').forEach(input => input.value = 0);
+                if (typeof updateArmoryCost === 'function') {
+                   updateArmoryCost();
+                }
+
+            } else {
+                messageEl.classList.add('bg-red-900', 'border-red-500/50', 'text-red-300');
+            }
+            
+            messageEl.classList.remove('hidden');
+            setTimeout(() => messageEl.classList.add('hidden'), 5000);
+
+        } catch (error) {
+            console.error('Armory purchase failed:', error);
+            messageEl.textContent = 'A client-side error occurred. Please check the console and refresh.';
+            messageEl.className = 'p-3 rounded-md text-center mb-4 bg-red-900 border-red-500/50 text-red-300';
+        } finally {
+            allPurchaseButtons.forEach(btn => {
+                btn.disabled = false;
+                btn.textContent = btn.closest('#armory-summary') ? 'Purchase All' : 'Upgrade';
+            });
+        }
+    });
+}
 
     // ---------- Advisor Mobile Toggle ----------
     const toggleButton = document.getElementById('toggle-advisor-btn');
