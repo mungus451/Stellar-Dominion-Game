@@ -2,22 +2,23 @@
 /**
  * Starlight Dominion - A.I. Advisor & Stats Module (DROP-IN, single-file change)
  *
- * This file generates the complete sidebar content, including the advisor
- * and the player's primary stats.
+ * Generates the advisor panel and the player's primary stats.
  *
- * It expects the following variables to be set by the parent page:
- * - $active_page: (string) The filename of the current page for contextual advice.
- * - $user_stats: (array) An associative array with the user's data (credits, level, etc.).
- * - $user_xp: (int) The user's current experience points.
- * - $user_level: (int) The user's current level.
- * - $minutes_until_next_turn: (int) For the countdown timer.
- * - $seconds_remainder: (int) For the countdown timer.
- * - $now: (DateTime object) The current UTC time for the Dominion clock.
+ * Expects (when available) from parent page:
+ * - $active_page (string)
+ * - $user_stats (array)
+ * - $user_xp (int)
+ * - $user_level (int)
+ * - $minutes_until_next_turn (int)
+ * - $seconds_remainder (int)
+ * - $now (DateTime, UTC)
  *
- * New in this drop-in:
+ * New/Fixed:
+ * - Robust timer: clamps to a single 10-minute cycle and can self-compute
+ *   from last_updated if a page forgets to pass minutes/seconds.
  * - Shows BOTH “Untrained Citizens (ready)” and “Recovering (30m lock)”.
- * - Uses its own short-lived DB connection ONLY IF NEEDED and ONLY IF config constants
- *   are available; otherwise it silently skips the recovering line (no crashes).
+ * - Safe, short-lived DB read for recovering count; silently skipped if
+ *   config/DB are unavailable so nothing breaks.
  */
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -95,41 +96,54 @@ $advice_json = htmlspecialchars(json_encode(array_values($current_advice_list)),
 $xp_for_next_level = 0;
 $xp_progress_pct   = 0;
 if (isset($user_xp, $user_level)) {
-    $xp_for_next_level = floor(1000 * pow($user_level, 1.5));
-    $xp_progress_pct   = $xp_for_next_level > 0 ? min(100, floor(($user_xp / $xp_for_next_level) * 100)) : 100;
+    $xp_for_next_level = floor(1000 * pow((int)$user_level, 1.5));
+    $xp_progress_pct   = $xp_for_next_level > 0 ? min(100, floor(((int)$user_xp / $xp_for_next_level) * 100)) : 100;
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Turn timer
+// Robust turn timer (single 10-minute cycle, self-computes if needed)
 // ─────────────────────────────────────────────────────────────────────────────
+$TURN_INTERVAL = 600; // seconds (10 minutes)
 $seconds_until_next_turn = 0;
+
+// Preferred path: parent page provided minute/second pieces
 if (isset($minutes_until_next_turn, $seconds_remainder)) {
     $seconds_until_next_turn = ((int)$minutes_until_next_turn * 60) + (int)$seconds_remainder;
+} else {
+    // Fallback: compute using last_updated and current UTC time if available
+    try {
+        if (isset($user_stats['last_updated'])) {
+            $last = new DateTime($user_stats['last_updated'], new DateTimeZone('UTC'));
+            $cur  = (isset($now) && $now instanceof DateTime) ? $now : new DateTime('now', new DateTimeZone('UTC'));
+            $elapsed = max(0, $cur->getTimestamp() - $last->getTimestamp());
+            $seconds_until_next_turn = $TURN_INTERVAL - ($elapsed % $TURN_INTERVAL);
+        }
+    } catch (Throwable $e) {
+        $seconds_until_next_turn = 0;
+    }
 }
+
+// Clamp so we never show longer than the turn interval
+$seconds_until_next_turn = max(0, min($TURN_INTERVAL, (int)$seconds_until_next_turn));
+
+// Normalize the displayed pieces to keep UI, data-attr, and text in sync
+$minutes_until_next_turn = intdiv($seconds_until_next_turn, 60);
+$seconds_remainder       = $seconds_until_next_turn % 60;
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Recovering (30m lock) — SAFE one-file logic
-// - No dependence on an existing $link (which might be closed).
-// - Will only attempt a short-lived connection if config constants exist.
-// - If anything fails, we silently show 0 and keep the page happy.
 // ─────────────────────────────────────────────────────────────────────────────
 $recovering_untrained = 0;
 $viewer_user_id = isset($user_stats['id']) ? (int)$user_stats['id'] : (isset($_SESSION['id']) ? (int)$_SESSION['id'] : 0);
 
 if ($viewer_user_id > 0) {
-    // Load config constants if available.
     if (!defined('DB_SERVER')) {
         $__cfg = __DIR__ . '/../../config/config.php';
-        if (is_file($__cfg)) {
-            // Suppress any notices; we only need the constants.
-            @require_once $__cfg;
-        }
+        if (is_file($__cfg)) { @require_once $__cfg; }
     }
-    // Open a fresh, temporary connection if we have constants.
     if (defined('DB_SERVER') && defined('DB_USERNAME') && defined('DB_PASSWORD') && defined('DB_NAME')) {
         $__adv_link = @mysqli_connect(DB_SERVER, DB_USERNAME, DB_PASSWORD, DB_NAME);
         if ($__adv_link instanceof mysqli && !@$__adv_link->connect_errno) {
-            // Make sure the table/columns we need exist; otherwise bail quietly.
             $__chk = @mysqli_query(
                 $__adv_link,
                 "SELECT 1
@@ -140,7 +154,6 @@ if ($viewer_user_id > 0) {
             );
             if ($__chk && mysqli_num_rows($__chk) >= 3) {
                 @mysqli_free_result($__chk);
-                // Fetch the number of units still under the 30m penalty.
                 if ($__stmt = @mysqli_prepare(
                     $__adv_link,
                     "SELECT COALESCE(SUM(quantity),0) AS total
@@ -237,7 +250,7 @@ if ($viewer_user_id > 0) {
             <li class="flex justify-between border-t border-gray-600 pt-2 mt-2">
                 <span>Next Turn In:</span>
                 <span id="next-turn-timer" class="text-cyan-300 font-bold" data-seconds-until-next-turn="<?php echo (int)$seconds_until_next_turn; ?>">
-                    <?php echo sprintf('%02d:%02d', (int)($minutes_until_next_turn ?? 0), (int)($seconds_remainder ?? 0)); ?>
+                    <?php echo sprintf('%02d:%02d', (int)$minutes_until_next_turn, (int)$seconds_remainder); ?>
                 </span>
             </li>
 
