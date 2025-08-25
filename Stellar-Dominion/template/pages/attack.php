@@ -80,20 +80,7 @@ include_once __DIR__ . '/../includes/header.php';
         // ($minutes_until_next_turn, $seconds_remainder, $now) already defined above
         include_once __DIR__ . '/../includes/advisor.php';
     ?>
-
-    <div class="content-box rounded-lg p-4 stats-container">
-        <h3 class="font-title text-cyan-400 border-b border-gray-600 pb-2 mb-3">Stats</h3>
-        <ul class="space-y-2 text-sm">
-            <li class="flex justify-between"><span>Credits:</span> <span class="text-white font-semibold"><?php echo number_format((int)($me['credits'] ?? 0)); ?></span></li>
-            <li class="flex justify-between"><span>Banked Credits:</span> <span class="text-white font-semibold"><?php echo number_format((int)($me['banked_credits'] ?? 0)); ?></span></li>
-            <li class="flex justify-between"><span>Level:</span> <span class="text-white font-semibold"><?php echo (int)($me['level'] ?? 1); ?></span></li>
-            <li class="flex justify-between"><span>Attack Turns:</span> <span class="text-white font-semibold"><?php echo number_format((int)($me['attack_turns'] ?? 0)); ?></span></li>
-            <li class="flex justify-between border-t border-gray-600 pt-2 mt-2">
-                <span>Next Turn In:</span>
-                <span class="text-cyan-300 font-bold"><?php echo sprintf('%02d:%02d', $minutes_until_next_turn, $seconds_remainder); ?></span>
-            </li>
-        </ul>
-    </div>
+    <!-- Duplicate sidebar Stats removed intentionally; stats live in advisor.php -->
 </aside>
 
 <main class="lg:col-span-3 space-y-4">
@@ -111,19 +98,17 @@ include_once __DIR__ . '/../includes/header.php';
     <?php
         // Help values
         $attack_turns_current = (int)($me['attack_turns'] ?? 0);
-        $turns_per_cycle      = 2; // rule: +1 per cycle
+        $turns_per_cycle      = 2; // game rule shown in help text
         $turn_interval_min    = (int)$turn_interval_minutes; // 10
     ?>
 
     <!-- How Attacks Work — PERMANENT, sits directly above Target List -->
     <div class="content-box rounded-lg p-4" id="attack-help-card" data-state="expanded">
-        <!-- Header row (desktop + mobile) -->
         <div class="flex items-start justify-between border-b border-gray-600 pb-2 mb-2">
             <h3 class="font-title text-cyan-400 flex items-center gap-2">
                 <i data-lucide="info" class="w-5 h-5"></i>
                 How Attacks Work
             </h3>
-            <!-- Toggle mirrors dashboard-card behavior -->
             <button type="button"
                     id="attack-help-toggle"
                     class="text-xs bg-gray-800 hover:bg-gray-700 border border-gray-700 rounded-md px-2 py-1">
@@ -131,7 +116,6 @@ include_once __DIR__ . '/../includes/header.php';
             </button>
         </div>
 
-        <!-- Desktop: expanded content by default; Mobile: condensed by default -->
         <div id="attack-help-content" class="text-sm space-y-2 md:block">
             <p class="text-gray-300">
                 Pick a target and the number of <strong>Attack Turns</strong> to spend (1–10). Spending more turns

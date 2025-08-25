@@ -1,29 +1,26 @@
 <?php
 /**
- * Starlight Dominion - A.I. Advisor & Stats Module (DROP-IN, single-file change)
- *
- * Generates the advisor panel and the player's primary stats.
+ * Starlight Dominion - A.I. Advisor & Stats Module (DROP-IN)
  *
  * Expects (when available) from parent page:
  * - $active_page (string)
- * - $user_stats (array)
+ * - $user_stats (array) OR $me (attack page) providing at least credits/level/xp/attack_turns/last_updated
  * - $user_xp (int)
  * - $user_level (int)
  * - $minutes_until_next_turn (int)
  * - $seconds_remainder (int)
  * - $now (DateTime, UTC)
- *
- * New/Fixed:
- * - Robust timer: clamps to a single 10-minute cycle and can self-compute
- *   from last_updated if a page forgets to pass minutes/seconds.
- * - Shows BOTH “Untrained Citizens (ready)” and “Recovering (30m lock)”.
- * - Safe, short-lived DB read for recovering count; silently skipped if
- *   config/DB are unavailable so nothing breaks.
  */
 
-// ─────────────────────────────────────────────────────────────────────────────
+// Determine the stats source gracefully (dashboard uses $user_stats; attack.php often has $me)
+$__stats = [];
+if (isset($user_stats) && is_array($user_stats)) {
+    $__stats = $user_stats;
+} elseif (isset($me) && is_array($me)) {
+    $__stats = $me;
+}
+
 // Advice copy
-// ─────────────────────────────────────────────────────────────────────────────
 $advice_repository = [
     'dashboard.php' => [
         "Your central command hub. Monitor your resources and fleet status from here.",
@@ -90,9 +87,7 @@ $advice_repository = [
 $current_advice_list = isset($advice_repository[$active_page]) ? $advice_repository[$active_page] : ["Welcome to Starlight Dominion."];
 $advice_json = htmlspecialchars(json_encode(array_values($current_advice_list)), ENT_QUOTES, 'UTF-8');
 
-// ─────────────────────────────────────────────────────────────────────────────
 // XP bar
-// ─────────────────────────────────────────────────────────────────────────────
 $xp_for_next_level = 0;
 $xp_progress_pct   = 0;
 if (isset($user_xp, $user_level)) {
@@ -100,81 +95,27 @@ if (isset($user_xp, $user_level)) {
     $xp_progress_pct   = $xp_for_next_level > 0 ? min(100, floor(((int)$user_xp / $xp_for_next_level) * 100)) : 100;
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
-// Robust turn timer (single 10-minute cycle, self-computes if needed)
-// ─────────────────────────────────────────────────────────────────────────────
-$TURN_INTERVAL = 600; // seconds (10 minutes)
+// Robust timer bits (expect minutes/seconds; if absent, compute from last_updated)
+$TURN_INTERVAL = 600; // seconds
 $seconds_until_next_turn = 0;
-
-// Preferred path: parent page provided minute/second pieces
 if (isset($minutes_until_next_turn, $seconds_remainder)) {
     $seconds_until_next_turn = ((int)$minutes_until_next_turn * 60) + (int)$seconds_remainder;
 } else {
-    // Fallback: compute using last_updated and current UTC time if available
     try {
-        if (isset($user_stats['last_updated'])) {
-            $last = new DateTime($user_stats['last_updated'], new DateTimeZone('UTC'));
+        if (!empty($__stats['last_updated'])) {
+            $last = new DateTime($__stats['last_updated'], new DateTimeZone('UTC'));
             $cur  = (isset($now) && $now instanceof DateTime) ? $now : new DateTime('now', new DateTimeZone('UTC'));
             $elapsed = max(0, $cur->getTimestamp() - $last->getTimestamp());
             $seconds_until_next_turn = $TURN_INTERVAL - ($elapsed % $TURN_INTERVAL);
         }
-    } catch (Throwable $e) {
-        $seconds_until_next_turn = 0;
-    }
+    } catch (Throwable $e) { $seconds_until_next_turn = 0; }
 }
-
-// Clamp so we never show longer than the turn interval
 $seconds_until_next_turn = max(0, min($TURN_INTERVAL, (int)$seconds_until_next_turn));
-
-// Normalize the displayed pieces to keep UI, data-attr, and text in sync
 $minutes_until_next_turn = intdiv($seconds_until_next_turn, 60);
 $seconds_remainder       = $seconds_until_next_turn % 60;
 
-// ─────────────────────────────────────────────────────────────────────────────
-// Recovering (30m lock) — SAFE one-file logic
-// ─────────────────────────────────────────────────────────────────────────────
-$recovering_untrained = 0;
-$viewer_user_id = isset($user_stats['id']) ? (int)$user_stats['id'] : (isset($_SESSION['id']) ? (int)$_SESSION['id'] : 0);
-
-if ($viewer_user_id > 0) {
-    if (!defined('DB_SERVER')) {
-        $__cfg = __DIR__ . '/../../config/config.php';
-        if (is_file($__cfg)) { @require_once $__cfg; }
-    }
-    if (defined('DB_SERVER') && defined('DB_USERNAME') && defined('DB_PASSWORD') && defined('DB_NAME')) {
-        $__adv_link = @mysqli_connect(DB_SERVER, DB_USERNAME, DB_PASSWORD, DB_NAME);
-        if ($__adv_link instanceof mysqli && !@$__adv_link->connect_errno) {
-            $__chk = @mysqli_query(
-                $__adv_link,
-                "SELECT 1
-                   FROM information_schema.columns
-                  WHERE table_schema = DATABASE()
-                    AND table_name   = 'untrained_units'
-                    AND column_name IN ('user_id','quantity','available_at')"
-            );
-            if ($__chk && mysqli_num_rows($__chk) >= 3) {
-                @mysqli_free_result($__chk);
-                if ($__stmt = @mysqli_prepare(
-                    $__adv_link,
-                    "SELECT COALESCE(SUM(quantity),0) AS total
-                       FROM untrained_units
-                      WHERE user_id = ? AND available_at > UTC_TIMESTAMP()"
-                )) {
-                    @mysqli_stmt_bind_param($__stmt, "i", $viewer_user_id);
-                    if (@mysqli_stmt_execute($__stmt)) {
-                        @mysqli_stmt_bind_result($__stmt, $__total);
-                        @mysqli_stmt_fetch($__stmt);
-                        $recovering_untrained = (int)($__total ?? 0);
-                    }
-                    @mysqli_stmt_close($__stmt);
-                }
-            } else {
-                if ($__chk) { @mysqli_free_result($__chk); }
-            }
-            @mysqli_close($__adv_link);
-        }
-    }
-}
+// Current UTC display
+$__now = (isset($now) && $now instanceof DateTime) ? $now : new DateTime('now', new DateTimeZone('UTC'));
 ?>
 
 <div class="content-box rounded-lg p-4 advisor-container">
@@ -202,48 +143,46 @@ if ($viewer_user_id > 0) {
 
 <div class="content-box rounded-lg p-4 stats-container">
     <h3 class="font-title text-cyan-400 border-b border-gray-600 pb-2 mb-3">Stats</h3>
-    <button id="toggle-stats-btn" class="mobile-only-button">-</button>
     <div id="stats-content">
         <ul class="space-y-2 text-sm">
-            <?php if(isset($user_stats['credits'])): ?>
+            <?php if(isset($__stats['credits'])): ?>
                 <li class="flex justify-between">
                     <span>Credits:</span>
-                    <span id="advisor-credits-display" class="text-white font-semibold"><?php echo number_format((int)$user_stats['credits']); ?></span>
+                    <span id="advisor-credits-display" class="text-white font-semibold" data-amount="<?php echo (int)$__stats['credits']; ?>">
+                        <?php echo number_format((int)$__stats['credits']); ?>
+                    </span>
                 </li>
             <?php endif; ?>
 
-            <?php if(isset($user_stats['banked_credits'])): ?>
+            <?php if(isset($__stats['banked_credits'])): ?>
                 <li class="flex justify-between">
                     <span>Banked Credits:</span>
-                    <span class="text-white font-semibold"><?php echo number_format((int)$user_stats['banked_credits']); ?></span>
+                    <span class="text-white font-semibold"><?php echo number_format((int)$__stats['banked_credits']); ?></span>
                 </li>
             <?php endif; ?>
 
-            <?php if(isset($user_stats['untrained_citizens'])): ?>
+            <?php
+            // Show Untrained only if available in this page context
+            $untrained_ready = isset($__stats['untrained_citizens']) ? (int)$__stats['untrained_citizens'] : null;
+            ?>
+            <?php if($untrained_ready !== null): ?>
                 <li class="flex justify-between">
                     <span>Untrained Citizens (ready):</span>
-                    <span class="text-white font-semibold"><?php echo number_format((int)$user_stats['untrained_citizens']); ?></span>
+                    <span id="advisor-untrained-display" class="text-white font-semibold"><?php echo number_format($untrained_ready); ?></span>
                 </li>
             <?php endif; ?>
 
-            <?php if(($recovering_untrained ?? 0) > 0): ?>
-                <li class="flex justify-between text-amber-300">
-                    <span>Recovering (lock):</span>
-                    <span><?php echo number_format((int)$recovering_untrained); ?></span>
-                </li>
-            <?php endif; ?>
-
-            <?php if(isset($user_stats['level'])): ?>
+            <?php if(isset($__stats['level'])): ?>
                 <li class="flex justify-between">
                     <span>Level:</span>
-                    <span id="advisor-level-value" class="text-white font-semibold"><?php echo (int)$user_stats['level']; ?></span>
+                    <span id="advisor-level-value" class="text-white font-semibold"><?php echo (int)$__stats['level']; ?></span>
                 </li>
             <?php endif; ?>
 
-            <?php if(isset($user_stats['attack_turns'])): ?>
+            <?php if(isset($__stats['attack_turns'])): ?>
                 <li class="flex justify-between">
                     <span>Attack Turns:</span>
-                    <span class="text-white font-semibold"><?php echo (int)$user_stats['attack_turns']; ?></span>
+                    <span id="advisor-attack-turns" class="text-white font-semibold"><?php echo (int)$__stats['attack_turns']; ?></span>
                 </li>
             <?php endif; ?>
 
@@ -254,17 +193,83 @@ if ($viewer_user_id > 0) {
                 </span>
             </li>
 
-            <?php if(isset($now) && $now instanceof DateTime): ?>
             <li class="flex justify-between">
                 <span>Dominion Time:</span>
-                <span id="dominion-time" class="text-white font-semibold"
-                      data-hours="<?php echo htmlspecialchars($now->format('H')); ?>"
-                      data-minutes="<?php echo htmlspecialchars($now->format('i')); ?>"
-                      data-seconds="<?php echo htmlspecialchars($now->format('s')); ?>">
-                    <?php echo htmlspecialchars($now->format('H:i:s')); ?>
+                <span id="dominion-time" class="text-white font-semibold">
+                    <?php echo htmlspecialchars($__now->format('H:i:s')); ?>
                 </span>
             </li>
-            <?php endif; ?>
         </ul>
     </div>
 </div>
+
+<script>
+(function(){
+  // Elements we’ll update
+  const elCredits   = document.getElementById('advisor-credits-display');
+  const elUntrained = document.getElementById('advisor-untrained-display');
+  const elTurns     = document.getElementById('advisor-attack-turns');
+  const elNextTurn  = document.getElementById('next-turn-timer');
+  const elDomTime   = document.getElementById('dominion-time');
+
+  // Local countdown
+  let nextTurnSeconds = elNextTurn ? parseInt(elNextTurn.getAttribute('data-seconds-until-next-turn') || '0', 10) : 0;
+  function renderTimer(sec){
+    const m = Math.floor(sec / 60);
+    const s = sec % 60;
+    if (elNextTurn) elNextTurn.textContent = String(m).padStart(2,'0') + ':' + String(s).padStart(2,'0');
+  }
+  renderTimer(nextTurnSeconds);
+
+  setInterval(() => {
+    if (nextTurnSeconds > 0) {
+      nextTurnSeconds -= 1;
+      renderTimer(nextTurnSeconds);
+    } else {
+      // when it hits zero, keep it at 00:00 until poll refreshes
+      renderTimer(0);
+    }
+  }, 1000);
+
+  // Poll API every 10s to keep credits/citizens/time fresh
+  async function pollAdvisor(){
+    try {
+      const res = await fetch('/api/advisor_poll.php', {
+        credentials: 'same-origin',
+        headers: { 'Accept': 'application/json' },
+        cache: 'no-store'
+      });
+      if (!res.ok) return;
+      const data = await res.json();
+
+      // Credits
+      if (elCredits && typeof data.credits === 'number') {
+        elCredits.textContent = new Intl.NumberFormat().format(data.credits);
+        elCredits.setAttribute('data-amount', String(data.credits));
+      }
+      // Untrained Citizens (if present on this page)
+      if (elUntrained && typeof data.untrained_citizens === 'number') {
+        elUntrained.textContent = new Intl.NumberFormat().format(data.untrained_citizens);
+      }
+      // Attack turns
+      if (elTurns && typeof data.attack_turns === 'number') {
+        elTurns.textContent = String(data.attack_turns);
+      }
+      // Next Turn timer — reset local countdown from server
+      if (elNextTurn && typeof data.seconds_until_next_turn === 'number') {
+        nextTurnSeconds = Math.max(0, parseInt(data.seconds_until_next_turn, 10));
+        elNextTurn.setAttribute('data-seconds-until-next-turn', String(nextTurnSeconds));
+        renderTimer(nextTurnSeconds);
+      }
+      // Dominion time
+      if (elDomTime && typeof data.dominion_time === 'string') {
+        elDomTime.textContent = data.dominion_time;
+      }
+    } catch (e) {
+      // Silent fail — UI keeps local countdown
+    }
+  }
+  pollAdvisor();
+  setInterval(pollAdvisor, 10000);
+})();
+</script>
