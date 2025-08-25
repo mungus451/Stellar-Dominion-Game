@@ -8,8 +8,11 @@ if (session_status() == PHP_SESSION_NONE) {
     session_start();
 }
 if(!isset($_SESSION["loggedin"]) || $_SESSION["loggedin"] !== true){ header("location: /index.php"); exit; }
+date_default_timezone_set('UTC');
+
 require_once __DIR__ . '/../../config/config.php';
-require_once __DIR__ . '/../../src/Game/GameData.php'; // Include for security questions
+require_once __DIR__ . '/../../src/Game/GameData.php';      // Include for $security_questions
+require_once __DIR__ . '/../../src/Services/StateService.php'; // Centralized state/timer
 
 // --- FORM SUBMISSION HANDLING ---
 if ($_SERVER["REQUEST_METHOD"] == "POST") {
@@ -19,35 +22,36 @@ if ($_SERVER["REQUEST_METHOD"] == "POST") {
 }
 // --- END FORM HANDLING ---
 
-// --- DATA FETCHING ---
-$user_id = $_SESSION['id'];
-date_default_timezone_set('UTC');
+// --- DATA FETCHING (via StateService) ---
+$user_id = (int)($_SESSION['id'] ?? 0);
 
-$sql = "SELECT credits, untrained_citizens, level, experience, attack_turns, last_updated, email, vacation_until, phone_number, phone_carrier, phone_verified, character_name FROM users WHERE id = ?";
-$stmt = mysqli_prepare($link, $sql);
-mysqli_stmt_bind_param($stmt, "i", $user_id);
-mysqli_stmt_execute($stmt);
-$user_stats = mysqli_fetch_assoc(mysqli_stmt_get_result($stmt));
-mysqli_stmt_close($stmt);
+// Pull only what this page needs; StateService also runs offline processing before reading.
+$needed_fields = [
+    'credits','untrained_citizens','level','experience','attack_turns','last_updated',
+    'email','vacation_until','phone_number','phone_carrier','phone_verified','character_name'
+];
+$user_stats = ss_process_and_get_user_state($link, $user_id, $needed_fields);
 
-// Security questions count
+// Canonical turn timer
+$turn_interval_minutes = 10;
+$__timer = ss_compute_turn_timer($user_stats, $turn_interval_minutes);
+$seconds_until_next_turn = (int)$__timer['seconds_until_next_turn'];
+$minutes_until_next_turn = (int)$__timer['minutes_until_next_turn'];
+$seconds_remainder       = (int)$__timer['seconds_remainder'];
+$now                     = $__timer['now']; // DateTime (UTC)
+
+// Security questions count (page-specific data)
 $sql_sq = "SELECT COUNT(id) as sq_count FROM user_security_questions WHERE user_id = ?";
 $stmt_sq = mysqli_prepare($link, $sql_sq);
 mysqli_stmt_bind_param($stmt_sq, "i", $user_id);
 mysqli_stmt_execute($stmt_sq);
-$sq_count = mysqli_fetch_assoc(mysqli_stmt_get_result($stmt_sq))['sq_count'];
+$sq_count_row = mysqli_fetch_assoc(mysqli_stmt_get_result($stmt_sq)) ?: ['sq_count' => 0];
+$sq_count = (int)$sq_count_row['sq_count'];
 mysqli_stmt_close($stmt_sq);
 
-// Timers
-$now = new DateTime('now', new DateTimeZone('UTC'));
-$turn_interval_minutes = 10;
-$last_updated = new DateTime($user_stats['last_updated'], new DateTimeZone('UTC'));
-$seconds_until_next_turn = ($turn_interval_minutes * 60) - (($now->getTimestamp() - $last_updated->getTimestamp()) % ($turn_interval_minutes * 60));
-$minutes_until_next_turn = floor($seconds_until_next_turn / 60);
-$seconds_remainder = $seconds_until_next_turn % 60;
-
 // Vacation state
-$is_vacation_active = false; $vacation_end = null;
+$is_vacation_active = false; 
+$vacation_end = null;
 if (!empty($user_stats['vacation_until'])) {
     $vacation_end = new DateTime($user_stats['vacation_until'], new DateTimeZone('UTC'));
     $is_vacation_active = ($now < $vacation_end);
@@ -61,8 +65,8 @@ include_once __DIR__ . '/../includes/header.php';
 
 <aside class="lg:col-span-1 space-y-4">
     <?php 
-        $user_xp = $user_stats['experience']; 
-        $user_level = $user_stats['level'];
+        $user_xp = (int)$user_stats['experience']; 
+        $user_level = (int)$user_stats['level'];
         include_once __DIR__ . '/../includes/advisor.php'; 
     ?>
 </aside>
@@ -74,27 +78,27 @@ include_once __DIR__ . '/../includes/header.php';
         </div>
     <?php endif; ?>
     <?php if(isset($_SESSION['settings_error'])): ?>
-            <div class="bg-red-900 border border-red-500/50 text-red-300 p-3 rounded-md text-center">
+        <div class="bg-red-900 border border-red-500/50 text-red-300 p-3 rounded-md text-center">
             <?php echo htmlspecialchars($_SESSION['settings_error']); unset($_SESSION['settings_error']); ?>
         </div>
     <?php endif; ?>
 
     <div class="content-box rounded-lg p-4"
-            x-data="settingsPage('<?php echo htmlspecialchars($current_tab, ENT_QUOTES); ?>')">
+         x-data="settingsPage('<?php echo htmlspecialchars($current_tab, ENT_QUOTES); ?>')">
         <div class="border-b border-gray-600 mb-4">
             <nav class="-mb-px flex space-x-4" aria-label="Tabs">
                 <a href="?tab=general"
-                    @click.prevent="setTab('general')"
-                    :class="tab==='general' ? 'border-cyan-400 text-white' : 'border-transparent text-gray-400 hover:text-white'"
-                    class="py-2 px-4 border-b-2 font-medium">General</a>
+                   @click.prevent="setTab('general')"
+                   :class="tab==='general' ? 'border-cyan-400 text-white' : 'border-transparent text-gray-400 hover:text-white'"
+                   class="py-2 px-4 border-b-2 font-medium">General</a>
                 <a href="?tab=recovery"
-                    @click.prevent="setTab('recovery')"
-                    :class="tab==='recovery' ? 'border-cyan-400 text-white' : 'border-transparent text-gray-400 hover:text-white'"
-                    class="py-2 px-4 border-b-2 font-medium">Account Recovery</a>
+                   @click.prevent="setTab('recovery')"
+                   :class="tab==='recovery' ? 'border-cyan-400 text-white' : 'border-transparent text-gray-400 hover:text-white'"
+                   class="py-2 px-4 border-b-2 font-medium">Account Recovery</a>
                 <a href="?tab=danger"
-                    @click.prevent="setTab('danger')"
-                    :class="tab==='danger' ? 'border-cyan-400 text-white' : 'border-transparent text-gray-400 hover:text-white'"
-                    class="py-2 px-4 border-b-2 font-medium">Danger Zone</a>
+                   @click.prevent="setTab('danger')"
+                   :class="tab==='danger' ? 'border-cyan-400 text-white' : 'border-transparent text-gray-400 hover:text-white'"
+                   class="py-2 px-4 border-b-2 font-medium">Danger Zone</a>
             </nav>
         </div>
 
@@ -102,7 +106,8 @@ include_once __DIR__ . '/../includes/header.php';
             <div class="content-box rounded-lg p-4 space-y-3">
                 <h3 class="font-title text-white">Vacation Mode</h3>
                 <?php if ($is_vacation_active && $vacation_end): ?>
-                    <p class="text-sm text-green-400">Vacation mode is active until:<br><strong><?php echo $vacation_end->format('Y-m-d H:i T'); ?></strong></p>
+                    <p class="text-sm text-green-400">Vacation mode is active until:<br>
+                        <strong><?php echo $vacation_end->format('Y-m-d H:i T'); ?></strong></p>
                     <p class="text-xs text-gray-500">You can end your vacation early by logging in again after it has started.</p>
                 <?php else: ?>
                     <p class="text-sm">Vacation mode allows you to temporarily disable your account. While in vacation mode, your account will be protected from attacks.</p>
@@ -123,7 +128,7 @@ include_once __DIR__ . '/../includes/header.php';
                     <div>
                         <label for="new_character_name" class="text-sm text-gray-400">New Character Name</label>
                         <input type="text" id="new_character_name" name="new_character_name" 
-                                class="w-full bg-gray-900/50 border border-gray-700 rounded-lg px-4 py-2 mt-1 text-white focus:outline-none focus:ring-2 focus:ring-cyan-500" required>
+                               class="w-full bg-gray-900/50 border border-gray-700 rounded-lg px-4 py-2 mt-1 text-white focus:outline-none focus:ring-2 focus:ring-cyan-500" required>
                     </div>
                     <button type="submit" name="action" value="change_character_name" class="mt-2 w-full bg-cyan-600 hover:bg-cyan-700 text-white font-bold py-2 rounded-lg">Change Name (1,000,000 Credits)</button>
                 </form>
@@ -139,31 +144,33 @@ include_once __DIR__ . '/../includes/header.php';
                     <p class="text-white"><?php echo htmlspecialchars($user_stats['email']); ?></p>
                 </div>
                 <input type="email" name="new_email" x-model="email" placeholder="New Email"
-                        class="w-full bg-gray-900/50 border border-gray-700 rounded-lg px-4 py-2 text-white focus:outline-none focus:ring-2 focus:ring-cyan-500" required>
+                       class="w-full bg-gray-900/50 border border-gray-700 rounded-lg px-4 py-2 text-white focus:outline-none focus:ring-2 focus:ring-cyan-500" required>
                 <div class="text-xs text-gray-400" x-show="email && !email.includes('@')">That doesn’t look like a valid email.</div>
                 <button type="submit" name="action" value="change_email" class="w-full bg-cyan-600 hover:bg-cyan-700 text-white font-bold py-2 rounded-lg">Save Email</button>
             </form>
+
             <form action="/settings.php" method="POST" class="content-box rounded-lg p-4 space-y-3" x-data="passwordForm()">
                 <?php echo csrf_token_field('change_password'); ?>
                 <h3 class="font-title text-white">Change Password</h3>
                 <div class="relative">
                     <input :type="showCurrent?'text':'password'" name="current_password" placeholder="Current Password"
-                            class="w-full bg-gray-900/50 border border-gray-700 rounded-lg px-4 py-2 text-white" required>
+                           class="w-full bg-gray-900/50 border border-gray-700 rounded-lg px-4 py-2 text-white" required>
                     <button type="button" class="absolute right-2 top-2 text-xs text-cyan-300" @click="showCurrent=!showCurrent" x-text="showCurrent?'Hide':'Show'"></button>
                 </div>
                 <div class="relative">
                     <input :type="showNew?'text':'password'" name="new_password" placeholder="New Password"
-                            class="w-full bg-gray-900/50 border border-gray-700 rounded-lg px-4 py-2 text-white" required @input="checkStrength($event.target.value)">
+                           class="w-full bg-gray-900/50 border border-gray-700 rounded-lg px-4 py-2 text-white" required @input="checkStrength($event.target.value)">
                     <button type="button" class="absolute right-2 top-2 text-xs text-cyan-300" @click="showNew=!showNew" x-text="showNew?'Hide':'Show'"></button>
                     <div class="text-xs mt-1" :class="strengthClass" x-text="strengthLabel"></div>
                 </div>
                 <div class="relative">
                     <input :type="showVerify?'text':'password'" name="verify_password" placeholder="Verify Password"
-                            class="w-full bg-gray-900/50 border border-gray-700 rounded-lg px-4 py-2 text-white" required>
+                           class="w-full bg-gray-900/50 border border-gray-700 rounded-lg px-4 py-2 text-white" required>
                     <button type="button" class="absolute right-2 top-2 text-xs text-cyan-300" @click="showVerify=!showVerify" x-text="showVerify?'Hide':'Show'"></button>
                 </div>
                 <button type="submit" name="action" value="change_password" class="w-full bg-cyan-600 hover:bg-cyan-700 text-white font-bold py-2 rounded-lg">Save Password</button>
             </form>
+
             <div class="content-box rounded-lg p-4 space-y-3" x-data="securityQuestions()">
                 <h3 class="font-title text-white">Security Question Recovery</h3>
                 <?php if ($sq_count >= 2): ?>
@@ -187,7 +194,7 @@ include_once __DIR__ . '/../includes/header.php';
                                 <?php endforeach; ?>
                             </select>
                             <input type="text" name="answer1" x-model="a1" placeholder="Answer 1"
-                                    class="w-full bg-gray-900/50 border border-gray-700 rounded-lg px-4 py-2 mt-1 text-white" required>
+                                   class="w-full bg-gray-900/50 border border-gray-700 rounded-lg px-4 py-2 mt-1 text-white" required>
                         </div>
                         <div>
                             <label for="question2" class="text-sm">Question 2</label>
@@ -199,7 +206,7 @@ include_once __DIR__ . '/../includes/header.php';
                                 <?php endforeach; ?>
                             </select>
                             <input type="text" name="answer2" x-model="a2" placeholder="Answer 2"
-                                    class="w-full bg-gray-900/50 border border-gray-700 rounded-lg px-4 py-2 mt-1 text-white" required>
+                                   class="w-full bg-gray-900/50 border border-gray-700 rounded-lg px-4 py-2 mt-1 text-white" required>
                         </div>
                         <p class="text-xs text-yellow-400" x-show="q1 && q2 && q1===q2">Questions must be different.</p>
                         <button type="submit" name="action" value="set_security_questions"
@@ -221,37 +228,39 @@ include_once __DIR__ . '/../includes/header.php';
         </div>
     </div>
 </main>
+
 <script>
     function settingsPage(initialTab) {
-    return {
-        tab: initialTab || 'general',
-        setTab(t) {
-        this.tab = t;
-        const url = new URL(window.location);
-        url.searchParams.set('tab', t);
-        history.replaceState({}, '', url);
+        return {
+            tab: initialTab || 'general',
+            setTab(t) {
+                this.tab = t;
+                const url = new URL(window.location);
+                url.searchParams.set('tab', t);
+                history.replaceState({}, '', url);
+            }
         }
-    }
     }
     function passwordForm() {
-    return {
-        showCurrent: false, showNew: false, showVerify: false,
-        strengthLabel: '', strengthClass: 'text-gray-400',
-        checkStrength(v) {
-        let s = 0;
-        if (v.length >= 8) s++;
-        if (/[A-Z]/.test(v)) s++;
-        if (/[a-z]/.test(v)) s++;
-        if (/[0-9]/.test(v)) s++;
-        if (/[^A-Za-z0-9]/.test(v)) s++;
-        if (s <= 2) { this.strengthLabel='Weak'; this.strengthClass='text-red-400'; }
-        else if (s === 3) { this.strengthLabel='Okay'; this.strengthClass='text-yellow-400'; }
-        else { this.strengthLabel='Strong'; this.strengthClass='text-green-400'; }
+        return {
+            showCurrent: false, showNew: false, showVerify: false,
+            strengthLabel: '', strengthClass: 'text-gray-400',
+            checkStrength(v) {
+                let s = 0;
+                if (v.length >= 8) s++;
+                if (/[A-Z]/.test(v)) s++;
+                if (/[a-z]/.test(v)) s++;
+                if (/[0-9]/.test(v)) s++;
+                if (/[^A-Za-z0-9]/.test(v)) s++;
+                if (s <= 2) { this.strengthLabel='Weak'; this.strengthClass='text-red-400'; }
+                else if (s === 3) { this.strengthLabel='Okay'; this.strengthClass='text-yellow-400'; }
+                else { this.strengthLabel='Strong'; this.strengthClass='text-green-400'; }
+            }
         }
-    }
     }
     function securityQuestions(){ return { q1:'', q2:'', a1:'', a2:'' }; }
 </script>
+
 <?php
 // Include the universal footer
 include_once __DIR__ . '/../includes/footer.php';

@@ -11,7 +11,10 @@ if (!isset($_SESSION["loggedin"]) || $_SESSION["loggedin"] !== true) {
     header("location: /index.php");
     exit;
 }
+date_default_timezone_set('UTC');
+
 require_once __DIR__ . '/../../config/config.php';
+require_once __DIR__ . '/../../src/Services/StateService.php'; // centralized reads/timers
 
 // --- FORM SUBMISSION HANDLING ---
 if ($_SERVER["REQUEST_METHOD"] == "POST") {
@@ -21,22 +24,23 @@ if ($_SERVER["REQUEST_METHOD"] == "POST") {
 }
 // --- END FORM HANDLING ---
 
-// --- DATA FETCHING FOR PAGE DISPLAY ---
+// --- DATA FETCHING FOR PAGE DISPLAY (via StateService) ---
 $user_id = (int)$_SESSION['id'];
-$sql_fetch = "SELECT character_name, email, biography, avatar_path, credits, untrained_citizens, level, experience, attack_turns, last_updated FROM users WHERE id = ?";
-$stmt_fetch = mysqli_prepare($link, $sql_fetch);
-mysqli_stmt_bind_param($stmt_fetch, "i", $user_id);
-mysqli_stmt_execute($stmt_fetch);
-$user_stats = mysqli_fetch_assoc(mysqli_stmt_get_result($stmt_fetch));
-mysqli_stmt_close($stmt_fetch);
 
-// Timers for Next Turn
-$now = new DateTime('now', new DateTimeZone('UTC'));
+// Pull just what this page needs; StateService also runs offline processing.
+$needed_fields = [
+    'character_name','email','biography','avatar_path',
+    'credits','untrained_citizens','level','experience','attack_turns','last_updated'
+];
+$user_stats = ss_process_and_get_user_state($link, $user_id, $needed_fields);
+
+// Timers for Next Turn (canonical via StateService)
 $turn_interval_minutes = 10;
-$last_updated = new DateTime($user_stats['last_updated'], new DateTimeZone('UTC'));
-$seconds_until_next_turn = ($turn_interval_minutes * 60) - (($now->getTimestamp() - $last_updated->getTimestamp()) % ($turn_interval_minutes * 60));
-$minutes_until_next_turn = floor($seconds_until_next_turn / 60);
-$seconds_remainder = $seconds_until_next_turn % 60;
+$__timer = ss_compute_turn_timer($user_stats, $turn_interval_minutes);
+$seconds_until_next_turn = (int)$__timer['seconds_until_next_turn'];
+$minutes_until_next_turn = (int)$__timer['minutes_until_next_turn'];
+$seconds_remainder       = (int)$__timer['seconds_remainder'];
+$now                     = $__timer['now']; // DateTime (UTC)
 
 // --- INCLUDE UNIVERSAL HEADER ---
 include_once __DIR__ . '/../includes/header.php';
