@@ -16,6 +16,11 @@ if (session_status() == PHP_SESSION_NONE) {
 
     <script src="https://cdn.tailwindcss.com"></script>
     <script defer src="https://unpkg.com/alpinejs@3.x.x/dist/cdn.min.js"></script>
+    <!-- Favicon Attachments -->
+    <link rel="icon" type="image/avif" href="/assets/img/favicon.avif">
+    <link rel="icon" type="image/png" href="/assets/img/favicon.png" sizes="32x32">
+
+
     <link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@700&family=Roboto:wght@400;500;700&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="/assets/css/style.css">
     <style>[x-cloak]{display:none!important}</style>
