@@ -146,7 +146,7 @@ include_once __DIR__ . '/../includes/header.php';
                 </li>
                 <li>
                     <strong>Attack Fatigue:</strong>
-                    Multiple attacks in a short window may apply temporary fatigue (10 attacks against same target within 1 hour).
+                    Multiple attacks in a short window may apply temporary fatigue (10 attacks against same target within 1 hour, 11th attack starts receiving casualties from fatigue).
                     Fatigue decays over 1 hour from last attack. 
                 </li>
                 <li>
