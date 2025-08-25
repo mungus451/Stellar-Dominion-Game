@@ -75,79 +75,11 @@ include_once __DIR__ . '/../includes/header.php';
 <aside class="lg:col-span-1 space-y-4">
     <?php 
         // Values visible to the advisor include
-        $user_xp   = (int)($me['experience'] ?? 0);
-        $user_level= (int)($me['level'] ?? 1);
+        $user_xp    = (int)($me['experience'] ?? 0);
+        $user_level = (int)($me['level'] ?? 1);
         // ($minutes_until_next_turn, $seconds_remainder, $now) already defined above
         include_once __DIR__ . '/../includes/advisor.php';
     ?>
-
-    <!-- Explainer Container -->
-    <?php
-        // Compute explainer values locally (no undefined $__ vars)
-        $attack_turns_current = (int)($me['attack_turns'] ?? 0);
-        $turns_per_cycle      = 1; // game rule: +1 per cycle
-        $turn_interval_min    = (int)$turn_interval_minutes; // 10 by default
-    ?>
-    <div class="content-box rounded-lg p-4 mb-4" id="attack-help">
-      <div class="flex items-start justify-between">
-        <div>
-          <h3 class="font-title text-cyan-400 flex items-center gap-2">
-            <i data-lucide="info" class="w-5 h-5"></i>
-            How Attacks Work
-          </h3>
-          <p class="text-sm text-gray-300 mt-2">
-            Pick a target and the number of <strong>Attack Turns</strong> to spend (1–10). Spending more turns
-            generally increases your odds and potential rewards on a victory.
-          </p>
-          <ul class="text-sm text-gray-200 list-disc pl-5 mt-2 space-y-1">
-            <li>
-              <strong>Attack Turns:</strong>
-              You currently have
-              <span class="font-semibold text-white"><?php echo number_format($attack_turns_current); ?></span>.
-              Turns regenerate automatically at a rate of
-              <strong>+<?php echo $turns_per_cycle; ?></strong> every <strong><?php echo $turn_interval_min; ?> minutes</strong>
-              (whether online or offline).
-            </li>
-            <li>
-              <strong>Attack Fatigue:</strong>
-              Making multiple attacks in a short window may apply fatigue—temporarily reducing effectiveness
-              (e.g., damage or plunder yields). Fatigue decays over time as turns regenerate.
-            </li>
-            <li>
-              <strong>Victory & Rewards:</strong>
-              On a win you can steal credits and earn XP. On a loss, you’ll still spend turns and your opponent may gain XP.
-            </li>
-            <li>
-              <strong>Choosing Targets:</strong>
-              Higher-level or well-defended opponents are harder to defeat. Check their profile for context before committing many turns.
-            </li>
-          </ul>
-        </div>
-        <button type="button"
-                id="attack-help-toggle"
-                class="text-xs bg-gray-800 hover:bg-gray-700 border border-gray-700 rounded-md px-2 py-1 ml-4 flex-shrink-0">
-          Hide
-        </button>
-      </div>
-    </div>
-
-    <script>
-    (function(){
-      const box = document.getElementById('attack-help');
-      const btn = document.getElementById('attack-help-toggle');
-      if (!box || !btn) return;
-      const KEY = 'attack_help_collapsed';
-      function setCollapsed(collapsed) {
-        if (collapsed) { box.classList.add('hidden'); btn.textContent = 'Show'; }
-        else           { box.classList.remove('hidden'); btn.textContent = 'Hide'; }
-        try { localStorage.setItem(KEY, collapsed ? '1' : '0'); } catch(e) {}
-      }
-      btn.addEventListener('click', () => setCollapsed(!box.classList.contains('hidden')));
-      let collapsed = false;
-      try { collapsed = localStorage.getItem(KEY) === '1'; } catch(e) {}
-      setCollapsed(collapsed);
-    })();
-    </script>
 
     <div class="content-box rounded-lg p-4 stats-container">
         <h3 class="font-title text-cyan-400 border-b border-gray-600 pb-2 mb-3">Stats</h3>
@@ -176,7 +108,126 @@ include_once __DIR__ . '/../includes/header.php';
         </div>
     <?php endif; ?>
 
-    <div class="content-box rounded-lg p-4">
+    <?php
+        // Help values
+        $attack_turns_current = (int)($me['attack_turns'] ?? 0);
+        $turns_per_cycle      = 2; // rule: +1 per cycle
+        $turn_interval_min    = (int)$turn_interval_minutes; // 10
+    ?>
+
+    <!-- How Attacks Work — PERMANENT, sits directly above Target List -->
+    <div class="content-box rounded-lg p-4" id="attack-help-card" data-state="expanded">
+        <!-- Header row (desktop + mobile) -->
+        <div class="flex items-start justify-between border-b border-gray-600 pb-2 mb-2">
+            <h3 class="font-title text-cyan-400 flex items-center gap-2">
+                <i data-lucide="info" class="w-5 h-5"></i>
+                How Attacks Work
+            </h3>
+            <!-- Toggle mirrors dashboard-card behavior -->
+            <button type="button"
+                    id="attack-help-toggle"
+                    class="text-xs bg-gray-800 hover:bg-gray-700 border border-gray-700 rounded-md px-2 py-1">
+                Hide
+            </button>
+        </div>
+
+        <!-- Desktop: expanded content by default; Mobile: condensed by default -->
+        <div id="attack-help-content" class="text-sm space-y-2 md:block">
+            <p class="text-gray-300">
+                Pick a target and the number of <strong>Attack Turns</strong> to spend (1–10). Spending more turns
+                generally increases your odds and potential rewards on a victory.
+            </p>
+            <ul class="text-gray-200 list-disc pl-5 space-y-1">
+                <li>
+                    <strong>Attack Turns:</strong>
+                    You currently have <span class="font-semibold text-white"><?php echo number_format($attack_turns_current); ?></span>.
+                    Turns regenerate automatically at a rate of <strong>+<?php echo $turns_per_cycle; ?></strong>
+                    every <strong><?php echo $turn_interval_min; ?> minutes</strong> (online or offline).
+                </li>
+                <li>
+                    <strong>Attack Fatigue:</strong>
+                    Multiple attacks in a short window may apply temporary fatigue (10 attacks against same target within 1 hour).
+                    Fatigue decays over 1 hour from last attack. 
+                </li>
+                <li>
+                    <strong>Victory & Rewards:</strong>
+                    Wins can steal credits and earn XP. Losses still consume turns and may grant your opponent XP.
+                </li>
+                <li>
+                    <strong>Choosing Targets:</strong>
+                    Higher-level or well-defended opponents are harder to defeat. Check profiles before committing many turns.
+                </li>
+            </ul>
+        </div>
+
+        <!-- Mobile-only condensed wrapper (shows a short summary row) -->
+        <div id="attack-help-mobile-summary" class="md:hidden mt-2">
+            <div class="flex flex-wrap items-center gap-x-3 gap-y-2 text-xs text-gray-300">
+                <span><strong>Turns:</strong> <?php echo number_format($attack_turns_current); ?></span>
+                <span>•</span>
+                <span><strong>Regen:</strong> +<?php echo $turns_per_cycle; ?>/<?php echo $turn_interval_min; ?>m</span>
+                <span>•</span>
+                <button type="button"
+                        id="attack-help-mobile-toggle"
+                        class="underline decoration-dotted">
+                    Show details
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <script>
+    (function(){
+      const card   = document.getElementById('attack-help-card');
+      const body   = document.getElementById('attack-help-content');
+      const toggle = document.getElementById('attack-help-toggle');
+      const mobileToggle  = document.getElementById('attack-help-mobile-toggle');
+
+      if (!card || !body || !toggle) return;
+
+      const KEY = 'attack_help_collapsed';
+
+      function setCollapsed(collapsed){
+        if (collapsed) {
+          body.classList.add('hidden');
+          toggle.textContent = 'Show';
+          card.setAttribute('data-state','collapsed');
+        } else {
+          body.classList.remove('hidden');
+          toggle.textContent = 'Hide';
+          card.setAttribute('data-state','expanded');
+        }
+        try { localStorage.setItem(KEY, collapsed ? '1' : '0'); } catch(e){}
+      }
+
+      toggle.addEventListener('click', () => setCollapsed(!body.classList.contains('hidden')));
+
+      if (mobileToggle) {
+        mobileToggle.addEventListener('click', () => {
+          const collapsed = body.classList.contains('hidden');
+          if (collapsed) {
+            setCollapsed(false);
+            mobileToggle.textContent = 'Hide details';
+          } else {
+            setCollapsed(true);
+            mobileToggle.textContent = 'Show details';
+          }
+        });
+      }
+
+      // Initialize: desktop expanded; mobile collapsed (first load)
+      let collapsed = false;
+      try { collapsed = localStorage.getItem(KEY) === '1'; } catch(e){}
+      const isMobile = window.matchMedia('(max-width: 767px)').matches;
+      if (isMobile && localStorage.getItem(KEY) === null) collapsed = true;
+      setCollapsed(collapsed);
+    })();
+    </script>
+
+    <!-- ===== Target List ===== -->
+
+    <!-- Desktop / Tablet (md and up): existing table preserved -->
+    <div class="content-box rounded-lg p-4 hidden md:block">
         <div class="flex items-center justify-between mb-3">
             <h3 class="font-title text-cyan-400">Target List</h3>
             <div class="text-xs text-gray-400">Showing <?php echo count($targets); ?> players</div>
@@ -247,7 +298,70 @@ include_once __DIR__ . '/../includes/header.php';
             </table>
         </div>
     </div>
+
+    <!-- Mobile (below md): condensed card list -->
+    <div class="content-box rounded-lg p-4 md:hidden">
+        <div class="flex items-center justify-between mb-3">
+            <h3 class="font-title text-cyan-400">Targets</h3>
+            <div class="text-xs text-gray-400">Showing <?php echo count($targets); ?></div>
+        </div>
+
+        <div class="space-y-3">
+            <?php
+            $rank = 1;
+            foreach ($targets as $t):
+                $avatar = $t['avatar_path'] ?: '/assets/img/default_avatar.webp';
+                $tag = !empty($t['alliance_tag']) ? '[' . htmlspecialchars($t['alliance_tag']) . '] ' : '';
+            ?>
+            <div class="bg-gray-900/60 border border-gray-700 rounded-lg p-3">
+                <div class="flex items-center justify-between">
+                    <div class="flex items-center gap-3">
+                        <img src="<?php echo htmlspecialchars($avatar); ?>" alt="Avatar" class="w-10 h-10 rounded-md object-cover">
+                        <div>
+                            <div class="text-white font-semibold">
+                                <?php echo $tag . htmlspecialchars($t['character_name']); ?>
+                            </div>
+                            <div class="text-[11px] text-gray-400">
+                                Rank <?php echo $rank; ?> • Lvl <?php echo (int)$t['level']; ?>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="text-right text-xs text-gray-300">
+                        <div><span class="text-gray-400">Credits:</span> <span class="text-white font-semibold"><?php echo number_format((int)$t['credits']); ?></span></div>
+                        <div><span class="text-gray-400">Army:</span> <span class="text-white font-semibold"><?php echo number_format((int)$t['army_size']); ?></span></div>
+                    </div>
+                </div>
+
+                <div class="mt-3 flex items-center justify-between gap-2">
+                    <!-- Attack form -->
+                    <form action="/attack.php" method="POST" class="flex items-center gap-2 w-full">
+                        <input type="hidden" name="csrf_token" value="<?php echo htmlspecialchars($csrf_token, ENT_QUOTES, 'UTF-8'); ?>">
+                        <input type="hidden" name="csrf_action" value="attack">
+                        <input type="hidden" name="action" value="attack">
+                        <input type="hidden" name="defender_id" value="<?php echo (int)$t['id']; ?>">
+                        <input type="number" name="attack_turns" min="1" max="10" value="1" class="flex-1 bg-gray-900 border border-gray-600 rounded text-center p-1 text-xs">
+                        <button type="submit" class="bg-red-700 hover:bg-red-600 text-white text-xs font-semibold py-1 px-3 rounded-md">Attack</button>
+                    </form>
+
+                    <!-- Profile -->
+                    <form action="/view_profile.php" method="GET" class="shrink-0" onsubmit="event.stopPropagation();">
+                        <input type="hidden" name="user" value="<?php echo (int)$t['id']; ?>">
+                        <input type="hidden" name="id"   value="<?php echo (int)$t['id']; ?>">
+                        <button type="submit" class="bg-gray-700 hover:bg-gray-600 text-white text-xs font-semibold py-1 px-3 rounded-md">
+                            Profile
+                        </button>
+                    </form>
+                </div>
+            </div>
+            <?php
+            $rank++;
+            endforeach;
+            if (empty($targets)):
+            ?>
+            <div class="text-center text-gray-400 py-6">No targets found.</div>
+            <?php endif; ?>
+        </div>
+    </div>
 </main>
 
 <?php include_once __DIR__ . '/../includes/footer.php'; ?>
-
