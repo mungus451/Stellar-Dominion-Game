@@ -95,7 +95,7 @@ if (isset($user_xp, $user_level)) {
     $xp_progress_pct   = $xp_for_next_level > 0 ? min(100, floor(((int)$user_xp / $xp_for_next_level) * 100)) : 100;
 }
 
-// Robust timer bits (expect minutes/seconds; if absent, compute from last_updated)
+// Robust turn timer bits (expect minutes/seconds; if absent, compute from last_updated)
 $TURN_INTERVAL = 600; // seconds
 $seconds_until_next_turn = 0;
 if (isset($minutes_until_next_turn, $seconds_remainder)) {
@@ -114,8 +114,13 @@ $seconds_until_next_turn = max(0, min($TURN_INTERVAL, (int)$seconds_until_next_t
 $minutes_until_next_turn = intdiv($seconds_until_next_turn, 60);
 $seconds_remainder       = $seconds_until_next_turn % 60;
 
-// Current UTC display
-$__now = (isset($now) && $now instanceof DateTime) ? $now : new DateTime('now', new DateTimeZone('UTC'));
+// Anchor Dominion Time from the SERVER in US Eastern
+try {
+    $__now_et = new DateTime('now', new DateTimeZone('America/New_York'));
+} catch (Throwable $e) {
+    $__now_et = new DateTime('now', new DateTimeZone('UTC'));
+}
+$__now_et_epoch = $__now_et->getTimestamp();
 ?>
 
 <div class="content-box rounded-lg p-4 advisor-container">
@@ -162,7 +167,6 @@ $__now = (isset($now) && $now instanceof DateTime) ? $now : new DateTime('now', 
             <?php endif; ?>
 
             <?php
-            // Show Untrained only if available in this page context
             $untrained_ready = isset($__stats['untrained_citizens']) ? (int)$__stats['untrained_citizens'] : null;
             ?>
             <?php if($untrained_ready !== null): ?>
@@ -194,9 +198,12 @@ $__now = (isset($now) && $now instanceof DateTime) ? $now : new DateTime('now', 
             </li>
 
             <li class="flex justify-between">
-                <span>Dominion Time:</span>
-                <span id="dominion-time" class="text-white font-semibold">
-                    <?php echo htmlspecialchars($__now->format('H:i:s')); ?>
+                <span>Dominion Time (ET):</span>
+                <span id="dominion-time"
+                      class="text-white font-semibold"
+                      data-epoch="<?php echo (int)$__now_et_epoch; ?>"
+                      data-tz="America/New_York">
+                    <?php echo htmlspecialchars($__now_et->format('H:i:s')); ?>
                 </span>
             </li>
         </ul>
@@ -205,14 +212,13 @@ $__now = (isset($now) && $now instanceof DateTime) ? $now : new DateTime('now', 
 
 <script>
 (function(){
-  // Elements we’ll update
   const elCredits   = document.getElementById('advisor-credits-display');
   const elUntrained = document.getElementById('advisor-untrained-display');
   const elTurns     = document.getElementById('advisor-attack-turns');
   const elNextTurn  = document.getElementById('next-turn-timer');
   const elDomTime   = document.getElementById('dominion-time');
 
-  // Local countdown
+  // Local countdown (Next Turn)
   let nextTurnSeconds = elNextTurn ? parseInt(elNextTurn.getAttribute('data-seconds-until-next-turn') || '0', 10) : 0;
   function renderTimer(sec){
     const m = Math.floor(sec / 60);
@@ -226,12 +232,35 @@ $__now = (isset($now) && $now instanceof DateTime) ? $now : new DateTime('now', 
       nextTurnSeconds -= 1;
       renderTimer(nextTurnSeconds);
     } else {
-      // when it hits zero, keep it at 00:00 until poll refreshes
       renderTimer(0);
     }
   }, 1000);
 
-  // Poll API every 10s to keep credits/citizens/time fresh
+  // ── Live Dominion Time in US Eastern (HH:MM:SS) ────────────────────────────
+  let domEpoch = elDomTime ? parseInt(elDomTime.getAttribute('data-epoch') || '0', 10) : 0;
+
+  function renderDomTime(epoch){
+    if (!elDomTime) return;
+    const d = new Date(epoch * 1000);
+    const formatted = new Intl.DateTimeFormat('en-GB', {
+      timeZone: elDomTime.getAttribute('data-tz') || 'America/New_York',
+      hour12: false,
+      hour: '2-digit',
+      minute: '2-digit',
+      second: '2-digit'
+    }).format(d);
+    elDomTime.textContent = formatted;
+  }
+
+  if (domEpoch > 0) renderDomTime(domEpoch);
+  setInterval(() => {
+    if (domEpoch > 0) {
+      domEpoch += 1; // advance one second
+      renderDomTime(domEpoch);
+    }
+  }, 1000);
+
+  // Poll API every 10s (credits/citizens/turns; optional time re-sync)
   async function pollAdvisor(){
     try {
       const res = await fetch('/api/advisor_poll.php', {
@@ -242,31 +271,28 @@ $__now = (isset($now) && $now instanceof DateTime) ? $now : new DateTime('now', 
       if (!res.ok) return;
       const data = await res.json();
 
-      // Credits
       if (elCredits && typeof data.credits === 'number') {
         elCredits.textContent = new Intl.NumberFormat().format(data.credits);
         elCredits.setAttribute('data-amount', String(data.credits));
       }
-      // Untrained Citizens (if present on this page)
       if (elUntrained && typeof data.untrained_citizens === 'number') {
         elUntrained.textContent = new Intl.NumberFormat().format(data.untrained_citizens);
       }
-      // Attack turns
       if (elTurns && typeof data.attack_turns === 'number') {
         elTurns.textContent = String(data.attack_turns);
       }
-      // Next Turn timer — reset local countdown from server
       if (elNextTurn && typeof data.seconds_until_next_turn === 'number') {
         nextTurnSeconds = Math.max(0, parseInt(data.seconds_until_next_turn, 10));
         elNextTurn.setAttribute('data-seconds-until-next-turn', String(nextTurnSeconds));
         renderTimer(nextTurnSeconds);
       }
-      // Dominion time
-      if (elDomTime && typeof data.dominion_time === 'string') {
-        elDomTime.textContent = data.dominion_time;
+      // Optional resync if API provides server_time_unix
+      if (elDomTime && typeof data.server_time_unix === 'number') {
+        domEpoch = parseInt(data.server_time_unix, 10);
+        renderDomTime(domEpoch);
       }
-    } catch (e) {
-      // Silent fail — UI keeps local countdown
+    } catch (_) {
+      // Silent fail
     }
   }
   pollAdvisor();
