@@ -69,6 +69,58 @@ foreach ($armory_loadouts as $loadout) {
     }
 }
 
+/**
+ * --------------------------------------------------------------------------
+ * ARMORY STAT HELPERS (fix "Attack: N/A" on Guard/Sentry/Spy tabs)
+ * --------------------------------------------------------------------------
+ * These helpers choose the correct numeric stat to display based on the
+ * active loadout and available keys in the item definition. They DO NOT
+ * modify pricing or purchase logic; they only affect the label/value shown.
+ */
+function sd_armory_pick_power(array $item, string $loadout): array {
+    $loadout = strtolower($loadout);
+    // Candidate keys in priority order per loadout
+    $candidatesByLoadout = [
+        'soldier' => ['attack','offense','power'],
+        'guard'   => ['defense','guard_defense','shield','power'],
+        'sentry'  => ['defense','sentry_defense','shield','power'],
+        'spy'     => ['spy','spy_attack','spy_offense','attack','power'],
+        'worker'  => ['utility','power'],
+        'default' => ['power','attack','defense'],
+    ];
+    $candidates = $candidatesByLoadout[$loadout] ?? $candidatesByLoadout['default'];
+
+    foreach ($candidates as $k) {
+        if (array_key_exists($k, $item) && is_numeric($item[$k])) {
+            $labelMap = [
+                'attack'         => 'Attack',
+                'offense'        => 'Attack',
+                'power'          => 'Power',
+                'defense'        => 'Defense',
+                'guard_defense'  => 'Defense',
+                'sentry_defense' => 'Defense',
+                'shield'         => 'Defense',
+                'spy'            => 'Spy Power',
+                'spy_attack'     => 'Spy Power',
+                'spy_offense'    => 'Spy Power',
+                'utility'        => 'Utility',
+            ];
+            $label = $labelMap[$k] ?? 'Power';
+            return [$label, (float)$item[$k]];
+        }
+    }
+    // Fallback label when no numeric key exists
+    if ($loadout === 'spy') return ['Spy Power', null];
+    if ($loadout === 'guard' || $loadout === 'sentry') return ['Defense', null];
+    return ['Attack', null];
+}
+
+function sd_armory_power_line(array $item, string $loadout): string {
+    [$label, $val] = sd_armory_pick_power($item, $loadout);
+    $value = ($val === null) ? 'N/A' : number_format($val);
+    return $label . ': ' . $value;
+}
+
 // --- TIMER CALCULATIONS ---
 $now = new DateTime('now', new DateTimeZone('UTC'));
 $turn_interval_minutes = 10;
@@ -158,7 +210,7 @@ include_once __DIR__ . '/../includes/header.php';
                             ?>
                             <div class="armory-item bg-gray-900/60 rounded p-3 border border-gray-700 <?php echo $item_class; ?>" data-item-key="<?php echo htmlspecialchars($item_key); ?>">
                                 <p class="font-semibold text-white"><?php echo htmlspecialchars($item['name']); ?></p>
-                                <p class="text-xs text-green-400">Attack: <?php echo $item['attack'] ?? 'N/A'; ?></p>
+                                <p class="text-xs text-green-400"><?php echo htmlspecialchars(sd_armory_power_line($item, $current_tab)); ?></p>
                                 <p class="text-xs text-yellow-400" data-cost="<?php echo $discounted_cost; ?>">Cost: <?php echo number_format($discounted_cost); ?></p>
                                 <p class="text-xs">Owned: <span class="owned-quantity"><?php echo number_format($owned_quantity); ?></span></p>
                                 <?php if ($is_locked): ?>

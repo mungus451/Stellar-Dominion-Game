@@ -74,13 +74,81 @@ include_once __DIR__ . '/../includes/header.php';
 
 <aside class="lg:col-span-1 space-y-4">
     <?php 
-        $user_xp = (int)($me['experience'] ?? 0);
-        $user_level = (int)($me['level'] ?? 1);
-        $minutes_until_next_turn_local = $minutes_until_next_turn;
-        $seconds_remainder_local = $seconds_remainder;
-        $now_dt = $now;
+        // Values visible to the advisor include
+        $user_xp   = (int)($me['experience'] ?? 0);
+        $user_level= (int)($me['level'] ?? 1);
+        // ($minutes_until_next_turn, $seconds_remainder, $now) already defined above
         include_once __DIR__ . '/../includes/advisor.php';
     ?>
+
+    <!-- Explainer Container -->
+    <?php
+        // Compute explainer values locally (no undefined $__ vars)
+        $attack_turns_current = (int)($me['attack_turns'] ?? 0);
+        $turns_per_cycle      = 1; // game rule: +1 per cycle
+        $turn_interval_min    = (int)$turn_interval_minutes; // 10 by default
+    ?>
+    <div class="content-box rounded-lg p-4 mb-4" id="attack-help">
+      <div class="flex items-start justify-between">
+        <div>
+          <h3 class="font-title text-cyan-400 flex items-center gap-2">
+            <i data-lucide="info" class="w-5 h-5"></i>
+            How Attacks Work
+          </h3>
+          <p class="text-sm text-gray-300 mt-2">
+            Pick a target and the number of <strong>Attack Turns</strong> to spend (1–10). Spending more turns
+            generally increases your odds and potential rewards on a victory.
+          </p>
+          <ul class="text-sm text-gray-200 list-disc pl-5 mt-2 space-y-1">
+            <li>
+              <strong>Attack Turns:</strong>
+              You currently have
+              <span class="font-semibold text-white"><?php echo number_format($attack_turns_current); ?></span>.
+              Turns regenerate automatically at a rate of
+              <strong>+<?php echo $turns_per_cycle; ?></strong> every <strong><?php echo $turn_interval_min; ?> minutes</strong>
+              (whether online or offline).
+            </li>
+            <li>
+              <strong>Attack Fatigue:</strong>
+              Making multiple attacks in a short window may apply fatigue—temporarily reducing effectiveness
+              (e.g., damage or plunder yields). Fatigue decays over time as turns regenerate.
+            </li>
+            <li>
+              <strong>Victory & Rewards:</strong>
+              On a win you can steal credits and earn XP. On a loss, you’ll still spend turns and your opponent may gain XP.
+            </li>
+            <li>
+              <strong>Choosing Targets:</strong>
+              Higher-level or well-defended opponents are harder to defeat. Check their profile for context before committing many turns.
+            </li>
+          </ul>
+        </div>
+        <button type="button"
+                id="attack-help-toggle"
+                class="text-xs bg-gray-800 hover:bg-gray-700 border border-gray-700 rounded-md px-2 py-1 ml-4 flex-shrink-0">
+          Hide
+        </button>
+      </div>
+    </div>
+
+    <script>
+    (function(){
+      const box = document.getElementById('attack-help');
+      const btn = document.getElementById('attack-help-toggle');
+      if (!box || !btn) return;
+      const KEY = 'attack_help_collapsed';
+      function setCollapsed(collapsed) {
+        if (collapsed) { box.classList.add('hidden'); btn.textContent = 'Show'; }
+        else           { box.classList.remove('hidden'); btn.textContent = 'Hide'; }
+        try { localStorage.setItem(KEY, collapsed ? '1' : '0'); } catch(e) {}
+      }
+      btn.addEventListener('click', () => setCollapsed(!box.classList.contains('hidden')));
+      let collapsed = false;
+      try { collapsed = localStorage.getItem(KEY) === '1'; } catch(e) {}
+      setCollapsed(collapsed);
+    })();
+    </script>
+
     <div class="content-box rounded-lg p-4 stats-container">
         <h3 class="font-title text-cyan-400 border-b border-gray-600 pb-2 mb-3">Stats</h3>
         <ul class="space-y-2 text-sm">
@@ -131,7 +199,7 @@ include_once __DIR__ . '/../includes/header.php';
                     $rank = 1;
                     foreach ($targets as $t):
                         $avatar = $t['avatar_path'] ?: '/assets/img/default_avatar.webp';
-                        $tag = $t['alliance_tag'] ? '[' . htmlspecialchars($t['alliance_tag']) . '] ' : '';
+                        $tag = !empty($t['alliance_tag']) ? '[' . htmlspecialchars($t['alliance_tag']) . '] ' : '';
                     ?>
                     <tr class="<?php echo ($t['id'] === $user_id) ? 'bg-gray-800/30' : ''; ?>">
                         <td class="px-3 py-3"><?php echo $rank++; ?></td>
@@ -161,7 +229,7 @@ include_once __DIR__ . '/../includes/header.php';
                                     <button type="submit" class="bg-red-700 hover:bg-red-600 text-white text-xs font-semibold py-1 px-2 rounded-md">Attack</button>
                                 </form>
 
-                                <!-- NEW: View Profile button -->
+                                <!-- View Profile button -->
                                 <form action="/view_profile.php" method="GET" class="inline-block" onsubmit="event.stopPropagation();">
                                     <input type="hidden" name="user" value="<?php echo (int)$t['id']; ?>">
                                     <input type="hidden" name="id"   value="<?php echo (int)$t['id']; ?>">
@@ -182,3 +250,4 @@ include_once __DIR__ . '/../includes/header.php';
 </main>
 
 <?php include_once __DIR__ . '/../includes/footer.php'; ?>
+
