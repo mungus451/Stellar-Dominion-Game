@@ -14,29 +14,26 @@ date_default_timezone_set('UTC'); // Canonicalizes all server-side time arithmet
 require_once __DIR__ . '/../../config/config.php';
 require_once __DIR__ . '/../../src/Game/GameData.php'; // Provides $upgrades and $armory_loadouts metadata structures (read-only)
 require_once __DIR__ . '/../../src/Game/GameFunctions.php'; // <- canonical income + offline processing
+require_once __DIR__ . '/../../src/Services/StateService.php'; // centralized reads
 
 $csrf_token = generate_csrf_token('repair_structure');
 $user_id = (int)($_SESSION['id'] ?? 0);
 
-// Turn compaction side-effect: this function may mutate persistent state (credits, citizens, etc.)
-// based on elapsed turns. We intentionally call it *before* reading user rows to reflect current state.
-// (Also releases any 30m “assassination → untrained” batches.)
-if ($user_id > 0) {
-    process_offline_turns($link, $user_id);
-}
+// --- DATA FETCHING FOR DISPLAY (centralized) ---
 
-// --- DATA FETCHING FOR DISPLAY ---
-$user_stats = [];
-if ($user_id > 0) {
-    $sql = "SELECT * FROM users WHERE id = ?";
-    if ($stmt = mysqli_prepare($link, $sql)) {
-        mysqli_stmt_bind_param($stmt, "i", $user_id);
-        mysqli_stmt_execute($stmt);
-        $result = mysqli_stmt_get_result($stmt);
-        $user_stats = mysqli_fetch_assoc($result) ?: [];
-        mysqli_stmt_close($stmt);
-    }
-}
+// Pull everything the dashboard needs in one call (and process offline turns).
+$needed_fields = [
+    'id','alliance_id','credits','banked_credits','net_worth','workers',
+    'soldiers','guards','sentries','spies','untrained_citizens',
+    'strength_points','constitution_points','wealth_points',
+    'offense_upgrade_level','defense_upgrade_level','spy_upgrade_level','economy_upgrade_level',
+    'population_level','fortification_level','fortification_hitpoints',
+    'last_updated','experience','level','race','class','character_name','avatar_path',
+    'attack_turns','previous_login_at','previous_login_ip'
+];
+$user_stats = ($user_id > 0)
+    ? ss_process_and_get_user_state($link, $user_id, $needed_fields)
+    : [];
 
 $user_stats += [
     'id' => $user_id,
@@ -72,22 +69,10 @@ $user_stats += [
     'previous_login_ip' => $user_stats['previous_login_ip'] ?? null,
 ];
 
-// --- FETCH ARMORY DATA ---
-$owned_items = [];
-if ($user_id > 0) {
-    $sql_armory = "SELECT item_key, quantity FROM user_armory WHERE user_id = ?";
-    if ($stmt_armory = mysqli_prepare($link, $sql_armory)) {
-        mysqli_stmt_bind_param($stmt_armory, "i", $user_id);
-        mysqli_stmt_execute($stmt_armory);
-        $armory_result = mysqli_stmt_get_result($stmt_armory);
-        while ($row = mysqli_fetch_assoc($armory_result)) {
-            $owned_items[$row['item_key']] = (int)$row['quantity'];
-        }
-        mysqli_stmt_close($stmt_armory);
-    }
-}
+// --- FETCH ARMORY DATA (centralized) ---
+$owned_items = ($user_id > 0) ? ss_get_armory_inventory($link, $user_id) : [];
 
-// --- FETCH ALLIANCE INFO ---
+// --- FETCH ALLIANCE INFO (kept here; not part of StateService yet) ---
 $alliance_info = null;
 if (!empty($user_stats['alliance_id'])) {
     $sql_alliance = "SELECT name, tag FROM alliances WHERE id = ?";
@@ -99,7 +84,7 @@ if (!empty($user_stats['alliance_id'])) {
     }
 }
 
-// --- COMBAT RECORD ---
+// --- COMBAT RECORD (unchanged: summarizes from logs) ---
 $wins = 0; $losses_as_attacker = 0; $losses_as_defender = 0;
 if ($user_id > 0) {
     $sql_battles = "
@@ -122,7 +107,7 @@ if ($user_id > 0) {
 }
 $total_losses = $losses_as_attacker + $losses_as_defender;
 
-// --- NET WORTH RECALC ---
+// --- NET WORTH RECALC (unchanged) ---
 $base_unit_costs = ['workers' => 100, 'soldiers' => 250, 'guards' => 250, 'sentries' => 500, 'spies' => 1000];
 $refund_rate = 0.75;
 $structure_depreciation_rate = 0.10;
@@ -241,7 +226,7 @@ $defense_rating = (int)floor(((($guard_count * 10) + $armory_defense_bonus) * $c
 $spy_offense = (int)floor((($spy_count * 10) + $armory_spy_bonus) * $offense_upgrade_multiplier);
 $sentry_defense = (int)floor(((($sentry_count * 10) + $armory_sentry_bonus)) * $defense_upgrade_multiplier);
 
-// --- POPULATION & TURN TIMER ---
+// --- POPULATION & TURN TIMER (centralized timer calc) ---
 $non_military_units = (int)$user_stats['workers'] + (int)$user_stats['untrained_citizens'];
 $offensive_units = (int)$user_stats['soldiers'];
 $utility_units = (int)$user_stats['spies'];
@@ -249,14 +234,11 @@ $total_military_units = $offensive_units + (int)$user_stats['guards'] + (int)$us
 $total_population = $non_military_units + $total_military_units;
 
 $turn_interval_minutes = 10;
-$last_updated = new DateTime($user_stats['last_updated'], new DateTimeZone('UTC'));
-$now = new DateTime('now', new DateTimeZone('UTC'));
-$interval = $turn_interval_minutes * 60;
-$elapsed = $now->getTimestamp() - $last_updated->getTimestamp();
-$seconds_until_next_turn = $interval - ($elapsed % $interval);
-if ($seconds_until_next_turn < 0) { $seconds_until_next_turn = 0; }
-$minutes_until_next_turn = (int)floor($seconds_until_next_turn / 60);
-$seconds_remainder = $seconds_until_next_turn % 60;
+$__timer = ss_compute_turn_timer($user_stats, $turn_interval_minutes);
+$seconds_until_next_turn = (int)$__timer['seconds_until_next_turn'];
+$minutes_until_next_turn = (int)$__timer['minutes_until_next_turn'];
+$seconds_remainder       = (int)$__timer['seconds_remainder'];
+$now                     = $__timer['now']; // DateTime UTC
 
 // Include the universal header AFTER data is ready (advisor needs some of it)
 include_once __DIR__ . '/../includes/header.php';
