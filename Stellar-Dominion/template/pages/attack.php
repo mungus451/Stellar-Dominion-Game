@@ -25,7 +25,6 @@ process_offline_turns($link, $user_id);
 $csrf_token = generate_csrf_token('attack');
 
 // current user row (for timers/advisor)
-// MODIFICATION: Added `alliance_id` to check for rivalries later.
 $sql_me = "SELECT id, character_name, level, credits, banked_credits, attack_turns, last_updated, experience, alliance_id
            FROM users WHERE id = ?";
 $stmt_me = mysqli_prepare($link, $sql_me);
@@ -33,11 +32,10 @@ mysqli_stmt_bind_param($stmt_me, "i", $user_id);
 mysqli_stmt_execute($stmt_me);
 $me = mysqli_fetch_assoc(mysqli_stmt_get_result($stmt_me)) ?: [];
 mysqli_stmt_close($stmt_me);
-// NEW: Store the current user's alliance ID for comparison.
 $my_alliance_id = $me['alliance_id'] ?? null;
 
 // target list (now with alliance tag + avatar)
-// MODIFICATION: Added `u.alliance_id` to the SELECT list for the rivalry check.
+// MODIFICATION: The `WHERE u.id <> ?` clause has been removed to include the current player in the list.
 $sql_targets = "
     SELECT
         u.id, u.character_name, u.level, u.credits, u.avatar_path,
@@ -45,12 +43,11 @@ $sql_targets = "
         a.tag   AS alliance_tag
     FROM users u
     LEFT JOIN alliances a ON a.id = u.alliance_id
-    WHERE u.id <> ?
     ORDER BY u.level DESC, u.credits DESC
     LIMIT 100
 ";
+// MODIFICATION: The prepared statement no longer needs to bind the user_id parameter.
 $stmt_t = mysqli_prepare($link, $sql_targets);
-mysqli_stmt_bind_param($stmt_t, "i", $user_id);
 mysqli_stmt_execute($stmt_t);
 $targets_rs = mysqli_stmt_get_result($stmt_t);
 $targets = [];
@@ -58,20 +55,18 @@ while ($row = mysqli_fetch_assoc($targets_rs)) {
     // Show “Army Size” as military only (soldiers + guards + sentries + spies)
     $row['army_size'] = (int)$row['soldiers'] + (int)$row['guards'] + (int)$row['sentries'] + (int)$row['spies'];
 
-    // --- NEW: Rivalry Check Logic ---
+    // --- Rivalry Check Logic (Unchanged) ---
     $row['is_rival'] = false;
-    // Only perform the check if both the user and the target are in an alliance, and they are not the SAME alliance.
     if ($my_alliance_id && $row['alliance_id'] && $my_alliance_id != $row['alliance_id']) {
         $a1 = $my_alliance_id;
         $a2 = $row['alliance_id'];
-        // This query checks if an entry exists in the `rivalries` table for the two alliances.
         $sql_rival = "SELECT 1 FROM rivalries WHERE (alliance1_id = ? AND alliance2_id = ?) OR (alliance1_id = ? AND alliance2_id = ?) LIMIT 1";
         if ($stmt_rival = mysqli_prepare($link, $sql_rival)) {
             mysqli_stmt_bind_param($stmt_rival, "iiii", $a1, $a2, $a2, $a1);
             mysqli_stmt_execute($stmt_rival);
             mysqli_stmt_store_result($stmt_rival);
             if (mysqli_stmt_num_rows($stmt_rival) > 0) {
-                $row['is_rival'] = true; // Set the flag to true if a rivalry is found.
+                $row['is_rival'] = true;
             }
             mysqli_stmt_close($stmt_rival);
         }
@@ -253,10 +248,14 @@ include_once __DIR__ . '/../includes/header.php';
                     $rank = 1;
                     foreach ($targets as $t):
                         $avatar = $t['avatar_path'] ?: '/assets/img/default_avatar.webp';
-                        // MODIFICATION: Apply the .alliance-tag class for styling.
                         $tag = !empty($t['alliance_tag']) ? '<span class="alliance-tag">[' . htmlspecialchars($t['alliance_tag']) . ']</span> ' : '';
+                        
+                        // NEW: Determine if the target is an ally or the player themselves.
+                        $is_self = ($t['id'] === $user_id);
+                        $is_ally = ($my_alliance_id && $my_alliance_id === $t['alliance_id'] && !$is_self);
+                        $cant_attack = $is_self || $is_ally;
                     ?>
-                    <tr class="<?php echo ($t['id'] === $user_id) ? 'bg-gray-800/30' : ''; ?>">
+                    <tr class="<?php echo $is_self ? 'bg-cyan-900/40' : ''; // Highlight the player's own row ?>">
                         <td class="px-3 py-3"><?php echo $rank++; ?></td>
                         <td class="px-3 py-3">
                             <div class="flex items-center gap-3">
@@ -277,14 +276,23 @@ include_once __DIR__ . '/../includes/header.php';
                         <td class="px-3 py-3 text-right text-white"><?php echo (int)$t['level']; ?></td>
                         <td class="px-3 py-3">
                             <div class="flex items-center justify-end gap-2">
-                                <form action="/attack.php" method="POST" class="flex items-center gap-1">
-                                    <input type="hidden" name="csrf_token" value="<?php echo htmlspecialchars($csrf_token, ENT_QUOTES, 'UTF-8'); ?>">
-                                    <input type="hidden" name="csrf_action" value="attack">
-                                    <input type="hidden" name="action" value="attack">
-                                    <input type="hidden" name="defender_id" value="<?php echo (int)$t['id']; ?>">
-                                    <input type="number" name="attack_turns" min="1" max="10" value="1" class="w-12 bg-gray-900 border border-gray-600 rounded text-center p-1 text-xs">
-                                    <button type="submit" class="bg-red-700 hover:bg-red-600 text-white text-xs font-semibold py-1 px-2 rounded-md">Attack</button>
-                                </form>
+                                <?php if ($cant_attack): ?>
+                                    <div class="flex items-center gap-1">
+                                        <input type="number" value="1" class="w-12 bg-gray-800 border border-gray-700 rounded text-center p-1 text-xs text-gray-500" disabled>
+                                        <button type="button" class="bg-gray-600 text-gray-400 text-xs font-semibold py-1 px-2 rounded-md cursor-not-allowed" disabled>
+                                            <?php echo $is_self ? 'Self' : 'Ally'; ?>
+                                        </button>
+                                    </div>
+                                <?php else: ?>
+                                    <form action="/attack.php" method="POST" class="flex items-center gap-1">
+                                        <input type="hidden" name="csrf_token" value="<?php echo htmlspecialchars($csrf_token, ENT_QUOTES, 'UTF-8'); ?>">
+                                        <input type="hidden" name="csrf_action" value="attack">
+                                        <input type="hidden" name="action" value="attack">
+                                        <input type="hidden" name="defender_id" value="<?php echo (int)$t['id']; ?>">
+                                        <input type="number" name="attack_turns" min="1" max="10" value="1" class="w-12 bg-gray-900 border border-gray-600 rounded text-center p-1 text-xs">
+                                        <button type="submit" class="bg-red-700 hover:bg-red-600 text-white text-xs font-semibold py-1 px-2 rounded-md">Attack</button>
+                                    </form>
+                                <?php endif; ?>
 
                                 <form action="/view_profile.php" method="GET" class="inline-block" onsubmit="event.stopPropagation();">
                                     <input type="hidden" name="user" value="<?php echo (int)$t['id']; ?>">
@@ -315,10 +323,14 @@ include_once __DIR__ . '/../includes/header.php';
             $rank = 1;
             foreach ($targets as $t):
                 $avatar = $t['avatar_path'] ?: '/assets/img/default_avatar.webp';
-                // MODIFICATION: Apply the .alliance-tag class for styling.
                 $tag = !empty($t['alliance_tag']) ? '<span class="alliance-tag">[' . htmlspecialchars($t['alliance_tag']) . ']</span> ' : '';
+
+                // NEW: Determine if the target is an ally or the player themselves for mobile view.
+                $is_self = ($t['id'] === $user_id);
+                $is_ally = ($my_alliance_id && $my_alliance_id === $t['alliance_id'] && !$is_self);
+                $cant_attack = $is_self || $is_ally;
             ?>
-            <div class="bg-gray-900/60 border border-gray-700 rounded-lg p-3">
+            <div class="bg-gray-900/60 border border-gray-700 rounded-lg p-3 <?php echo $is_self ? 'border-cyan-700' : ''; ?>">
                 <div class="flex items-center justify-between">
                     <div class="flex items-center gap-3">
                         <img src="<?php echo htmlspecialchars($avatar); ?>" alt="Avatar" class="w-10 h-10 rounded-md object-cover">
@@ -341,14 +353,23 @@ include_once __DIR__ . '/../includes/header.php';
                 </div>
 
                 <div class="mt-3 flex items-center justify-between gap-2">
-                    <form action="/attack.php" method="POST" class="flex items-center gap-2 w-full">
-                        <input type="hidden" name="csrf_token" value="<?php echo htmlspecialchars($csrf_token, ENT_QUOTES, 'UTF-8'); ?>">
-                        <input type="hidden" name="csrf_action" value="attack">
-                        <input type="hidden" name="action" value="attack">
-                        <input type="hidden" name="defender_id" value="<?php echo (int)$t['id']; ?>">
-                        <input type="number" name="attack_turns" min="1" max="10" value="1" class="flex-1 bg-gray-900 border border-gray-600 rounded text-center p-1 text-xs">
-                        <button type="submit" class="bg-red-700 hover:bg-red-600 text-white text-xs font-semibold py-1 px-3 rounded-md">Attack</button>
-                    </form>
+                    <?php if ($cant_attack): ?>
+                        <div class="flex items-center gap-2 w-full">
+                           <input type="number" value="1" class="flex-1 bg-gray-800 border border-gray-700 rounded text-center p-1 text-xs text-gray-500" disabled>
+                           <button type="button" class="bg-gray-600 text-gray-400 text-xs font-semibold py-1 px-3 rounded-md cursor-not-allowed" disabled>
+                               <?php echo $is_self ? 'Self' : 'Ally'; ?>
+                           </button>
+                        </div>
+                    <?php else: ?>
+                        <form action="/attack.php" method="POST" class="flex items-center gap-2 w-full">
+                            <input type="hidden" name="csrf_token" value="<?php echo htmlspecialchars($csrf_token, ENT_QUOTES, 'UTF-8'); ?>">
+                            <input type="hidden" name="csrf_action" value="attack">
+                            <input type="hidden" name="action" value="attack">
+                            <input type="hidden" name="defender_id" value="<?php echo (int)$t['id']; ?>">
+                            <input type="number" name="attack_turns" min="1" max="10" value="1" class="flex-1 bg-gray-900 border border-gray-600 rounded text-center p-1 text-xs">
+                            <button type="submit" class="bg-red-700 hover:bg-red-600 text-white text-xs font-semibold py-1 px-3 rounded-md">Attack</button>
+                        </form>
+                    <?php endif; ?>
 
                     <form action="/view_profile.php" method="GET" class="shrink-0" onsubmit="event.stopPropagation();">
                         <input type="hidden" name="user" value="<?php echo (int)$t['id']; ?>">
