@@ -188,7 +188,7 @@ include_once __DIR__ . '/../includes/header.php';
                                         <input type="number" name="attack_turns" min="1" max="10" value="1" class="w-12 bg-gray-900 border border-gray-600 rounded text-center p-1 text-xs">
                                         <button type="submit" class="bg-cyan-700 hover:bg-cyan-600 text-white text-xs font-semibold py-1 px-2 rounded-md">Spy</button>
                                     </form>
-                                    <form action="/spy.php" method="POST" class="hidden md:flex items-center gap-1">
+                                    <form action="/spy.php" method="POST" class="flex items-center gap-1">
                                         <input type="hidden" name="csrf_token" value="<?php echo htmlspecialchars($csrf_sabo, ENT_QUOTES, 'UTF-8'); ?>">
                                         <input type="hidden" name="csrf_action" value="spy_sabotage">
                                         <input type="hidden" name="mission_type" value="sabotage">
@@ -236,6 +236,8 @@ include_once __DIR__ . '/../includes/header.php';
                 $is_self = ($t['id'] === $user_id);
                 $is_ally = ($my_alliance_id && $my_alliance_id === $t['alliance_id'] && !$is_self);
                 $cant_attack = $is_self || $is_ally;
+                // Unique ID for the turn input to link forms
+                $mobile_turns_id = "mobile-turns-" . (int)$t['id'];
             ?>
             <div class="bg-gray-900/60 border border-gray-700 rounded-lg p-3 <?php echo $is_self ? 'border-cyan-700' : ''; ?>">
                 <div class="flex items-center justify-between">
@@ -259,34 +261,59 @@ include_once __DIR__ . '/../includes/header.php';
                     </div>
                 </div>
 
-                <div class="mt-3 flex items-center justify-end gap-2">
+                <div class="mt-3">
                     <?php if ($cant_attack): ?>
-                        <span class="text-xs font-semibold w-full text-left <?php echo $is_self ? 'text-cyan-400' : 'text-gray-400'; ?>">
-                            <?php echo $is_self ? 'This is you' : 'Ally'; ?>
-                        </span>
+                        <div class="flex items-center justify-between">
+                            <span class="text-xs font-semibold <?php echo $is_self ? 'text-cyan-400' : 'text-gray-400'; ?>">
+                                <?php echo $is_self ? 'This is you' : 'Ally'; ?>
+                            </span>
+                            <form action="/view_profile.php" method="GET" class="shrink-0">
+                                <input type="hidden" name="user" value="<?php echo (int)$t['id']; ?>">
+                                <input type="hidden" name="id"   value="<?php echo (int)$t['id']; ?>">
+                                <button type="submit" class="bg-gray-700 hover:bg-gray-600 text-white text-xs font-semibold py-1 px-3 rounded-md">
+                                    Profile
+                                </button>
+                            </form>
+                        </div>
                     <?php else: ?>
-                        <form action="/spy.php" method="POST" class="flex items-center">
-                            <input type="hidden" name="csrf_token" value="<?php echo htmlspecialchars($csrf_intel, ENT_QUOTES, 'UTF-8'); ?>">
-                            <input type="hidden" name="csrf_action" value="spy_intel">
-                            <input type="hidden" name="mission_type" value="intelligence">
-                            <input type="hidden" name="defender_id" value="<?php echo (int)$t['id']; ?>">
-                            <input type="hidden" name="attack_turns" value="1">
-                            <button type="submit" class="bg-cyan-700 hover:bg-cyan-600 text-white text-xs font-semibold py-1 px-3 rounded-md">Spy</button>
-                        </form>
-                        <button type="button"
-                                class="open-assass-modal bg-red-700 hover:bg-red-600 text-white text-xs font-semibold py-1 px-3 rounded-md"
-                                data-defender-id="<?php echo (int)$t['id']; ?>"
-                                data-defender-name="<?php echo htmlspecialchars($t['character_name']); ?>">
-                            Assassinate
-                        </button>
+                        <div class="flex items-center gap-2">
+                            <label for="<?php echo $mobile_turns_id; ?>" class="sr-only">Turns</label>
+                            <input type="number" id="<?php echo $mobile_turns_id; ?>" min="1" max="10" value="1" 
+                                   class="w-16 bg-gray-900 border border-gray-600 rounded text-center p-1 text-xs"
+                                   oninput="document.querySelectorAll('.turns-for-<?php echo (int)$t['id']; ?>').forEach(el => el.value = this.value)">
+                            <div class="flex-1 flex items-center justify-end gap-2">
+                                <form action="/spy.php" method="POST">
+                                    <input type="hidden" name="csrf_token" value="<?php echo htmlspecialchars($csrf_intel, ENT_QUOTES, 'UTF-8'); ?>">
+                                    <input type="hidden" name="csrf_action" value="spy_intel">
+                                    <input type="hidden" name="mission_type" value="intelligence">
+                                    <input type="hidden" name="defender_id" value="<?php echo (int)$t['id']; ?>">
+                                    <input type="hidden" name="attack_turns" value="1" class="turns-for-<?php echo (int)$t['id']; ?>">
+                                    <button type="submit" class="bg-cyan-700 hover:bg-cyan-600 text-white text-xs font-semibold py-1 px-3 rounded-md">Spy</button>
+                                </form>
+                                <form action="/spy.php" method="POST">
+                                    <input type="hidden" name="csrf_token" value="<?php echo htmlspecialchars($csrf_sabo, ENT_QUOTES, 'UTF-8'); ?>">
+                                    <input type="hidden" name="csrf_action" value="spy_sabotage">
+                                    <input type="hidden" name="mission_type" value="sabotage">
+                                    <input type="hidden" name="defender_id" value="<?php echo (int)$t['id']; ?>">
+                                    <input type="hidden" name="attack_turns" value="1" class="turns-for-<?php echo (int)$t['id']; ?>">
+                                    <button type="submit" class="bg-amber-700 hover:bg-amber-600 text-white text-xs font-semibold py-1 px-3 rounded-md">Sabotage</button>
+                                </form>
+                                <button type="button"
+                                        class="open-assass-modal bg-red-700 hover:bg-red-600 text-white text-xs font-semibold py-1 px-3 rounded-md"
+                                        data-defender-id="<?php echo (int)$t['id']; ?>"
+                                        data-defender-name="<?php echo htmlspecialchars($t['character_name']); ?>">
+                                    Assassinate
+                                </button>
+                                <form action="/view_profile.php" method="GET" class="shrink-0">
+                                    <input type="hidden" name="user" value="<?php echo (int)$t['id']; ?>">
+                                    <input type="hidden" name="id"   value="<?php echo (int)$t['id']; ?>">
+                                    <button type="submit" class="bg-gray-700 hover:bg-gray-600 text-white text-xs font-semibold py-1 px-3 rounded-md">
+                                        Profile
+                                    </button>
+                                </form>
+                            </div>
+                        </div>
                     <?php endif; ?>
-                    <form action="/view_profile.php" method="GET" class="shrink-0" onsubmit="event.stopPropagation();">
-                        <input type="hidden" name="user" value="<?php echo (int)$t['id']; ?>">
-                        <input type="hidden" name="id"   value="<?php echo (int)$t['id']; ?>">
-                        <button type="submit" class="bg-gray-700 hover:bg-gray-600 text-white text-xs font-semibold py-1 px-3 rounded-md">
-                            Profile
-                        </button>
-                    </form>
                 </div>
             </div>
             <?php

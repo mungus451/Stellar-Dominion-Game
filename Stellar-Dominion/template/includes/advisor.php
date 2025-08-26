@@ -212,90 +212,100 @@ $__now_et_epoch = $__now_et->getTimestamp();
 
 <script>
 (function(){
-  const elCredits   = document.getElementById('advisor-credits-display');
-  const elUntrained = document.getElementById('advisor-untrained-display');
-  const elTurns     = document.getElementById('advisor-attack-turns');
-  const elNextTurn  = document.getElementById('next-turn-timer');
-  const elDomTime   = document.getElementById('dominion-time');
+    const elCredits   = document.getElementById('advisor-credits-display');
+    const elUntrained = document.getElementById('advisor-untrained-display');
+    const elTurns     = document.getElementById('advisor-attack-turns');
+    const elNextTurn  = document.getElementById('next-turn-timer');
+    const elDomTime   = document.getElementById('dominion-time');
 
-  // Local countdown (Next Turn)
-  let nextTurnSeconds = elNextTurn ? parseInt(elNextTurn.getAttribute('data-seconds-until-next-turn') || '0', 10) : 0;
-  function renderTimer(sec){
-    const m = Math.floor(sec / 60);
-    const s = sec % 60;
-    if (elNextTurn) elNextTurn.textContent = String(m).padStart(2,'0') + ':' + String(s).padStart(2,'0');
-  }
-  renderTimer(nextTurnSeconds);
+    // --- MODIFIED: Robust Turn Timer ---
+    let nextTurnEndTime = 0; // The future timestamp when the timer reaches zero
 
-  setInterval(() => {
-    if (nextTurnSeconds > 0) {
-      nextTurnSeconds -= 1;
-      renderTimer(nextTurnSeconds);
-    } else {
-      renderTimer(0);
+    function setTurnTimer(secondsRemaining) {
+        // Calculate the exact time in the future when the turn happens.
+        // Date.now() is in milliseconds, so multiply seconds by 1000.
+        nextTurnEndTime = Date.now() + (secondsRemaining * 1000);
     }
-  }, 1000);
 
-  // ── Live Dominion Time in US Eastern (HH:MM:SS) ────────────────────────────
-  let domEpoch = elDomTime ? parseInt(elDomTime.getAttribute('data-epoch') || '0', 10) : 0;
+    function updateTurnTimerDisplay() {
+        if (!elNextTurn) return;
+        
+        // Calculate how many milliseconds are left until the end time.
+        const msRemaining = Math.max(0, nextTurnEndTime - Date.now());
+        const seconds = Math.floor(msRemaining / 1000);
+        
+        const m = Math.floor(seconds / 60);
+        const s = seconds % 60;
+        
+        elNextTurn.textContent = String(m).padStart(2, '0') + ':' + String(s).padStart(2, '0');
+    }
 
-  function renderDomTime(epoch){
-    if (!elDomTime) return;
-    const d = new Date(epoch * 1000);
-    const formatted = new Intl.DateTimeFormat('en-GB', {
-      timeZone: elDomTime.getAttribute('data-tz') || 'America/New_York',
-      hour12: false,
-      hour: '2-digit',
-      minute: '2-digit',
-      second: '2-digit'
-    }).format(d);
-    elDomTime.textContent = formatted;
-  }
+    if (elNextTurn) {
+        const initialSeconds = parseInt(elNextTurn.getAttribute('data-seconds-until-next-turn') || '0', 10);
+        setTurnTimer(initialSeconds);
+        setInterval(updateTurnTimerDisplay, 1000); // Update display every second
+    }
+    
+    // --- Live Dominion Time in US Eastern (HH:MM:SS) ---
+    let domEpoch = elDomTime ? parseInt(elDomTime.getAttribute('data-epoch') || '0', 10) : 0;
 
-  if (domEpoch > 0) renderDomTime(domEpoch);
-  setInterval(() => {
+    function renderDomTime(epoch){
+        if (!elDomTime) return;
+        const d = new Date(epoch * 1000);
+        const formatted = new Intl.DateTimeFormat('en-GB', {
+            timeZone: elDomTime.getAttribute('data-tz') || 'America/New_York',
+            hour12: false,
+            hour: '2-digit',
+            minute: '2-digit',
+            second: '2-digit'
+        }).format(d);
+        elDomTime.textContent = formatted;
+    }
+
     if (domEpoch > 0) {
-      domEpoch += 1; // advance one second
-      renderDomTime(domEpoch);
-    }
-  }, 1000);
-
-  // Poll API every 10s (credits/citizens/turns; optional time re-sync)
-  async function pollAdvisor(){
-    try {
-      const res = await fetch('/api/advisor_poll.php', {
-        credentials: 'same-origin',
-        headers: { 'Accept': 'application/json' },
-        cache: 'no-store'
-      });
-      if (!res.ok) return;
-      const data = await res.json();
-
-      if (elCredits && typeof data.credits === 'number') {
-        elCredits.textContent = new Intl.NumberFormat().format(data.credits);
-        elCredits.setAttribute('data-amount', String(data.credits));
-      }
-      if (elUntrained && typeof data.untrained_citizens === 'number') {
-        elUntrained.textContent = new Intl.NumberFormat().format(data.untrained_citizens);
-      }
-      if (elTurns && typeof data.attack_turns === 'number') {
-        elTurns.textContent = String(data.attack_turns);
-      }
-      if (elNextTurn && typeof data.seconds_until_next_turn === 'number') {
-        nextTurnSeconds = Math.max(0, parseInt(data.seconds_until_next_turn, 10));
-        elNextTurn.setAttribute('data-seconds-until-next-turn', String(nextTurnSeconds));
-        renderTimer(nextTurnSeconds);
-      }
-      // Optional resync if API provides server_time_unix
-      if (elDomTime && typeof data.server_time_unix === 'number') {
-        domEpoch = parseInt(data.server_time_unix, 10);
         renderDomTime(domEpoch);
-      }
-    } catch (_) {
-      // Silent fail
+        setInterval(() => {
+            domEpoch += 1; // advance one second
+            renderDomTime(domEpoch);
+        }, 1000);
     }
-  }
-  pollAdvisor();
-  setInterval(pollAdvisor, 10000);
+
+    // --- Poll API every 10s ---
+    async function pollAdvisor(){
+        try {
+            const res = await fetch('/api/advisor_poll.php', {
+                credentials: 'same-origin',
+                headers: { 'Accept': 'application/json' },
+                cache: 'no-store'
+            });
+            if (!res.ok) return;
+            const data = await res.json();
+
+            if (elCredits && typeof data.credits === 'number') {
+                elCredits.textContent = new Intl.NumberFormat().format(data.credits);
+                elCredits.setAttribute('data-amount', String(data.credits));
+            }
+            if (elUntrained && typeof data.untrained_citizens === 'number') {
+                elUntrained.textContent = new Intl.NumberFormat().format(data.untrained_citizens);
+            }
+            if (elTurns && typeof data.attack_turns === 'number') {
+                elTurns.textContent = String(data.attack_turns);
+            }
+            // MODIFICATION: When API responds, reset the timer with the new official value.
+            if (elNextTurn && typeof data.seconds_until_next_turn === 'number') {
+                setTurnTimer(parseInt(data.seconds_until_next_turn, 10));
+            }
+            // Optional resync if API provides server_time_unix
+            if (elDomTime && typeof data.server_time_unix === 'number') {
+                domEpoch = parseInt(data.server_time_unix, 10);
+                renderDomTime(domEpoch);
+            }
+        } catch (_) {
+            // Silent fail
+        }
+    }
+    
+    pollAdvisor(); // Initial poll
+    setInterval(pollAdvisor, 10000); // Poll every 10 seconds
 })();
 </script>
