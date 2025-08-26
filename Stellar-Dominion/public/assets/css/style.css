@@ -232,3 +232,23 @@ input[type=number]::-webkit-outer-spin-button {
 footer {
     border-top: 1px solid #374151; /* gray-700 */
 }
+
+/* Alliance Tags on attack.php */
+
+.alliance-tag {
+    color: #06b6d4; /* This is the cyan blue from the logo */
+    font-weight: 600; /* semi-bold */
+}
+
+.rival-badge {
+    display: inline-block;
+    background-color: #991b1b; /* red-800 */
+    color: #fecaca; /* red-200 */
+    border: 1px solid #ef4444; /* red-500 */
+    font-size: 0.7rem;
+    padding: 1px 6px;
+    border-radius: 9999px; /* pill shape */
+    font-weight: 600;
+    vertical-align: middle;
+    margin-left: 6px;
+}

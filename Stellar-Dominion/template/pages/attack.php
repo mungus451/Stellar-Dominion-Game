@@ -25,19 +25,23 @@ process_offline_turns($link, $user_id);
 $csrf_token = generate_csrf_token('attack');
 
 // current user row (for timers/advisor)
-$sql_me = "SELECT id, character_name, level, credits, banked_credits, attack_turns, last_updated, experience
+// MODIFICATION: Added `alliance_id` to check for rivalries later.
+$sql_me = "SELECT id, character_name, level, credits, banked_credits, attack_turns, last_updated, experience, alliance_id
            FROM users WHERE id = ?";
 $stmt_me = mysqli_prepare($link, $sql_me);
 mysqli_stmt_bind_param($stmt_me, "i", $user_id);
 mysqli_stmt_execute($stmt_me);
 $me = mysqli_fetch_assoc(mysqli_stmt_get_result($stmt_me)) ?: [];
 mysqli_stmt_close($stmt_me);
+// NEW: Store the current user's alliance ID for comparison.
+$my_alliance_id = $me['alliance_id'] ?? null;
 
 // target list (now with alliance tag + avatar)
+// MODIFICATION: Added `u.alliance_id` to the SELECT list for the rivalry check.
 $sql_targets = "
     SELECT
         u.id, u.character_name, u.level, u.credits, u.avatar_path,
-        u.soldiers, u.guards, u.sentries, u.spies,
+        u.soldiers, u.guards, u.sentries, u.spies, u.alliance_id,
         a.tag   AS alliance_tag
     FROM users u
     LEFT JOIN alliances a ON a.id = u.alliance_id
@@ -53,6 +57,27 @@ $targets = [];
 while ($row = mysqli_fetch_assoc($targets_rs)) {
     // Show “Army Size” as military only (soldiers + guards + sentries + spies)
     $row['army_size'] = (int)$row['soldiers'] + (int)$row['guards'] + (int)$row['sentries'] + (int)$row['spies'];
+
+    // --- NEW: Rivalry Check Logic ---
+    $row['is_rival'] = false;
+    // Only perform the check if both the user and the target are in an alliance, and they are not the SAME alliance.
+    if ($my_alliance_id && $row['alliance_id'] && $my_alliance_id != $row['alliance_id']) {
+        $a1 = $my_alliance_id;
+        $a2 = $row['alliance_id'];
+        // This query checks if an entry exists in the `rivalries` table for the two alliances.
+        $sql_rival = "SELECT 1 FROM rivalries WHERE (alliance1_id = ? AND alliance2_id = ?) OR (alliance1_id = ? AND alliance2_id = ?) LIMIT 1";
+        if ($stmt_rival = mysqli_prepare($link, $sql_rival)) {
+            mysqli_stmt_bind_param($stmt_rival, "iiii", $a1, $a2, $a2, $a1);
+            mysqli_stmt_execute($stmt_rival);
+            mysqli_stmt_store_result($stmt_rival);
+            if (mysqli_stmt_num_rows($stmt_rival) > 0) {
+                $row['is_rival'] = true; // Set the flag to true if a rivalry is found.
+            }
+            mysqli_stmt_close($stmt_rival);
+        }
+    }
+    // --- END: Rivalry Check ---
+
     $targets[] = $row;
 }
 mysqli_stmt_close($stmt_t);
@@ -80,8 +105,7 @@ include_once __DIR__ . '/../includes/header.php';
         // ($minutes_until_next_turn, $seconds_remainder, $now) already defined above
         include_once __DIR__ . '/../includes/advisor.php';
     ?>
-    <!-- Duplicate sidebar Stats removed intentionally; stats live in advisor.php -->
-</aside>
+    </aside>
 
 <main class="lg:col-span-3 space-y-4">
     <?php if(isset($_SESSION['attack_message'])): ?>
@@ -102,7 +126,6 @@ include_once __DIR__ . '/../includes/header.php';
         $turn_interval_min    = (int)$turn_interval_minutes; // 10
     ?>
 
-    <!-- How Attacks Work — PERMANENT, sits directly above Target List -->
     <div class="content-box rounded-lg p-4" id="attack-help-card" data-state="expanded">
         <div class="flex items-start justify-between border-b border-gray-600 pb-2 mb-2">
             <h3 class="font-title text-cyan-400 flex items-center gap-2">
@@ -144,7 +167,6 @@ include_once __DIR__ . '/../includes/header.php';
             </ul>
         </div>
 
-        <!-- Mobile-only condensed wrapper (shows a short summary row) -->
         <div id="attack-help-mobile-summary" class="md:hidden mt-2">
             <div class="flex flex-wrap items-center gap-x-3 gap-y-2 text-xs text-gray-300">
                 <span><strong>Turns:</strong> <?php echo number_format($attack_turns_current); ?></span>
@@ -208,9 +230,6 @@ include_once __DIR__ . '/../includes/header.php';
     })();
     </script>
 
-    <!-- ===== Target List ===== -->
-
-    <!-- Desktop / Tablet (md and up): existing table preserved -->
     <div class="content-box rounded-lg p-4 hidden md:block">
         <div class="flex items-center justify-between mb-3">
             <h3 class="font-title text-cyan-400">Target List</h3>
@@ -234,7 +253,8 @@ include_once __DIR__ . '/../includes/header.php';
                     $rank = 1;
                     foreach ($targets as $t):
                         $avatar = $t['avatar_path'] ?: '/assets/img/default_avatar.webp';
-                        $tag = !empty($t['alliance_tag']) ? '[' . htmlspecialchars($t['alliance_tag']) . '] ' : '';
+                        // MODIFICATION: Apply the .alliance-tag class for styling.
+                        $tag = !empty($t['alliance_tag']) ? '<span class="alliance-tag">[' . htmlspecialchars($t['alliance_tag']) . ']</span> ' : '';
                     ?>
                     <tr class="<?php echo ($t['id'] === $user_id) ? 'bg-gray-800/30' : ''; ?>">
                         <td class="px-3 py-3"><?php echo $rank++; ?></td>
@@ -244,6 +264,9 @@ include_once __DIR__ . '/../includes/header.php';
                                 <div class="leading-tight">
                                     <div class="text-white font-semibold">
                                         <?php echo $tag . htmlspecialchars($t['character_name']); ?>
+                                        <?php if ($t['is_rival']): ?>
+                                            <span class="rival-badge">RIVAL</span>
+                                        <?php endif; ?>
                                     </div>
                                     <div class="text-[11px] text-gray-400">ID #<?php echo (int)$t['id']; ?></div>
                                 </div>
@@ -254,7 +277,6 @@ include_once __DIR__ . '/../includes/header.php';
                         <td class="px-3 py-3 text-right text-white"><?php echo (int)$t['level']; ?></td>
                         <td class="px-3 py-3">
                             <div class="flex items-center justify-end gap-2">
-                                <!-- Attack form (unchanged pattern) -->
                                 <form action="/attack.php" method="POST" class="flex items-center gap-1">
                                     <input type="hidden" name="csrf_token" value="<?php echo htmlspecialchars($csrf_token, ENT_QUOTES, 'UTF-8'); ?>">
                                     <input type="hidden" name="csrf_action" value="attack">
@@ -264,7 +286,6 @@ include_once __DIR__ . '/../includes/header.php';
                                     <button type="submit" class="bg-red-700 hover:bg-red-600 text-white text-xs font-semibold py-1 px-2 rounded-md">Attack</button>
                                 </form>
 
-                                <!-- View Profile button -->
                                 <form action="/view_profile.php" method="GET" class="inline-block" onsubmit="event.stopPropagation();">
                                     <input type="hidden" name="user" value="<?php echo (int)$t['id']; ?>">
                                     <input type="hidden" name="id"   value="<?php echo (int)$t['id']; ?>">
@@ -283,7 +304,6 @@ include_once __DIR__ . '/../includes/header.php';
         </div>
     </div>
 
-    <!-- Mobile (below md): condensed card list -->
     <div class="content-box rounded-lg p-4 md:hidden">
         <div class="flex items-center justify-between mb-3">
             <h3 class="font-title text-cyan-400">Targets</h3>
@@ -295,7 +315,8 @@ include_once __DIR__ . '/../includes/header.php';
             $rank = 1;
             foreach ($targets as $t):
                 $avatar = $t['avatar_path'] ?: '/assets/img/default_avatar.webp';
-                $tag = !empty($t['alliance_tag']) ? '[' . htmlspecialchars($t['alliance_tag']) . '] ' : '';
+                // MODIFICATION: Apply the .alliance-tag class for styling.
+                $tag = !empty($t['alliance_tag']) ? '<span class="alliance-tag">[' . htmlspecialchars($t['alliance_tag']) . ']</span> ' : '';
             ?>
             <div class="bg-gray-900/60 border border-gray-700 rounded-lg p-3">
                 <div class="flex items-center justify-between">
@@ -304,6 +325,9 @@ include_once __DIR__ . '/../includes/header.php';
                         <div>
                             <div class="text-white font-semibold">
                                 <?php echo $tag . htmlspecialchars($t['character_name']); ?>
+                                <?php if ($t['is_rival']): ?>
+                                    <span class="rival-badge">RIVAL</span>
+                                <?php endif; ?>
                             </div>
                             <div class="text-[11px] text-gray-400">
                                 Rank <?php echo $rank; ?> • Lvl <?php echo (int)$t['level']; ?>
@@ -317,7 +341,6 @@ include_once __DIR__ . '/../includes/header.php';
                 </div>
 
                 <div class="mt-3 flex items-center justify-between gap-2">
-                    <!-- Attack form -->
                     <form action="/attack.php" method="POST" class="flex items-center gap-2 w-full">
                         <input type="hidden" name="csrf_token" value="<?php echo htmlspecialchars($csrf_token, ENT_QUOTES, 'UTF-8'); ?>">
                         <input type="hidden" name="csrf_action" value="attack">
@@ -327,7 +350,6 @@ include_once __DIR__ . '/../includes/header.php';
                         <button type="submit" class="bg-red-700 hover:bg-red-600 text-white text-xs font-semibold py-1 px-3 rounded-md">Attack</button>
                     </form>
 
-                    <!-- Profile -->
                     <form action="/view_profile.php" method="GET" class="shrink-0" onsubmit="event.stopPropagation();">
                         <input type="hidden" name="user" value="<?php echo (int)$t['id']; ?>">
                         <input type="hidden" name="id"   value="<?php echo (int)$t['id']; ?>">
