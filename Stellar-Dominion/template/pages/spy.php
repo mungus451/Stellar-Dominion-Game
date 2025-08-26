@@ -26,34 +26,56 @@ $csrf_intel  = generate_csrf_token('spy_intel');
 $csrf_sabo   = generate_csrf_token('spy_sabotage');
 $csrf_assas  = generate_csrf_token('spy_assassination');
 
-// current user for sidebar
-$sql_me = "SELECT id, character_name, level, credits, attack_turns, spies, sentries, last_updated, experience
+// current user for sidebar and alliance checks
+// MODIFICATION: Added alliance_id to the query.
+$sql_me = "SELECT id, character_name, level, credits, attack_turns, spies, sentries, last_updated, experience, alliance_id
            FROM users WHERE id = ?";
 $stmt_me = mysqli_prepare($link, $sql_me);
 mysqli_stmt_bind_param($stmt_me, "i", $user_id);
 mysqli_stmt_execute($stmt_me);
 $me = mysqli_fetch_assoc(mysqli_stmt_get_result($stmt_me)) ?: [];
 mysqli_stmt_close($stmt_me);
+// NEW: Store the user's alliance_id for later comparisons.
+$my_alliance_id = $me['alliance_id'] ?? null;
 
 // target list with alliance tag + avatar
+// MODIFICATION: Removed `WHERE u.id <> ?` to include the player in the list.
 $sql_targets = "
     SELECT
         u.id, u.character_name, u.level, u.credits, u.avatar_path,
-        u.soldiers, u.guards, u.sentries, u.spies,
+        u.soldiers, u.guards, u.sentries, u.spies, u.alliance_id,
         a.tag AS alliance_tag
     FROM users u
     LEFT JOIN alliances a ON a.id = u.alliance_id
-    WHERE u.id <> ?
     ORDER BY u.level DESC, u.credits DESC
     LIMIT 100
 ";
 $stmt_t = mysqli_prepare($link, $sql_targets);
-mysqli_stmt_bind_param($stmt_t, "i", $user_id);
+// MODIFICATION: Removed the parameter binding as it's no longer needed.
 mysqli_stmt_execute($stmt_t);
 $targets_rs = mysqli_stmt_get_result($stmt_t);
 $targets = [];
 while ($row = mysqli_fetch_assoc($targets_rs)) {
     $row['army_size'] = (int)$row['soldiers'] + (int)$row['guards'] + (int)$row['sentries'] + (int)$row['spies'];
+
+    // --- NEW: Rivalry Check Logic ---
+    $row['is_rival'] = false;
+    if ($my_alliance_id && $row['alliance_id'] && $my_alliance_id != $row['alliance_id']) {
+        $a1 = $my_alliance_id;
+        $a2 = $row['alliance_id'];
+        $sql_rival = "SELECT 1 FROM rivalries WHERE (alliance1_id = ? AND alliance2_id = ?) OR (alliance1_id = ? AND alliance2_id = ?) LIMIT 1";
+        if ($stmt_rival = mysqli_prepare($link, $sql_rival)) {
+            mysqli_stmt_bind_param($stmt_rival, "iiii", $a1, $a2, $a2, $a1);
+            mysqli_stmt_execute($stmt_rival);
+            mysqli_stmt_store_result($stmt_rival);
+            if (mysqli_stmt_num_rows($stmt_rival) > 0) {
+                $row['is_rival'] = true;
+            }
+            mysqli_stmt_close($stmt_rival);
+        }
+    }
+    // --- END: Rivalry Check ---
+
     $targets[] = $row;
 }
 mysqli_stmt_close($stmt_t);
@@ -131,9 +153,15 @@ include_once __DIR__ . '/../includes/header.php';
                     $rank = 1;
                     foreach ($targets as $t):
                         $avatar = $t['avatar_path'] ?: '/assets/img/default_avatar.webp';
-                        $tag = $t['alliance_tag'] ? '[' . htmlspecialchars($t['alliance_tag']) . '] ' : '';
+                        // MODIFICATION: Apply the .alliance-tag class for styling.
+                        $tag = !empty($t['alliance_tag']) ? '<span class="alliance-tag">[' . htmlspecialchars($t['alliance_tag']) . ']</span> ' : '';
+
+                        // NEW: Determine if the target is an ally or the player themselves.
+                        $is_self = ($t['id'] === $user_id);
+                        $is_ally = ($my_alliance_id && $my_alliance_id === $t['alliance_id'] && !$is_self);
+                        $cant_attack = $is_self || $is_ally;
                     ?>
-                    <tr>
+                    <tr class="<?php echo $is_self ? 'bg-cyan-900/40' : ''; // Highlight the player's own row ?>">
                         <td class="px-3 py-3"><?php echo $rank++; ?></td>
                         <td class="px-3 py-3">
                             <div class="flex items-center gap-3">
@@ -141,6 +169,9 @@ include_once __DIR__ . '/../includes/header.php';
                                 <div class="leading-tight">
                                     <div class="text-white font-semibold">
                                         <?php echo $tag . htmlspecialchars($t['character_name']); ?>
+                                        <?php if ($t['is_rival']): ?>
+                                            <span class="rival-badge">RIVAL</span>
+                                        <?php endif; ?>
                                     </div>
                                     <div class="text-[11px] text-gray-400">ID #<?php echo (int)$t['id']; ?></div>
                                 </div>
@@ -151,35 +182,37 @@ include_once __DIR__ . '/../includes/header.php';
                         <td class="px-3 py-3 text-right text-white"><?php echo (int)$t['level']; ?></td>
                         <td class="px-3 py-3">
                             <div class="flex items-center justify-end gap-2">
-                                <!-- Intelligence -->
-                                <form action="/spy.php" method="POST" class="flex items-center gap-1">
-                                    <input type="hidden" name="csrf_token" value="<?php echo htmlspecialchars($csrf_intel, ENT_QUOTES, 'UTF-8'); ?>">
-                                    <input type="hidden" name="csrf_action" value="spy_intel">
-                                    <input type="hidden" name="mission_type" value="intelligence">
-                                    <input type="hidden" name="defender_id" value="<?php echo (int)$t['id']; ?>">
-                                    <input type="number" name="attack_turns" min="1" max="10" value="1" class="w-12 bg-gray-900 border border-gray-600 rounded text-center p-1 text-xs">
-                                    <button type="submit" class="bg-cyan-700 hover:bg-cyan-600 text-white text-xs font-semibold py-1 px-2 rounded-md">Spy</button>
-                                </form>
+                                <?php if ($cant_attack): ?>
+                                    <span class="text-xs font-semibold <?php echo $is_self ? 'text-cyan-400' : 'text-gray-400'; ?>">
+                                        <?php echo $is_self ? 'This is you' : 'Ally'; ?>
+                                    </span>
+                                <?php else: ?>
+                                    <form action="/spy.php" method="POST" class="flex items-center gap-1">
+                                        <input type="hidden" name="csrf_token" value="<?php echo htmlspecialchars($csrf_intel, ENT_QUOTES, 'UTF-8'); ?>">
+                                        <input type="hidden" name="csrf_action" value="spy_intel">
+                                        <input type="hidden" name="mission_type" value="intelligence">
+                                        <input type="hidden" name="defender_id" value="<?php echo (int)$t['id']; ?>">
+                                        <input type="number" name="attack_turns" min="1" max="10" value="1" class="w-12 bg-gray-900 border border-gray-600 rounded text-center p-1 text-xs">
+                                        <button type="submit" class="bg-cyan-700 hover:bg-cyan-600 text-white text-xs font-semibold py-1 px-2 rounded-md">Spy</button>
+                                    </form>
 
-                                <!-- Sabotage -->
-                                <form action="/spy.php" method="POST" class="hidden md:flex items-center gap-1">
-                                    <input type="hidden" name="csrf_token" value="<?php echo htmlspecialchars($csrf_sabo, ENT_QUOTES, 'UTF-8'); ?>">
-                                    <input type="hidden" name="csrf_action" value="spy_sabotage">
-                                    <input type="hidden" name="mission_type" value="sabotage">
-                                    <input type="hidden" name="defender_id" value="<?php echo (int)$t['id']; ?>">
-                                    <input type="number" name="attack_turns" min="1" max="10" value="1" class="w-12 bg-gray-900 border border-gray-600 rounded text-center p-1 text-xs">
-                                    <button type="submit" class="bg-amber-700 hover:bg-amber-600 text-white text-xs font-semibold py-1 px-2 rounded-md">Sabotage</button>
-                                </form>
+                                    <form action="/spy.php" method="POST" class="hidden md:flex items-center gap-1">
+                                        <input type="hidden" name="csrf_token" value="<?php echo htmlspecialchars($csrf_sabo, ENT_QUOTES, 'UTF-8'); ?>">
+                                        <input type="hidden" name="csrf_action" value="spy_sabotage">
+                                        <input type="hidden" name="mission_type" value="sabotage">
+                                        <input type="hidden" name="defender_id" value="<?php echo (int)$t['id']; ?>">
+                                        <input type="number" name="attack_turns" min="1" max="10" value="1" class="w-12 bg-gray-900 border border-gray-600 rounded text-center p-1 text-xs">
+                                        <button type="submit" class="bg-amber-700 hover:bg-amber-600 text-white text-xs font-semibold py-1 px-2 rounded-md">Sabotage</button>
+                                    </form>
 
-                                <!-- Assassinate: open modal instead of direct POST -->
-                                <button type="button"
-                                        class="open-assass-modal bg-red-700 hover:bg-red-600 text-white text-xs font-semibold py-1 px-2 rounded-md"
-                                        data-defender-id="<?php echo (int)$t['id']; ?>"
-                                        data-defender-name="<?php echo htmlspecialchars($t['character_name']); ?>">
-                                    Assassinate
-                                </button>
+                                    <button type="button"
+                                            class="open-assass-modal bg-red-700 hover:bg-red-600 text-white text-xs font-semibold py-1 px-2 rounded-md"
+                                            data-defender-id="<?php echo (int)$t['id']; ?>"
+                                            data-defender-name="<?php echo htmlspecialchars($t['character_name']); ?>">
+                                        Assassinate
+                                    </button>
+                                <?php endif; ?>
 
-                                <!-- View Profile -->
                                 <form action="/view_profile.php" method="GET" class="inline-block" onsubmit="event.stopPropagation();">
                                     <input type="hidden" name="user" value="<?php echo (int)$t['id']; ?>">
                                     <input type="hidden" name="id"   value="<?php echo (int)$t['id']; ?>">
@@ -199,7 +232,6 @@ include_once __DIR__ . '/../includes/header.php';
     </div>
 </main>
 
-<!-- Assassination Modal -->
 <div id="assass-modal"
      class="fixed inset-0 z-50 hidden items-center justify-center bg-black/70 p-4">
   <div class="w-full max-w-md bg-gray-900 border border-gray-700 rounded-lg shadow-xl">
@@ -211,13 +243,11 @@ include_once __DIR__ . '/../includes/header.php';
     </div>
 
     <form id="assass-form" action="/spy.php" method="POST" class="p-4 space-y-4">
-      <!-- Required hidden fields -->
       <input type="hidden" name="csrf_token"  value="<?php echo htmlspecialchars($csrf_assas, ENT_QUOTES, 'UTF-8'); ?>">
       <input type="hidden" name="csrf_action" value="spy_assassination">
       <input type="hidden" name="mission_type" value="assassination">
       <input type="hidden" name="defender_id" value="0" id="assass-defender-id">
 
-      <!-- Pick target -->
       <div>
         <label class="block text-sm text-gray-300 mb-2">Choose a target unit type:</label>
         <div class="grid grid-cols-3 gap-2 text-sm">
@@ -236,14 +266,12 @@ include_once __DIR__ . '/../includes/header.php';
         </div>
       </div>
 
-      <!-- Turns -->
       <div>
         <label for="assass-turns" class="block text-sm text-gray-300 mb-2">Attack Turns (1–10):</label>
         <input id="assass-turns" name="attack_turns" type="number" min="1" max="10" value="1"
                class="w-28 bg-gray-900 border border-gray-600 rounded-md p-2 text-center">
       </div>
 
-      <!-- Actions -->
       <div class="flex justify-end gap-2 pt-2 border-t border-gray-700">
         <button type="button" id="assass-cancel"
                 class="bg-gray-700 hover:bg-gray-600 text-white text-sm font-semibold py-2 px-3 rounded-md">
