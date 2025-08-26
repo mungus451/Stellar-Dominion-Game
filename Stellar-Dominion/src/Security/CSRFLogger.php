@@ -1,31 +1,59 @@
 <?php
 /**
- * STEP 7: Error Handling and Logging
- * File: src/Security/CSRFLogger.php
+ * src/Security/CSRFLogger.php
+ * DuckDuckGo-friendly, non-fatal CSRF logger.
+ *
+ * - Writes to APP_LOG_DIR (if defined) or system temp
+ * - Never hard-fails on mkdir/error_log; falls back to PHP error_log
+ * - Notes when Origin/Referer are missing (common with DDG/privacy blockers)
+ * - UTC timestamps, JSON lines, truncated headers
  */
 
-class CSRFLogger {
-    private static $logFile = __DIR__ . '/../../../logs/csrf_violations.log';
+final class CSRFLogger
+{
+    private static function logPath(): string {
+        $base = defined('APP_LOG_DIR') && is_string(APP_LOG_DIR) && APP_LOG_DIR !== ''
+            ? APP_LOG_DIR
+            : sys_get_temp_dir();
+        return rtrim($base, '/').'/csrf_violations.log';
+    }
 
-    public static function logViolation($details = []) {
-        $timestamp = date('Y-m-d H:i:s');
-        $ip = $_SERVER['REMOTE_ADDR'] ?? 'unknown';
-        $userAgent = $_SERVER['HTTP_USER_AGENT'] ?? 'unknown';
-        $requestUri = $_SERVER['REQUEST_URI'] ?? 'unknown';
+    private static function ensureDir(string $file): void {
+        $dir = dirname($file);
+        if (!is_dir($dir)) {
+            @mkdir($dir, 0750, true); // best-effort; never fatal
+        }
+    }
 
-        $logEntry = sprintf(
-            "[%s] CSRF Violation - IP: %s, URI: %s, User-Agent: %s, Details: %s\n",
-            $timestamp,
-            $ip,
-            $requestUri,
-            $userAgent,
-            json_encode($details)
-        );
+    private static function trunc(?string $s, int $max = 512): string {
+        $s = (string)($s ?? '');
+        return strlen($s) > $max ? (substr($s, 0, $max).'…') : $s;
+    }
 
-        if (!file_exists(dirname(self::$logFile))) {
-            mkdir(dirname(self::$logFile), 0755, true);
+    public static function logViolation(array $details = []): void {
+        $entry = [
+            't'       => gmdate('Y-m-d H:i:s').'Z',
+            'ip'      => $_SERVER['REMOTE_ADDR']   ?? 'unknown',
+            'uri'     => self::trunc($_SERVER['REQUEST_URI'] ?? ''),
+            'ua'      => self::trunc($_SERVER['HTTP_USER_AGENT'] ?? ''),
+            'origin'  => $_SERVER['HTTP_ORIGIN']   ?? null,
+            'referer' => $_SERVER['HTTP_REFERER']  ?? null,
+            'details' => $details,
+        ];
+
+        // DuckDuckGo / privacy blockers commonly strip these:
+        if (empty($entry['origin']) && empty($entry['referer'])) {
+            $entry['details']['note'] = trim(($entry['details']['note'] ?? '').' no-origin-or-referer (privacy browser/extension)');
         }
 
-        error_log($logEntry, 3, self::$logFile);
+        $line = json_encode($entry, JSON_UNESCAPED_SLASHES).PHP_EOL;
+
+        $file = self::logPath();
+        self::ensureDir($file);
+
+        // Try file append; if it fails, fall back to default PHP error_log
+        if (@error_log($line, 3, $file) === false) {
+            @error_log('[CSRF] '.$line);
+        }
     }
 }
