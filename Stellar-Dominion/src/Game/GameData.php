@@ -588,7 +588,7 @@ $armory_loadouts = [
                     'railgun' => ['name' => 'Railgun', 'attack' => 60, 'cost' => 120000, 'notes' => 'High penetration, slower fire.', 'requires' => 'pulse_rifle', 'armory_level_req' => 1],
                     'plasma_minigun' => ['name' => 'Plasma Minigun', 'attack' => 75, 'cost' => 170000, 'notes' => 'Rapid fire, slightly inaccurate.', 'requires' => 'railgun', 'armory_level_req' => 2],
                     'arc_cannon' => ['name' => 'Arc Cannon', 'attack' => 90, 'cost' => 220000, 'notes' => 'Chains to nearby enemies.', 'requires' => 'plasma_minigun', 'armory_level_req' => 3],
-                    'antimatter_launcher' => ['name' => 'Antimatter Launcher', 'attack' => 120, 'cost' => 300000, 'notes' => 'Extremely strong, high cost.', 'requires' => 'arc_cannon', 'armory_level_req' => 4],
+                    'antimatter_launcher' => ['name' => 'Antimatter Launcher', 'attack' => 160, 'cost' => 300000, 'notes' => 'Extremely strong, high cost.', 'requires' => 'arc_cannon', 'armory_level_req' => 4],
                 ]
             ],
             'sidearm' => [
@@ -599,7 +599,7 @@ $armory_loadouts = [
                     'stun_blaster' => ['name' => 'Stun Blaster', 'attack' => 30, 'cost' => 40000, 'notes' => 'Weak but disables shields briefly.', 'requires' => 'laser_pistol', 'armory_level_req' => 1],
                     'needler_pistol' => ['name' => 'Needler Pistol', 'attack' => 35, 'cost' => 50000, 'notes' => 'Seeking rounds, bonus vs. light armor.', 'requires' => 'stun_blaster', 'armory_level_req' => 2],
                     'compact_rail_smg' => ['name' => 'Compact Rail SMG', 'attack' => 45, 'cost' => 70000, 'notes' => 'Burst damage, close range.', 'requires' => 'needler_pistol', 'armory_level_req' => 3],
-                    'photon_revolver' => ['name' => 'Photon Revolver', 'attack' => 55, 'cost' => 90000, 'notes' => 'High crit chance, slower reload.', 'requires' => 'compact_rail_smg', 'armory_level_req' => 4],
+                    'photon_revolver' => ['name' => 'Photon Revolver', 'attack' => 75, 'cost' => 90000, 'notes' => 'High crit chance, slower reload.', 'requires' => 'compact_rail_smg', 'armory_level_req' => 4],
                 ]
             ],
             'melee' => [
@@ -610,7 +610,7 @@ $armory_loadouts = [
                     'shock_baton' => ['name' => 'Shock Baton', 'attack' => 20, 'cost' => 25000, 'notes' => 'Stuns briefly, low raw damage.', 'requires' => 'combat_dagger', 'armory_level_req' => 1],
                     'energy_blade' => ['name' => 'Energy Blade', 'attack' => 30, 'cost' => 40000, 'notes' => 'Ignores armor.', 'requires' => 'shock_baton', 'armory_level_req' => 2],
                     'vibro_axe' => ['name' => 'Vibro Axe', 'attack' => 40, 'cost' => 60000, 'notes' => 'Heavy, great vs. fortifications.', 'requires' => 'energy_blade', 'armory_level_req' => 3],
-                    'plasma_sword' => ['name' => 'Plasma Sword', 'attack' => 50, 'cost' => 80000, 'notes' => 'High damage, rare.', 'requires' => 'vibro_axe', 'armory_level_req' => 4],
+                    'plasma_sword' => ['name' => 'Plasma Sword', 'attack' => 70, 'cost' => 80000, 'notes' => 'High damage, rare.', 'requires' => 'vibro_axe', 'armory_level_req' => 4],
                 ]
             ],
             'headgear' => [
@@ -621,7 +621,7 @@ $armory_loadouts = [
                     'scout_visor' => ['name' => 'Scout Visor', 'attack' => 10, 'cost' => 30000, 'notes' => 'Detects stealth.', 'requires' => 'tactical_goggles', 'armory_level_req' => 1],
                     'heavy_helmet' => ['name' => 'Heavy Helmet', 'attack' => 15, 'cost' => 50000, 'notes' => 'Defense bonus, slight weight penalty.', 'requires' => 'scout_visor', 'armory_level_req' => 2],
                     'neural_uplink' => ['name' => 'Neural Uplink', 'attack' => 20, 'cost' => 70000, 'notes' => 'Faster reactions, boosts all attacks slightly.', 'requires' => 'heavy_helmet', 'armory_level_req' => 3],
-                    'cloak_hood' => ['name' => 'Cloak Hood', 'attack' => 25, 'cost' => 100000, 'notes' => 'Stealth advantage, minimal armor.', 'requires' => 'neural_uplink', 'armory_level_req' => 4],
+                    'cloak_hood' => ['name' => 'Cloak Hood', 'attack' => 50, 'cost' => 100000, 'notes' => 'Stealth advantage, minimal armor.', 'requires' => 'neural_uplink', 'armory_level_req' => 4],
                 ]
             ],
             'explosives' => [
@@ -632,7 +632,7 @@ $armory_loadouts = [
                     'plasma_grenade' => ['name' => 'Plasma Grenade', 'attack' => 45, 'cost' => 40000, 'notes' => 'Sticks to targets.', 'requires' => 'frag_grenade', 'armory_level_req' => 1],
                     'emp_charge' => ['name' => 'EMP Charge', 'attack' => 50, 'cost' => 60000, 'notes' => 'Weakens shields/tech.', 'requires' => 'plasma_grenade', 'armory_level_req' => 2],
                     'nano_cluster_bomb' => ['name' => 'Nano Cluster Bomb', 'attack' => 70, 'cost' => 90000, 'notes' => 'Drone swarms shred troops.', 'requires' => 'emp_charge', 'armory_level_req' => 3],
-                    'void_charge' => ['name' => 'Void Charge', 'attack' => 100, 'cost' => 140000, 'notes' => 'Creates gravity implosion, devastating AoE.', 'requires' => 'nano_cluster_bomb', 'armory_level_req' => 4],
+                    'void_charge' => ['name' => 'Void Charge', 'attack' => 150, 'cost' => 140000, 'notes' => 'Creates gravity implosion, devastating AoE.', 'requires' => 'nano_cluster_bomb', 'armory_level_req' => 4],
                 ]
             ]
         ]
@@ -660,7 +660,7 @@ $armory_loadouts = [
                     'energy_diffuser' => ['name' => 'Energy Diffuser', 'defense' => 20, 'cost' => 40000, 'notes' => 'Lowers laser/plasma damage.', 'requires' => 'kinetic_dampener', 'armory_level_req' => 1],
                     'deflector_module' => ['name' => 'Deflector Module', 'defense' => 25, 'cost' => 50000, 'notes' => 'Partial shield that recharges slowly.', 'requires' => 'energy_diffuser', 'armory_level_req' => 2],
                     'auto_turret_drone' => ['name' => 'Auto-Turret Drone', 'defense' => 35, 'cost' => 70000, 'notes' => 'Assists defense, counters attackers.', 'requires' => 'deflector_module', 'armory_level_req' => 3],
-                    'nano_healing_pod' => ['name' => 'Nano-Healing Pod', 'defense' => 45, 'cost' => 90000, 'notes' => 'Heals user periodically during battle.', 'requires' => 'auto_turret_drone', 'armory_level_req' => 4],
+                    'nano_healing_pod' => ['name' => 'Nano-Healing Pod', 'defense' => 75, 'cost' => 90000, 'notes' => 'Heals user periodically during battle.', 'requires' => 'auto_turret_drone', 'armory_level_req' => 4],
                 ]
             ],
             'melee_counter' => [
@@ -671,7 +671,7 @@ $armory_loadouts = [
                     'shock_shield' => ['name' => 'Shock Shield', 'defense' => 20, 'cost' => 25000, 'notes' => 'Electrocutes melee attackers.', 'requires' => 'combat_knife_parry_kit'],
                     'vibro_blade_guard' => ['name' => 'Vibro Blade Guard', 'defense' => 30, 'cost' => 40000, 'notes' => 'Defensive melee stance, reduces melee damage.', 'requires' => 'shock_shield'],
                     'energy_buckler' => ['name' => 'Energy Buckler', 'defense' => 40, 'cost' => 60000, 'notes' => 'Small but strong energy shield.', 'requires' => 'vibro_blade_guard'],
-                    'photon_barrier_blade' => ['name' => 'Photon Barrier Blade', 'defense' => 50, 'cost' => 80000, 'notes' => 'Creates a light shield, blocks most melee hits.', 'requires' => 'energy_buckler'],
+                    'photon_barrier_blade' => ['name' => 'Photon Barrier Blade', 'defense' => 70, 'cost' => 80000, 'notes' => 'Creates a light shield, blocks most melee hits.', 'requires' => 'energy_buckler'],
                 ]
             ],
             'defensive_headgear' => [
@@ -682,7 +682,7 @@ $armory_loadouts = [
                     'carbon_fiber_visor' => ['name' => 'Carbon Fiber Visor', 'defense' => 10, 'cost' => 30000, 'notes' => 'Lightweight and strong.', 'requires' => 'recon_helmet'],
                     'reinforced_helmet' => ['name' => 'Reinforced Helmet', 'defense' => 15, 'cost' => 50000, 'notes' => 'Excellent impact resistance.', 'requires' => 'carbon_fiber_visor'],
                     'neural_guard_mask' => ['name' => 'Neural Guard Mask', 'defense' => 20, 'cost' => 70000, 'notes' => 'Protects against psychic/EMP effects.', 'requires' => 'reinforced_helmet'],
-                    'aegis_helm' => ['name' => 'Aegis Helm', 'defense' => 25, 'cost' => 100000, 'notes' => 'High-tier head defense.', 'requires' => 'neural_guard_mask'],
+                    'aegis_helm' => ['name' => 'Aegis Helm', 'defense' => 45, 'cost' => 100000, 'notes' => 'High-tier head defense.', 'requires' => 'neural_guard_mask'],
                 ]
             ],
             'defensive_deployable' => [
@@ -693,7 +693,7 @@ $armory_loadouts = [
                     'plasma_wall_projector' => ['name' => 'Plasma Wall Projector', 'defense' => 45, 'cost' => 40000, 'notes' => 'Deployable energy wall.', 'requires' => 'basic_shield_generator'],
                     'emp_scrambler' => ['name' => 'EMP Scrambler', 'defense' => 50, 'cost' => 60000, 'notes' => 'Nullifies enemy EMP attacks.', 'requires' => 'plasma_wall_projector'],
                     'nano_repair_beacon' => ['name' => 'Nano Repair Beacon', 'defense' => 70, 'cost' => 90000, 'notes' => 'Repairs nearby allies and structures.', 'requires' => 'emp_scrambler'],
-                    'fortress_dome_generator' => ['name' => 'Fortress Dome Generator', 'defense' => 100, 'cost' => 140000, 'notes' => 'Creates a temporary invulnerable dome.', 'requires' => 'nano_repair_beacon'],
+                    'fortress_dome_generator' => ['name' => 'Fortress Dome Generator', 'defense' => 150, 'cost' => 140000, 'notes' => 'Creates a temporary invulnerable dome.', 'requires' => 'nano_repair_beacon'],
                 ]
             ]
         ]
