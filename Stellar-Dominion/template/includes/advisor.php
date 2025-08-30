@@ -20,7 +20,7 @@ if (isset($user_stats) && is_array($user_stats)) {
     $__stats = $me;
 }
 
-// Advice copy
+// Advice copy (includes pages from your snippet)
 $advice_repository = [
     'dashboard.php' => [
         "Your central command hub. Monitor your resources and fleet status from here.",
@@ -91,14 +91,17 @@ $advice_json = htmlspecialchars(json_encode(array_values($current_advice_list)),
 $xp_for_next_level = 0;
 $xp_progress_pct   = 0;
 if (isset($user_xp, $user_level)) {
-    $xp_for_next_level = floor(1000 * pow((int)$user_level, 1.5));
+    $lvl = (int)$user_level;
+    $xp_for_next_level = floor(1000 * pow($lvl, 1.5));
     $xp_progress_pct   = $xp_for_next_level > 0 ? min(100, floor(((int)$user_xp / $xp_for_next_level) * 100)) : 100;
 }
 
-// Robust turn timer bits (expect minutes/seconds; if absent, compute from last_updated)
-$TURN_INTERVAL = 600; // seconds
-$seconds_until_next_turn = 0;
-if (isset($minutes_until_next_turn, $seconds_remainder)) {
+// Turn timer hydrate:
+// Prefer explicit minutes/seconds. If absent, derive from last_updated (server says turn math is correct).
+$TURN_INTERVAL = 600; // 10 minutes
+$seconds_until_next_turn = null;
+
+if (isset($minutes_until_next_turn, $seconds_remainder) && is_numeric($minutes_until_next_turn) && is_numeric($seconds_remainder)) {
     $seconds_until_next_turn = ((int)$minutes_until_next_turn * 60) + (int)$seconds_remainder;
 } else {
     try {
@@ -108,21 +111,29 @@ if (isset($minutes_until_next_turn, $seconds_remainder)) {
             $elapsed = max(0, $cur->getTimestamp() - $last->getTimestamp());
             $seconds_until_next_turn = $TURN_INTERVAL - ($elapsed % $TURN_INTERVAL);
         }
-    } catch (Throwable $e) { $seconds_until_next_turn = 0; }
+    } catch (Throwable $e) { /* leave null */ }
 }
-$seconds_until_next_turn = max(0, min($TURN_INTERVAL, (int)$seconds_until_next_turn));
-$minutes_until_next_turn = intdiv($seconds_until_next_turn, 60);
-$seconds_remainder       = $seconds_until_next_turn % 60;
+if ($seconds_until_next_turn !== null) {
+    $seconds_until_next_turn = max(0, min($TURN_INTERVAL, (int)$seconds_until_next_turn));
+    $minutes_until_next_turn = intdiv($seconds_until_next_turn, 60);
+    $seconds_remainder       = $seconds_until_next_turn % 60;
+}
 
-// Anchor Dominion Time from the SERVER in US Eastern
+// Dominion Time (server-anchored, display only). If $now provided, honor it; otherwise use ET "now".
 try {
-    $__now_et = new DateTime('now', new DateTimeZone('America/New_York'));
+    if (isset($now) && $now instanceof DateTime) {
+        $nowEt = clone $now;
+        $nowEt->setTimezone(new DateTimeZone('America/New_York'));
+        $__now_et = $nowEt;
+    } else {
+        $__now_et = new DateTime('now', new DateTimeZone('America/New_York'));
+    }
 } catch (Throwable $e) {
     $__now_et = new DateTime('now', new DateTimeZone('UTC'));
 }
 $__now_et_epoch = $__now_et->getTimestamp();
 ?>
-
+<!-- Advisor -->
 <div class="content-box rounded-lg p-4 advisor-container">
     <h3 class="font-title text-cyan-400 border-b border-gray-600 pb-2 mb-2">A.I. Advisor</h3>
     <button id="toggle-advisor-btn" class="mobile-only-button">-</button>
@@ -146,8 +157,11 @@ $__now_et_epoch = $__now_et->getTimestamp();
     </div>
 </div>
 
+<!-- Stats -->
 <div class="content-box rounded-lg p-4 stats-container">
     <h3 class="font-title text-cyan-400 border-b border-gray-600 pb-2 mb-3">Stats</h3>
+    <button id="toggle-stats-btn" class="mobile-only-button">-</button>
+
     <div id="stats-content">
         <ul class="space-y-2 text-sm">
             <?php if(isset($__stats['credits'])): ?>
@@ -166,9 +180,7 @@ $__now_et_epoch = $__now_et->getTimestamp();
                 </li>
             <?php endif; ?>
 
-            <?php
-            $untrained_ready = isset($__stats['untrained_citizens']) ? (int)$__stats['untrained_citizens'] : null;
-            ?>
+            <?php $untrained_ready = isset($__stats['untrained_citizens']) ? (int)$__stats['untrained_citizens'] : null; ?>
             <?php if($untrained_ready !== null): ?>
                 <li class="flex justify-between">
                     <span>Untrained Citizens (ready):</span>
@@ -192,8 +204,21 @@ $__now_et_epoch = $__now_et->getTimestamp();
 
             <li class="flex justify-between border-t border-gray-600 pt-2 mt-2">
                 <span>Next Turn In:</span>
-                <span id="next-turn-timer" class="text-cyan-300 font-bold" data-seconds-until-next-turn="<?php echo (int)$seconds_until_next_turn; ?>">
-                    <?php echo sprintf('%02d:%02d', (int)$minutes_until_next_turn, (int)$seconds_remainder); ?>
+                <span
+                    id="next-turn-timer"
+                    class="text-cyan-300 font-bold"
+                    <?php if ($seconds_until_next_turn !== null): ?>
+                        data-seconds-until-next-turn="<?php echo (int)$seconds_until_next_turn; ?>"
+                    <?php endif; ?>
+                    data-turn-interval="600"
+                >
+                    <?php
+                    if ($seconds_until_next_turn !== null) {
+                        echo sprintf('%02d:%02d', (int)$minutes_until_next_turn, (int)$seconds_remainder);
+                    } else {
+                        echo '—';
+                    }
+                    ?>
                 </span>
             </li>
 
@@ -212,49 +237,24 @@ $__now_et_epoch = $__now_et->getTimestamp();
 
 <script>
 (function(){
+    // ELEMENTS
     const elCredits   = document.getElementById('advisor-credits-display');
     const elUntrained = document.getElementById('advisor-untrained-display');
     const elTurns     = document.getElementById('advisor-attack-turns');
     const elNextTurn  = document.getElementById('next-turn-timer');
     const elDomTime   = document.getElementById('dominion-time');
 
+    // -------------------------------
+    // DOMINION CLOCK (display only; optional re-anchor via API)
+    // -------------------------------
     let domEpoch = elDomTime ? parseInt(elDomTime.getAttribute('data-epoch') || '0', 10) : 0;
-    
-    // --- NEW: Synchronized Countdown Timer ---
-    let turnEndEpoch = 0; // The future timestamp (in seconds) when the timer reaches zero.
+    const tz = elDomTime ? (elDomTime.getAttribute('data-tz') || 'America/New_York') : 'America/New_York';
 
-    function initializeTimers() {
-        if (elNextTurn) {
-            const initialSeconds = parseInt(elNextTurn.getAttribute('data-seconds-until-next-turn') || '0', 10);
-            // Calculate the exact unix timestamp for when the next turn occurs.
-            turnEndEpoch = domEpoch + initialSeconds;
-        }
-        
-        // Start the main 1-second interval loop.
-        setInterval(tick, 1000);
-    }
-    
-    function tick() {
-        // 1. Advance Dominion Time
-        if (domEpoch > 0) {
-            domEpoch += 1; // Advance one second
-            renderDomTime(domEpoch);
-        }
-        
-        // 2. Update Turn Timer Display based on the new Dominion Time
-        if (elNextTurn && turnEndEpoch > 0) {
-            const secondsRemaining = Math.max(0, turnEndEpoch - domEpoch);
-            const m = Math.floor(secondsRemaining / 60);
-            const s = secondsRemaining % 60;
-            elNextTurn.textContent = String(m).padStart(2, '0') + ':' + String(s).padStart(2, '0');
-        }
-    }
-    
     function renderDomTime(epoch){
         if (!elDomTime) return;
         const d = new Date(epoch * 1000);
         const formatted = new Intl.DateTimeFormat('en-GB', {
-            timeZone: elDomTime.getAttribute('data-tz') || 'America/New_York',
+            timeZone: tz,
             hour12: false,
             hour: '2-digit',
             minute: '2-digit',
@@ -263,7 +263,76 @@ $__now_et_epoch = $__now_et->getTimestamp();
         elDomTime.textContent = formatted;
     }
 
-    // --- Poll API every 10s for dynamic stats (Credits & Citizens ONLY) ---
+    if (domEpoch > 0) {
+        setInterval(function(){
+            domEpoch += 1;
+            renderDomTime(domEpoch);
+        }, 1000);
+        renderDomTime(domEpoch);
+    }
+
+    // ---------------------------------------------------
+    // COUNTDOWN (incorporated & upgraded): auto-cycling, monotonic, AJAX-agnostic
+    // ---------------------------------------------------
+    // Exactly as discussed: hydrate once from server; then:
+    // remaining = (initialSeconds - elapsed) mod TURN_INTERVAL
+    if (!window.__advisorCountdownInit) {
+        window.__advisorCountdownInit = true;
+
+        if (elNextTurn) {
+            const attrSecs = elNextTurn.getAttribute('data-seconds-until-next-turn');
+            const initialSeconds = attrSecs ? parseInt(attrSecs, 10) : NaN;
+
+            const attrInterval = elNextTurn.getAttribute('data-turn-interval');
+            const TURN_INTERVAL = (attrInterval && !isNaN(parseInt(attrInterval, 10)))
+                ? Math.max(1, parseInt(attrInterval, 10))
+                : 600;
+
+            if (Number.isFinite(initialSeconds) && initialSeconds >= 0) {
+                const havePerf = (typeof performance !== 'undefined' && typeof performance.now === 'function');
+                const startMono = havePerf ? performance.now() : Date.now();
+
+                const fmt = (secs) => {
+                    secs = Math.max(0, Math.floor(secs));
+                    const m = Math.floor(secs / 60);
+                    const s = secs % 60;
+                    return (m < 10 ? '0' + m : '' + m) + ':' + (s < 10 ? '0' + s : '' + s);
+                };
+
+                let lastWhole = -1;
+
+                function tick(){
+                    const nowMono = havePerf ? performance.now() : Date.now();
+                    const elapsed = (nowMono - startMono) / 1000;
+
+                    // continuous wrap into [0, TURN_INTERVAL)
+                    let remaining = initialSeconds - elapsed;
+                    remaining = ((remaining % TURN_INTERVAL) + TURN_INTERVAL) % TURN_INTERVAL;
+
+                    const whole = Math.floor(remaining);
+
+                    if (whole !== lastWhole) {
+                        lastWhole = whole;
+
+                        // Optional visual cue at 00:00
+                        if (whole === 0) {
+                            elNextTurn.classList.add('turn-ready');
+                            setTimeout(() => elNextTurn.classList.remove('turn-ready'), 900);
+                        }
+                        elNextTurn.textContent = fmt(whole);
+                    }
+                    requestAnimationFrame(tick);
+                }
+                requestAnimationFrame(tick);
+            } else {
+                elNextTurn.textContent = '—';
+            }
+        }
+    }
+
+    // -----------------------------------------------
+    // 10s POLL: STATS ONLY (does not touch countdown)
+    // -----------------------------------------------
     async function pollAdvisor(){
         try {
             const res = await fetch('/api/advisor_poll.php', {
@@ -284,20 +353,15 @@ $__now_et_epoch = $__now_et->getTimestamp();
             if (elTurns && typeof data.attack_turns === 'number') {
                 elTurns.textContent = String(data.attack_turns);
             }
-            // The timer is no longer updated here to prevent drift.
-            
-            // Optional resync if API provides server_time_unix. This keeps the base clock accurate.
+            // Allow clock re-anchor if backend includes it
             if (elDomTime && typeof data.server_time_unix === 'number') {
                 domEpoch = parseInt(data.server_time_unix, 10);
+                renderDomTime(domEpoch);
             }
-        } catch (_) {
-            // Silent fail
-        }
+        } catch (_) { /* silent */ }
     }
 
-    // --- INITIALIZATION ---
-    initializeTimers(); // Set up the synchronized clocks.
-    pollAdvisor();      // Initial poll for stats.
-    setInterval(pollAdvisor, 10000); // Poll for stats every 10 seconds.
+    pollAdvisor();
+    setInterval(pollAdvisor, 10000);
 })();
 </script>

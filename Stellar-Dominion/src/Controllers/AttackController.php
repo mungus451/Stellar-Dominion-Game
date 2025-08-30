@@ -2,7 +2,7 @@
 /**
  * src/Controllers/AttackController.php
  *
- * This is the fully corrected controller with proper CSRF validation.
+ * 
  */
 
 if (session_status() == PHP_SESSION_NONE) {
@@ -46,7 +46,7 @@ const CREDITS_STEAL_BASE_PCT      = 0.08;
 const CREDITS_STEAL_GROWTH        = 0.1;
 const GUARD_KILL_BASE_FRAC        = 0.08;
 const GUARD_KILL_ADVANTAGE_GAIN   = 0.07;
-const GUARD_FLOOR                 = 10000;
+const GUARD_FLOOR                 = 20000;
 const STRUCT_BASE_DMG             = 1500;
 const STRUCT_GUARD_PROTECT_FACTOR = 0.50;
 const STRUCT_ADVANTAGE_EXP        = 0.75;
@@ -56,7 +56,7 @@ const STRUCT_MAX_DMG_IF_WIN       = 0.25;
 const BASE_PRESTIGE_GAIN          = 10;
 
 // ─────────────────────────────────────────────────────────────────────────────
-// INPUT VALIDATION
+/** INPUT VALIDATION */
 // ─────────────────────────────────────────────────────────────────────────────
 $attacker_id  = (int)$_SESSION["id"];
 $defender_id  = isset($_POST['defender_id'])  ? (int)$_POST['defender_id']  : 0;
@@ -99,9 +99,8 @@ try {
     
 
     // -------------------------------------------------------------------------
-    // --- BATTLE FATIGUE CHECK ---
+    // --- BATTLE FATIGUE CHECK (attacker) ---
     // -------------------------------------------------------------------------
-
     $sql_fatigue = "SELECT COUNT(id) as attack_count FROM battle_logs WHERE attacker_id = ? AND defender_id = ? AND battle_time > NOW() - INTERVAL 1 HOUR";
     $stmt_fatigue = mysqli_prepare($link, $sql_fatigue);
     mysqli_stmt_bind_param($stmt_fatigue, "ii", $attacker_id, $defender_id);
@@ -109,12 +108,16 @@ try {
     $attack_count_recent = (int)mysqli_fetch_assoc(mysqli_stmt_get_result($stmt_fatigue))['attack_count'];
     mysqli_stmt_close($stmt_fatigue);
 
+    // Fatigue: 1% per attack over 10 in the last hour, applied to current attacker soldier count.
+    // Clamp to available soldiers so we never log or subtract more than exist.
     $fatigue_casualties = 0;
     if ($attack_count_recent >= 10) {
-        $attacks_over_limit = $attack_count_recent - 9; // 11th attack (count is 10) is 1 over the limit
+        $attacks_over_limit = $attack_count_recent - 9; // 11th attack (count 10) is 1 over
         $penalty_percentage = 0.01 * $attacks_over_limit;
-        $fatigue_casualties = (int)floor($attacker['soldiers'] * $penalty_percentage);
+        $fatigue_casualties = (int)floor((int)$attacker['soldiers'] * $penalty_percentage);
     }
+    // Clamp into [0, soldiers]
+    $fatigue_casualties = max(0, min((int)$fatigue_casualties, (int)$attacker['soldiers']));
 
 
     // ─────────────────────────────────────────────────────────────────────────
@@ -223,8 +226,6 @@ try {
     $R = $EA / $ED;
     $attacker_wins = ($R >= UNDERDOG_MIN_RATIO_TO_WIN);
     $outcome = $attacker_wins ? 'victory' : 'defeat';
-
-    // ... (The rest of the file remains unchanged)
 
     // ─────────────────────────────────────────────────────────────────────────
     // GUARD CASUALTIES WITH FLOOR
@@ -520,7 +521,7 @@ try {
         }
     }
 
-    // Battle log
+    // Battle log — includes fatigue casualties so BOTH players see it on the report
     $sql_log = "INSERT INTO battle_logs 
         (attacker_id, defender_id, attacker_name, defender_name, outcome, credits_stolen, attack_turns_used, attacker_damage, defender_damage, attacker_xp_gained, defender_xp_gained, guards_lost, structure_damage, attacker_soldiers_lost) 
         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)";
@@ -541,7 +542,7 @@ try {
         $defender_xp_gained,
         $guards_lost_log,
         $structure_damage_log,
-        $fatigue_casualties
+        $fatigue_casualties // <- fatigue casualties (attacker) logged here, visible to both sides
     );
     mysqli_stmt_execute($stmt_log);
     $battle_log_id = mysqli_insert_id($link);
