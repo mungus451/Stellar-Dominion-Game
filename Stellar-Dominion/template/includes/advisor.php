@@ -218,37 +218,38 @@ $__now_et_epoch = $__now_et->getTimestamp();
     const elNextTurn  = document.getElementById('next-turn-timer');
     const elDomTime   = document.getElementById('dominion-time');
 
-    // --- MODIFIED: Robust Turn Timer ---
-    let nextTurnEndTime = 0; // The future timestamp when the timer reaches zero
+    let domEpoch = elDomTime ? parseInt(elDomTime.getAttribute('data-epoch') || '0', 10) : 0;
+    
+    // --- NEW: Synchronized Countdown Timer ---
+    let turnEndEpoch = 0; // The future timestamp (in seconds) when the timer reaches zero.
 
-    function setTurnTimer(secondsRemaining) {
-        // Calculate the exact time in the future when the turn happens.
-        // Date.now() is in milliseconds, so multiply seconds by 1000.
-        nextTurnEndTime = Date.now() + (secondsRemaining * 1000);
-    }
-
-    function updateTurnTimerDisplay() {
-        if (!elNextTurn) return;
+    function initializeTimers() {
+        if (elNextTurn) {
+            const initialSeconds = parseInt(elNextTurn.getAttribute('data-seconds-until-next-turn') || '0', 10);
+            // Calculate the exact unix timestamp for when the next turn occurs.
+            turnEndEpoch = domEpoch + initialSeconds;
+        }
         
-        // Calculate how many milliseconds are left until the end time.
-        const msRemaining = Math.max(0, nextTurnEndTime - Date.now());
-        const seconds = Math.floor(msRemaining / 1000);
-        
-        const m = Math.floor(seconds / 60);
-        const s = seconds % 60;
-        
-        elNextTurn.textContent = String(m).padStart(2, '0') + ':' + String(s).padStart(2, '0');
-    }
-
-    if (elNextTurn) {
-        const initialSeconds = parseInt(elNextTurn.getAttribute('data-seconds-until-next-turn') || '0', 10);
-        setTurnTimer(initialSeconds);
-        setInterval(updateTurnTimerDisplay, 1000); // Update display every second
+        // Start the main 1-second interval loop.
+        setInterval(tick, 1000);
     }
     
-    // --- Live Dominion Time in US Eastern (HH:MM:SS) ---
-    let domEpoch = elDomTime ? parseInt(elDomTime.getAttribute('data-epoch') || '0', 10) : 0;
-
+    function tick() {
+        // 1. Advance Dominion Time
+        if (domEpoch > 0) {
+            domEpoch += 1; // Advance one second
+            renderDomTime(domEpoch);
+        }
+        
+        // 2. Update Turn Timer Display based on the new Dominion Time
+        if (elNextTurn && turnEndEpoch > 0) {
+            const secondsRemaining = Math.max(0, turnEndEpoch - domEpoch);
+            const m = Math.floor(secondsRemaining / 60);
+            const s = secondsRemaining % 60;
+            elNextTurn.textContent = String(m).padStart(2, '0') + ':' + String(s).padStart(2, '0');
+        }
+    }
+    
     function renderDomTime(epoch){
         if (!elDomTime) return;
         const d = new Date(epoch * 1000);
@@ -262,15 +263,7 @@ $__now_et_epoch = $__now_et->getTimestamp();
         elDomTime.textContent = formatted;
     }
 
-    if (domEpoch > 0) {
-        renderDomTime(domEpoch);
-        setInterval(() => {
-            domEpoch += 1; // advance one second
-            renderDomTime(domEpoch);
-        }, 1000);
-    }
-
-    // --- Poll API every 10s ---
+    // --- Poll API every 10s for dynamic stats (Credits & Citizens ONLY) ---
     async function pollAdvisor(){
         try {
             const res = await fetch('/api/advisor_poll.php', {
@@ -291,21 +284,20 @@ $__now_et_epoch = $__now_et->getTimestamp();
             if (elTurns && typeof data.attack_turns === 'number') {
                 elTurns.textContent = String(data.attack_turns);
             }
-            // MODIFICATION: When API responds, reset the timer with the new official value.
-            if (elNextTurn && typeof data.seconds_until_next_turn === 'number') {
-                setTurnTimer(parseInt(data.seconds_until_next_turn, 10));
-            }
-            // Optional resync if API provides server_time_unix
+            // The timer is no longer updated here to prevent drift.
+            
+            // Optional resync if API provides server_time_unix. This keeps the base clock accurate.
             if (elDomTime && typeof data.server_time_unix === 'number') {
                 domEpoch = parseInt(data.server_time_unix, 10);
-                renderDomTime(domEpoch);
             }
         } catch (_) {
             // Silent fail
         }
     }
-    
-    pollAdvisor(); // Initial poll
-    setInterval(pollAdvisor, 10000); // Poll every 10 seconds
+
+    // --- INITIALIZATION ---
+    initializeTimers(); // Set up the synchronized clocks.
+    pollAdvisor();      // Initial poll for stats.
+    setInterval(pollAdvisor, 10000); // Poll for stats every 10 seconds.
 })();
 </script>
