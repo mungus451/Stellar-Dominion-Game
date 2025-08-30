@@ -110,7 +110,7 @@ $sql_fatigue = "
     LIMIT 10
 ";
 $result_fatigue = mysqli_query($link, $sql_fatigue);
-$leaderboards['Highest Casualties (All-Time)'] = ['data' => $result_fatigue, 'field' => 'total_lost', 'format' => 'number'];
+$leaderboards['Highest Casualties (All-Time)'] = ['data' => $result_fatigue, 'field' => 'total_fatigue_lost', 'format' => 'number'];
 
 // Split leaderboards into two columns (alternate)
 $lb_titles = array_keys($leaderboards);
