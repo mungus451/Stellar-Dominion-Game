@@ -212,90 +212,92 @@ $__now_et_epoch = $__now_et->getTimestamp();
 
 <script>
 (function(){
-  const elCredits   = document.getElementById('advisor-credits-display');
-  const elUntrained = document.getElementById('advisor-untrained-display');
-  const elTurns     = document.getElementById('advisor-attack-turns');
-  const elNextTurn  = document.getElementById('next-turn-timer');
-  const elDomTime   = document.getElementById('dominion-time');
+    const elCredits   = document.getElementById('advisor-credits-display');
+    const elUntrained = document.getElementById('advisor-untrained-display');
+    const elTurns     = document.getElementById('advisor-attack-turns');
+    const elNextTurn  = document.getElementById('next-turn-timer');
+    const elDomTime   = document.getElementById('dominion-time');
 
-  // Local countdown (Next Turn)
-  let nextTurnSeconds = elNextTurn ? parseInt(elNextTurn.getAttribute('data-seconds-until-next-turn') || '0', 10) : 0;
-  function renderTimer(sec){
-    const m = Math.floor(sec / 60);
-    const s = sec % 60;
-    if (elNextTurn) elNextTurn.textContent = String(m).padStart(2,'0') + ':' + String(s).padStart(2,'0');
-  }
-  renderTimer(nextTurnSeconds);
+    let domEpoch = elDomTime ? parseInt(elDomTime.getAttribute('data-epoch') || '0', 10) : 0;
+    
+    // --- NEW: Synchronized Countdown Timer ---
+    let turnEndEpoch = 0; // The future timestamp (in seconds) when the timer reaches zero.
 
-  setInterval(() => {
-    if (nextTurnSeconds > 0) {
-      nextTurnSeconds -= 1;
-      renderTimer(nextTurnSeconds);
-    } else {
-      renderTimer(0);
+    function initializeTimers() {
+        if (elNextTurn) {
+            const initialSeconds = parseInt(elNextTurn.getAttribute('data-seconds-until-next-turn') || '0', 10);
+            // Calculate the exact unix timestamp for when the next turn occurs.
+            turnEndEpoch = domEpoch + initialSeconds;
+        }
+        
+        // Start the main 1-second interval loop.
+        setInterval(tick, 1000);
     }
-  }, 1000);
-
-  // ── Live Dominion Time in US Eastern (HH:MM:SS) ────────────────────────────
-  let domEpoch = elDomTime ? parseInt(elDomTime.getAttribute('data-epoch') || '0', 10) : 0;
-
-  function renderDomTime(epoch){
-    if (!elDomTime) return;
-    const d = new Date(epoch * 1000);
-    const formatted = new Intl.DateTimeFormat('en-GB', {
-      timeZone: elDomTime.getAttribute('data-tz') || 'America/New_York',
-      hour12: false,
-      hour: '2-digit',
-      minute: '2-digit',
-      second: '2-digit'
-    }).format(d);
-    elDomTime.textContent = formatted;
-  }
-
-  if (domEpoch > 0) renderDomTime(domEpoch);
-  setInterval(() => {
-    if (domEpoch > 0) {
-      domEpoch += 1; // advance one second
-      renderDomTime(domEpoch);
+    
+    function tick() {
+        // 1. Advance Dominion Time
+        if (domEpoch > 0) {
+            domEpoch += 1; // Advance one second
+            renderDomTime(domEpoch);
+        }
+        
+        // 2. Update Turn Timer Display based on the new Dominion Time
+        if (elNextTurn && turnEndEpoch > 0) {
+            const secondsRemaining = Math.max(0, turnEndEpoch - domEpoch);
+            const m = Math.floor(secondsRemaining / 60);
+            const s = secondsRemaining % 60;
+            elNextTurn.textContent = String(m).padStart(2, '0') + ':' + String(s).padStart(2, '0');
+        }
     }
-  }, 1000);
-
-  // Poll API every 10s (credits/citizens/turns; optional time re-sync)
-  async function pollAdvisor(){
-    try {
-      const res = await fetch('/api/advisor_poll.php', {
-        credentials: 'same-origin',
-        headers: { 'Accept': 'application/json' },
-        cache: 'no-store'
-      });
-      if (!res.ok) return;
-      const data = await res.json();
-
-      if (elCredits && typeof data.credits === 'number') {
-        elCredits.textContent = new Intl.NumberFormat().format(data.credits);
-        elCredits.setAttribute('data-amount', String(data.credits));
-      }
-      if (elUntrained && typeof data.untrained_citizens === 'number') {
-        elUntrained.textContent = new Intl.NumberFormat().format(data.untrained_citizens);
-      }
-      if (elTurns && typeof data.attack_turns === 'number') {
-        elTurns.textContent = String(data.attack_turns);
-      }
-      if (elNextTurn && typeof data.seconds_until_next_turn === 'number') {
-        nextTurnSeconds = Math.max(0, parseInt(data.seconds_until_next_turn, 10));
-        elNextTurn.setAttribute('data-seconds-until-next-turn', String(nextTurnSeconds));
-        renderTimer(nextTurnSeconds);
-      }
-      // Optional resync if API provides server_time_unix
-      if (elDomTime && typeof data.server_time_unix === 'number') {
-        domEpoch = parseInt(data.server_time_unix, 10);
-        renderDomTime(domEpoch);
-      }
-    } catch (_) {
-      // Silent fail
+    
+    function renderDomTime(epoch){
+        if (!elDomTime) return;
+        const d = new Date(epoch * 1000);
+        const formatted = new Intl.DateTimeFormat('en-GB', {
+            timeZone: elDomTime.getAttribute('data-tz') || 'America/New_York',
+            hour12: false,
+            hour: '2-digit',
+            minute: '2-digit',
+            second: '2-digit'
+        }).format(d);
+        elDomTime.textContent = formatted;
     }
-  }
-  pollAdvisor();
-  setInterval(pollAdvisor, 10000);
+
+    // --- Poll API every 10s for dynamic stats (Credits & Citizens ONLY) ---
+    async function pollAdvisor(){
+        try {
+            const res = await fetch('/api/advisor_poll.php', {
+                credentials: 'same-origin',
+                headers: { 'Accept': 'application/json' },
+                cache: 'no-store'
+            });
+            if (!res.ok) return;
+            const data = await res.json();
+
+            if (elCredits && typeof data.credits === 'number') {
+                elCredits.textContent = new Intl.NumberFormat().format(data.credits);
+                elCredits.setAttribute('data-amount', String(data.credits));
+            }
+            if (elUntrained && typeof data.untrained_citizens === 'number') {
+                elUntrained.textContent = new Intl.NumberFormat().format(data.untrained_citizens);
+            }
+            if (elTurns && typeof data.attack_turns === 'number') {
+                elTurns.textContent = String(data.attack_turns);
+            }
+            // The timer is no longer updated here to prevent drift.
+            
+            // Optional resync if API provides server_time_unix. This keeps the base clock accurate.
+            if (elDomTime && typeof data.server_time_unix === 'number') {
+                domEpoch = parseInt(data.server_time_unix, 10);
+            }
+        } catch (_) {
+            // Silent fail
+        }
+    }
+
+    // --- INITIALIZATION ---
+    initializeTimers(); // Set up the synchronized clocks.
+    pollAdvisor();      // Initial poll for stats.
+    setInterval(pollAdvisor, 10000); // Poll for stats every 10 seconds.
 })();
 </script>
