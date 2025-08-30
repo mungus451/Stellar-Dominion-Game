@@ -112,7 +112,7 @@ try {
     $fatigue_casualties = 0;
     if ($attack_count_recent >= 10) {
         $attacks_over_limit = $attack_count_recent - 9; // 11th attack (count is 10) is 1 over the limit
-        $penalty_percentage = 0.005 * $attacks_over_limit;
+        $penalty_percentage = 0.01 * $attacks_over_limit;
         $fatigue_casualties = (int)floor($attacker['soldiers'] * $penalty_percentage);
     }
 
