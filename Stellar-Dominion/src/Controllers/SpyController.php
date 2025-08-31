@@ -172,6 +172,18 @@ try {
     // Keep defender up-to-date before intel snapshot
     process_offline_turns($link, $defender_id);
 
+    // Attacker's armory
+    $sql_att_armory = "SELECT item_key, quantity FROM user_armory WHERE user_id = ?";
+    $stmt_att_armory = mysqli_prepare($link, $sql_att_armory);
+    mysqli_stmt_bind_param($stmt_att_armory, "i", $attacker_id);
+    mysqli_stmt_execute($stmt_att_armory);
+    $att_armory_result = mysqli_stmt_get_result($stmt_att_armory);
+    $attacker_armory = [];
+    while ($row = mysqli_fetch_assoc($att_armory_result)) {
+        $attacker_armory[$row['item_key']] = (int)$row['quantity'];
+    }
+    mysqli_stmt_close($stmt_att_armory);
+
     // Defender's armory
     $sql_armory = "SELECT item_key, quantity FROM user_armory WHERE user_id = ?";
     $stmt_armory = mysqli_prepare($link, $sql_armory);
@@ -184,9 +196,16 @@ try {
     }
     mysqli_stmt_close($stmt_armory);
 
-    // Powers
-    $attacker_spy_power  = max(1, (int)$attacker['spies'])    * (10 + (int)$attacker['spy_upgrade_level'] * 2);
-    $defender_sentry_pow = max(1, (int)$defender['sentries']) * (10 + (int)$defender['defense_upgrade_level'] * 2);
+    // Calculate armory bonuses
+    $spy_count = (int)$attacker['spies'];
+    $attacker_armory_spy_bonus = sd_spy_armory_attack_bonus($attacker_armory, $spy_count);
+    
+    $sentry_count = (int)$defender['sentries'];
+    $defender_armory_sentry_bonus = sd_sentry_armory_defense_bonus($defender_armory, $sentry_count);
+
+    // Powers (now including armory bonuses)
+    $attacker_spy_power  = max(1, ($spy_count * (10 + (int)$attacker['spy_upgrade_level'] * 2)) + $attacker_armory_spy_bonus);
+    $defender_sentry_pow = max(1, ($sentry_count * (10 + (int)$defender['defense_upgrade_level'] * 2)) + $defender_armory_sentry_bonus);
 
     [ $success, $raw_ratio, $effective_ratio ] = decide_success($attacker_spy_power, $defender_sentry_pow, $attack_turns);
 
@@ -205,8 +224,15 @@ try {
                 $def_income  = calculate_income_per_turn($link, $defender_id, $defender, $upgrades, $defender_armory);
                 $def_offense = calculate_offense_power($link, $defender_id, $defender, $upgrades, $defender_armory);
                 $def_defense = calculate_defense_power($link, $defender_id, $defender, $upgrades, $defender_armory);
-                $def_spy_off = max(1, (int)$defender['spies'])    * (10 + (int)$defender['spy_upgrade_level'] * 2);
-                $def_sentry  = max(1, (int)$defender['sentries']) * (10 + (int)$defender['defense_upgrade_level'] * 2);
+                
+                // Calculate defender spy/sentry powers with armory bonuses
+                $def_spy_count = (int)$defender['spies'];
+                $def_sentry_count = (int)$defender['sentries'];
+                $def_armory_spy_bonus = sd_spy_armory_attack_bonus($defender_armory, $def_spy_count);
+                $def_armory_sentry_bonus = sd_sentry_armory_defense_bonus($defender_armory, $def_sentry_count);
+                
+                $def_spy_off = max(1, ($def_spy_count * (10 + (int)$defender['spy_upgrade_level'] * 2)) + $def_armory_spy_bonus);
+                $def_sentry  = max(1, ($def_sentry_count * (10 + (int)$defender['defense_upgrade_level'] * 2)) + $def_armory_sentry_bonus);
 
                 $pool = [
                     'Offense Power'  => $def_offense,
