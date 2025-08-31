@@ -294,6 +294,24 @@ function process_offline_turns(mysqli $link, int $user_id): void {
 /* ────────────────────────────────────────────────────────────────────────────
  * Armory Logic
  * ──────────────────────────────────────────────────────────────────────────*/
+function sd_armory_bonus_logic(array $owned_items, string $unit_type, int $unit_count): int {
+    global $armory_loadouts;
+    $bonus = 0;
+
+    if ($unit_count > 0 && isset($armory_loadouts[$unit_type])) {
+        foreach ($armory_loadouts[$unit_type]['categories'] as $category) {
+            foreach ($category['items'] as $item_key => $item) {
+                if (isset($owned_items[$item_key], $item['attack'])) {
+                    $effective = min($unit_count, (int)$owned_items[$item_key]);
+                    if ($effective > 0) $bonus += $effective * (int)$item['attack'];
+                }
+            }
+        }
+    }
+
+    return $bonus;
+}
+
 function sd_soldier_armory_attack_bonus(array $owned_items, int $soldier_count): int {
     global $armory_loadouts;
     $bonus = 0;
