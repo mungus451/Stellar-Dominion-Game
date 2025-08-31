@@ -159,32 +159,14 @@ try {
     // BATTLE CALCULATION
     // ─────────────────────────────────────────────────────────────────────────
     // Read attacker armory
-    $sql_armory = "SELECT item_key, quantity FROM user_armory WHERE user_id = ?";
-    $stmt_armory = mysqli_prepare($link, $sql_armory);
-    mysqli_stmt_bind_param($stmt_armory, "i", $attacker_id);
-    mysqli_stmt_execute($stmt_armory);
-    $armory_result = mysqli_stmt_get_result($stmt_armory);
-    $owned_items = [];
-    while ($row = mysqli_fetch_assoc($armory_result)) {
-        $owned_items[$row['item_key']] = (int)$row['quantity'];
-    }
-    mysqli_stmt_close($stmt_armory);
-
+    $owned_items = fetch_user_armory($link, $attacker_id);
+    
     // Accumulate armory attack bonus (clamped by soldier count)
     $soldier_count = (int)$attacker['soldiers'];
     $armory_attack_bonus = sd_soldier_armory_attack_bonus($owned_items, $soldier_count);
 
     // Defender armory (defense)
-    $sql_def_armory = "SELECT item_key, quantity FROM user_armory WHERE user_id = ?";
-    $stmt_def_armory = mysqli_prepare($link, $sql_def_armory);
-    mysqli_stmt_bind_param($stmt_def_armory, "i", $defender_id);
-    mysqli_stmt_execute($stmt_def_armory);
-    $def_armory_result = mysqli_stmt_get_result($stmt_def_armory);
-    $defender_owned_items = [];
-    while ($row = mysqli_fetch_assoc($def_armory_result)) {
-        $defender_owned_items[$row['item_key']] = (int)$row['quantity'];
-    }
-    mysqli_stmt_close($stmt_def_armory);
+    $defender_owned_items = fetch_user_armory($link, $defender_id);
 
     $guard_count = (int)$defender['guards'];
     $defender_armory_defense_bonus = sd_guard_armory_defense_bonus($defender_owned_items, $guard_count);

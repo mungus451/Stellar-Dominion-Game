@@ -173,28 +173,10 @@ try {
     process_offline_turns($link, $defender_id);
 
     // Attacker's armory
-    $sql_att_armory = "SELECT item_key, quantity FROM user_armory WHERE user_id = ?";
-    $stmt_att_armory = mysqli_prepare($link, $sql_att_armory);
-    mysqli_stmt_bind_param($stmt_att_armory, "i", $attacker_id);
-    mysqli_stmt_execute($stmt_att_armory);
-    $att_armory_result = mysqli_stmt_get_result($stmt_att_armory);
-    $attacker_armory = [];
-    while ($row = mysqli_fetch_assoc($att_armory_result)) {
-        $attacker_armory[$row['item_key']] = (int)$row['quantity'];
-    }
-    mysqli_stmt_close($stmt_att_armory);
+    $attacker_armory = fetch_user_armory($link, $attacker_id);
 
     // Defender's armory
-    $sql_armory = "SELECT item_key, quantity FROM user_armory WHERE user_id = ?";
-    $stmt_armory = mysqli_prepare($link, $sql_armory);
-    mysqli_stmt_bind_param($stmt_armory, "i", $defender_id);
-    mysqli_stmt_execute($stmt_armory);
-    $armory_result = mysqli_stmt_get_result($stmt_armory);
-    $defender_armory = [];
-    while ($row = mysqli_fetch_assoc($armory_result)) {
-        $defender_armory[$row['item_key']] = (int)$row['quantity'];
-    }
-    mysqli_stmt_close($stmt_armory);
+    $defender_armory = fetch_user_armory($link, $defender_id);
 
     // Calculate armory bonuses
     $spy_count = (int)$attacker['spies'];

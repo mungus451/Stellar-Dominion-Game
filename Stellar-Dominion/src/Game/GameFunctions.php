@@ -316,3 +316,20 @@ function sd_sentry_armory_defense_bonus(array $owned_items, int $sentry_count): 
 function sd_spy_armory_attack_bonus(array $owned_items, int $spy_count): int {
     return sd_armory_bonus_logic($owned_items, 'spy', $spy_count, 'attack');
 }
+
+/* ────────────────────────────────────────────────────────────────────────────
+ * Fetch Data
+ * ──────────────────────────────────────────────────────────────────────────*/
+function fetch_user_armory(mysqli $link, int $user_id): array {
+    $sql = "SELECT item_key, quantity FROM user_armory WHERE user_id = ?";
+    $stmt = mysqli_prepare($link, $sql);
+    mysqli_stmt_bind_param($stmt, "i", $user_id);
+    mysqli_stmt_execute($stmt);
+    $result = mysqli_stmt_get_result($stmt);
+    $armory = [];
+    while ($row = mysqli_fetch_assoc($result)) {
+        $armory[$row['item_key']] = (int)$row['quantity'];
+    }
+    mysqli_stmt_close($stmt);
+    return $armory;
+}
