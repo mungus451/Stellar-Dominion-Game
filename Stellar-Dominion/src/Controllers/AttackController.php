@@ -186,20 +186,8 @@ try {
     }
     mysqli_stmt_close($stmt_def_armory);
 
-    $defender_armory_defense_bonus = 0;
     $guard_count = (int)$defender['guards'];
-    if ($guard_count > 0 && isset($armory_loadouts['guard'])) {
-        foreach ($armory_loadouts['guard']['categories'] as $category) {
-            foreach ($category['items'] as $item_key => $item) {
-                if (isset($defender_owned_items[$item_key], $item['defense'])) {
-                    $effective_items = min($guard_count, (int)$defender_owned_items[$item_key]);
-                    if ($effective_items > 0) {
-                        $defender_armory_defense_bonus += $effective_items * (int)$item['defense'];
-                    }
-                }
-            }
-        }
-    }
+    $defender_armory_defense_bonus = sd_guard_armory_defense_bonus($defender_owned_items, $guard_count);
 
     // Upgrade multipliers
     $total_offense_bonus_pct = 0.0;

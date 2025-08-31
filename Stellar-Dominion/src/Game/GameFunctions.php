@@ -309,3 +309,19 @@ function sd_soldier_armory_attack_bonus(array $owned_items, int $soldier_count):
     }
     return (int)$bonus;
 }
+
+function sd_guard_armory_defense_bonus(array $owned_items, int $guard_count): int {
+    global $armory_loadouts;
+    $bonus = 0;
+    if ($guard_count > 0 && isset($armory_loadouts['guard'])) {
+        foreach ($armory_loadouts['guard']['categories'] as $category) {
+            foreach ($category['items'] as $item_key => $item) {
+                if (isset($owned_items[$item_key], $item['defense'])) {
+                    $effective = min($guard_count, (int)$owned_items[$item_key]);
+                    if ($effective > 0) $bonus += $effective * (int)$item['defense'];
+                }
+            }
+        }
+    }
+    return (int)$bonus;
+}
