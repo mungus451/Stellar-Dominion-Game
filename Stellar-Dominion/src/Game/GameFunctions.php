@@ -308,3 +308,11 @@ function sd_soldier_armory_attack_bonus(array $owned_items, int $soldier_count):
 function sd_guard_armory_defense_bonus(array $owned_items, int $guard_count): int {
     return sd_armory_bonus_logic($owned_items, 'guard', $guard_count, 'defense');
 }
+
+function sd_sentry_armory_defense_bonus(array $owned_items, int $sentry_count): int {
+    return sd_armory_bonus_logic($owned_items, 'sentry', $sentry_count, 'defense');
+}
+
+function sd_spy_armory_attack_bonus(array $owned_items, int $spy_count): int {
+    return sd_armory_bonus_logic($owned_items, 'spy', $spy_count, 'attack');
+}
