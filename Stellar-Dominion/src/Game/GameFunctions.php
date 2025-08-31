@@ -283,18 +283,47 @@ function process_offline_turns(mysqli $link, int $user_id): void {
 /* ────────────────────────────────────────────────────────────────────────────
  * Armory Logic
  * ──────────────────────────────────────────────────────────────────────────*/
+/**
+ * Sum best-to-worst items within a single category, capped to unit_count once.
+ * $statKey = 'attack' or 'defense' (workers use 'attack' as "+income" in current data).
+ */
+function sd_sum_category_bonus(array $category, array $owned_items, int $unit_count, string $statKey): int {
+    if ($unit_count <= 0) return 0;
+
+    // Collect owned+stat items in this category
+    $rows = [];
+    foreach ($category['items'] as $item_key => $item) {
+        if (!isset($owned_items[$item_key], $item[$statKey])) continue;
+        $qty = (int)$owned_items[$item_key];
+        $val = (int)$item[$statKey];
+        if ($qty > 0 && $val > 0) {
+            $rows[] = ['val' => $val, 'qty' => $qty];
+        }
+    }
+    if (!$rows) return 0;
+
+    // Highest tier first
+    usort($rows, fn($a,$b) => $b['val'] <=> $a['val']);
+
+    // Fill up to unit_count once
+    $remain = $unit_count;
+    $sum = 0;
+    foreach ($rows as $r) {
+        if ($remain <= 0) break;
+        $take = min($remain, $r['qty']);
+        $sum += $take * $r['val'];
+        $remain -= $take;
+    }
+    return $sum;
+}
+
 function sd_armory_bonus_logic(array $owned_items, string $unit_type, int $unit_count, string $item_stat): int {
     global $armory_loadouts;
     $bonus = 0;
 
     if ($unit_count > 0 && isset($armory_loadouts[$unit_type])) {
         foreach ($armory_loadouts[$unit_type]['categories'] as $category) {
-            foreach ($category['items'] as $item_key => $item) {
-                if (isset($owned_items[$item_key], $item[$item_stat])) {
-                    $effective = min($unit_count, (int)$owned_items[$item_key]);
-                    if ($effective > 0) $bonus += $effective * (int)$item[$item_stat];
-                }
-            }
+            $bonus += sd_sum_category_bonus($category, $owned_items, $unit_count, $item_stat);
         }
     }
 
