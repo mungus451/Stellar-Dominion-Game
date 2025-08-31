@@ -148,8 +148,7 @@ include_once __DIR__ . '/../includes/header.php';
                 </li>
                 <li>
                     <strong>Attack Fatigue:</strong>
-                    Multiple attacks in a short window may apply temporary fatigue (10 attacks against same target within 1 hour, 11th attack starts receiving casualties from fatigue).
-                    Fatigue decays over 1 hour from last attack. 
+                    Attacking the same player repeatedly does not pay in this realm. You get to attack a player normally 5 times in an hour, if you attack that player 6-10th time in that same hour, your reward will be only 1/4 of the normal reward. If you attack that same player more than 10 times in 12 hour period, you will no longer gain credit but only deal structural damage. This is to balance the game and keep our players able to continuely enjoy the game and achieve their empire goals.
                 </li>
                 <li>
                     <strong>Victory & Rewards:</strong>
