@@ -148,7 +148,7 @@ include_once __DIR__ . '/../includes/header.php';
                 </li>
                 <li>
                     <strong>Attack Fatigue:</strong>
-                    Your first 5 attacks are at full power, use them wisely! attacks 6-10 will have a reduced reward! All attacks over 10 will incur increasing casualties from fatigue, at 50 attacks you will only do structural damage. The window is 12 hours from your first attack!
+                    Your first 5 attacks against a singular player are at full power, use them wisely! attacks 6-10 will have a reduced reward! All attacks over 10 will incur increasing casualties from fatigue, at 50 attacks you will only do structural damage. The window is 12 hours from your first attack!
                 </li>
                 <li>
                     <strong>Victory & Rewards:</strong>
