@@ -221,7 +221,7 @@ if (!$alliance) { // User is not in an alliance
                     ?>
                 </div>
 
-                <div class="border-b border-gray-600">
+                <div class="content-box rounded-lg p-4 overflow-x-auto">
                     <nav class="flex space-x-4">
                         <a href="?tab=roster" class="py-2 px-4 <?php echo $current_tab === 'roster' ? 'text-white border-b-2 border-cyan-400' : 'text-gray-400 hover:text-white'; ?>">Member Roster</a>
                         <?php if (can('can_approve_membership')): ?>
