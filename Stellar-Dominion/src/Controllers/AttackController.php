@@ -159,59 +159,17 @@ try {
     // BATTLE CALCULATION
     // ─────────────────────────────────────────────────────────────────────────
     // Read attacker armory
-    $sql_armory = "SELECT item_key, quantity FROM user_armory WHERE user_id = ?";
-    $stmt_armory = mysqli_prepare($link, $sql_armory);
-    mysqli_stmt_bind_param($stmt_armory, "i", $attacker_id);
-    mysqli_stmt_execute($stmt_armory);
-    $armory_result = mysqli_stmt_get_result($stmt_armory);
-    $owned_items = [];
-    while ($row = mysqli_fetch_assoc($armory_result)) {
-        $owned_items[$row['item_key']] = (int)$row['quantity'];
-    }
-    mysqli_stmt_close($stmt_armory);
-
+    $owned_items = fetch_user_armory($link, $attacker_id);
+    
     // Accumulate armory attack bonus (clamped by soldier count)
-    $armory_attack_bonus = 0;
     $soldier_count = (int)$attacker['soldiers'];
-    if ($soldier_count > 0 && isset($armory_loadouts['soldier'])) {
-        foreach ($armory_loadouts['soldier']['categories'] as $category) {
-            foreach ($category['items'] as $item_key => $item) {
-                if (isset($owned_items[$item_key], $item['attack'])) {
-                    $effective_items = min($soldier_count, (int)$owned_items[$item_key]);
-                    if ($effective_items > 0) {
-                        $armory_attack_bonus += $effective_items * (int)$item['attack'];
-                    }
-                }
-            }
-        }
-    }
+    $armory_attack_bonus = sd_soldier_armory_attack_bonus($owned_items, $soldier_count);
 
     // Defender armory (defense)
-    $sql_def_armory = "SELECT item_key, quantity FROM user_armory WHERE user_id = ?";
-    $stmt_def_armory = mysqli_prepare($link, $sql_def_armory);
-    mysqli_stmt_bind_param($stmt_def_armory, "i", $defender_id);
-    mysqli_stmt_execute($stmt_def_armory);
-    $def_armory_result = mysqli_stmt_get_result($stmt_def_armory);
-    $defender_owned_items = [];
-    while ($row = mysqli_fetch_assoc($def_armory_result)) {
-        $defender_owned_items[$row['item_key']] = (int)$row['quantity'];
-    }
-    mysqli_stmt_close($stmt_def_armory);
+    $defender_owned_items = fetch_user_armory($link, $defender_id);
 
-    $defender_armory_defense_bonus = 0;
     $guard_count = (int)$defender['guards'];
-    if ($guard_count > 0 && isset($armory_loadouts['guard'])) {
-        foreach ($armory_loadouts['guard']['categories'] as $category) {
-            foreach ($category['items'] as $item_key => $item) {
-                if (isset($defender_owned_items[$item_key], $item['defense'])) {
-                    $effective_items = min($guard_count, (int)$defender_owned_items[$item_key]);
-                    if ($effective_items > 0) {
-                        $defender_armory_defense_bonus += $effective_items * (int)$item['defense'];
-                    }
-                }
-            }
-        }
-    }
+    $defender_armory_defense_bonus = sd_guard_armory_defense_bonus($defender_owned_items, $guard_count);
 
     // Upgrade multipliers
     $total_offense_bonus_pct = 0.0;

@@ -171,55 +171,17 @@ $citizens_per_turn = (int)$summary['citizens_per_turn'];
 $strength_bonus = 1 + ((float)$user_stats['strength_points'] * 0.01);
 $constitution_bonus = 1 + ((float)$user_stats['constitution_points'] * 0.01);
 
-$armory_attack_bonus = 0;
 $soldier_count = (int)$user_stats['soldiers'];
-if ($soldier_count > 0 && isset($armory_loadouts['soldier'])) {
-    foreach ($armory_loadouts['soldier']['categories'] as $category) {
-        foreach ($category['items'] as $item_key => $item) {
-            if (!isset($owned_items[$item_key], $item['attack'])) { continue; }
-            $effective_items = min($soldier_count, (int)$owned_items[$item_key]);
-            if ($effective_items > 0) $armory_attack_bonus += $effective_items * (int)$item['attack'];
-        }
-    }
-}
+$armory_attack_bonus = sd_soldier_armory_attack_bonus($owned_items, $soldier_count);
 
-$armory_defense_bonus = 0;
 $guard_count = (int)$user_stats['guards'];
-if ($guard_count > 0 && isset($armory_loadouts['guard'])) {
-    foreach ($armory_loadouts['guard']['categories'] as $category) {
-        foreach ($category['items'] as $item_key => $item) {
-            if (!isset($owned_items[$item_key], $item['defense'])) { continue; }
-            $effective_items = min($guard_count, (int)$owned_items[$item_key]);
-            if ($effective_items > 0) $armory_defense_bonus += $effective_items * (int)$item['defense'];
-        }
-    }
-}
+$armory_defense_bonus = sd_guard_armory_defense_bonus($owned_items, $guard_count);
 
-$armory_sentry_bonus = 0;
 $sentry_count = (int)$user_stats['sentries'];
-if ($sentry_count > 0 && isset($armory_loadouts['sentry'])) {
-    foreach ($armory_loadouts['sentry']['categories'] as $category) {
-        foreach ($category['items'] as $item_key => $item) {
-            if (isset($owned_items[$item_key], $item['defense'])) {
-                $effective_items = min($sentry_count, (int)$owned_items[$item_key]);
-                if ($effective_items > 0) $armory_sentry_bonus += $effective_items * (int)$item['defense'];
-            }
-        }
-    }
-}
+$armory_sentry_bonus = sd_sentry_armory_defense_bonus($owned_items, $sentry_count);
 
-$armory_spy_bonus = 0;
 $spy_count = (int)$user_stats['spies'];
-if ($spy_count > 0 && isset($armory_loadouts['spy'])) {
-    foreach ($armory_loadouts['spy']['categories'] as $category) {
-        foreach ($category['items'] as $item_key => $item) {
-            if (isset($owned_items[$item_key], $item['attack'])) {
-                $effective_items = min($spy_count, (int)$owned_items[$item_key]);
-                if ($effective_items > 0) $armory_spy_bonus += $effective_items * (int)$item['attack'];
-            }
-        }
-    }
-}
+$armory_spy_bonus = sd_spy_armory_attack_bonus($owned_items, $spy_count);
 
 $offense_power = (int)floor((($soldier_count * 10) * $strength_bonus + $armory_attack_bonus) * $offense_upgrade_multiplier);
 $defense_rating = (int)floor(((($guard_count * 10) + $armory_defense_bonus) * $constitution_bonus) * $defense_upgrade_multiplier);

@@ -157,18 +157,7 @@ function sd_compute_alliance_bonuses(mysqli $link, array $user_stats): array {
 
 function sd_worker_armory_income_bonus(array $owned_items, int $worker_count): int {
     // For workers we count item['attack'] (kept as-is for compatibility)
-    global $armory_loadouts;
-    $bonus = 0;
-    if ($worker_count > 0 && isset($armory_loadouts['worker'])) {
-        foreach ($armory_loadouts['worker']['categories'] as $category) {
-            foreach ($category['items'] as $item_key => $item) {
-                if (!isset($owned_items[$item_key], $item['attack'])) continue;
-                $effective = min($worker_count, (int)$owned_items[$item_key]);
-                if ($effective > 0) $bonus += $effective * (int)$item['attack'];
-            }
-        }
-    }
-    return (int)$bonus;
+    return sd_armory_bonus_logic($owned_items, 'worker', $worker_count, 'attack');
 }
 
 /**
@@ -289,4 +278,87 @@ function process_offline_turns(mysqli $link, int $user_id): void {
             mysqli_stmt_close($stmt_upd);
         }
     }
+}
+
+/* ────────────────────────────────────────────────────────────────────────────
+ * Armory Logic
+ * ──────────────────────────────────────────────────────────────────────────*/
+/**
+ * Sum best-to-worst items within a single category, capped to unit_count once.
+ * $statKey = 'attack' or 'defense' (workers use 'attack' as "+income" in current data).
+ */
+function sd_sum_category_bonus(array $category, array $owned_items, int $unit_count, string $statKey): int {
+    if ($unit_count <= 0) return 0;
+
+    // Collect owned+stat items in this category
+    $rows = [];
+    foreach ($category['items'] as $item_key => $item) {
+        if (!isset($owned_items[$item_key], $item[$statKey])) continue;
+        $qty = (int)$owned_items[$item_key];
+        $val = (int)$item[$statKey];
+        if ($qty > 0 && $val > 0) {
+            $rows[] = ['val' => $val, 'qty' => $qty];
+        }
+    }
+    if (!$rows) return 0;
+
+    // Highest tier first
+    usort($rows, fn($a,$b) => $b['val'] <=> $a['val']);
+
+    // Fill up to unit_count once
+    $remain = $unit_count;
+    $sum = 0;
+    foreach ($rows as $r) {
+        if ($remain <= 0) break;
+        $take = min($remain, $r['qty']);
+        $sum += $take * $r['val'];
+        $remain -= $take;
+    }
+    return $sum;
+}
+
+function sd_armory_bonus_logic(array $owned_items, string $unit_type, int $unit_count, string $item_stat): int {
+    global $armory_loadouts;
+    $bonus = 0;
+
+    if ($unit_count > 0 && isset($armory_loadouts[$unit_type])) {
+        foreach ($armory_loadouts[$unit_type]['categories'] as $category) {
+            $bonus += sd_sum_category_bonus($category, $owned_items, $unit_count, $item_stat);
+        }
+    }
+
+    return $bonus;
+}
+
+function sd_soldier_armory_attack_bonus(array $owned_items, int $soldier_count): int {
+    return sd_armory_bonus_logic($owned_items, 'soldier', $soldier_count, 'attack');
+}
+
+function sd_guard_armory_defense_bonus(array $owned_items, int $guard_count): int {
+    return sd_armory_bonus_logic($owned_items, 'guard', $guard_count, 'defense');
+}
+
+function sd_sentry_armory_defense_bonus(array $owned_items, int $sentry_count): int {
+    return sd_armory_bonus_logic($owned_items, 'sentry', $sentry_count, 'defense');
+}
+
+function sd_spy_armory_attack_bonus(array $owned_items, int $spy_count): int {
+    return sd_armory_bonus_logic($owned_items, 'spy', $spy_count, 'attack');
+}
+
+/* ────────────────────────────────────────────────────────────────────────────
+ * Fetch Data
+ * ──────────────────────────────────────────────────────────────────────────*/
+function fetch_user_armory(mysqli $link, int $user_id): array {
+    $sql = "SELECT item_key, quantity FROM user_armory WHERE user_id = ?";
+    $stmt = mysqli_prepare($link, $sql);
+    mysqli_stmt_bind_param($stmt, "i", $user_id);
+    mysqli_stmt_execute($stmt);
+    $result = mysqli_stmt_get_result($stmt);
+    $armory = [];
+    while ($row = mysqli_fetch_assoc($result)) {
+        $armory[$row['item_key']] = (int)$row['quantity'];
+    }
+    mysqli_stmt_close($stmt);
+    return $armory;
 }
