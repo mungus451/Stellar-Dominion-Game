@@ -53,9 +53,9 @@ const BASE_PRESTIGE_GAIN          = 10;
 
 // ── NEW: Anti-farm limits
 const HOURLY_FULL_LOOT_CAP            = 5;     // first 5 attacks in last hour = full loot
-const HOURLY_REDUCED_LOOT_MAX         = 10;    // attacks 6..10 in last hour = reduced
+const HOURLY_REDUCED_LOOT_MAX         = 50;    // attacks 6..10 in last hour = reduced
 const HOURLY_REDUCED_LOOT_FACTOR      = 0.25;  // 25% of normal credits
-const DAILY_STRUCT_ONLY_THRESHOLD     = 10;    // 11th+ attack in last 24h => structure-only
+const DAILY_STRUCT_ONLY_THRESHOLD     = 50;    // 11th+ attack in last 24h => structure-only
 // (11+ in the same hour also yields 0 credits even if daily threshold not hit)
 
 // ─────────────────────────────────────────────────────────────────────────────
