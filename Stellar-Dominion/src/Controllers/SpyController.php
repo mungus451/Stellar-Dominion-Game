@@ -21,7 +21,7 @@ if (!function_exists('calculate_income_per_turn') || !function_exists('calculate
     @require_once __DIR__ . '/../Game/GameFunctions.php';
     // Minimal guarded fallbacks (used only if your GameFunctions.php doesn't have them)
     if (!function_exists('calculate_income_per_turn')) {
-        function calculate_income_per_turn($link, $user_id, $user_stats, $upgrades) {
+        function calculate_income_per_turn($link, $user_id, $user_stats, $upgrades, $owned_items) {
             $worker_income = (int)$user_stats['workers'] * 50;
             $base_income   = 5000 + $worker_income;
             $wealth_bonus  = 1 + ((float)$user_stats['wealth_points'] * 0.01);
@@ -30,12 +30,12 @@ if (!function_exists('calculate_income_per_turn') || !function_exists('calculate
                 $total_econ += (float)($upgrades['economy']['levels'][$i]['bonuses']['income'] ?? 0);
             }
             $econ_mult = 1 + ($total_econ / 100);
-            return (int)floor($base_income * $wealth_bonus * $econ_mult);
+            $armory_income = sd_worker_armory_income_bonus($owned_items, (int)$user_stats['workers']);
+            return (int)floor($base_income * $wealth_bonus * $econ_mult + $armory_income);
         }
     }
     if (!function_exists('calculate_offense_power')) {
         function calculate_offense_power($link, $user_id, $user_stats, $upgrades, $owned_items) {
-            global $armory_loadouts;
             $soldiers   = (int)$user_stats['soldiers'];
             $str_mult   = 1 + ((float)$user_stats['strength_points'] * 0.01);
             $off_pct    = 0;
@@ -43,21 +43,12 @@ if (!function_exists('calculate_income_per_turn') || !function_exists('calculate
                 $off_pct += (float)($upgrades['offense']['levels'][$i]['bonuses']['offense'] ?? 0);
             }
             $off_mult = 1 + ($off_pct / 100);
-            $armory_attack = 0;
-            if ($soldiers > 0 && isset($armory_loadouts['soldier'])) {
-                foreach ($armory_loadouts['soldier']['categories'] as $cat) {
-                    foreach ($cat['items'] as $key => $it) {
-                        if (!isset($owned_items[$key], $it['attack'])) continue;
-                        $armory_attack += min($soldiers, (int)$owned_items[$key]) * (int)$it['attack'];
-                    }
-                }
-            }
+            $armory_attack = sd_soldier_armory_attack_bonus($owned_items, (int)$user_stats['soldiers']);
             return (int)floor((($soldiers * 10) * $str_mult + $armory_attack) * $off_mult);
         }
     }
     if (!function_exists('calculate_defense_power')) {
         function calculate_defense_power($link, $user_id, $user_stats, $upgrades, $owned_items) {
-            global $armory_loadouts;
             $guards   = (int)$user_stats['guards'];
             $con_mult = 1 + ((float)$user_stats['constitution_points'] * 0.01);
             $def_pct  = 0;
@@ -65,15 +56,7 @@ if (!function_exists('calculate_income_per_turn') || !function_exists('calculate
                 $def_pct += (float)($upgrades['defense']['levels'][$i]['bonuses']['defense'] ?? 0);
             }
             $def_mult = 1 + ($def_pct / 100);
-            $armory_def = 0;
-            if ($guards > 0 && isset($armory_loadouts['guard'])) {
-                foreach ($armory_loadouts['guard']['categories'] as $cat) {
-                    foreach ($cat['items'] as $key => $it) {
-                        if (!isset($owned_items[$key], $it['defense'])) continue;
-                        $armory_def += min($guards, (int)$owned_items[$key]) * (int)$it['defense'];
-                    }
-                }
-            }
+            $armory_def = sd_guard_armory_defense_bonus($owned_items, (int)$user_stats['guards']);
             return (int)floor(((($guards * 10) + $armory_def) * $con_mult) * $def_mult);
         }
     }
@@ -219,7 +202,7 @@ try {
     if ($success) {
         switch ($mission_type) {
             case 'intelligence': {
-                $def_income  = calculate_income_per_turn($link, $defender_id, $defender, $upgrades);
+                $def_income  = calculate_income_per_turn($link, $defender_id, $defender, $upgrades, $defender_armory);
                 $def_offense = calculate_offense_power($link, $defender_id, $defender, $upgrades, $defender_armory);
                 $def_defense = calculate_defense_power($link, $defender_id, $defender, $upgrades, $defender_armory);
                 $def_spy_off = max(1, (int)$defender['spies'])    * (10 + (int)$defender['spy_upgrade_level'] * 2);
