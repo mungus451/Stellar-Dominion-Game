@@ -155,6 +155,22 @@ function sd_compute_alliance_bonuses(mysqli $link, array $user_stats): array {
     return $bonuses;
 }
 
+function sd_soldier_armory_attack_bonus(array $owned_items, int $soldier_count): int {
+    global $armory_loadouts;
+    $bonus = 0;
+    if ($soldier_count > 0 && isset($armory_loadouts['soldier'])) {
+        foreach ($armory_loadouts['soldier']['categories'] as $category) {
+            foreach ($category['items'] as $item_key => $item) {
+                if (isset($owned_items[$item_key], $item['attack'])) {
+                    $effective = min($soldier_count, (int)$owned_items[$item_key]);
+                    if ($effective > 0) $bonus += $effective * (int)$item['attack'];
+                }
+            }
+        }
+    }
+    return (int)$bonus;
+}
+
 function sd_worker_armory_income_bonus(array $owned_items, int $worker_count): int {
     // For workers we count item['attack'] (kept as-is for compatibility)
     global $armory_loadouts;

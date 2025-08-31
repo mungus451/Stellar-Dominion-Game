@@ -171,20 +171,8 @@ try {
     mysqli_stmt_close($stmt_armory);
 
     // Accumulate armory attack bonus (clamped by soldier count)
-    $armory_attack_bonus = 0;
     $soldier_count = (int)$attacker['soldiers'];
-    if ($soldier_count > 0 && isset($armory_loadouts['soldier'])) {
-        foreach ($armory_loadouts['soldier']['categories'] as $category) {
-            foreach ($category['items'] as $item_key => $item) {
-                if (isset($owned_items[$item_key], $item['attack'])) {
-                    $effective_items = min($soldier_count, (int)$owned_items[$item_key]);
-                    if ($effective_items > 0) {
-                        $armory_attack_bonus += $effective_items * (int)$item['attack'];
-                    }
-                }
-            }
-        }
-    }
+    $armory_attack_bonus = sd_soldier_armory_attack_bonus($owned_items, $soldier_count);
 
     // Defender armory (defense)
     $sql_def_armory = "SELECT item_key, quantity FROM user_armory WHERE user_id = ?";
