@@ -1,8 +1,7 @@
 <?php
 /**
  * template/pages/alliance.php — Alliance Hub (+Scout Alliances tab)
- * Works with header.php/footer.php layout that opens an <aside> first.
- * We inject the Alliance sub-nav into that aside, then close it and open <section id="main">.
+ * Uses header/footer, renders in main column, themed with /assets/css/style.css.
  */
 
 if (session_status() === PHP_SESSION_NONE) session_start();
@@ -196,61 +195,61 @@ $page_title  = 'Starlight Dominion - Alliance Hub';
 include $ROOT . '/template/includes/header.php';
 ?>
 
-<!-- CLOSE the <aside> opened by header.php and OPEN the main content column -->
+<!-- Render in the main column (header opens <aside>; we close it here) -->
 </aside><section id="main" class="col-span-9 lg:col-span-10">
 
     <?php if (isset($_SESSION['alliance_error'])): ?>
-        <div class="bg-red-900/70 border border-red-600/60 text-red-200 p-3 rounded-md text-center mb-4">
+        <div class="content-box text-red-200 border-red-600/60 p-3 rounded-md text-center mb-4" style="border-color:rgba(220,38,38,.6)">
             <?= e($_SESSION['alliance_error']); unset($_SESSION['alliance_error']); ?>
         </div>
     <?php endif; ?>
     <?php if (isset($_SESSION['alliance_message'])): ?>
-        <div class="bg-emerald-900/70 border border-emerald-600/60 text-emerald-200 p-3 rounded-md text-center mb-4">
+        <div class="content-box text-emerald-200 border-emerald-600/60 p-3 rounded-md text-center mb-4" style="border-color:rgba(5,150,105,.6)">
             <?= e($_SESSION['alliance_message']); unset($_SESSION['alliance_message']); ?>
         </div>
     <?php endif; ?>
 
     <?php if ($alliance): ?>
         <!-- Header Card -->
-        <div class="rounded-lg bg-slate-900/80 border border-white/10 p-5 mb-4">
+        <div class="content-box rounded-lg p-5 mb-4">
             <div class="flex flex-col md:flex-row md:items-start md:justify-between">
                 <div class="flex items-center gap-4">
-                    <img src="<?= e($alliance_avatar) ?>" class="w-20 h-20 rounded-lg border border-white/10 object-cover" alt="Alliance">
+                    <img src="<?= e($alliance_avatar) ?>" class="w-20 h-20 rounded-lg border object-cover" alt="Alliance" style="border-color:#374151">
                     <div>
-                        <h2 class="text-3xl text-white font-bold">
+                        <h2 class="font-title text-3xl text-white font-bold">
                             [<?= e($alliance['tag'] ?? '') ?>] <?= e($alliance['name'] ?? 'Alliance') ?>!
                         </h2>
-                        <p class="text-xs opacity-75">Led by <?= e($alliance['leader_name'] ?? 'Unknown') ?></p>
+                        <p class="text-xs text-gray-400">Led by <?= e($alliance['leader_name'] ?? 'Unknown') ?></p>
                     </div>
                 </div>
                 <div class="text-right mt-4 md:mt-0">
-                    <p class="text-xs opacity-70 uppercase">Alliance Bank</p>
-                    <p class="text-yellow-400 text-2xl font-extrabold">
+                    <p class="text-xs text-gray-400 uppercase">Alliance Bank</p>
+                    <p class="text-2xl font-extrabold" style="color:#facc15">
                         <?= number_format((int)($alliance['bank_credits'] ?? 0)) ?> Credits
                     </p>
                     <?php $user_is_leader = ($alliance && (int)$alliance['leader_id'] === $user_id); ?>
                     <?php if ($user_is_leader): ?>
-                        <a href="/edit_alliance.php" class="inline-block mt-3 bg-sky-800 hover:bg-sky-700 text-white font-semibold text-sm px-4 py-2 rounded-md">Edit Alliance</a>
+                        <a href="/edit_alliance.php" class="inline-block mt-3 text-white font-semibold text-sm px-4 py-2 rounded-md" style="background:#075985">Edit Alliance</a>
                     <?php endif; ?>
                 </div>
             </div>
         </div>
 
         <!-- Charter -->
-        <div class="rounded-lg bg-slate-900/70 border border-white/10 p-4 mb-4">
+        <div class="content-box rounded-lg p-4 mb-4">
             <h3 class="text-lg font-semibold text-white mb-2">Alliance Charter</h3>
-            <div class="text-sm"><?= nl2br(e($alliance_charter !== '' ? $alliance_charter : '—')) ?></div>
+            <div class="text-sm text-gray-300"><?= nl2br(e($alliance_charter !== '' ? $alliance_charter : '—')) ?></div>
         </div>
 
         <!-- Rivalries -->
         <?php if (!empty($rivalries)): ?>
-            <div class="rounded-lg bg-slate-900/70 border border-white/10 p-4 mb-4">
+            <div class="content-box rounded-lg p-4 mb-4">
                 <h3 class="text-lg font-semibold text-white mb-2">Active Rivalries</h3>
-                <ul class="list-disc list-inside">
+                <ul class="list-disc list-inside text-gray-300">
                     <?php foreach ($rivalries as $rv): ?>
                         <li class="flex items-center justify-between">
                             <span>[<?= e($rv['tag'] ?? '') ?>] <?= e($rv['name'] ?? 'Unknown') ?></span>
-                            <span class="text-xs opacity-70">
+                            <span class="text-xs text-gray-400">
                                 <?php
                                 if (isset($rv['status'])) echo e($rv['status']);
                                 elseif (isset($rv['heat_level'])) echo 'Heat ' . (int)$rv['heat_level'];
@@ -263,19 +262,19 @@ include $ROOT . '/template/includes/header.php';
             </div>
         <?php endif; ?>
 
-        <!-- Tabs -->
+        <!-- Tabs (theme cyan underline) -->
         <?php
-        $tab_in = isset($_GET['tab']) ? (string)$_GET['tab'] : 'roster';
-        $current_tab = in_array($tab_in, ['roster','applications','scout'], true) ? $tab_in : 'roster';
+        $tab_in = isset($_GET['tab']) ? (string)$_GET['tab'] : 'scout';
+        $current_tab = in_array($tab_in, ['roster','applications','scout'], true) ? $tab_in : 'scout';
         ?>
-        <div class="rounded-lg bg-slate-900/70 border border-white/10 px-4 pt-3 mb-3">
-            <nav class="flex gap-4">
-                <a href="?tab=roster" class="py-2 px-4 <?= $current_tab === 'roster' ? 'text-white border-b-2 border-cyan-400' : 'text-gray-400 hover:text-white' ?>">Member Roster</a>
-                <a href="?tab=scout" class="py-2 px-4 <?= $current_tab === 'scout' ? 'text-white border-b-2 border-cyan-400' : 'text-gray-400 hover:text-white' ?>">Scout Alliances</a>
-                <a href="?tab=applications" class="py-2 px-4 <?= $current_tab === 'applications' ? 'text-white border-b-2 border-cyan-400' : 'text-gray-400 hover:text-white' ?>">
+        <div class="content-box rounded-lg px-4 pt-3 mb-3">
+            <nav class="flex gap-6 text-sm">
+                <a href="?tab=roster" class="nav-link <?= $current_tab==='roster' ? 'active text-white' : '' ?>">Member Roster</a>
+                <a href="?tab=scout" class="nav-link <?= $current_tab==='scout' ? 'active text-white' : '' ?>">Scout Alliances</a>
+                <a href="?tab=applications" class="nav-link <?= $current_tab==='applications' ? 'active text-white' : '' ?>">
                     Applications
                     <?php if (!empty($applications)): ?>
-                        <span class="ml-2 bg-cyan-700 text-white text-xs font-bold rounded-full px-2 py-1"><?= count($applications) ?></span>
+                        <span class="ml-2 inline-block rounded-full px-2 py-0.5 text-xs font-bold" style="background:#0e7490;color:#fff"><?= count($applications) ?></span>
                     <?php endif; ?>
                 </a>
             </nav>
@@ -283,9 +282,9 @@ include $ROOT . '/template/includes/header.php';
 
         <!-- Roster -->
         <section id="tab-roster" class="<?= $current_tab === 'roster' ? '' : 'hidden' ?>">
-            <div class="rounded-lg bg-slate-900/70 border border-white/10 p-4 overflow-x-auto">
+            <div class="content-box rounded-lg p-4 overflow-x-auto">
                 <table class="w-full text-left text-sm">
-                    <thead class="bg-slate-800/80">
+                    <thead style="background:#111827;color:#9ca3af">
                         <tr>
                             <th class="p-2">Name</th>
                             <th class="p-2">Level</th>
@@ -295,17 +294,17 @@ include $ROOT . '/template/includes/header.php';
                             <th class="p-2 text-right">Manage</th>
                         </tr>
                     </thead>
-                    <tbody>
+                    <tbody class="text-gray-300">
                         <?php if (empty($members)): ?>
-                            <tr><td colspan="6" class="p-4 text-center opacity-75">No members found.</td></tr>
+                            <tr><td colspan="6" class="p-4 text-center text-gray-400">No members found.</td></tr>
                         <?php else: foreach ($members as $m): ?>
-                            <tr class="border-t border-white/10 hover:bg-white/5">
+                            <tr class="border-t" style="border-color:#374151">
                                 <td class="p-2"><?= e($m['username'] ?? 'Unknown') ?></td>
                                 <td class="p-2"><?= isset($m['level']) ? (int)$m['level'] : 0 ?></td>
                                 <td class="p-2"><?= e($m['role_name'] ?? 'Member') ?></td>
                                 <td class="p-2"><?= isset($m['net_worth']) ? number_format((int)$m['net_worth']) : '—' ?></td>
                                 <td class="p-2">Offline</td>
-                                <td class="p-2 text-right"><span class="text-xs opacity-40">—</span></td>
+                                <td class="p-2 text-right"><span class="text-xs text-gray-500">—</span></td>
                             </tr>
                         <?php endforeach; endif; ?>
                     </tbody>
@@ -315,17 +314,17 @@ include $ROOT . '/template/includes/header.php';
 
         <!-- Applications -->
         <section id="tab-applications" class="<?= $current_tab === 'applications' ? '' : 'hidden' ?>">
-            <div class="rounded-lg bg-slate-900/70 border border-white/10 p-4 overflow-x-auto">
+            <div class="content-box rounded-lg p-4 overflow-x-auto">
                 <?php if (empty($applications)): ?>
-                    <p class="opacity-80">There are no pending applications.</p>
+                    <p class="text-gray-300">There are no pending applications.</p>
                 <?php else: ?>
                 <table class="w-full text-left text-sm">
-                    <thead class="bg-slate-800/80">
+                    <thead style="background:#111827;color:#9ca3af">
                         <tr><th class="p-2">Name</th><th class="p-2">Level</th><th class="p-2">Reason</th><th class="p-2 text-right">Action</th></tr>
                     </thead>
-                    <tbody>
+                    <tbody class="text-gray-300">
                         <?php foreach ($applications as $app): ?>
-                            <tr class="border-top border-white/10">
+                            <tr class="border-t" style="border-color:#374151">
                                 <td class="p-2"><?= e($app['username'] ?? 'Unknown') ?></td>
                                 <td class="p-2"><?= (int)($app['level'] ?? 0) ?></td>
                                 <td class="p-2"><?= e($app['reason'] ?? '-') ?></td>
@@ -335,16 +334,16 @@ include $ROOT . '/template/includes/header.php';
                                             <input type="hidden" name="csrf_token" value="<?= e(generate_csrf_token('alliance_hub')) ?>">
                                             <input type="hidden" name="application_id" value="<?= (int)$app['id'] ?>">
                                             <input type="hidden" name="action" value="approve">
-                                            <button class="bg-emerald-700 hover:bg-emerald-600 text-white text-xs px-3 py-1 rounded-md">Approve</button>
+                                            <button class="text-white text-xs px-3 py-1 rounded-md" style="background:#065f46">Approve</button>
                                         </form>
                                         <form action="/alliance_application_action.php" method="post" class="inline-block ml-2">
                                             <input type="hidden" name="csrf_token" value="<?= e(generate_csrf_token('alliance_hub')) ?>">
                                             <input type="hidden" name="application_id" value="<?= (int)$app['id'] ?>">
                                             <input type="hidden" name="action" value="reject">
-                                            <button class="bg-red-700 hover:bg-red-600 text-white text-xs px-3 py-1 rounded-md">Reject</button>
+                                            <button class="text-white text-xs px-3 py-1 rounded-md" style="background:#991b1b">Reject</button>
                                         </form>
                                     <?php else: ?>
-                                        <span class="text-xs opacity-50">Leader only</span>
+                                        <span class="text-xs text-gray-500">Leader only</span>
                                     <?php endif; ?>
                                 </td>
                             </tr>
@@ -391,33 +390,33 @@ include $ROOT . '/template/includes/header.php';
             $opp_pages = max(1, (int)ceil($opp_total / $opp_limit));
             $base = '/alliance.php?tab=scout'; if ($opp_term !== '') $base .= '&opp_search=' . rawurlencode($opp_term);
             ?>
-            <div class="rounded-lg bg-slate-900/70 border border-white/10 p-4 overflow-x-auto">
+            <div class="content-box rounded-lg p-4 overflow-x-auto">
                 <h3 class="text-lg font-semibold text-white mb-3">Scout Opposing Alliances</h3>
                 <form method="get" action="/alliance.php" class="mb-3">
                     <input type="hidden" name="tab" value="scout">
                     <div class="flex w-full">
                         <input type="text" name="opp_search" value="<?= e($opp_term) ?>"
                                placeholder="Search name or tag"
-                               class="flex-1 bg-gray-900 border border-gray-700 text-white px-3 py-2 rounded-l-md focus:outline-none">
-                        <button type="submit" class="bg-cyan-600 hover:bg-cyan-700 text-white font-bold py-2 px-4 rounded-r-md">Search</button>
+                               class="flex-1 bg-gray-900 border text-white px-3 py-2 rounded-l-md focus:outline-none" style="border-color:#374151">
+                        <button type="submit" class="text-white font-bold py-2 px-4 rounded-r-md" style="background:#0891b2">Search</button>
                     </div>
                 </form>
 
                 <table class="w-full text-left text-sm">
-                    <thead class="bg-slate-800/80">
+                    <thead style="background:#111827;color:#9ca3af">
                         <tr><th class="p-2">Alliance</th><th class="p-2">Tag</th><th class="p-2">Members</th><th class="p-2 text-right">Action</th></tr>
                     </thead>
-                    <tbody>
+                    <tbody class="text-gray-300">
                         <?php if (empty($opp_list)): ?>
-                            <tr><td colspan="4" class="p-4 text-center opacity-75">No alliances found.</td></tr>
+                            <tr><td colspan="4" class="p-4 text-center text-gray-400">No alliances found.</td></tr>
                         <?php else: foreach ($opp_list as $row): ?>
-                            <tr class="border-t border-white/10 hover:bg-white/5">
+                            <tr class="border-t" style="border-color:#374151">
                                 <td class="p-2 text-white"><?= e($row['name']) ?></td>
                                 <td class="p-2"><?= e($row['tag'] ?? '') ?></td>
                                 <td class="p-2"><?= (int)($row['member_count'] ?? 0) ?></td>
                                 <td class="p-2 text-right">
                                     <a href="/view_alliance.php?id=<?= (int)$row['id'] ?>"
-                                       class="bg-gray-700 hover:bg-gray-600 text-white font-bold py-1 px-3 rounded-md text-xs">View</a>
+                                       class="text-white font-bold py-1 px-3 rounded-md text-xs" style="background:#374151">View</a>
                                 </td>
                             </tr>
                         <?php endforeach; endif; ?>
@@ -426,11 +425,11 @@ include $ROOT . '/template/includes/header.php';
 
                 <?php if ($opp_pages > 1): ?>
                 <div class="mt-3 flex items-center justify-between">
-                    <div class="text-xs opacity-75"><?= number_format($opp_total) ?> alliances</div>
+                    <div class="text-xs text-gray-400"><?= number_format($opp_total) ?> alliances</div>
                     <div class="flex items-center gap-2">
                         <?php $prev = $opp_page > 1 ? $opp_page - 1 : 1; $next = $opp_page < $opp_pages ? $opp_page + 1 : $opp_pages; ?>
-                        <a class="px-3 py-1 rounded border border-white/10 text-xs hover:bg-white/10 <?= $opp_page <= 1 ? 'opacity-50 pointer-events-none' : '' ?>" href="<?= $base . '&opp_page=' . $prev ?>">Prev</a>
-                        <a class="px-3 py-1 rounded border border-white/10 text-xs hover:bg-white/10 <?= $opp_page >= $opp_pages ? 'opacity-50 pointer-events-none' : '' ?>" href="<?= $base . '&opp_page=' . $next ?>">Next</a>
+                        <a class="px-3 py-1 rounded text-xs" style="border:1px solid #374151" href="<?= $base . '&opp_page=' . $prev ?>">Prev</a>
+                        <a class="px-3 py-1 rounded text-xs" style="border:1px solid #374151" href="<?= $base . '&opp_page=' . $next ?>">Next</a>
                     </div>
                 </div>
                 <?php endif; ?>
@@ -438,9 +437,9 @@ include $ROOT . '/template/includes/header.php';
         </section>
 
     <?php else: ?>
-        <div class="rounded-lg bg-slate-900/80 border border-white/10 p-6 text-center">
+        <div class="content-box rounded-lg p-6 text-center">
             <h2 class="text-2xl text-white font-bold mb-2">You are not in an alliance.</h2>
-            <p class="opacity-80">Visit the Community → Alliances section to apply or create one.</p>
+            <p class="text-gray-300">Visit the Community → Alliances section to apply or create one.</p>
         </div>
     <?php endif; ?>
 
