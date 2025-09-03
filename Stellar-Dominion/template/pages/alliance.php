@@ -68,6 +68,19 @@ function normalize_avatar(string $candidate, string $default, string $root): str
     $fs   = $root . '/public' . $path;
     return (is_string($path) && is_file($fs)) ? $url : $default;
 }
+/* Prefer an existing avatar column on users (dynamic, no guessing at runtime) */
+function users_avatar_column(mysqli $link): ?string {
+    foreach (['avatar_path','avatar','profile_image','profile_pic','picture','image_path','portrait'] as $c) {
+        if (column_exists($link, 'users', $c)) return $c;
+    }
+    return null;
+}
+/* Initial letter for placeholder avatar */
+function initial_letter(string $name): string {
+    $name = trim($name);
+    $ch = function_exists('mb_substr') ? mb_substr($name, 0, 1, 'UTF-8') : substr($name, 0, 1);
+    return strtoupper($ch ?: '?');
+}
 
 /**
  * Render Join/Cancel button(s) for a public alliance row (not Scout tab).
@@ -226,7 +239,7 @@ if ($alliance && table_exists($link, 'alliance_rivalries')) {
     }
 }
 
-/* roster — include role name via alliance_roles */
+/* roster — include role and avatar */
 $members = [];
 if ($alliance) {
     $cols = "u.id, u.$userNameCol AS username";
@@ -234,6 +247,9 @@ if ($alliance) {
     $hasNet   = column_exists($link, 'users', 'net_worth');
     if ($hasLevel) $cols .= ", u.level";
     if ($hasNet)   $cols .= ", u.net_worth";
+
+    $avatarCol = users_avatar_column($link);
+    if ($avatarCol) $cols .= ", u.$avatarCol AS avatar_path";
 
     $sql = "SELECT $cols, COALESCE(r.name,'Member') AS role_name, u.alliance_role_id
             FROM users u
@@ -246,7 +262,13 @@ if ($alliance) {
         $aid = (int)$alliance['id'];
         $st->bind_param('ii', $aid, $aid);
         $st->execute(); $res = $st->get_result();
-        while ($row = $res->fetch_assoc()) $members[] = $row;
+        while ($row = $res->fetch_assoc()) {
+            // Avatar URL if present; else empty string for placeholder
+            $row['avatar_url'] = isset($row['avatar_path']) && $row['avatar_path'] !== ''
+                ? normalize_avatar((string)$row['avatar_path'], '', $ROOT)
+                : '';
+            $members[] = $row;
+        }
         $st->close();
     }
 }
@@ -401,8 +423,9 @@ include $ROOT . '/template/includes/header.php';
 
         <!-- Tabs -->
         <?php
-        $tab_in = isset($_GET['tab']) ? (string)$_GET['tab'] : 'scout';
-        $current_tab = in_array($tab_in, ['roster','applications','scout'], true) ? $tab_in : 'scout';
+        // DEFAULT TAB now "roster"
+        $tab_in = isset($_GET['tab']) ? (string)$_GET['tab'] : 'roster';
+        $current_tab = in_array($tab_in, ['roster','applications','scout'], true) ? $tab_in : 'roster';
         ?>
         <div class="content-box rounded-lg px-4 pt-3 mb-3">
             <nav class="flex gap-6 text-sm">
@@ -436,7 +459,18 @@ include $ROOT . '/template/includes/header.php';
                             <tr><td colspan="6" class="p-4 text-center text-gray-400">No members found.</td></tr>
                         <?php else: foreach ($members as $m): ?>
                             <tr class="border-t" style="border-color:#374151">
-                                <td class="p-2"><?= e($m['username'] ?? 'Unknown') ?></td>
+                                <td class="p-2">
+                                    <div class="flex items-center gap-2">
+                                        <?php if (!empty($m['avatar_url'])): ?>
+                                            <img src="<?= e($m['avatar_url']) ?>" alt="" class="w-7 h-7 rounded border object-cover" style="border-color:#374151">
+                                        <?php else: ?>
+                                            <div class="w-7 h-7 rounded border flex items-center justify-center text-xs font-bold" style="border-color:#374151;background:#1f2937">
+                                                <?= e(initial_letter($m['username'] ?? '?')) ?>
+                                            </div>
+                                        <?php endif; ?>
+                                        <span><?= e($m['username'] ?? 'Unknown') ?></span>
+                                    </div>
+                                </td>
                                 <td class="p-2"><?= isset($m['level']) ? (int)$m['level'] : 0 ?></td>
                                 <td class="p-2"><?= e($m['role_name'] ?? 'Member') ?></td>
                                 <td class="p-2"><?= isset($m['net_worth']) ? number_format((int)$m['net_worth']) : '—' ?></td>
