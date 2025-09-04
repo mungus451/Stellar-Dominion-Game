@@ -153,6 +153,18 @@ $structure_tracks = [
         'planet_cracker_cannon',
         'onslaught_control_hub',
         'apex_war_forge',
+        'void_spear_platform',
+        'nebula_bombardment_array',
+        'tyrant_command_core',
+        'raider_fleet_dock',
+        'stormbreaker_artillery',
+        'vengeance_strike_foundry',
+        'quantum_tactical_matrix',
+        'harbinger_war_spire',
+        'ironclad_legion_barracks',
+        'hellfire_missile_battery',
+        'raptor_assault_bay',
+        'overlord_siege_engine',
     ],
     // Slot 4: POPULATION (8)
     [
@@ -164,8 +176,20 @@ $structure_tracks = [
         'mega_arcology',
         'population_command_center',
         'world_cluster_network',
+        'planetary_settlement_grid',
+        'migration_gateway_station',
+        'orbital_biosphere_dome',
+        'terraforming_control_spire',
+        'stellar_cradle_habitat',
+        'galactic_census_bureau',
+        'cryostasis_nursery_vault',
+        'worldseed_colony_forge',
+        'residential_megasprawl',
+        'civic_harmony_complex',
+        'ecumenopolis_expansion_zone',
+        'habitation_lattice_array',
     ],
-    // Slot 5: RESOURCES/INDUSTRY (6)
+    // Slot 5: RESOURCES/INDUSTRY (8)
     [
         'galactic_research_hub',
         'deep_space_mining_facility',
@@ -173,11 +197,11 @@ $structure_tracks = [
         'quantum_resource_labs',
         'fusion_reactor_array',
         'stellar_refinery',
-    ],
-    // Slot 6: COMMAND/UNITY (10)
-    [
         'dimension_harvester',
         'cosmic_forge',
+    ],
+    // Slot 6: COMMAND/UNITY (8)
+    [
         'warlords_throne',
         'supreme_command_bastion',
         'unity_spire',
@@ -306,6 +330,40 @@ $__header = __DIR__ . '/../includes/header.php';
 if (!is_file($__header)) { $__header = __DIR__ . '/includes/header.php'; }
 include_once $__header;
 ?>
+
+<!-- Inline toast for success/error (e.g., insufficient funds) -->
+<?php if (!empty($_SESSION['alliance_error']) || !empty($_SESSION['alliance_success'])): ?>
+  <div class="fixed z-50 top-4 inset-x-0 flex justify-center px-4">
+    <?php if (!empty($_SESSION['alliance_error'])): ?>
+      <div class="sd-toast max-w-xl w-full bg-red-900/80 border border-red-600 text-red-100 px-4 py-3 rounded-lg shadow-lg flex items-start gap-3">
+        <span class="mt-0.5 inline-flex"><i data-lucide="alert-triangle"></i></span>
+        <div class="flex-1">
+          <p class="font-semibold">Purchase failed</p>
+          <p class="text-sm"><?= htmlspecialchars((string)$_SESSION['alliance_error']); ?></p>
+        </div>
+        <button type="button" class="ml-3 text-red-200 hover:text-white" onclick="this.closest('.sd-toast')?.remove()">×</button>
+      </div>
+    <?php endif; ?>
+    <?php if (!empty($_SESSION['alliance_success'])): ?>
+      <div class="sd-toast max-w-xl w-full bg-emerald-900/80 border border-emerald-600 text-emerald-100 px-4 py-3 rounded-lg shadow-lg flex items-start gap-3">
+        <span class="mt-0.5 inline-flex"><i data-lucide="check-circle-2"></i></span>
+        <div class="flex-1">
+          <p class="font-semibold">Success</p>
+          <p class="text-sm"><?= htmlspecialchars((string)$_SESSION['alliance_success']); ?></p>
+        </div>
+        <button type="button" class="ml-3 text-emerald-200 hover:text-white" onclick="this.closest('.sd-toast')?.remove()">×</button>
+      </div>
+    <?php endif; ?>
+  </div>
+  <?php
+    // Clear flash so it doesn't persist on refresh
+    unset($_SESSION['alliance_error'], $_SESSION['alliance_success']);
+  ?>
+  <script>
+    setTimeout(() => document.querySelectorAll('.sd-toast').forEach(el => el.remove()), 7000);
+  </script>
+<?php endif; ?>
+
 
 <aside class="lg:col-span-1 space-y-4">
 

@@ -65,84 +65,84 @@ $alliance_structures_definitions = [
         'quantum_finance_directive' => [
             'name' => 'Quantum Finance Directive',
             'description' => 'Codifies quantum-ledger policy to magnify alliance revenues.',
-            'cost' => 2000000000,
+            'cost' => 8000000000,
             'bonus_text' => '+28% income per turn',
             'bonuses' => json_encode(['income' => 28]),
         ],
         'intergalactic_mercantile_consortium' => [
             'name' => 'Intergalactic Mercantile Consortium',
             'description' => 'Unifies merchant houses under a single profit charter.',
-            'cost' => 2500000000,
+            'cost' => 14000000000,
             'bonus_text' => '+30% income per turn',
             'bonuses' => json_encode(['income' => 30]),
         ],
         'celestial_bourse' => [
             'name' => 'Celestial Bourse',
             'description' => 'A galaxy-spanning exchange to price the unpriceable.',
-            'cost' => 3200000000,
+            'cost' => 22000000000,
             'bonus_text' => '+33% income per turn',
             'bonuses' => json_encode(['income' => 33]),
         ],
         'void_commerce_syndicate' => [
             'name' => 'Void Commerce Syndicate',
             'description' => 'Black-space brokers tighten margins in your favor.',
-            'cost' => 4000000000,
+            'cost' => 35000000000,
             'bonus_text' => '+36% income per turn',
             'bonuses' => json_encode(['income' => 36]),
         ],
         'nebula_credit_union' => [
             'name' => 'Nebula Credit Union',
             'description' => 'Mutualized stellar banking for compound returns.',
-            'cost' => 5000000000,
+            'cost' => 50000000000,
             'bonus_text' => '+40% income per turn',
             'bonuses' => json_encode(['income' => 40]),
         ],
         'pulsar_profit_engine' => [
             'name' => 'Pulsar Profit Engine',
             'description' => 'Rhythmic arbitrage keyed to pulsar timing.',
-            'cost' => 6500000000,
+            'cost' => 65000000000,
             'bonus_text' => '+45% income per turn',
             'bonuses' => json_encode(['income' => 45]),
         ],
         'omega_trade_cartel' => [
             'name' => 'Omega Trade Cartel',
             'description' => 'Dominates hyperlane tariffs through cartel leverage.',
-            'cost' => 8000000000,
+            'cost' => 80000000000,
             'bonus_text' => '+50% income per turn',
             'bonuses' => json_encode(['income' => 50]),
         ],
         'galaxywide_fiscal_network' => [
             'name' => 'Galaxywide Fiscal Network',
             'description' => 'Instant settlement across every allied world.',
-            'cost' => 10000000000,
+            'cost' => 100000000000,
             'bonus_text' => '+55% income per turn',
             'bonuses' => json_encode(['income' => 55]),
         ],
         'hyperlane_tax_authority' => [
             'name' => 'Hyperlane Tax Authority',
             'description' => 'Captures value from every jump along allied routes.',
-            'cost' => 12500000000,
+            'cost' => 125000000000,
             'bonus_text' => '+60% income per turn',
             'bonuses' => json_encode(['income' => 60]),
         ],
         'stellar_dividend_fund' => [
             'name' => 'Stellar Dividend Fund',
             'description' => 'Redistributes profits from pan-galactic holdings.',
-            'cost' => 15000000000,
+            'cost' => 150000000000,
             'bonus_text' => '+65% income per turn',
             'bonuses' => json_encode(['income' => 65]),
         ],
         'cosmos_bank_of_banks' => [
             'name' => 'Cosmos Bank of Banks',
             'description' => 'A meta-institution that owns the owners.',
-            'cost' => 18000000000,
+            'cost' => 180000000000,
             'bonus_text' => '+70% income per turn',
             'bonuses' => json_encode(['income' => 70]),
         ],
         'infinite_economy_matrix' => [
             'name' => 'Infinite Economy Matrix',
             'description' => 'Self-optimizing markets that never close.',
-            'cost' => 22000000000,
+            'cost' => 200000000000,
             'bonus_text' => '+75% income per turn',
             'bonuses' => json_encode(['income' => 75]),
         ],
@@ -263,6 +263,106 @@ $alliance_structures_definitions = [
             'bonuses' => json_encode(['offense' => 30])
         ],
 
+//---------------------------------------------------------------------------------------
+        'void_spear_platform' => [
+            'name' => 'Void Spear Platform',
+            'description' => 'Fires focused dark-matter lances that pierce capital-ship armor.',
+            'cost' => 3600000000,
+            'bonus_text' => '+35% attack power',
+            'bonuses' => json_encode(['offense' => 35])
+        ],
+
+        'nebula_bombardment_array' => [
+            'name' => 'Nebula Bombardment Array',
+            'description' => 'Saturates targets with wide-area plasma bombardment from orbit.',
+            'cost' => 5000000000,
+            'bonus_text' => '+40% attack power',
+            'bonuses' => json_encode(['offense' => 40])
+        ],
+
+        'tyrant_command_core' => [
+            'name' => 'Tyrant Command Core',
+            'description' => 'Amplifies fleet coordination, improving damage and maneuver efficiency.
+',
+            'cost' => 8200000000,
+            'bonus_text' => '+45% attack power',
+            'bonuses' => json_encode(['offense' => 45])
+        ],
+
+        'raider_fleet_dock' => [
+            'name' => 'Raider Fleet Dock',
+            'description' => 'Rapid-launch bay that increases strike-craft sortie rate and uptime.',
+            'cost' => 9900000000,
+            'bonus_text' => '+50% attack power',
+            'bonuses' => json_encode(['offense' => 50])
+        ],
+
+        'stormbreaker_artillery' => [
+            'name' => 'Stormbreaker Artillery',
+            'description' => 'Heavy kinetic batteries designed to crack shields and hulls alike.',
+            'cost' => 16000000000,
+            'bonus_text' => '+55% attack power',
+            'bonuses' => json_encode(['offense' => 55])
+        ],
+
+        'vengeance_strike_foundry' => [
+            'name' => 'Vengeance Strike Foundry',
+            'description' => 'Manufactures high-yield munitions to supercharge alpha strikes.',
+            'cost' => 22000000000,
+            'bonus_text' => '+60% attack power',
+            'bonuses' => json_encode(['offense' => 60])
+        ],
+
+        'quantum_tactical_matrix' => [
+            'name' => 'Quantum Tactictal Matrix',
+            'description' => 'Predictive combat AI that optimizes targeting and formations.',
+            'cost' => 30000000000,
+            'bonus_text' => '+65% attack power',
+            'bonuses' => json_encode(['offense' => 65])
+        ],
+
+        'harbinger_war_spire' => [
+            'name' => 'Harbinger War Spire',
+            'description' => 'War beacon that boosts allied morale and raw attack power.',
+            'cost' => 41000000000,
+            'bonus_text' => '+70% attack power',
+            'bonuses' => json_encode(['offense' => 70])
+        ],
+
+        'ironclad_legion_barracks' => [
+            'name' => 'Ironclad Legion Barracks',
+            'description' => 'Trains elite assault troopers for boarding and ground offensives.',
+            'cost' => 55000000000,
+            'bonus_text' => '+75% attack power',
+            'bonuses' => json_encode(['offense' => 75])
+        ],
+
+        'hellfire_missile_battery' => [
+            'name' => 'Hellfire Missile Battery',
+            'description' => 'Launches dense swarms of guided warheads to overwhelm defenses.',
+            'cost' => 72000000000,
+            'bonus_text' => '+80% attack power',
+            'bonuses' => json_encode(['offense' => 80])
+        ],
+
+        'raptor_assault_bay' => [
+            'name' => 'Raptor Assault Bay',
+            'description' => 'Hosts fast interceptors for rapid hit-and-run strikes and pursuit.',
+            'cost' => 89000000000,
+            'bonus_text' => '+85% attack power',
+            'bonuses' => json_encode(['offense' => 85])
+        ],
+
+        'overlord_siege_engine' => [
+            'name' => 'Overlord Siege Engine',
+            'description' => 'Super-heavy siege platform mounting fortress-breaching cannons.',
+            'cost' => 120000000000,
+            'bonus_text' => '+90% attack power',
+            'bonuses' => json_encode(['offense' => 90])
+        ],
+
+
+
         // Population Boosters
         'population_habitat' => [
             'name' => 'Population Habitat',
@@ -320,6 +420,94 @@ $alliance_structures_definitions = [
             'bonus_text' => '+30 citizens per turn',
             'bonuses' => json_encode(['citizens' => 30])
         ],
+
+//-------------------------------------------------------------------------------------
+        'planetary_settlement_grid' => [
+            'name' => 'Planetary Settlement Grid',
+            'description' => 'Coordinates zoning, utilities, and logistics for new colonies, boosting housing capacity and stability.',
+            'cost' => 5000000000,
+            'bonus_text' => '+35 citizens per turn',
+            'bonuses' => json_encode(['citizens' => 35])
+        ],
+        'migration_gateway_station' => [
+            'name' => 'Migration Gateway Station',
+            'description' => 'High-throughput portal hub streamlining immigrant inflow and sector-wide resettlement.',
+            'cost' => 9000000000,
+            'bonus_text' => '+40 citizens per turn',
+            'bonuses' => json_encode(['citizens' => 40])
+        ],
+        'orbital_biosphere_dome' => [
+            'name' => 'Orbital Biospher Dome',
+            'description' => 'Self-sustaining habitat dome that produces food and air, relieving surface crowding.',
+            'cost' => 16000000000,
+            'bonus_text' => '+45 citizens per turn',
+            'bonuses' => json_encode(['citizens' => 45])
+        ],
+        'terraforming_control_spire' => [
+            'name' => 'Terraforming Control Spire',
+            'description' => 'Central node that accelerates climate and atmosphere tuning across the planet.',
+            'cost' => 23000000000,
+            'bonus_text' => '+50 citizens per turn',
+            'bonuses' => json_encode(['citizens' => 50])
+        ],
+        'stellar_cradle_habitat' => [
+            'name' => 'Stellar Cradle Habitat',
+            'description' => 'Deep-space nursery providing childcare, education, and healthcare to grow populations safely.',
+            'cost' => 31000000000,
+            'bonus_text' => '+55 citizens per turn',
+            'bonuses' => json_encode(['citizens' => 55])
+        ],
+        'galactic_census_bureau' => [
+            'name' => 'Galactic Census Burea',
+            'description' => 'Real-time demographic analytics that optimize jobs, housing, and benefit distribution.',
+            'cost' => 40000000000,
+            'bonus_text' => '+60 citizens per turn',
+            'bonuses' => json_encode(['citizens' => 60])
+        ],
+        'cryostasis_nursery_vault' => [
+            'name' => 'Cryostasis Nursery Vault',
+            'description' => 'Long-term stasis vault safeguarding embryos and colonists to buffer population shocks.',
+            'cost' => 52000000000,
+            'bonus_text' => '+65 citizens per turn',
+            'bonuses' => json_encode(['citizens' => 65])
+        ],
+        'worldseed_colony_forge' => [
+            'name' => 'Worldseet Colony Forge',
+            'description' => 'Prefab township foundry that deploys instant infrastructure on newly claimed worlds.',
+            'cost' => 67000000000,
+            'bonus_text' => '+70 citizens per turn',
+            'bonuses' => json_encode(['citizens' => 70])
+        ],
+        'residential_megasprawl' => [
+            'name' => 'Residential Megasprawl',
+            'description' => 'Vast mid-density districts adding affordable housing with efficient transit links.',
+            'cost' => 88000000000,
+            'bonus_text' => '+75 citizens per turn',
+            'bonuses' => json_encode(['citizens' => 75])
+        ],
+        'civic_harmony_complex' => [
+            'name' => 'Civic Harmony Complex',
+            'description' => 'Public services hub for culture, mediation, and recreation that lifts citizen morale.',
+            'cost' => 110000000000,
+            'bonus_text' => '+80 citizens per turn',
+            'bonuses' => json_encode(['citizens' => 80])
+        ],
+        'ecumenopolis_expansion_zone' => [
+            'name' => 'Ecumenopolis Expansion Zone',
+            'description' => 'Managed urbanization that scales cores toward planet-wide city layers without collapse.',
+            'cost' => 150000000000,
+            'bonus_text' => '+85 citizens per turn',
+            'bonuses' => json_encode(['citizens' => 85])
+        ],
+        'habitation_lattice_array' => [
+            'name' => 'Habitation Lattice Array',
+            'description' => 'Modular vertical grid stacking neighborhoods with shared utilities and services.',
+            'cost' => 200000000000,
+            'bonus_text' => '+90 citizens per turn',
+            'bonuses' => json_encode(['citizens' => 90])
+        ],
+
+
 
          // Resource Boosters
         'galactic_research_hub' => [
