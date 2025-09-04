@@ -196,13 +196,11 @@ if ($viewer_alliance_id !== null) {
 
 /* charter (optional) */
 $alliance_charter = '';
-if ($alliance && column_exists($link, 'alliances', 'charter')) {
-    if ($st = $link->prepare("SELECT charter FROM alliances WHERE id = ? LIMIT 1")) {
-        $x = (int)$alliance['id'];
-        $st->bind_param('i', $x);
-        $st->execute(); $st->bind_result($c);
-        if ($st->fetch()) $alliance_charter = (string)$c;
-        $st->close();
+if ($alliance) {
+    $alliance_charter = (string)($alliance['description'] ?? '');
+
+    if (trim($alliance_charter) === '') {
+        $alliance_charter = 'No charter has been set yet.';
     }
 }
 
@@ -397,7 +395,7 @@ include $ROOT . '/template/includes/header.php';
         <!-- Charter -->
         <div class="content-box rounded-lg p-4 mb-4">
             <h3 class="text-lg font-semibold text-white mb-2">Alliance Charter</h3>
-            <div class="text-sm text-gray-300"><?= nl2br(e($alliance_charter !== '' ? $alliance_charter : '')) ?></div>
+            <div class="text-sm text-gray-300"><?= nl2br(e($alliance_charter !== '' ? $alliance_charter : 'No charter has been set yet.')) ?></div>
         </div>
 
         <!-- Rivalries -->
