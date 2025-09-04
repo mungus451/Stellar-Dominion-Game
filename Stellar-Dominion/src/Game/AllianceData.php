@@ -205,6 +205,94 @@ $alliance_structures_definitions = [
             'bonuses' => json_encode(['defense' => 30])
         ],
 
+//----------------------------------------------------------------------------
+
+        'skywall_interdiction_field' => [
+            'name' => 'Skywall Interdiction Field',
+            'description' => 'Projects layered force curtains that slow and snare incoming vessels and munitions.',
+            'cost' => 6000000000,
+            'bonus_text' => '+33% defensive power',
+            'bonuses' => json_encode(['defense' => 33])
+        ],
+        'orbital_point_defense_web' => [
+            'name' => 'Orbital Point Defense Web',
+            'description' => 'Mesh of auto-turrets that shreds fighters and missiles before they breach atmosphere.',
+            'cost' => 12000000000,
+            'bonus_text' => '+36% defensive power',
+            'bonuses' => json_encode(['defense' => 36])
+        ],
+        'planetary_ion_cannon_array' => [
+            'name' => 'Planetary Ion Cannon Array',
+            'description' => 'Long-range ion batteries that disable enemy shields and engines on approach.',
+            'cost' => 19000000000,
+            'bonus_text' => '+39% defensive power',
+            'bonuses' => json_encode(['defense' => 39])
+        ],
+        'gravitic_well_projector' => [
+            'name' => 'Gravitic Well Projector',
+            'description' => 'Creates artificial gravity traps to pin warships and break attack formations.',
+            'cost' => 28000000000,
+            'bonus_text' => '+42% defensive power',
+            'bonuses' => json_encode(['defense' => 42])
+        ],
+        'hyperlane_denial_matrix' => [
+            'name' => 'Hyperlane Denial Matrix',
+            'description' => 'Jams FTL vectors, preventing hostile fleets from jumping into local space.',
+            'cost' => 39000000000,
+            'bonus_text' => '+45% defensive power',
+            'bonuses' => json_encode(['defense' => 45])
+        ],
+        'quantum_barrier_spire' => [
+            'name' => 'Quantum Barrier Spire',
+            'description' => 'Phase-tuned shield generator that hardens against beam and kinetic overlaps.',
+            'cost' => 51000000000,
+            'bonus_text' => '+48% defensive power',
+            'bonuses' => json_encode(['defense' => 48])
+        ],
+        'sentinel_missile_bastion' => [
+            'name' => 'Sentinel Missile Bastion',
+            'description' => 'Fortress silos launching smart interceptors to thin assault waves at standoff range.',
+            'cost' => 66000000000,
+            'bonus_text' => '+51% defensive power',
+            'bonuses' => json_encode(['defense' => 51])
+        ],
+        'void_interceptor_screen' => [
+            'name' => 'Void Interceptor Screen',
+            'description' => 'Autonomous picket drones that harass and deflect threats beyond shield perimeter.',
+            'cost' => 80000000000,
+            'bonus_text' => '+54% defensive power',
+            'bonuses' => json_encode(['defense' => 54])
+        ],
+        'starshield_harmonics_core' => [
+            'name' => 'Starshield Harmonics Core',
+            'description' => 'Resonance hub that amplifies planetary shield strength and recharge rate.',
+            'cost' => 96000000000,
+            'bonus_text' => '+57% defensive power',
+            'bonuses' => json_encode(['defense' => 57])
+        ],
+        'antimatter_flak_network' => [
+            'name' => 'Antimatter Flak Network',
+            'description' => 'High-yield flak nodes detonating micro-cores to vaporize clustered targets.',
+            'cost' => 111000000000,
+            'bonus_text' => '+60% defensive power',
+            'bonuses' => json_encode(['defense' => 60])
+        ],
+        'celestial_bulwark_ring' => [
+            'name' => 'Celestial Bulwark Ring',
+            'description' => 'Continuous orbital ring of defense platforms covering every vector of attack.',
+            'cost' => 134000000000,
+            'bonus_text' => '+63% defensive power',
+            'bonuses' => json_encode(['defense' => 63])
+        ],
+        'omega_guardian_aegis' => [
+            'name' => 'Omega Guardian Aegis',
+            'description' => 'Last-resort over-shield that auto-deploys to absorb catastrophic salvos.',
+            'cost' => 178000000000,
+            'bonus_text' => '+66% defensive power',
+            'bonuses' => json_encode(['defense' => 66])
+        ],
+
+
         // Attack Boosters
         'orbital_training_grounds' => [
             'name' => 'Orbital Training Grounds',
@@ -567,6 +655,94 @@ $alliance_structures_definitions = [
             'bonuses' => json_encode(['resources' => 30, 'citizens' => 35])
         ],
 
+//-----------------------------------------------------------------------------
+
+
+        'singularity_extraction_array' => [
+            'name' => 'Singularity Extraction Array',
+            'description' => 'Taps micro-singularities to draw ultra-dense elements and surplus power.',
+            'cost' => 7500000000,
+            'bonus_text' => '+33% resource generation, +38 citizens per turn',
+            'bonuses' => json_encode(['resources' => 33, 'citizens' => 38])
+        ],
+        'dark_matter_siphon' => [
+            'name' => 'Dark Matter Siphon',
+            'description' => 'Harvests halo particulate to yield dark-mass fuel for advanced reactors.',
+            'cost' => 12500000000,
+            'bonus_text' => '+36% resource generation, +41 citizens per turn',
+            'bonuses' => json_encode(['resources' => 36, 'citizens' => 41])
+        ],
+        'antimatter_catalysis_plant' => [
+            'name' => 'Antimatter Catalysis Plant',
+            'description' => 'Magnetically bottles and refines antimatter for high-efficiency propulsion.',
+            'cost' => 18500000000,
+            'bonus_text' => '+39% resource generation, +44 citizens per turn',
+            'bonuses' => json_encode(['resources' => 39, 'citizens' => 44])
+        ],
+        'hyperore_smelting_foundry' => [
+            'name' => 'Hyperore Smelting Foundry',
+            'description' => 'Processes hyper-dense ores into star-grade alloys with minimal loss.',
+            'cost' => 27000000000,
+            'bonus_text' => '+42% resource generation, +47 citizens per turn',
+            'bonuses' => json_encode(['resources' => 42, 'citizens' => 47])
+        ],
+        'subspace_drilling_platform' => [
+            'name' => 'Subspace Drilling Platform',
+            'description' => 'Phase-shifted bores reach deep seams unreachable by conventional rigs.',
+            'cost' => 39000000000,
+            'bonus_text' => '+45% resource generation, +50 citizens per turn',
+            'bonuses' => json_encode(['resources' => 45, 'citizens' => 50])
+        ],
+        'quantum_fabrication_nexus' => [
+            'name' => 'Quantum Fabrication Nexus',
+            'description' => 'Q-assemblers print precision components, slashing build time and waste.',
+            'cost' => 54000000000,
+            'bonus_text' => '+48% resource generation, +53 citizens per turn',
+            'bonuses' => json_encode(['resources' => 48, 'citizens' => 53])
+        ],
+        'plasma_cracking_facility' => [
+            'name' => 'Plasma Cracking Facility',
+            'description' => 'Arc furnaces crack rock and scrap into pure elemental feedstocks.',
+            'cost' => 71000000000,
+            'bonus_text' => '+51% resource generation, +56 citizens per turn',
+            'bonuses' => json_encode(['resources' => 51, 'citizens' => 56])
+        ],
+        'voidstone_enrichment_lab' => [
+            'name' => 'Voidstone Enrichment Lab',
+            'description' => 'Stabilizes volatile voidstone into ship-safe, high-yield cores.',
+            'cost' => 88000000000,
+            'bonus_text' => '+54% resource generation, +59 citizens per turn',
+            'bonuses' => json_encode(['resources' => 54, 'citizens' => 59])
+        ],
+        'graviton_pressurization_chamber' => [
+            'name' => 'Graviton Pressurization Chamber',
+            'description' => 'Gravitic fields compress materials to accelerate refinement.',
+            'cost' => 107000000000,
+            'bonus_text' => '+57% resource generation, +62 citizens per turn',
+            'bonuses' => json_encode(['resources' => 57, 'citizens' => 62])
+        ],
+        'nanoassembly_manufactorium' => [
+            'name' => 'Nanoassembly Manufactorium',
+            'description' => 'Nanofabs mass-produce microstructures for industry at stellar scale.',
+            'cost' => 125000000000,
+            'bonus_text' => '+60% resource generation, +65 citizens per turn',
+            'bonuses' => json_encode(['resources' => 60, 'citizens' => 65])
+        ],
+        'psionic_crystal_mine' => [
+            'name' => 'Psionic Crystal Mine',
+            'description' => 'Extracts and attunes psi-resonant crystals used in advanced systems.',
+            'cost' => 155000000000,
+            'bonus_text' => '+63% resource generation, +68 citizens per turn',
+            'bonuses' => json_encode(['resources' => 63, 'citizens' => 68])
+        ],
+        'tachyon_distillation_tower' => [
+            'name' => 'Tachyon Distillation Tower',
+            'description' => 'Separates tachyon streams into usable quanta for FTL tech.',
+            'cost' => 185000000000,
+            'bonus_text' => '+66% resource generation, +71 citizens per turn',
+            'bonuses' => json_encode(['resources' => 66, 'citizens' => 71])
+        ],
+
         // All-Stat Boosters
         'warlords_throne' => [
             'name' => 'Warlord\'s Throne',
@@ -623,7 +799,97 @@ $alliance_structures_definitions = [
             'cost' => 5000000000,
             'bonus_text' => '+35% to all bonuses',
             'bonuses' => json_encode(['income' => 35, 'defense' => 35, 'offense' => 35, 'citizens' => 35, 'resources' => 35])
+        ],
+
+//----------------------------------------------------------------------------------
+
+
+        'imperial_coordination_nexus' => [
+            'name' => 'Imperial Coordination Nexus',
+            'description' => 'Synchronizes sector commands and logistics, boosting empire-wide response time.',
+            'cost' => 10000000000,
+            'bonus_text' => '+40% to all bonuses',
+            'bonuses' => json_encode(['income' => 40, 'defense' => 40, 'offense' => 40, 'citizens' => 40, 'resources' => 40])
+        ],
+        'sovereign_directive_citadel' => [
+            'name' => 'Soveriegn Directive Citadel',
+            'description' => 'Issues binding edicts and emergency powers to accelerate policy execution.',
+            'cost' => 20000000000,
+            'bonus_text' => '+50% to all bonuses',
+            'bonuses' => json_encode(['income' => 50, 'defense' => 50, 'offense' => 50, 'citizens' => 50, 'resources' => 50])
+        ],
+        'dominion_council_forum' => [
+            'name' => 'Dominion Council Forum',
+            'description' => 'Representative chamber that dampens unrest and unlocks diplomatic leverage.',
+            'cost' => 30000000000,
+            'bonus_text' => '+55% to all bonuses',
+            'bonuses' => json_encode(['income' => 55, 'defense' => 55, 'offense' => 55, 'citizens' => 55, 'resources' => 55])
+        ],
+        'stellar_mandate_sanctum' => [
+            'name' => 'Stellar Mandate Sanctum',
+            'description' => 'Sanctifies executive authority, raising loyalty and leader effectiveness.',
+            'cost' => 40000000000,
+            'bonus_text' => '+60% to all bonuses',
+            'bonuses' => json_encode(['income' => 60, 'defense' => 60, 'offense' => 60, 'citizens' => 60, 'resources' => 60])
+        ],
+        'overlord_strategy_vault' => [
+            'name' => 'Overlord Strategy Vault',
+            'description' => 'Secure wargame center refining fleet tactics and long-term war planning.',
+            'cost' => 50000000000,
+            'bonus_text' => '+65% to all bonuses',
+            'bonuses' => json_encode(['income' => 65, 'defense' => 65, 'offense' => 65, 'citizens' => 65, 'resources' => 65])
+        ],
+        'triumvirate_command_spire' => [
+            'name' => 'Triumvirate Command Spire',
+            'description' => 'Three-branch command harmonizer that clears bureaucratic bottlenecks.',
+            'cost' => 60000000000,
+            'bonus_text' => '+70% to all bonuses',
+            'bonuses' => json_encode(['income' => 70, 'defense' => 70, 'offense' => 70, 'citizens' => 70, 'resources' => 70])
+        ],
+        'hegemony_unity_chamber' => [
+            'name' => 'Hegemony Unity Chamber',
+            'description' => 'Mass-morale amphitheater lifting stability and ideological alignment.',
+            'cost' => 70000000000,
+            'bonus_text' => '+75% to all bonuses',
+            'bonuses' => json_encode(['income' => 75, 'defense' => 75, 'offense' => 75, 'citizens' => 75, 'resources' => 75])
+        ],
+        'grand_strategium' => [
+            'name' => 'Grand Strategium',
+            'description' => 'High-command nerve center optimizing multi-front operations and supply lines.',
+            'cost' => 80000000000,
+            'bonus_text' => '+80% to all bonuses',
+            'bonuses' => json_encode(['income' => 80, 'defense' => 80, 'offense' => 80, 'citizens' => 80, 'resources' => 80])
+        ],
+        'celestial_edict_bureau' => [
+            'name' => 'Celestial Edict Bureau',
+            'description' => 'Administrative engine that automates decrees and lowers policy upkeep.',
+            'cost' => 90000000000,
+            'bonus_text' => '+85% to all bonuses',
+            'bonuses' => json_encode(['income' => 85, 'defense' => 85, 'offense' => 85, 'citizens' => 85, 'resources' => 85])
+        ],
+        'pan_galactic_coalition_hall' => [
+            'name' => 'Pan Galactic Coalition Hall',
+            'description' => 'Alliance hub strengthening treaties, aid pacts, and joint ops.',
+            'cost' => 100000000000,
+            'bonus_text' => '+90% to all bonuses',
+            'bonuses' => json_encode(['income' => 90, 'defense' => 90, 'offense' => 90, 'citizens' => 90, 'resources' => 90])
+        ],
+        'omni_authority_matrix' => [
+            'name' => 'Omni Authority Matrix',
+            'description' => 'AI oversight lattice enforcing compliance and curbing corruption empire-wide.',
+            'cost' => 110000000000,
+            'bonus_text' => '+95% to all bonuses',
+            'bonuses' => json_encode(['income' => 95, 'defense' =>95, 'offense' => 95, 'citizens' => 95, 'resources' => 95])
+        ],
+        'primarchs_conclave' => [
+            'name' => 'Primarchs Conclave',
+            'description' => 'Elite leader summit that grants powerful empire-wide buffs when convened.',
+            'cost' => 120000000000,
+            'bonus_text' => '+100% to all bonuses',
+            'bonuses' => json_encode(['income' => 100, 'defense' => 100, 'offense' => 100, 'citizens' => 100, 'resources' => 100])
         ]
+
+
 ];
 
 ?>
