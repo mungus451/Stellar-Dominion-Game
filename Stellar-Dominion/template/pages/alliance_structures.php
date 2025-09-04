@@ -234,6 +234,18 @@ $structure_tracks = [
         'cosmic_unity_forge',
         'eternal_empire_palace',
         'alpha_ascendancy',
+        'imperial_coordination_nexus',
+        'sovereign_directive_citadel',
+        'dominion_council_forum',
+        'stellar_mandate_sanctum',
+        'overlord_strategy_vault',
+        'triumvirate_command_spire',
+        'hegemony_unity_chamber',
+        'grand_strategium',
+        'celestial_edict_bureau',
+        'pan_galactic_coalition_hall',
+        'omni_authority_matrix',
+        'primarchs_conclave',
     ],
 ];
 
