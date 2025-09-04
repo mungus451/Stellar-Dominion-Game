@@ -90,6 +90,18 @@ $structure_tracks = [
         'interstellar_stock_exchange',
         'economic_command_hub',
         'galactic_treasury',
+        'quantum_finance_directive',
+        'intergalactic_mercantile_consortium',
+        'celestial_bourse',
+        'void_commerce_syndicate',
+        'nebula_credit_union',
+        'pulsar_profit_engine',
+        'omega_trade_cartel',
+        'galaxywide_fiscal_network',
+        'hyperlane_tax_authority',
+        'stellar_dividend_fund',
+        'cosmos_bank_of_banks',
+        'infinite_economy_matrix',
     ],
     // Slot 2: DEFENSE
     [
