@@ -390,7 +390,7 @@ $alliance_structures_definitions = [
         'supreme_command_bastion' => [
             'name' => 'Supreme Command Bastion',
             'description' => 'Centralizes all military, economic, and social policy.',
-            'cost' => 2200000000,
+            'cost' => 22000000000,
             'bonus_text' => '+18% to all bonuses',
             'bonuses' => json_encode(['income' => 18, 'defense' => 18, 'offense' => 18, 'citizens' => 18, 'resources' => 18])
         ],

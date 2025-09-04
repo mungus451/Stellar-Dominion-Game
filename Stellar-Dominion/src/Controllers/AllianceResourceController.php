@@ -2,56 +2,6 @@
 // src/Controllers/AllianceResourceController.php
 require_once __DIR__ . '/BaseAllianceController.php';
 
-/**
- * AllianceResourceController
- *
- * Manages alliance resources, including the bank, structures, and loans.
- * - Removes SELECT ... FOR UPDATE (portable to more MariaDB builds)
- * - Uses atomic, conditional UPDATEs to avoid negative balances and races
- * - Uses prepared statements everywhere
- *
- * ─────────────────────────────────────────────────────────────────────────────
- * FILE OVERVIEW & DESIGN INTENT
- * ─────────────────────────────────────────────────────────────────────────────
- * This controller encapsulates all operations that mutate or read "resource"
- * state tied to an alliance: treasury (bank_credits), structures, and loans.
- *
- * Key design choices you will see repeatedly:
- *  • Transaction boundaries per request:
- *    - dispatch() opens a transaction; each action method performs its DB work;
- *      on success, we COMMIT; on error/exception, we ROLLBACK. This provides
- *      atomic behavior — either all steps succeed or none do.
- *
- *  • Lock-free, race-safe debits/credits:
- *    - Rather than SELECT ... FOR UPDATE + conditional checks in userland,
- *      we rely on single-row, atomic UPDATE statements that encode the guard
- *      condition in SQL (e.g., "... WHERE bank_credits >= ?"). If affected_rows
- *      is 1, the debit succeeded; if 0, the precondition failed (insufficient
- *      balance, wrong leader, wrong status, etc.). This approach is portable
- *      and avoids gap locks or table lock escalation on some MariaDB builds.
- *
- *  • Prepared statements:
- *    - Every SQL statement uses prepared/bound parameters, which prevents SQL
- *      injection and ensures proper type coercion by the driver. No dynamic
- *      untrusted values are concatenated into SQL.
- *
- *  • Authorization & capability checks:
- *    - Methods check caller permissions (e.g., can_manage_structures or that
- *      the caller is the alliance leader) *before* performing any writes.
- *
- *  • Auditing:
- *    - Monetary operations are mirrored into alliance_bank_logs via a common
- *      helper, ensuring a durable audit trail with context (who/what/why).
- *
- * Operational assumptions:
- *  • Upstream routing layer has validated CSRF tokens and session auth.
- *  • BaseAllianceController exposes:
- *      - $this->db         : mysqli connection
- *      - $this->user_id    : current user id
- *      - getAllianceDataForUser(int $user_id) : user + alliance + permission snapshot
- *      - getUserRoleInfo(int $user_id)        : minimal user/alliance/role metadata
- */
-
 class AllianceResourceController extends BaseAllianceController
 {
     public function dispatch(string $action)
