@@ -254,13 +254,66 @@ class AllianceManagementController extends BaseAllianceController
         $stmt->close();
     }
     
-    private function leaveAlliance() {
-        $stmt = $this->db->prepare("UPDATE users SET alliance_id = NULL, alliance_role_id = NULL WHERE id = ?");
-        $stmt->bind_param("i", $this->user_id);
-        $stmt->execute();
-        $stmt->close();
+    private function leaveAlliance()
+    {
+            // Find the user's current alliance + leader
+            $stmt = $this->db->prepare("
+                SELECT a.id AS alliance_id, a.leader_id
+                FROM users u
+                JOIN alliances a ON a.id = u.alliance_id
+                WHERE u.id = ?
+                LIMIT 1
+            ");
+            $stmt->bind_param("i", $this->user_id);
+            $stmt->execute();
+            $result = $stmt->get_result()->fetch_assoc();
+            $stmt->close();
 
-        $_SESSION['alliance_message'] = "You have left the alliance.";
+            if (!$result) {
+                throw new Exception("You are not currently in an alliance.");
+            }
+
+            $alliance_id = (int)$result['alliance_id'];
+            $is_leader   = ((int)$result['leader_id'] === (int)$this->user_id);
+
+            if ($is_leader) {
+                // Count members in this alliance
+                $stmtCount = $this->db->prepare("SELECT COUNT(*) FROM users WHERE alliance_id = ?");
+                $stmtCount->bind_param("i", $alliance_id);
+                $stmtCount->execute();
+                $stmtCount->bind_result($member_count);
+                $stmtCount->fetch();
+                $stmtCount->close();
+
+                if ($member_count > 1) {
+                    // Prevent leader from leaving a populated alliance
+                    throw new Exception("You are the alliance leader. Transfer leadership or disband the alliance before leaving.");
+                }
+
+                // Leader is the last member → disband cleanly
+                // (reuse the same logic as the 'disband' action)
+                // Unset users first (keeps FK happy for roles), then delete alliance.
+                $stmt_update_users = $this->db->prepare("UPDATE users SET alliance_id = NULL, alliance_role_id = NULL WHERE alliance_id = ?");
+                $stmt_update_users->bind_param("i", $alliance_id);
+                $stmt_update_users->execute();
+                $stmt_update_users->close();
+
+                $stmt_delete = $this->db->prepare("DELETE FROM alliances WHERE id = ?");
+                $stmt_delete->bind_param("i", $alliance_id);
+                $stmt_delete->execute();
+                $stmt_delete->close();
+
+                $_SESSION['alliance_message'] = "Alliance disbanded.";
+                return;
+            }
+
+            // Regular member: just leave
+            $stmt = $this->db->prepare("UPDATE users SET alliance_id = NULL, alliance_role_id = NULL WHERE id = ?");
+            $stmt->bind_param("i", $this->user_id);
+            $stmt->execute();
+            $stmt->close();
+
+            $_SESSION['alliance_message'] = "You have left the alliance.";
     }
 
     private function acceptApplication()

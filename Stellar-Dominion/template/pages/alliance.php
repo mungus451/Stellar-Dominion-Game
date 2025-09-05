@@ -384,10 +384,19 @@ include $ROOT . '/template/includes/header.php';
                     <p class="text-2xl font-extrabold" style="color:#facc15">
                         <?= number_format((int)($alliance['bank_credits'] ?? 0)) ?> Credits
                     </p>
-                    <?php $user_is_leader = ($alliance && (int)$alliance['leader_id'] === $user_id); ?>
-                    <?php if ($user_is_leader): ?>
-                        <a href="/edit_alliance.php" class="inline-block mt-3 text-white font-semibold text-sm px-4 py-2 rounded-md" style="background:#075985">Edit Alliance</a>
-                    <?php endif; ?>
+                        <?php $user_is_leader = ($alliance && (int)$alliance['leader_id'] === $user_id); ?>
+                    <div class="mt-3 space-x-2">
+                        <?php if ($user_is_leader): ?>
+                            <a href="/edit_alliance" class="inline-block text-white font-semibold text-sm px-4 py-2 rounded-md" style="background:#075985">Edit Alliance</a>
+                        <?php else: ?>
+                            <form action="/alliance.php" method="post" class="inline-block" onsubmit="return confirm('Are you sure you want to leave this alliance?');">
+                                <input type="hidden" name="csrf_token" value="<?= e($csrf_token) ?>">
+                                <input type="hidden" name="csrf_action" value="alliance_hub">
+                                <input type="hidden" name="action" value="leave">
+                                <button class="text-white font-semibold text-sm px-4 py-2 rounded-md" style="background:#991b1b">Leave Alliance</button>
+                            </form>
+                        <?php endif; ?>
+                    </div>
                 </div>
             </div>
         </div>
@@ -607,6 +616,9 @@ include $ROOT . '/template/includes/header.php';
         <!-- Not in alliance: public list WITH Join/Cancel -->
         <div class="content-box rounded-lg p-4 overflow-x-auto">
             <h3 class="text-lg font-semibold text-white mb-3">Browse Alliances</h3>
+            <div class="mb-3 text-right">
+                <a href="/create_alliance" class="inline-block text-white font-bold py-2 px-4 rounded-md" style="background:#065f46">Create Alliance</a>
+            </div>
             <form method="get" action="/alliance.php" class="mb-3">
                 <div class="flex w-full">
                     <input type="text" name="opp_search" value="<?= e($opp_term) ?>"
