@@ -88,11 +88,11 @@ const DAILY_STRUCT_ONLY_THRESHOLD     = 50;    // 11th+ attack in last 24h => st
 
 // Attacker soldier combat casualties (adds to existing fatigue losses)
 // Fractions are of the attacker's current soldiers at battle time.
-const ATK_SOLDIER_LOSS_BASE_FRAC = 0.020; // 2% baseline per attack. Raise to make every fight bloodier. Lower to make losses rare.
-const ATK_SOLDIER_LOSS_MAX_FRAC  = 0.120; // hard cap: 12% of current soldiers. Safety ceiling—prevents spikes on huge disadvantage / high turns
+const ATK_SOLDIER_LOSS_BASE_FRAC = 0.001; // .1% baseline per attack. Raise to make every fight bloodier. Lower to make losses rare.
+const ATK_SOLDIER_LOSS_MAX_FRAC  = 0.005; // hard cap: 12% of current soldiers. Safety ceiling—prevents spikes on huge disadvantage / high turns
 const ATK_SOLDIER_LOSS_ADV_GAIN  = 0.80;  // up to +80% of base when outmatched. Raise to punish bad matchups; lower to flatten difficulty spread.
-const ATK_SOLDIER_LOSS_TURNS_EXP = 0.35;  // scales losses with attack turns. Raise to make multi-turn attacks riskier; lower to make them safer.
-const ATK_SOLDIER_LOSS_WIN_MULT  = 0.75;  // fewer losses on victory. Raise to make even wins costly; lower to reward winning.
+const ATK_SOLDIER_LOSS_TURNS_EXP = 0.2;  // scales losses with attack turns. Raise to make multi-turn attacks riskier; lower to make them safer.
+const ATK_SOLDIER_LOSS_WIN_MULT  = 0.5;  // fewer losses on victory. Raise to make even wins costly; lower to reward winning.
 const ATK_SOLDIER_LOSS_LOSE_MULT = 1.25;  // more losses on defeat. Raise to punish failed attacks; lower if you want gentle defeats.
 const ATK_SOLDIER_LOSS_MIN       = 1;     // at least 1 loss when S0_att > 0. Set to 0 to allow truly lossless edge cases.
 
