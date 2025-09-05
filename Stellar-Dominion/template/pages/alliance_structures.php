@@ -22,17 +22,64 @@ $page_title  = 'Alliance Structures';
 // cap per slot
 $MAX_TIERS = 20;
 
+/* ----------------------------- DB helpers ----------------------------- */
+function column_exists(mysqli $link, string $table, string $column): bool {
+    $table  = preg_replace('/[^a-z0-9_]/i', '', $table);
+    $column = preg_replace('/[^a-z0-9_]/i', '', $column);
+    $res = mysqli_query($link, "SHOW COLUMNS FROM `$table` LIKE '$column'");
+    if (!$res) return false;
+    $ok = mysqli_num_rows($res) > 0; mysqli_free_result($res); return $ok;
+}
+function table_exists(mysqli $link, string $table): bool {
+    $table = preg_replace('/[^a-z0-9_]/i', '', $table);
+    $res = mysqli_query($link, "SHOW TABLES LIKE '$table'");
+    if (!$res) return false;
+    $ok = mysqli_num_rows($res) > 0; mysqli_free_result($res); return $ok;
+}
+function user_can_manage_structures(mysqli $link, array $user_row, int $alliance_id, ?int $leader_id): bool {
+    // Allow admin via users.is_admin (if present) OR session flag
+    $is_admin  = (int)($user_row['is_admin'] ?? ($_SESSION['is_admin'] ?? 0)) === 1;
+    $is_leader = ((int)($leader_id ?? 0) === (int)($user_row['id'] ?? 0));
+    $flag_user = column_exists($link, 'users', 'can_manage_structures') ? ((int)($user_row['can_manage_structures'] ?? 0) === 1) : false;
+    $role_can  = false;
+    if (!empty($user_row['alliance_role_id'])) {
+        if (column_exists($link, 'alliance_roles', 'can_manage_structures')) {
+            if ($st = $link->prepare("SELECT can_manage_structures FROM alliance_roles WHERE id = ? AND alliance_id = ? LIMIT 1")) {
+                $rid = (int)$user_row['alliance_role_id']; $aid = (int)$alliance_id;
+                $st->bind_param('ii', $rid, $aid); $st->execute(); $st->bind_result($v);
+                if ($st->fetch()) $role_can = (int)$v === 1; $st->close();
+            }
+        } elseif (table_exists($link, 'alliance_role_permissions')) {
+            if ($st = $link->prepare("SELECT 1 FROM alliance_role_permissions WHERE role_id = ? AND alliance_id = ? AND permission_key = 'manage_structures' LIMIT 1")) {
+                $rid = (int)$user_row['alliance_role_id']; $aid = (int)$alliance_id;                $st->bind_param('ii', $rid, $aid); $st->execute(); $st->store_result();
+                $role_can = $st->num_rows > 0; $st->close();
+            }
+        }
+    }
+    return $is_admin || $is_leader || $flag_user || $role_can;
+}
+
 /* ---------------------- Membership gate (no output) ---------------------- */
 $sessionUserId = $_SESSION['id'] ?? $_SESSION['user_id'] ?? null;
 $user_row = $user_row ?? null;
 
-if (!$user_row && $sessionUserId) {
-    if ($stmt = mysqli_prepare($link, "SELECT id, alliance_id FROM users WHERE id = ? LIMIT 1")) {
+if ($sessionUserId) {
+    // Ensure we only select columns that exist in this DB
+    $select = "id, alliance_id, alliance_role_id";
+    if (column_exists($link, 'users', 'is_admin')) $select .= ", is_admin";
+    if (column_exists($link, 'users', 'can_manage_structures')) $select .= ", can_manage_structures";
+    if ($stmt = mysqli_prepare($link, "SELECT $select FROM users WHERE id = ? LIMIT 1")) {
         mysqli_stmt_bind_param($stmt, "i", $sessionUserId);
         mysqli_stmt_execute($stmt);
         $u = mysqli_fetch_assoc(mysqli_stmt_get_result($stmt));
         mysqli_stmt_close($stmt);
-        if ($u) { $user_row = $u; }
+        if ($u) {
+            $user_row = array_merge((array)$user_row, $u);
+            // If users.is_admin doesn't exist, honor an admin session flag when present
+            if (!isset($user_row['is_admin']) && isset($_SESSION['is_admin'])) {
+                $user_row['is_admin'] = (int)$_SESSION['is_admin'];
+            }
+        }
     }
 }
 
@@ -101,11 +148,10 @@ $res = mysqli_stmt_get_result($stmt);
 while ($r = mysqli_fetch_assoc($res)) { $owned_keys[$r['structure_key']] = true; }
 mysqli_stmt_close($stmt);
 
-// permission: leader OR admin flag (if provided) OR explicit can_manage_structures flag
-$is_admin  = (int)($_SESSION['is_admin'] ?? ($user_row['is_admin'] ?? 0)) === 1;
-$is_leader = ((int)($alliance['leader_id'] ?? 0) === (int)($user_row['id'] ?? $sessionUserId ?? 0));
-$can_manage_structures_flag = (int)($user_row['can_manage_structures'] ?? 0) === 1;
-$can_manage_structures = $is_admin || $is_leader || $can_manage_structures_flag;
+// permissions: admin OR leader OR role/user flag(s)
+$is_admin  = (int)($user_row['is_admin'] ?? ($_SESSION['is_admin'] ?? 0)) === 1;
+$is_leader = ((int)($alliance['leader_id'] ?? 0) === (int)($user_row['id'] ?? 0));
+$can_manage_structures = user_can_manage_structures($link, $user_row, (int)$alliance_id, (int)($alliance['leader_id'] ?? 0));
 
 /* -------------------------------- Tracks -------------------------------- */
 // Slot 1: ECONOMY (20 tiers)
@@ -350,6 +396,7 @@ foreach ($structure_tracks as $i => $track) {
     $prog = sd_track_progress($track, $owned_keys, $MAX_TIERS);
     $currentDef = $prog['current_key'] ? ($alliance_structures_definitions[$prog['current_key']] ?? null) : null;
     $nextDef    = $prog['next_key'] ? ($alliance_structures_definitions[$prog['next_key']] ?? null) : null;
+    $affordable = $nextDef ? ((int)($alliance['bank_credits'] ?? 0) >= (int)$nextDef['cost']) : false;
     $cards[] = [
         'slot'      => $i + 1,
         'tiers'     => $prog['tiers'],
@@ -358,6 +405,7 @@ foreach ($structure_tracks as $i => $track) {
         'next_key'  => $prog['next_key'],
         'next'      => $nextDef,
         'maxed'     => ($nextDef === null),
+        'affordable'=> $affordable,
     ];
 }
 
@@ -489,6 +537,10 @@ include_once $__header;
               <button class="w-full bg-gray-800/60 border border-gray-700 text-gray-400 py-2 rounded-lg cursor-not-allowed" disabled>Max Level</button>
             <?php } elseif (!$can_manage_structures) { ?>
               <p class="text-sm text-gray-400 text-center py-2 italic">Requires “Manage Structures” permission.</p>
+            <?php } elseif (!$card['affordable']) { ?>
+              <button class="w-full bg-gray-800/60 border border-gray-700 text-gray-400 py-2 rounded-lg cursor-not-allowed" disabled>
+                Insufficient Credits
+              </button>
             <?php } else { ?>
               <form action="<?= htmlspecialchars(strtok($_SERVER['REQUEST_URI'], '?')); ?>" method="POST" class="flex items-center gap-2">
                 <input type="hidden" name="csrf_token" value="<?= htmlspecialchars($_SESSION['csrf_token'] ?? ''); ?>">
