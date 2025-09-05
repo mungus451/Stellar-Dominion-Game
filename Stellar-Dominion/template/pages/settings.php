@@ -13,6 +13,7 @@ date_default_timezone_set('UTC');
 require_once __DIR__ . '/../../config/config.php';
 require_once __DIR__ . '/../../src/Game/GameData.php';      // Include for $security_questions
 require_once __DIR__ . '/../../src/Services/StateService.php'; // Centralized state/timer
+require_once __DIR__ . '/../includes/advisor_hydration.php';
 
 // --- FORM SUBMISSION HANDLING ---
 if ($_SERVER["REQUEST_METHOD"] == "POST") {
@@ -31,14 +32,6 @@ $needed_fields = [
     'email','vacation_until','phone_number','phone_carrier','phone_verified','character_name'
 ];
 $user_stats = ss_process_and_get_user_state($link, $user_id, $needed_fields);
-
-// Canonical turn timer
-$turn_interval_minutes = 10;
-$__timer = ss_compute_turn_timer($user_stats, $turn_interval_minutes);
-$seconds_until_next_turn = (int)$__timer['seconds_until_next_turn'];
-$minutes_until_next_turn = (int)$__timer['minutes_until_next_turn'];
-$seconds_remainder       = (int)$__timer['seconds_remainder'];
-$now                     = $__timer['now']; // DateTime (UTC)
 
 // Security questions count (page-specific data)
 $sql_sq = "SELECT COUNT(id) as sq_count FROM user_security_questions WHERE user_id = ?";
@@ -65,8 +58,6 @@ include_once __DIR__ . '/../includes/header.php';
 
 <aside class="lg:col-span-1 space-y-4">
     <?php 
-        $user_xp = (int)$user_stats['experience']; 
-        $user_level = (int)$user_stats['level'];
         include_once __DIR__ . '/../includes/advisor.php'; 
     ?>
 </aside>

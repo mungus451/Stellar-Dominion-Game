@@ -16,6 +16,7 @@ date_default_timezone_set('UTC');
 require_once __DIR__ . '/../../config/config.php';
 require_once __DIR__ . '/../../src/Game/GameData.php';
 require_once __DIR__ . '/../../src/Services/StateService.php'; // centralized reads/timers
+require_once __DIR__ . '/../includes/advisor_hydration.php';
 
 // --- FORM SUBMISSION HANDLING ---
 if ($_SERVER["REQUEST_METHOD"] == "POST") {
@@ -93,22 +94,12 @@ $needed_fields = [
 // Also processes offline turns before reading
 $user_stats = ss_process_and_get_user_state($link, $user_id, $needed_fields);
 
-// Timers (canonical)
-$turn_interval_minutes = 10;
-$__timer = ss_compute_turn_timer($user_stats, $turn_interval_minutes);
-$seconds_until_next_turn = (int)$__timer['seconds_until_next_turn'];
-$minutes_until_next_turn = (int)$__timer['minutes_until_next_turn'];
-$seconds_remainder       = (int)$__timer['seconds_remainder'];
-$now                     = $__timer['now']; // DateTime UTC
-
 // --- INCLUDE UNIVERSAL HEADER ---
 include_once __DIR__ . '/../includes/header.php';
 ?>
 
 <aside class="lg:col-span-1 space-y-4">
     <?php 
-        $user_xp = $user_stats['experience'];
-        $user_level = $user_stats['level'];
         include_once __DIR__ . '/../includes/advisor.php'; 
     ?>
 </aside>

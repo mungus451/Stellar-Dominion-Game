@@ -10,11 +10,11 @@ $active_page = 'dashboard.php';
 // session_start() and the login check are now handled by the main router (public/index.php)
 date_default_timezone_set('UTC'); // Canonicalizes all server-side time arithmetic to UTC to avoid DST drift.
 
-// --- CORRECTED FILE PATHS ---
 require_once __DIR__ . '/../../config/config.php';
 require_once __DIR__ . '/../../src/Game/GameData.php'; // Provides $upgrades and $armory_loadouts metadata structures (read-only)
 require_once __DIR__ . '/../../src/Game/GameFunctions.php'; // <- canonical income + offline processing
 require_once __DIR__ . '/../../src/Services/StateService.php'; // centralized reads
+require_once __DIR__ . '/../includes/advisor_hydration.php';
 
 $csrf_token = generate_csrf_token('repair_structure');
 $user_id = (int)($_SESSION['id'] ?? 0);
@@ -188,19 +188,14 @@ $defense_rating = (int)floor(((($guard_count * 10) + $armory_defense_bonus) * $c
 $spy_offense = (int)floor((($spy_count * 10) + $armory_spy_bonus) * $offense_upgrade_multiplier);
 $sentry_defense = (int)floor(((($sentry_count * 10) + $armory_sentry_bonus)) * $defense_upgrade_multiplier);
 
-// --- POPULATION & TURN TIMER (centralized timer calc) ---
+// --- POPULATION COUNTS (turn timer comes from advisor_hydration) ---
 $non_military_units = (int)$user_stats['workers'] + (int)$user_stats['untrained_citizens'];
 $offensive_units = (int)$user_stats['soldiers'];
 $utility_units = (int)$user_stats['spies'];
 $total_military_units = $offensive_units + (int)$user_stats['guards'] + (int)$user_stats['sentries'] + $utility_units;
 $total_population = $non_military_units + $total_military_units;
 
-$turn_interval_minutes = 10;
-$__timer = ss_compute_turn_timer($user_stats, $turn_interval_minutes);
-$seconds_until_next_turn = (int)$__timer['seconds_until_next_turn'];
-$minutes_until_next_turn = (int)$__timer['minutes_until_next_turn'];
-$seconds_remainder       = (int)$__timer['seconds_remainder'];
-$now                     = $__timer['now']; // DateTime UTC
+
 
 // Include the universal header AFTER data is ready (advisor needs some of it)
 include_once __DIR__ . '/../includes/header.php';

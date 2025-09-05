@@ -10,6 +10,7 @@ if (session_status() == PHP_SESSION_NONE) {
 if (!isset($_SESSION["loggedin"]) || $_SESSION["loggedin"] !== true) { header("location: /index.php"); exit; }
 require_once __DIR__ . '/../../config/config.php';
 require_once __DIR__ . '/../../src/Services/StateService.php'; // centralized reads
+require_once __DIR__ . '/../includes/advisor_hydration.php';
 
 // --- FORM SUBMISSION HANDLING ---
 if ($_SERVER["REQUEST_METHOD"] == "POST") {
@@ -30,13 +31,7 @@ $needed_fields = [
 ];
 $user_stats = ss_process_and_get_user_state($link, $user_id, $needed_fields);
 
-// Timer pieces for Advisor include
-$turn_interval_minutes = 10;
-$__timer = ss_compute_turn_timer($user_stats, $turn_interval_minutes);
-$seconds_until_next_turn = (int)$__timer['seconds_until_next_turn'];
-$minutes_until_next_turn = (int)$__timer['minutes_until_next_turn'];
-$seconds_remainder       = (int)$__timer['seconds_remainder'];
-$now                     = $__timer['now']; // DateTime (UTC)
+
 
 // Fetch transactions (kept as-is; specific to banking history)
 $sql_transactions = "SELECT transaction_type, amount, transaction_time
@@ -82,10 +77,6 @@ include_once __DIR__ . '/../includes/header.php';
 
 <aside class="lg:col-span-1 space-y-4">
     <?php 
-        // Expose values Advisor expects
-        $user_xp    = (int)$user_stats['experience'];
-        $user_level = (int)$user_stats['level'];
-        // ($minutes_until_next_turn, $seconds_remainder, $now) already computed above
         include_once __DIR__ . '/../includes/advisor.php'; 
     ?>
 </aside>
