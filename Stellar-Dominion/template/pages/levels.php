@@ -11,10 +11,8 @@ if (!isset($_SESSION["loggedin"]) || $_SESSION["loggedin"] !== true) {
     header("location: /index.php");
     exit;
 }
-date_default_timezone_set('UTC');
 
 require_once __DIR__ . '/../../config/config.php';
-require_once __DIR__ . '/../../src/Game/GameData.php';
 require_once __DIR__ . '/../../src/Services/StateService.php'; // centralized reads/timers
 require_once __DIR__ . '/../includes/advisor_hydration.php';
 
@@ -22,8 +20,7 @@ require_once __DIR__ . '/../includes/advisor_hydration.php';
 if ($_SERVER["REQUEST_METHOD"] == "POST") {
     // protect_csrf() reads 'csrf_token' and 'csrf_action' from the POST data
     protect_csrf(); 
-    
-    // The rest of your existing, correct form logic follows...
+
     $action = $_POST['action'] ?? '';
 
     if ($action === 'spend_points') {
@@ -87,9 +84,8 @@ if ($_SERVER["REQUEST_METHOD"] == "POST") {
 // --- DATA FETCHING AND PREPARATION (via StateService) ---
 $user_id = (int)$_SESSION['id'];
 $needed_fields = [
-    'level','experience','level_up_points',
-    'strength_points','constitution_points','wealth_points','dexterity_points','charisma_points',
-    'credits','untrained_citizens','attack_turns','last_updated'
+    'level_up_points',
+    'strength_points','constitution_points','wealth_points','dexterity_points','charisma_points'
 ];
 // Also processes offline turns before reading
 $user_stats = ss_process_and_get_user_state($link, $user_id, $needed_fields);

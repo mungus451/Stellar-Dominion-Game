@@ -11,10 +11,9 @@ if (!isset($_SESSION["loggedin"]) || $_SESSION["loggedin"] !== true) {
     header("location: /index.php");
     exit;
 }
-date_default_timezone_set('UTC');
 
 require_once __DIR__ . '/../../config/config.php';
-require_once __DIR__ . '/../../src/Services/StateService.php'; // centralized reads/timers
+require_once __DIR__ . '/../../src/Services/StateService.php'; // centralized reads
 require_once __DIR__ . '/../includes/advisor_hydration.php';
 
 // --- FORM SUBMISSION HANDLING ---
@@ -25,15 +24,14 @@ if ($_SERVER["REQUEST_METHOD"] == "POST") {
 }
 // --- END FORM HANDLING ---
 
-// --- DATA FETCHING FOR PAGE DISPLAY (via StateService) ---
+// --- DATA FETCHING AND PREPARATION (via StateService) ---
 $user_id = (int)$_SESSION['id'];
 
-// Pull just what this page needs; StateService also runs offline processing.
-$needed_fields = [
-    'character_name','email','biography','avatar_path',
-    'credits','untrained_citizens','level','experience','attack_turns','last_updated'
-];
-$user_stats = ss_process_and_get_user_state($link, $user_id, $needed_fields);
+// Pull only what THIS page renders into a separate var so we don't overwrite
+// the full $user_stats that advisor_hydration prepared for the sidebar.
+$needed_fields  = ['biography','avatar_path'];
+$profile_data   = ss_get_user_state($link, $user_id, $needed_fields);
+$avatar_url     = $profile_data['avatar_path'] ?? '/assets/img/default_alliance.avif';
 
 // --- INCLUDE UNIVERSAL HEADER ---
 include_once __DIR__ . '/../includes/header.php';
@@ -41,7 +39,7 @@ include_once __DIR__ . '/../includes/header.php';
 
 <aside class="lg:col-span-1 space-y-4">
     <?php 
-        include_once __DIR__ . '/../includes/advisor.php'; 
+        include_once __DIR__ . '/../includes/advisor.php';
     ?>
 </aside>
                 
@@ -59,8 +57,8 @@ include_once __DIR__ . '/../includes/header.php';
 
     <div class="content-box rounded-lg p-6"
             x-data="profileForm($el.dataset.initialPreview, $el.dataset.initialBio)"
-            data-initial-preview="<?php echo htmlspecialchars($user_stats['avatar_path'] ?? '/assets/img/default_alliance.avif', ENT_QUOTES); ?>"
-            data-initial-bio="<?php echo htmlspecialchars((string)($user_stats['biography'] ?? ''), ENT_QUOTES); ?>">
+            data-initial-preview="<?php echo htmlspecialchars($avatar_url, ENT_QUOTES); ?>"
+            data-initial-bio="<?php echo htmlspecialchars((string)($profile_data['biography'] ?? ''), ENT_QUOTES); ?>">
         <h1 class="font-title text-2xl text-cyan-400 mb-4 border-b border-gray-600 pb-2">My Profile</h1>
         
         <form action="/profile.php" method="POST" enctype="multipart/form-data">
@@ -72,7 +70,7 @@ include_once __DIR__ . '/../includes/header.php';
                     <div>
                         <h3 class="font-title text-lg text-white">Current Avatar</h3>
                         <div class="mt-2 flex justify-center">
-                            <img src="<?php echo htmlspecialchars($user_stats['avatar_path'] ?? '/assets/img/default_alliance.avif'); ?>" alt="Current Avatar" class="w-32 h-32 rounded-full object-cover border-2 border-gray-600">
+                            <img src="<?php echo htmlspecialchars($avatar_url); ?>" alt="Current Avatar" class="w-32 h-32 rounded-full object-cover border-2 border-gray-600">
                         </div>
                     </div>
                     <div>
@@ -96,7 +94,7 @@ include_once __DIR__ . '/../includes/header.php';
                     <textarea id="biography" name="biography" rows="8"
                                 x-model="bio"
                                 @input="count = bio.length; dirty = true"
-                                class="mt-2 w-full bg-gray-900/50 border border-gray-700 rounded-lg px-4 py-2 text-white focus:outline-none focus:ring-1 focus:ring-cyan-500"><?php echo htmlspecialchars($user_stats['biography'] ?? ''); ?></textarea>
+                                class="mt-2 w-full bg-gray-900/50 border border-gray-700 rounded-lg px-4 py-2 text-white focus:outline-none focus:ring-1 focus:ring-cyan-500"><?php echo htmlspecialchars($profile_data['biography'] ?? ''); ?></textarea>
                     <div class="mt-1 text-right text-xs text-gray-400">
                         <span x-text="count"></span> characters
                     </div>

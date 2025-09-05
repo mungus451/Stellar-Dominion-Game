@@ -12,7 +12,6 @@ date_default_timezone_set('UTC'); // Canonicalizes all server-side time arithmet
 
 require_once __DIR__ . '/../../config/config.php';
 require_once __DIR__ . '/../../src/Game/GameData.php'; // Provides $upgrades and $armory_loadouts metadata structures (read-only)
-require_once __DIR__ . '/../../src/Game/GameFunctions.php'; // <- canonical income + offline processing
 require_once __DIR__ . '/../../src/Services/StateService.php'; // centralized reads
 require_once __DIR__ . '/../includes/advisor_hydration.php';
 
@@ -34,40 +33,6 @@ $needed_fields = [
 $user_stats = ($user_id > 0)
     ? ss_process_and_get_user_state($link, $user_id, $needed_fields)
     : [];
-
-$user_stats += [
-    'id' => $user_id,
-    'alliance_id' => $user_stats['alliance_id'] ?? null,
-    'credits' => $user_stats['credits'] ?? 0,
-    'banked_credits' => $user_stats['banked_credits'] ?? 0,
-    'net_worth' => $user_stats['net_worth'] ?? 0,
-    'workers' => $user_stats['workers'] ?? 0,
-    'soldiers' => $user_stats['soldiers'] ?? 0,
-    'guards' => $user_stats['guards'] ?? 0,
-    'sentries' => $user_stats['sentries'] ?? 0,
-    'spies' => $user_stats['spies'] ?? 0,
-    'untrained_citizens' => $user_stats['untrained_citizens'] ?? 0,
-    'strength_points' => $user_stats['strength_points'] ?? 0,
-    'constitution_points' => $user_stats['constitution_points'] ?? 0,
-    'wealth_points' => $user_stats['wealth_points'] ?? 0,
-    'offense_upgrade_level' => $user_stats['offense_upgrade_level'] ?? 0,
-    'defense_upgrade_level' => $user_stats['defense_upgrade_level'] ?? 0,
-    'spy_upgrade_level' => $user_stats['spy_upgrade_level'] ?? 0,
-    'economy_upgrade_level' => $user_stats['economy_upgrade_level'] ?? 0,
-    'population_level' => $user_stats['population_level'] ?? 0,
-    'fortification_level' => $user_stats['fortification_level'] ?? 0,
-    'fortification_hitpoints' => $user_stats['fortification_hitpoints'] ?? 0,
-    'last_updated' => $user_stats['last_updated'] ?? gmdate('Y-m-d H:i:s'),
-    'experience' => $user_stats['experience'] ?? 0,
-    'level' => $user_stats['level'] ?? 1,
-    'race' => $user_stats['race'] ?? '',
-    'class' => $user_stats['class'] ?? '',
-    'character_name' => $user_stats['character_name'] ?? 'Unknown',
-    'avatar_path' => $user_stats['avatar_path'] ?? null,
-    'attack_turns' => $user_stats['attack_turns'] ?? 0,
-    'previous_login_at' => $user_stats['previous_login_at'] ?? null,
-    'previous_login_ip' => $user_stats['previous_login_ip'] ?? null,
-];
 
 // --- FETCH ARMORY DATA (centralized) ---
 $owned_items = ($user_id > 0) ? ss_get_armory_inventory($link, $user_id) : [];

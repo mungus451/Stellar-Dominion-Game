@@ -26,12 +26,9 @@ $user_id = (int)$_SESSION['id'];
 
 // Pull only the fields this page needs (also processes offline turns)
 $needed_fields = [
-    'id','credits','banked_credits','untrained_citizens','level','experience',
-    'attack_turns','last_updated','deposits_today','last_deposit_timestamp'
+    'credits','banked_credits','level','deposits_today','last_deposit_timestamp'
 ];
 $user_stats = ss_process_and_get_user_state($link, $user_id, $needed_fields);
-
-
 
 // Fetch transactions (kept as-is; specific to banking history)
 $sql_transactions = "SELECT transaction_type, amount, transaction_time

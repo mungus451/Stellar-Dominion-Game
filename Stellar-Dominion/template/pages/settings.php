@@ -12,7 +12,7 @@ date_default_timezone_set('UTC');
 
 require_once __DIR__ . '/../../config/config.php';
 require_once __DIR__ . '/../../src/Game/GameData.php';      // Include for $security_questions
-require_once __DIR__ . '/../../src/Services/StateService.php'; // Centralized state/timer
+require_once __DIR__ . '/../../src/Services/StateService.php'; // Centralized state
 require_once __DIR__ . '/../includes/advisor_hydration.php';
 
 // --- FORM SUBMISSION HANDLING ---
@@ -26,12 +26,10 @@ if ($_SERVER["REQUEST_METHOD"] == "POST") {
 // --- DATA FETCHING (via StateService) ---
 $user_id = (int)($_SESSION['id'] ?? 0);
 
-// Pull only what this page needs; StateService also runs offline processing before reading.
-$needed_fields = [
-    'credits','untrained_citizens','level','experience','attack_turns','last_updated',
-    'email','vacation_until','phone_number','phone_carrier','phone_verified','character_name'
-];
-$user_stats = ss_process_and_get_user_state($link, $user_id, $needed_fields);
+// --- Pull only what page needs ---
+
+$needed_fields = ['email','vacation_until','character_name'];
+$settings_data = ss_get_user_state($link, $user_id, $needed_fields);
 
 // Security questions count (page-specific data)
 $sql_sq = "SELECT COUNT(id) as sq_count FROM user_security_questions WHERE user_id = ?";
@@ -45,8 +43,8 @@ mysqli_stmt_close($stmt_sq);
 // Vacation state
 $is_vacation_active = false; 
 $vacation_end = null;
-if (!empty($user_stats['vacation_until'])) {
-    $vacation_end = new DateTime($user_stats['vacation_until'], new DateTimeZone('UTC'));
+if (!empty($settings_data['vacation_until'])) {
+    $vacation_end = new DateTime($settings_data['vacation_until'], new DateTimeZone('UTC'));
     $is_vacation_active = ($now < $vacation_end);
 }
 
@@ -113,7 +111,8 @@ include_once __DIR__ . '/../includes/header.php';
             <div class="content-box rounded-lg p-4 space-y-3">
                 <h3 class="font-title text-white">Change Character Name</h3>
                 <p class="text-sm">Changing your character name costs <strong>1,000,000 Credits</strong>. This action is irreversible.</p>
-                <p class="text-xs text-gray-500">Current Name: <strong class="text-white"><?php echo htmlspecialchars($user_stats['character_name']); ?></strong></p>
+                <p class="text-xs text-gray-500">Current Name: <strong class="text-white"><?php echo htmlspecialchars($settings_data['character_name'] ?? ''); ?></strong></p>
+
                 <form action="/settings.php" method="POST" class="mt-4">
                     <?php echo csrf_token_field('change_character_name'); ?>
                     <div>
@@ -132,7 +131,7 @@ include_once __DIR__ . '/../includes/header.php';
                 <h3 class="font-title text-white">Change Email</h3>
                 <div>
                     <label class="text-xs text-gray-500">Current Email</label>
-                    <p class="text-white"><?php echo htmlspecialchars($user_stats['email']); ?></p>
+                    <p class="text-white"><?php echo htmlspecialchars($settings_data['email'] ?? ''); ?></p>
                 </div>
                 <input type="email" name="new_email" x-model="email" placeholder="New Email"
                        class="w-full bg-gray-900/50 border border-gray-700 rounded-lg px-4 py-2 text-white focus:outline-none focus:ring-2 focus:ring-cyan-500" required>
