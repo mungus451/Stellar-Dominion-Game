@@ -12,6 +12,8 @@ if (!isset($_SESSION["loggedin"]) || $_SESSION["loggedin"] !== true) {
     exit;
 }
 require_once __DIR__ . '/../../config/config.php';
+require_once __DIR__ . '/../../src/Game/GameData.php';
+require_once __DIR__ . '/../includes/advisor_hydration.php';
 
 // --- FORM SUBMISSION HANDLING ---
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
@@ -19,9 +21,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     exit;
 }
 
-// --- PAGE DISPLAY LOGIC ---
-require_once __DIR__ . '/../../src/Game/GameData.php';
-date_default_timezone_set('UTC');
 $user_id = $_SESSION['id'];
 
 // *** FIX: Generate a single CSRF token for all forms on this page ***
@@ -35,22 +34,12 @@ mysqli_stmt_execute($stmt);
 $user_stats = mysqli_fetch_assoc(mysqli_stmt_get_result($stmt));
 mysqli_stmt_close($stmt);
 
-// Timer Calculations
-$now = new DateTime('now', new DateTimeZone('UTC'));
-$turn_interval_minutes = 10;
-$last_updated = new DateTime($user_stats['last_updated'], new DateTimeZone('UTC'));
-$seconds_until_next_turn = ($turn_interval_minutes * 60) - (($now->getTimestamp() - $last_updated->getTimestamp()) % ($turn_interval_minutes * 60));
-$minutes_until_next_turn = floor($seconds_until_next_turn / 60);
-$seconds_remainder = $seconds_until_next_turn % 60;
-
 // --- CSRF & HEADER ---
 include_once __DIR__ . '/../includes/header.php';
 ?>
 
 <aside class="lg:col-span-1 space-y-4">
     <?php
-        $user_xp = $user_stats['experience'];
-        $user_level = $user_stats['level'];
         include_once __DIR__ . '/../includes/advisor.php';
     ?>
 </aside>

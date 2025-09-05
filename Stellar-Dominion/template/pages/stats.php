@@ -1,53 +1,19 @@
 <?php
 // --- SESSION / ENV ---
 if (session_status() === PHP_SESSION_NONE) { session_start(); }
-date_default_timezone_set('UTC');
 
 require_once __DIR__ . '/../../config/config.php';
+require_once __DIR__ . '/../includes/advisor_hydration.php';
 
 $is_logged_in = isset($_SESSION["loggedin"]) && $_SESSION["loggedin"] === true;
+
+$user_stats = $user_stats ?? null;
 
 // --- SEO and Page Config ---
 $page_title       = 'Leaderboards';
 $page_description = 'Commanders ranked by level, wealth, population, army size — plus all-time top plunderers and highest fatigue casualties.';
 $page_keywords    = 'leaderboards, rankings, plunder, fatigue, wealth, army size, population, level';
 $active_page      = 'stats.php';
-
-// Initialize variables for advisor
-$user_stats = null;
-$minutes_until_next_turn = 0;
-$seconds_remainder = 0;
-$now = new DateTime('now', new DateTimeZone('UTC'));
-
-if ($is_logged_in) {
-    $user_id = (int)$_SESSION['id'];
-
-    // Fetch user stats for sidebar
-    $sql_user = "SELECT credits, experience, untrained_citizens, level, attack_turns, last_updated 
-                 FROM users WHERE id = ?";
-    if ($stmt_user = mysqli_prepare($link, $sql_user)) {
-        mysqli_stmt_bind_param($stmt_user, "i", $user_id);
-        mysqli_stmt_execute($stmt_user);
-        $result_user = mysqli_stmt_get_result($stmt_user);
-        $user_stats = mysqli_fetch_assoc($result_user) ?: null;
-        mysqli_stmt_close($stmt_user);
-    }
-
-    // Turn timer (10 min) for advisor
-    if ($user_stats && !empty($user_stats['last_updated'])) {
-        $turn_interval_seconds = 600;
-        $last_updated = new DateTime($user_stats['last_updated'], new DateTimeZone('UTC'));
-        $elapsed = max(0, $now->getTimestamp() - $last_updated->getTimestamp());
-        $seconds_until_next_turn = $turn_interval_seconds - ($elapsed % $turn_interval_seconds);
-        if ($seconds_until_next_turn < 0) { $seconds_until_next_turn = 0; }
-        $minutes_until_next_turn = intdiv($seconds_until_next_turn, 60);
-        $seconds_remainder       = $seconds_until_next_turn % 60;
-    }
-
-    // Expose for advisor include
-    $user_xp    = isset($user_stats['experience']) ? (int)$user_stats['experience'] : 0;
-    $user_level = isset($user_stats['level']) ? (int)$user_stats['level'] : 0;
-}
 
 // --- LEADERBOARD DATA FETCHING ---
 $leaderboards = [];
@@ -126,7 +92,7 @@ foreach ($lb_titles as $i => $title) {
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Starlight Dominion - Leaderboards</title>
+    <title>Starlight Dominion — <?php echo htmlspecialchars($page_title); ?></title>
     <script src="https://cdn.tailwindcss.com"></script>
     <script src="https://unpkg.com/lucide@latest"></script>
     <link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@700&family=Roboto:wght@400;500;700&display=swap" rel="stylesheet">
@@ -152,8 +118,6 @@ foreach ($lb_titles as $i => $title) {
                             <!-- TRUE SIDEBAR -->
                             <aside class="lg:col-span-1 space-y-6">
                                 <?php
-                                    // Provide variables expected by advisor:
-                                    // $user_stats, $user_xp, $user_level, $minutes_until_next_turn, $seconds_remainder, $now, $active_page
                                     include_once __DIR__ . '/../includes/advisor.php';
                                 ?>
                             </aside>
@@ -174,7 +138,7 @@ foreach ($lb_titles as $i => $title) {
                                                             <tr>
                                                                 <th class="p-2">Rank</th>
                                                                 <th class="p-2">Commander</th>
-                                                                <th class="p-2 text-right"><?php echo ucwords(str_replace('_', ' ', htmlspecialchars($details['field']))); ?></th>
+                                                                <th class="p-2 text-right"><?php echo htmlspecialchars(ucwords(str_replace('_', ' ', $details['field']))); ?></th>
                                                                 <th class="p-2 text-right">Action</th>
                                                             </tr>
                                                         </thead>
@@ -182,7 +146,7 @@ foreach ($lb_titles as $i => $title) {
                                                             <?php
                                                             $rank = 1;
                                                             while ($details['data'] && ($row = mysqli_fetch_assoc($details['data']))):
-                                                                $avatar = !empty($row['avatar_path']) ? $row['avatar_path'] : 'https://via.placeholder.com/40';
+                                                                $avatar = !empty($row['avatar_path']) ? $row['avatar_path'] : '/assets/img/default_avatar.webp';
                                                             ?>
                                                             <tr class="border-t border-gray-700 hover:bg-gray-700/50">
                                                                 <td class="p-2 font-bold text-cyan-400"><?php echo $rank++; ?></td>
@@ -204,7 +168,7 @@ foreach ($lb_titles as $i => $title) {
                                                                     ?>
                                                                 </td>
                                                                 <td class="p-2 text-right">
-                                                                    <a href="view_profile.php?id=<?php echo (int)$row['id']; ?>" class="bg-cyan-600 hover:bg-cyan-700 text-white font-bold py-1 px-3 rounded-md text-xs">View</a>
+                                                                    <a href="/view_profile.php?id=<?php echo (int)$row['id']; ?>" class="bg-cyan-600 hover:bg-cyan-700 text-white font-bold py-1 px-3 rounded-md text-xs">View</a>
                                                                 </td>
                                                             </tr>
                                                             <?php endwhile; ?>
@@ -228,7 +192,7 @@ foreach ($lb_titles as $i => $title) {
                                                             <tr>
                                                                 <th class="p-2">Rank</th>
                                                                 <th class="p-2">Commander</th>
-                                                                <th class="p-2 text-right"><?php echo ucwords(str_replace('_', ' ', htmlspecialchars($details['field']))); ?></th>
+                                                                <th class="p-2 text-right"><?php echo htmlspecialchars(ucwords(str_replace('_', ' ', $details['field']))); ?></th>
                                                                 <th class="p-2 text-right">Action</th>
                                                             </tr>
                                                         </thead>
@@ -236,7 +200,7 @@ foreach ($lb_titles as $i => $title) {
                                                             <?php
                                                             $rank = 1;
                                                             while ($details['data'] && ($row = mysqli_fetch_assoc($details['data']))):
-                                                                $avatar = !empty($row['avatar_path']) ? $row['avatar_path'] : 'https://via.placeholder.com/40';
+                                                                $avatar = !empty($row['avatar_path']) ? $row['avatar_path'] : '/assets/img/default_avatar.webp';
                                                             ?>
                                                             <tr class="border-t border-gray-700 hover:bg-gray-700/50">
                                                                 <td class="p-2 font-bold text-cyan-400"><?php echo $rank++; ?></td>
@@ -258,7 +222,7 @@ foreach ($lb_titles as $i => $title) {
                                                                     ?>
                                                                 </td>
                                                                 <td class="p-2 text-right">
-                                                                    <a href="view_profile.php?id=<?php echo (int)$row['id']; ?>" class="bg-cyan-600 hover:bg-cyan-700 text-white font-bold py-1 px-3 rounded-md text-xs">View</a>
+                                                                    <a href="/view_profile.php?id=<?php echo (int)$row['id']; ?>" class="bg-cyan-600 hover:bg-cyan-700 text-white font-bold py-1 px-3 rounded-md text-xs">View</a>
                                                                 </td>
                                                             </tr>
                                                             <?php endwhile; ?>
@@ -287,7 +251,7 @@ foreach ($lb_titles as $i => $title) {
                                                         <tr>
                                                             <th class="p-2">Rank</th>
                                                             <th class="p-2">Commander</th>
-                                                            <th class="p-2 text-right"><?php echo ucwords(str_replace('_', ' ', htmlspecialchars($details['field']))); ?></th>
+                                                            <th class="p-2 text-right"><?php echo htmlspecialchars(ucwords(str_replace('_', ' ', $details['field']))); ?></th>
                                                             <th class="p-2 text-right">Action</th>
                                                         </tr>
                                                     </thead>
@@ -295,7 +259,7 @@ foreach ($lb_titles as $i => $title) {
                                                         <?php
                                                         $rank = 1;
                                                         while ($details['data'] && ($row = mysqli_fetch_assoc($details['data']))):
-                                                            $avatar = !empty($row['avatar_path']) ? $row['avatar_path'] : 'https://via.placeholder.com/40';
+                                                            $avatar = !empty($row['avatar_path']) ? $row['avatar_path'] : '/assets/img/default_avatar.webp';
                                                         ?>
                                                         <tr class="border-t border-gray-700 hover:bg-gray-700/50">
                                                             <td class="p-2 font-bold text-cyan-400"><?php echo $rank++; ?></td>

@@ -8,8 +8,9 @@ if (session_status() == PHP_SESSION_NONE) {
     session_start();
 }
 if(!isset($_SESSION["loggedin"]) || $_SESSION["loggedin"] !== true){ header("location: index.html"); exit; }
+
 require_once __DIR__ . '/../../config/config.php';
-date_default_timezone_set('UTC');
+require_once __DIR__ . '/../includes/advisor_hydration.php';
 
 $user_id = $_SESSION['id'];
 
@@ -74,22 +75,12 @@ mysqli_stmt_bind_param($stmt_logs, $final_types, ...$final_params);
 mysqli_stmt_execute($stmt_logs);
 $spy_logs_result = mysqli_stmt_get_result($stmt_logs);
 
-// --- TIMER CALCULATIONS ---
-$now = new DateTime('now', new DateTimeZone('UTC'));
-$turn_interval_minutes = 10;
-$last_updated = new DateTime($user_stats['last_updated'], new DateTimeZone('UTC'));
-$seconds_until_next_turn = ($turn_interval_minutes * 60) - (($now->getTimestamp() - $last_updated->getTimestamp()) % ($turn_interval_minutes * 60));
-$minutes_until_next_turn = floor($seconds_until_next_turn / 60);
-$seconds_remainder = $seconds_until_next_turn % 60;
-
 // --- INCLUDE UNIVERSAL HEADER ---
 include_once __DIR__ . '/../includes/header.php';
 ?>
 
 <aside class="lg:col-span-1 space-y-4">
     <?php 
-        $user_xp = $user_stats['experience'];
-        $user_level = $user_stats['level'];
         include_once __DIR__ . '/../includes/advisor.php'; 
     ?>
 </aside>
