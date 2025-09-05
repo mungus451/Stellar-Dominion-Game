@@ -128,7 +128,8 @@ $request_uri = parse_url($_SERVER['REQUEST_URI'], PHP_URL_PATH);
 // • Errors are stored in $_SESSION['alliance_error'] to be displayed by the
 //   included template (war_declaration.php). This prevents exposing stack
 //   traces and preserves UX with a clean redirect.
-if ($request_uri === '/war_declaration.php' && $_SERVER['REQUEST_METHOD'] === 'POST') {
+if (($_SERVER['REQUEST_METHOD'] === 'POST') &&
+    ($request_uri === '/war_declaration' || $request_uri === '/war_declaration.php')) {
     try {
         require_once __DIR__ . '/../src/Controllers/BaseController.php';
         require_once __DIR__ . '/../src/Controllers/WarController.php';

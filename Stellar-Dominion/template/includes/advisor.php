@@ -274,7 +274,7 @@ $__now_et_epoch = $__now_et->getTimestamp();
     // ---------------------------------------------------
     // COUNTDOWN (incorporated & upgraded): auto-cycling, monotonic, AJAX-agnostic
     // ---------------------------------------------------
-    // Exactly as discussed: hydrate once from server; then:
+    // hydrate once from server; then:
     // remaining = (initialSeconds - elapsed) mod TURN_INTERVAL
     if (!window.__advisorCountdownInit) {
         window.__advisorCountdownInit = true;
