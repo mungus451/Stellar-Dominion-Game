@@ -32,31 +32,69 @@ date_default_timezone_set('UTC');
 // ─────────────────────────────────────────────────────────────────────────────
 // BALANCE CONSTANTS
 // ─────────────────────────────────────────────────────────────────────────────
-const ATK_TURNS_SOFT_EXP          = 0.50;
-const ATK_TURNS_MAX_MULT          = 1.35;
-const UNDERDOG_MIN_RATIO_TO_WIN   = 0.985;
-const RANDOM_NOISE_MIN            = 0.98;
-const RANDOM_NOISE_MAX            = 1.02;
-const CREDITS_STEAL_CAP_PCT       = 0.2;
-const CREDITS_STEAL_BASE_PCT      = 0.08;
-const CREDITS_STEAL_GROWTH        = 0.1;
-const GUARD_KILL_BASE_FRAC        = 0.08;
-const GUARD_KILL_ADVANTAGE_GAIN   = 0.07;
-const GUARD_FLOOR                 = 20000;
-const STRUCT_BASE_DMG             = 1500;
-const STRUCT_GUARD_PROTECT_FACTOR = 0.50;
-const STRUCT_ADVANTAGE_EXP        = 0.75;
-const STRUCT_TURNS_EXP            = 0.40;
-const STRUCT_MIN_DMG_IF_WIN       = 0.05;
-const STRUCT_MAX_DMG_IF_WIN       = 0.25;
-const BASE_PRESTIGE_GAIN          = 10;
 
-// ── NEW: Anti-farm limits
+// Attack turns & win threshold
+
+
+const ATK_TURNS_SOFT_EXP          = 0.50; // Lower = gentler curve (more benefit spreads across 1–10 turns), Higher = steeper early benefit then flat.
+const ATK_TURNS_MAX_MULT          = 1.35; // Raise (e.g., 1.5) if multi-turns should feel stronger; lower (e.g., 1.25) to compress power creep.
+const UNDERDOG_MIN_RATIO_TO_WIN   = 0.985; // Raise (→1.00–1.02) to reduce upsets; lower (→0.97–0.98) to allow more underdog wins.
+const RANDOM_NOISE_MIN            = 0.98; // Narrow (e.g., 0.99–1.01) for more deterministic outcomes; 
+const RANDOM_NOISE_MAX            = 1.02; // Widen (e.g., 0.95–1.05) for chaos.
+
+// Credits plunder
+
+// How it works: steal_pct = min(CAP, BASE + GROWTH * clamp(R-1, 0..1))
+//                              R≤1 → BASE
+//                              R≥2 → BASE + GROWTH (capped by CAP)
+
+const CREDITS_STEAL_CAP_PCT       = 0.2; // Lower (e.g., 0.15) to protect defenders; raise cautiously if late-game feels cash-starved.
+const CREDITS_STEAL_BASE_PCT      = 0.08; // Raise to make average wins more lucrative.
+const CREDITS_STEAL_GROWTH        = 0.1; // Raise to reward big mismatches; lower to keep gains flatter.
+
+// Guards casualties
+
+// loss_frac = BASE + ADV_GAIN * clamp(R-1,0..1) then × small turns boost, ×0.5 if attacker loses. Guard floor prevents dropping below GUARD_FLOOR total.
+
+
+const GUARD_KILL_BASE_FRAC        = 0.02; // Raise to speed attrition in fair fights.
+const GUARD_KILL_ADVANTAGE_GAIN   = 0.04; // Raise to let strong attackers chew guards faster.
+const GUARD_FLOOR                 = 20000; // Raise to extend defensive longevity; lower to allow full wipeouts.
+
+// Structure damage (on defender fortifications)
+
+//Pipeline: Raw = STRUCT_BASE_DMG * R^STRUCT_ADVANTAGE_EXP * Turns^STRUCT_TURNS_EXP * (1 - guardShield) then clamped between STRUCT_MIN_DMG_IF_WIN and STRUCT_MAX_DMG_IF_WIN of current HP (on victory)
+
+const STRUCT_BASE_DMG             = 1500; // Baseline scalar; raise/lower for overall structure damage feel.
+const STRUCT_GUARD_PROTECT_FACTOR = 0.50; // Strength of guard shielding in the (1 - guardShield) term. Higher = more shielding (less structure damage).
+const STRUCT_ADVANTAGE_EXP        = 0.75; // Sensitivity to advantage R. Higher (→0.9) = advantage matters more; lower (→0.6) flattens.
+const STRUCT_TURNS_EXP            = 0.40; // Turn-based scaling for structure damage. Raise to make multi-turn attacks better at sieges.
+
+    //Floor/ceiling as % of current HP on victory.
+
+const STRUCT_MIN_DMG_IF_WIN       = 0.05; // Raise min to guarantee noticeable chip.
+const STRUCT_MAX_DMG_IF_WIN       = 0.25; // Lower max to prevent chunking.
+
+// Prestige
+
+const BASE_PRESTIGE_GAIN          = 10; // Flat baseline per battle (you can layer multipliers elsewhere). Raise to accelerate ladder climb; lower to slow it.
+
+// Anti-farm limits
 const HOURLY_FULL_LOOT_CAP            = 5;     // first 5 attacks in last hour = full loot
 const HOURLY_REDUCED_LOOT_MAX         = 50;    // attacks 6..10 in last hour = reduced
 const HOURLY_REDUCED_LOOT_FACTOR      = 0.25;  // 25% of normal credits
 const DAILY_STRUCT_ONLY_THRESHOLD     = 50;    // 11th+ attack in last 24h => structure-only
 // (11+ in the same hour also yields 0 credits even if daily threshold not hit)
+
+// Attacker soldier combat casualties (adds to existing fatigue losses)
+// Fractions are of the attacker's current soldiers at battle time.
+const ATK_SOLDIER_LOSS_BASE_FRAC = 0.020; // 2% baseline per attack. Raise to make every fight bloodier. Lower to make losses rare.
+const ATK_SOLDIER_LOSS_MAX_FRAC  = 0.120; // hard cap: 12% of current soldiers. Safety ceiling—prevents spikes on huge disadvantage / high turns
+const ATK_SOLDIER_LOSS_ADV_GAIN  = 0.80;  // up to +80% of base when outmatched. Raise to punish bad matchups; lower to flatten difficulty spread.
+const ATK_SOLDIER_LOSS_TURNS_EXP = 0.35;  // scales losses with attack turns. Raise to make multi-turn attacks riskier; lower to make them safer.
+const ATK_SOLDIER_LOSS_WIN_MULT  = 0.75;  // fewer losses on victory. Raise to make even wins costly; lower to reward winning.
+const ATK_SOLDIER_LOSS_LOSE_MULT = 1.25;  // more losses on defeat. Raise to punish failed attacks; lower if you want gentle defeats.
+const ATK_SOLDIER_LOSS_MIN       = 1;     // at least 1 loss when S0_att > 0. Set to 0 to allow truly lossless edge cases.
 
 // ─────────────────────────────────────────────────────────────────────────────
 /** INPUT VALIDATION */
@@ -229,6 +267,37 @@ try {
         $guards_lost = min($proposed_loss, $max_loss);
         $guards_lost = max(0, $guards_lost);
         $G_after     = $G0 - $guards_lost;
+    }
+
+    // ─────────────────────────────────────────────────────────────────────────
+    // NEW: ATTACKER SOLDIER COMBAT CASUALTIES (adds to fatigue_casualties)
+    // ─────────────────────────────────────────────────────────────────────────
+    // Notes:
+    // - Runs for all battles (was previously inside the guard-else branch).
+    // - We *add* these to $fatigue_casualties so downstream updates/logs remain unchanged.
+    // - Losses scale with disadvantage (R<1), attack turns, and outcome, and are capped.
+    $S0_att = max(0, (int)$attacker['soldiers']);
+    if ($S0_att > 0) {
+        // Disadvantage factor in [0..1]: 0 when R>=1, up to ~1 as R→0
+        $disadv = ($R >= 1.0) ? 0.0 : max(0.0, min(1.0, 1.0 - $R));
+        // Base loss fraction with scaling and outcome multiplier
+        $lossFracRaw = ATK_SOLDIER_LOSS_BASE_FRAC
+            * (1.0 + ATK_SOLDIER_LOSS_ADV_GAIN * $disadv)
+            * pow(max(1, (int)$attack_turns), ATK_SOLDIER_LOSS_TURNS_EXP)
+            * ($attacker_wins ? ATK_SOLDIER_LOSS_WIN_MULT : ATK_SOLDIER_LOSS_LOSE_MULT);
+        // Hard cap
+        $lossFrac = min(ATK_SOLDIER_LOSS_MAX_FRAC, max(0.0, $lossFracRaw));
+        $combat_casualties = (int)floor($S0_att * $lossFrac);
+        // Ensure at least 1 loss when there are soldiers and we rounded to 0
+        if ($combat_casualties <= 0) {
+            $combat_casualties = min(ATK_SOLDIER_LOSS_MIN, $S0_att);
+        }
+        // Ensure we don't exceed available after prior fatigue casualties
+        $combat_casualties = max(0, min($combat_casualties, max(0, $S0_att - (int)$fatigue_casualties)));
+        // Accumulate into existing variable used throughout the file (no reference changes)
+        $fatigue_casualties = (int)$fatigue_casualties + (int)$combat_casualties;
+        // Final clamp against current soldiers
+        $fatigue_casualties = max(0, min($fatigue_casualties, $S0_att));
     }
 
     // ─────────────────────────────────────────────────────────────────────────
