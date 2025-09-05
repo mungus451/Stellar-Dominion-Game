@@ -6,8 +6,7 @@ $active_page = 'attack.php';
 // --- BOOTSTRAP (router already started session + auth) ---
 date_default_timezone_set('UTC');
 require_once __DIR__ . '/../../config/config.php';
-require_once __DIR__ . '/../../src/Game/GameData.php';
-require_once __DIR__ . '/../../src/Game/GameFunctions.php';
+require_once __DIR__ . '/../../src/Services/StateService.php'; // Centralized state
 require_once __DIR__ . '/../includes/advisor_hydration.php';
 
 $user_id = (int)($_SESSION['id'] ?? 0);
@@ -19,44 +18,23 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     exit;
 }
 
-// Keep user state fresh
-process_offline_turns($link, $user_id);
-
 // --- PAGE DATA ---
 $csrf_token = generate_csrf_token('attack');
 
-// current user row (for timers/advisor)
-$sql_me = "SELECT id, character_name, level, credits, banked_credits, attack_turns, last_updated, experience, alliance_id
-           FROM users WHERE id = ?";
-$stmt_me = mysqli_prepare($link, $sql_me);
-mysqli_stmt_bind_param($stmt_me, "i", $user_id);
-mysqli_stmt_execute($stmt_me);
-$me = mysqli_fetch_assoc(mysqli_stmt_get_result($stmt_me)) ?: [];
-mysqli_stmt_close($stmt_me);
+$me = ss_get_user_state($link, $user_id, [
+    'id','character_name','level','credits','banked_credits',
+    'attack_turns','last_updated','experience','alliance_id'
+]);
 $my_alliance_id = $me['alliance_id'] ?? null;
 
-// target list (now with alliance tag + avatar)
-// MODIFICATION: The `WHERE u.id <> ?` clause has been removed to include the current player in the list.
-$sql_targets = "
-    SELECT
-        u.id, u.character_name, u.level, u.credits, u.avatar_path,
-        u.soldiers, u.guards, u.sentries, u.spies, u.alliance_id,
-        a.tag   AS alliance_tag
-    FROM users u
-    LEFT JOIN alliances a ON a.id = u.alliance_id
-    ORDER BY u.level DESC, u.credits DESC
-    LIMIT 100
-";
-// MODIFICATION: The prepared statement no longer needs to bind the user_id parameter.
-$stmt_t = mysqli_prepare($link, $sql_targets);
-mysqli_stmt_execute($stmt_t);
-$targets_rs = mysqli_stmt_get_result($stmt_t);
-$targets = [];
-while ($row = mysqli_fetch_assoc($targets_rs)) {
-    // Show “Army Size” as military only (soldiers + guards + sentries + spies)
-    $row['army_size'] = (int)$row['soldiers'] + (int)$row['guards'] + (int)$row['sentries'] + (int)$row['spies'];
+// Target list (include self on this page) via StateService.
+// Pass 0 so the WHERE u.id <> ? does not exclude anyone.
+$targets = ss_get_targets($link, 0, 100);
+// NOTE: ss_get_targets already computes army_size
+ 
+foreach ($targets as &$row) {
 
-    // --- Rivalry Check Logic (Unchanged) ---
+    // --- Rivalry Check Logic ---
     $row['is_rival'] = false;
     if ($my_alliance_id && $row['alliance_id'] && $my_alliance_id != $row['alliance_id']) {
         $a1 = $my_alliance_id;
@@ -73,10 +51,7 @@ while ($row = mysqli_fetch_assoc($targets_rs)) {
         }
     }
     // --- END: Rivalry Check ---
-
-    $targets[] = $row;
 }
-mysqli_stmt_close($stmt_t);
 
 // Timers
 $turn_interval_minutes = 10;

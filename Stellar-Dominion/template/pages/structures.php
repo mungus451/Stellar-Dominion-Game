@@ -13,6 +13,7 @@ if (!isset($_SESSION["loggedin"]) || $_SESSION["loggedin"] !== true) {
 }
 require_once __DIR__ . '/../../config/config.php';
 require_once __DIR__ . '/../../src/Game/GameData.php';
+require_once __DIR__ . '/../../src/Services/StateService.php'; // Centralizewd reads
 require_once __DIR__ . '/../includes/advisor_hydration.php';
 
 // --- FORM SUBMISSION HANDLING ---
@@ -26,13 +27,22 @@ $user_id = $_SESSION['id'];
 // *** FIX: Generate a single CSRF token for all forms on this page ***
 $structure_action_token = generate_csrf_token('structure_action');
 
-// Data Fetching
-$sql = "SELECT * FROM users WHERE id = ?";
-$stmt = mysqli_prepare($link, $sql);
-mysqli_stmt_bind_param($stmt, "i", $user_id);
-mysqli_stmt_execute($stmt);
-$user_stats = mysqli_fetch_assoc(mysqli_stmt_get_result($stmt));
-mysqli_stmt_close($stmt);
+// Data Fetching (via StateService; advisor_hydration already ran regen/timers)
+// Collect the per-upgrade level columns the grid renders (offense/defense/spy/economy/population/fortifications)
+$upgrade_level_columns = [];
+foreach ($upgrades as $cat) {
+    if (!empty($cat['db_column'])) { $upgrade_level_columns[] = $cat['db_column']; }
+}
+$needed_fields = array_values(array_unique(array_merge(
+    $upgrade_level_columns,
+    [
+        'credits',
+        'level',
+        'charisma_points',
+        'fortification_hitpoints'
+    ]
+)));
+$user_stats = ss_get_user_state($link, (int)$user_id, $needed_fields);
 
 // --- CSRF & HEADER ---
 include_once __DIR__ . '/../includes/header.php';

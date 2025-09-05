@@ -13,7 +13,7 @@ if (!isset($_SESSION["loggedin"]) || $_SESSION["loggedin"] !== true) {
 }
 require_once __DIR__ . '/../../config/config.php';
 require_once __DIR__ . '/../../src/Game/GameData.php';
-require_once __DIR__ . '/../../src/Game/GameFunctions.php';
+require_once __DIR__ . '/../../src/Services/StateService.php'; // Centralized state
 require_once __DIR__ . '/../includes/advisor_hydration.php';
 
 // --- FORM SUBMISSION HANDLING (via AJAX/POST) ---
@@ -25,35 +25,19 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 date_default_timezone_set('UTC');
 
 $user_id = (int)$_SESSION['id'];
-process_offline_turns($link, $user_id);
 
-// --- DATA FETCHING ---
-$sql_user = "SELECT credits, level, experience, soldiers, guards, sentries, spies, workers, armory_level, charisma_points, last_updated, attack_turns, untrained_citizens 
-             FROM users WHERE id = ?";
-$stmt_user = mysqli_prepare($link, $sql_user);
-mysqli_stmt_bind_param($stmt_user, "i", $user_id);
-mysqli_stmt_execute($stmt_user);
-$user_stats = mysqli_fetch_assoc(mysqli_stmt_get_result($stmt_user));
-mysqli_stmt_close($stmt_user);
+// --- DATA FETCHING (centralized via StateService; also processes offline turns) ---
+$needed_fields = [
+    'credits','level','experience',
+    'soldiers','guards','sentries','spies','workers',
+    'armory_level','charisma_points',
+    'last_updated','attack_turns','untrained_citizens'
+];
 
-// ** Armory inventory (owned) with error checking **
-$owned_items = [];
-$sql_armory = "SELECT item_key, quantity FROM user_armory WHERE user_id = ?";
-$stmt_armory = mysqli_prepare($link, $sql_armory);
-if ($stmt_armory === false) {
-    $_SESSION['armory_error'] = "Database Error: Could not prepare the armory query. Please contact an administrator.";
-} else {
-    mysqli_stmt_bind_param($stmt_armory, "i", $user_id);
-    if (mysqli_stmt_execute($stmt_armory)) {
-        $armory_result = mysqli_stmt_get_result($stmt_armory);
-        while($row = mysqli_fetch_assoc($armory_result)) {
-            $owned_items[$row['item_key']] = (int)$row['quantity'];
-        }
-    } else {
-        $_SESSION['armory_error'] = "Database Error: Could not execute the armory query. Please contact an administrator.";
-    }
-    mysqli_stmt_close($stmt_armory);
-}
+$user_stats = ss_process_and_get_user_state($link, $user_id, $needed_fields);
+
+// ** Armory inventory (owned) via StateService helper **
+$owned_items = ss_get_armory_inventory($link, $user_id);
 
 // --- PAGE AND TAB LOGIC ---
 $current_tab = (isset($_GET['loadout']) && isset($armory_loadouts[$_GET['loadout']])) ? $_GET['loadout'] : 'soldier';

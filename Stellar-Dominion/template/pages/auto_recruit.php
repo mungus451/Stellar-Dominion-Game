@@ -21,16 +21,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 }
 
 // --- PAGE DISPLAY LOGIC (GET REQUEST) ---
-date_default_timezone_set('UTC');
-$user_id = $_SESSION['id'];
-
-// --- DATA FETCHING ---
-$sql_resources = "SELECT credits, untrained_citizens, level, attack_turns, last_updated, soldiers, guards, sentries, spies, workers, charisma_points, experience FROM users WHERE id = ?";
-$stmt_resources = mysqli_prepare($link, $sql_resources);
-mysqli_stmt_bind_param($stmt_resources, "i", $user_id);
-mysqli_stmt_execute($stmt_resources);
-$user_stats = mysqli_fetch_assoc(mysqli_stmt_get_result($stmt_resources));
-mysqli_stmt_close($stmt_resources);
++$user_id = (int)($_SESSION['id'] ?? 0);
 
 // Fetch recruitment stats
 $sql_total = "SELECT SUM(recruit_count) as total_recruits FROM daily_recruits WHERE recruiter_id = ? AND recruit_date = CURDATE()";

@@ -14,6 +14,7 @@ if (!isset($_SESSION["loggedin"]) || $_SESSION["loggedin"] !== true) {
 require_once __DIR__ . '/../../config/config.php';
 require_once __DIR__ . '/../Game/GameData.php';
 require_once __DIR__ . '/../Game/GameFunctions.php';
+require_once __DIR__ . '/../Services/StateService.php';
 
 // --- CSRF TOKEN VALIDATION ---
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
@@ -119,14 +120,68 @@ const FORT_HIGH_CREDITS_PLUNDER_REDUCTION_MAX= 0.25; // up to -25% plunder at 10
 // ─────────────────────────────────────────────────────────────────────────────
 /** INPUT VALIDATION */
 // ─────────────────────────────────────────────────────────────────────────────
+
 $attacker_id  = (int)$_SESSION["id"];
 $defender_id  = isset($_POST['defender_id'])  ? (int)$_POST['defender_id']  : 0;
 $attack_turns = isset($_POST['attack_turns']) ? (int)$_POST['attack_turns'] : 0;
+
+// Expose tuning knobs to services (keeps controller as single source of truth)
+$COMBAT_TUNING = [
+    'ATK_TURNS_SOFT_EXP'                => ATK_TURNS_SOFT_EXP,
+    'ATK_TURNS_MAX_MULT'                => ATK_TURNS_MAX_MULT,
+    'UNDERDOG_MIN_RATIO_TO_WIN'         => UNDERDOG_MIN_RATIO_TO_WIN,
+    'RANDOM_NOISE_MIN'                  => RANDOM_NOISE_MIN,
+    'RANDOM_NOISE_MAX'                  => RANDOM_NOISE_MAX,
+    'CREDITS_STEAL_CAP_PCT'             => CREDITS_STEAL_CAP_PCT,
+    'CREDITS_STEAL_BASE_PCT'            => CREDITS_STEAL_BASE_PCT,
+    'CREDITS_STEAL_GROWTH'              => CREDITS_STEAL_GROWTH,
+    'GUARD_KILL_BASE_FRAC'              => GUARD_KILL_BASE_FRAC,
+    'GUARD_KILL_ADVANTAGE_GAIN'         => GUARD_KILL_ADVANTAGE_GAIN,
+    'GUARD_FLOOR'                       => GUARD_FLOOR,
+    'STRUCT_BASE_DMG'                   => STRUCT_BASE_DMG,
+    'STRUCT_GUARD_PROTECT_FACTOR'       => STRUCT_GUARD_PROTECT_FACTOR,
+    'STRUCT_ADVANTAGE_EXP'              => STRUCT_ADVANTAGE_EXP,
+    'STRUCT_TURNS_EXP'                  => STRUCT_TURNS_EXP,
+    'STRUCT_MIN_DMG_IF_WIN'             => STRUCT_MIN_DMG_IF_WIN,
+    'STRUCT_MAX_DMG_IF_WIN'             => STRUCT_MAX_DMG_IF_WIN,
+    'BASE_PRESTIGE_GAIN'                => BASE_PRESTIGE_GAIN,
+    'HOURLY_FULL_LOOT_CAP'              => HOURLY_FULL_LOOT_CAP,
+    'HOURLY_REDUCED_LOOT_MAX'           => HOURLY_REDUCED_LOOT_MAX,
+    'HOURLY_REDUCED_LOOT_FACTOR'        => HOURLY_REDUCED_LOOT_FACTOR,
+    'DAILY_STRUCT_ONLY_THRESHOLD'       => DAILY_STRUCT_ONLY_THRESHOLD,
+    'ATK_SOLDIER_LOSS_BASE_FRAC'        => ATK_SOLDIER_LOSS_BASE_FRAC,
+    'ATK_SOLDIER_LOSS_MAX_FRAC'         => ATK_SOLDIER_LOSS_MAX_FRAC,
+    'ATK_SOLDIER_LOSS_ADV_GAIN'         => ATK_SOLDIER_LOSS_ADV_GAIN,
+    'ATK_SOLDIER_LOSS_TURNS_EXP'        => ATK_SOLDIER_LOSS_TURNS_EXP,
+    'ATK_SOLDIER_LOSS_WIN_MULT'         => ATK_SOLDIER_LOSS_WIN_MULT,
+    'ATK_SOLDIER_LOSS_LOSE_MULT'        => ATK_SOLDIER_LOSS_LOSE_MULT,
+    'ATK_SOLDIER_LOSS_MIN'              => ATK_SOLDIER_LOSS_MIN,
+    'STRUCT_FULL_HP_DEFAULT'            => STRUCT_FULL_HP_DEFAULT,
+    'FORT_CURVE_EXP_LOW'                => FORT_CURVE_EXP_LOW,
+    'FORT_CURVE_EXP_HIGH'               => FORT_CURVE_EXP_HIGH,
+    'FORT_LOW_GUARD_KILL_BOOST_MAX'     => FORT_LOW_GUARD_KILL_BOOST_MAX,
+    'FORT_LOW_CREDITS_PLUNDER_BOOST_MAX'=> FORT_LOW_CREDITS_PLUNDER_BOOST_MAX,
+    'FORT_LOW_DEF_PENALTY_MAX'          => FORT_LOW_DEF_PENALTY_MAX,
+    'FORT_HIGH_DEF_BONUS_MAX'           => FORT_HIGH_DEF_BONUS_MAX,
+    'FORT_HIGH_GUARD_KILL_REDUCTION_MAX'=> FORT_HIGH_GUARD_KILL_REDUCTION_MAX,
+    'FORT_HIGH_CREDITS_PLUNDER_REDUCTION_MAX'=> FORT_HIGH_CREDITS_PLUNDER_REDUCTION_MAX,
+];
+
 
 if ($defender_id <= 0 || $attack_turns < 1 || $attack_turns > 10) {
     $_SESSION['attack_error'] = "Invalid target or number of attack turns.";
     header("location: /attack.php");
     exit;
+}
+
+// Optional: hand tuning to StateService (so internals can consume knobs)
+$state = new StateService($link, $attacker_id);
+if (method_exists($state, 'setCombatTuning')) {
+    $state->setCombatTuning($COMBAT_TUNING);
+}
+// Keep regen/idle processing consistent before reading attack_turns, etc.
+if (method_exists($state, 'processOfflineTurns')) {
+    $state->processOfflineTurns();
 }
 
 // Transaction boundary — all or nothing
@@ -159,39 +214,45 @@ try {
     // ─────────────────────────────────────────────────────────────────────────
     // RATE LIMIT COUNTS (per-target)
     // ─────────────────────────────────────────────────────────────────────────
-    // Last 1 hour count
-    $sql_hour = "SELECT COUNT(id) AS c FROM battle_logs 
-                 WHERE attacker_id = ? AND defender_id = ? AND battle_time > NOW() - INTERVAL 1 HOUR";
-    $stmt_hour = mysqli_prepare($link, $sql_hour);
-    mysqli_stmt_bind_param($stmt_hour, "ii", $attacker_id, $defender_id);
-    mysqli_stmt_execute($stmt_hour);
-    $hour_count = (int)mysqli_fetch_assoc(mysqli_stmt_get_result($stmt_hour))['c'];
-    mysqli_stmt_close($stmt_hour);
-
-    // Last 24 hours count
-    $sql_day = "SELECT COUNT(id) AS c FROM battle_logs 
-                WHERE attacker_id = ? AND defender_id = ? AND battle_time > NOW() - INTERVAL 12 HOUR";
-    $stmt_day = mysqli_prepare($link, $sql_day);
-    mysqli_stmt_bind_param($stmt_day, "ii", $attacker_id, $defender_id);
-    mysqli_stmt_execute($stmt_day);
-    $day_count = (int)mysqli_fetch_assoc(mysqli_stmt_get_result($stmt_day))['c'];
-    mysqli_stmt_close($stmt_day);
-
+    // Prefer service helpers when available (keeps SQL in one place)
+    $hour_count = 0;
+    $day_count  = 0;
+    if (method_exists($state, 'attackWindowCounters')) {
+        $limits     = $state->attackWindowCounters($attacker_id, $defender_id);
+        $hour_count = (int)($limits['hour'] ?? 0);
+        $day_count  = (int)($limits['day']  ?? 0);
+    } else {
+        // Fallback: local SQL
+        $sql_hour = "SELECT COUNT(id) AS c FROM battle_logs WHERE attacker_id = ? AND defender_id = ? AND battle_time > NOW() - INTERVAL 1 HOUR";
+        $stmt_hour = mysqli_prepare($link, $sql_hour);
+        mysqli_stmt_bind_param($stmt_hour, "ii", $attacker_id, $defender_id);
+        mysqli_stmt_execute($stmt_hour);
+        $hour_count = (int)mysqli_fetch_assoc(mysqli_stmt_get_result($stmt_hour))['c'];
+        mysqli_stmt_close($stmt_hour);
+        $sql_day = "SELECT COUNT(id) AS c FROM battle_logs WHERE attacker_id = ? AND defender_id = ? AND battle_time > NOW() - INTERVAL 12 HOUR";
+        $stmt_day = mysqli_prepare($link, $sql_day);
+        mysqli_stmt_bind_param($stmt_day, "ii", $attacker_id, $defender_id);
+        mysqli_stmt_execute($stmt_day);
+        $day_count = (int)mysqli_fetch_assoc(mysqli_stmt_get_result($stmt_day))['c'];
+        mysqli_stmt_close($stmt_day);
+    }
     // ─────────────────────────────────────────────────────────────────────────
     // CREDIT LOOT FACTOR (derived from anti-farm rules)
     // ─────────────────────────────────────────────────────────────────────────
-    // Default full loot
-    $loot_factor = 1.0;
-
-    // Daily structure-only overrides everything (attacks #11+ in 24h)
-    if ($day_count >= DAILY_STRUCT_ONLY_THRESHOLD) {
-        $loot_factor = 0.0; // structure only, no credits
+        // Let the service calculate it from the knobs (but keep behavior identical)
+    if (method_exists($state, 'computeLootFactor')) {
+        $loot_factor = $state->computeLootFactor(['hour' => $hour_count, 'day' => $day_count]);
     } else {
-        // Within the hour: 1..5 full, 6..10 at 25%, 11+ in hour = 0
-        if ($hour_count >= HOURLY_FULL_LOOT_CAP && $hour_count < HOURLY_REDUCED_LOOT_MAX) {
-            $loot_factor = HOURLY_REDUCED_LOOT_FACTOR;
-        } elseif ($hour_count >= HOURLY_REDUCED_LOOT_MAX) {
+        // Default: local calculation (unchanged)
+        $loot_factor = 1.0;
+        if ($day_count >= DAILY_STRUCT_ONLY_THRESHOLD) {
             $loot_factor = 0.0;
+        } else {
+            if ($hour_count >= HOURLY_FULL_LOOT_CAP && $hour_count < HOURLY_REDUCED_LOOT_MAX) {
+                $loot_factor = HOURLY_REDUCED_LOOT_FACTOR;
+            } elseif ($hour_count >= HOURLY_REDUCED_LOOT_MAX) {
+                $loot_factor = 0.0;
+            }
         }
     }
 

@@ -4,10 +4,8 @@ $page_title  = 'Battle – Spy';
 $active_page = 'spy.php';
 
 // --- BOOTSTRAP ---
-date_default_timezone_set('UTC');
 require_once __DIR__ . '/../../config/config.php';
-require_once __DIR__ . '/../../src/Game/GameData.php';
-require_once __DIR__ . '/../../src/Game/GameFunctions.php';
+require_once __DIR__ . '/../../src/Services/StateService.php'; // Centralized state
 require_once __DIR__ . '/../includes/advisor_hydration.php';
 
 $user_id = (int)($_SESSION['id'] ?? 0);
@@ -19,63 +17,40 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     exit;
 }
 
-// Keep user state fresh
-process_offline_turns($link, $user_id);
-
 // --- PAGE DATA ---
 $csrf_intel  = generate_csrf_token('spy_intel');
 $csrf_sabo   = generate_csrf_token('spy_sabotage');
 $csrf_assas  = generate_csrf_token('spy_assassination');
 
-// current user for sidebar and alliance checks
-$sql_me = "SELECT id, character_name, level, credits, attack_turns, spies, sentries, last_updated, experience, alliance_id
-           FROM users WHERE id = ?";
-$stmt_me = mysqli_prepare($link, $sql_me);
-mysqli_stmt_bind_param($stmt_me, "i", $user_id);
-mysqli_stmt_execute($stmt_me);
-$me = mysqli_fetch_assoc(mysqli_stmt_get_result($stmt_me)) ?: [];
-mysqli_stmt_close($stmt_me);
+// current user for sidebar and alliance checks (read-only via StateService)
+$me = ss_get_user_state(
+    $link,
+    $user_id,
+    ['id','character_name','level','credits','attack_turns','spies','sentries','last_updated','experience','alliance_id']
+);
 $my_alliance_id = $me['alliance_id'] ?? null;
 
-// target list with alliance tag + avatar
-$sql_targets = "
-    SELECT
-        u.id, u.character_name, u.level, u.credits, u.avatar_path,
-        u.soldiers, u.guards, u.sentries, u.spies, u.alliance_id,
-        a.tag AS alliance_tag
-    FROM users u
-    LEFT JOIN alliances a ON a.id = u.alliance_id
-    ORDER BY u.level DESC, u.credits DESC
-    LIMIT 100
-";
-$stmt_t = mysqli_prepare($link, $sql_targets);
-mysqli_stmt_execute($stmt_t);
-$targets_rs = mysqli_stmt_get_result($stmt_t);
-$targets = [];
-while ($row = mysqli_fetch_assoc($targets_rs)) {
-    $row['army_size'] = (int)$row['soldiers'] + (int)$row['guards'] + (int)$row['sentries'] + (int)$row['spies'];
-
-    // --- Rivalry Check Logic ---
+// target list (read-only helper adds army_size; excludes self)
+$targets = ss_get_targets($link, $user_id, 100);
+// Add rivalry flag per target (kept here; app-specific)
+foreach ($targets as &$row) {
     $row['is_rival'] = false;
-    if ($my_alliance_id && $row['alliance_id'] && $my_alliance_id != $row['alliance_id']) {
-        $a1 = $my_alliance_id;
-        $a2 = $row['alliance_id'];
-        $sql_rival = "SELECT 1 FROM rivalries WHERE (alliance1_id = ? AND alliance2_id = ?) OR (alliance1_id = ? AND alliance2_id = ?) LIMIT 1";
+    if ($my_alliance_id && !empty($row['alliance_id']) && $my_alliance_id != $row['alliance_id']) {
+        $a1 = (int)$my_alliance_id; $a2 = (int)$row['alliance_id'];
+        $sql_rival = "SELECT 1 FROM rivalries
+                      WHERE (alliance1_id = ? AND alliance2_id = ?)
+                         OR (alliance1_id = ? AND alliance2_id = ?)
+                      LIMIT 1";
         if ($stmt_rival = mysqli_prepare($link, $sql_rival)) {
             mysqli_stmt_bind_param($stmt_rival, "iiii", $a1, $a2, $a2, $a1);
             mysqli_stmt_execute($stmt_rival);
             mysqli_stmt_store_result($stmt_rival);
-            if (mysqli_stmt_num_rows($stmt_rival) > 0) {
-                $row['is_rival'] = true;
-            }
+            if (mysqli_stmt_num_rows($stmt_rival) > 0) { $row['is_rival'] = true; }
             mysqli_stmt_close($stmt_rival);
         }
     }
-    // --- END: Rivalry Check ---
-
-    $targets[] = $row;
 }
-mysqli_stmt_close($stmt_t);
+unset($row);
 
 // --- HEADER ---
 include_once __DIR__ . '/../includes/header.php';

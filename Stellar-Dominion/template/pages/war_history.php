@@ -20,14 +20,6 @@ $filter = isset($_GET['filter']) && in_array($_GET['filter'], $filter_options) ?
 $items_per_page = isset($_GET['show']) && in_array($_GET['show'], $show_options) ? (int)$_GET['show'] : 10;
 $current_page = isset($_GET['page']) ? (int)$_GET['page'] : 1;
 
-// --- DATA FETCHING ---
-$sql_user_stats = "SELECT credits, untrained_citizens, level, experience, attack_turns, last_updated FROM users WHERE id = ?";
-$stmt_user_stats = mysqli_prepare($link, $sql_user_stats);
-mysqli_stmt_bind_param($stmt_user_stats, "i", $user_id);
-mysqli_stmt_execute($stmt_user_stats);
-$user_stats = mysqli_fetch_assoc(mysqli_stmt_get_result($stmt_user_stats));
-mysqli_stmt_close($stmt_user_stats);
-
 // --- DYNAMIC BATTLE LOG QUERY CONSTRUCTION ---
 $params = [];
 $types = "";

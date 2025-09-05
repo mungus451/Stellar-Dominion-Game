@@ -12,8 +12,7 @@ if (!isset($_SESSION["loggedin"]) || $_SESSION["loggedin"] !== true) {
     exit;
 }
 require_once __DIR__ . '/../../config/config.php';
-require_once __DIR__ . '/../../src/Game/GameData.php';
-require_once __DIR__ . '/../../src/Game/GameFunctions.php';
+require_once __DIR__ . '/../../src/Services/StateService.php'; // Centralized state
 require_once __DIR__ . '/../includes/advisor_hydration.php';
 
 // --- FORM SUBMISSION HANDLING ---
@@ -25,18 +24,16 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 date_default_timezone_set('UTC');
 
 $csrf_token = generate_csrf_token();
-$user_id = $_SESSION['id'];
-
-
-process_offline_turns($link, $user_id);
+$user_id = (int)$_SESSION['id'];
 
 // --- DATA FETCHING ---
-$sql_resources = "SELECT credits, untrained_citizens, level, attack_turns, last_updated, soldiers, guards, sentries, spies, workers, charisma_points, experience FROM users WHERE id = ?";
-$stmt_resources = mysqli_prepare($link, $sql_resources);
-mysqli_stmt_bind_param($stmt_resources, "i", $user_id);
-mysqli_stmt_execute($stmt_resources);
-$user_stats = mysqli_fetch_assoc(mysqli_stmt_get_result($stmt_resources));
-mysqli_stmt_close($stmt_resources);
+$needed_fields = [
+    'credits','banked_credits','untrained_citizens',
+    'soldiers','guards','sentries','spies','workers',
+    'charisma_points'
+];
+// Advisor hydration already processed regen; read-only fetch here
+$user_stats = ss_get_user_state($link, $user_id, $needed_fields);
 
 // --- GAME DATA & CALCULATIONS ---
 $unit_costs = ['workers' => 100, 'soldiers' => 250, 'guards' => 250, 'sentries' => 500, 'spies' => 1000];

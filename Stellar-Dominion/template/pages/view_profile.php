@@ -1,28 +1,15 @@
 <?php
 /**
  * template/pages/view_profile.php
- *
- * View another commander's profile with:
- * - Universal header/footer
- * - StateService (viewer) + safe fallbacks
- * - "Last Online" (within 7 days)
- * - Player Rank, War History, Badges cards
- * - Attack / Spy / Recruitment as dashboard-style Show/Hide cards
- * - Click-to-zoom avatar modal
  */
 
 $page_title  = 'Commander Profile';
 $active_page = 'attack.php'; // keeps BATTLE section highlighted
 
-date_default_timezone_set('UTC');
+require_once __DIR__ . '/../../src/Services/StateService.php';
+require_once __DIR__ . '/../includes/advisor_hydration.php';
 
-/** ── Optional StateService ─────────────────────────────────────────────── */
-$has_state = false;
-if (!class_exists('StateService')) {
-    $svc_path = __DIR__ . '/../../src/Services/StateService.php';
-    if (is_file($svc_path)) { require_once $svc_path; }
-}
-$has_state = class_exists('StateService');
+$viewer = $user_stats;
 
 /** ── Session/Inputs (index.php has already started session & DB) ───────── */
 $is_logged_in = !empty($_SESSION['loggedin']);
@@ -35,26 +22,6 @@ if ($profile_id <= 0) { header('Location: /attack.php'); exit; }
 $csrf_token = function_exists('generate_csrf_token')
     ? generate_csrf_token()
     : ($_SESSION['csrf_token'] ?? bin2hex(random_bytes(16)));
-
-/** ── Viewer (for header/advisor) ───────────────────────────────────────── */
-$viewer = null;
-if ($is_logged_in && $viewer_id > 0) {
-    if ($has_state) {
-        $state = new StateService($link, $viewer_id);
-        if (method_exists($state, 'getUserStats'))      { $viewer = $state->getUserStats(); }
-        elseif (method_exists($state, 'user'))          { $viewer = $state->user(); }
-        elseif (method_exists($state, 'getSnapshot'))   { $viewer = $state->getSnapshot(); }
-    }
-    if (!$viewer) {
-        $sql_viewer = "SELECT credits, untrained_citizens, level, experience, attack_turns, last_updated, alliance_id, alliance_role_id
-                       FROM users WHERE id = ? LIMIT 1";
-        $stmt_v = mysqli_prepare($link, $sql_viewer);
-        mysqli_stmt_bind_param($stmt_v, "i", $viewer_id);
-        mysqli_stmt_execute($stmt_v);
-        $viewer = mysqli_fetch_assoc(mysqli_stmt_get_result($stmt_v)) ?: [];
-        mysqli_stmt_close($stmt_v);
-    }
-}
 
 /** ── Target profile ───────────────────────────────────────────────────── */
 $sql_profile = "
@@ -71,23 +38,6 @@ $profile = mysqli_fetch_assoc(mysqli_stmt_get_result($stmt));
 mysqli_stmt_close($stmt);
 
 if (!$profile) { header('Location: /attack.php'); exit; }
-
-/** ── Advisor timer (viewer) ───────────────────────────────────────────── */
-$minutes_until_next_turn = 0;
-$seconds_remainder       = 0;
-if ($viewer && !empty($viewer['last_updated'])) {
-    if ($has_state && isset($state) && method_exists($state, 'secondsUntilNextTurn')) {
-        $secs = (int)$state->secondsUntilNextTurn($viewer['last_updated']);
-    } else {
-        $now = new DateTime('now', new DateTimeZone('UTC'));
-        $last_updated = new DateTime($viewer['last_updated'], new DateTimeZone('UTC'));
-        $interval = 10 * 60;
-        $elapsed  = $now->getTimestamp() - $last_updated->getTimestamp();
-        $secs     = $interval - ($elapsed % $interval);
-    }
-    $minutes_until_next_turn = intdiv($secs, 60);
-    $seconds_remainder       = $secs % 60;
-}
 
 /** ── Permissions/flags ────────────────────────────────────────────────── */
 $viewer_permissions = ['can_invite_members' => 0];
@@ -173,11 +123,6 @@ if ($res_b = @$link->query("
     while ($row = $res_b->fetch_assoc()) { $badges[] = $row; }
     $res_b->free();
 }
-
-/** ── Expose for universal header/advisor ───────────────────────────────── */
-$user_stats  = $viewer ?: [];
-$user_xp     = (int)($viewer['experience'] ?? 0);
-$user_level  = (int)($viewer['level'] ?? 0);
 
 /** ── UNIVERSAL HEADER (opens container + grid) ─────────────────────────── */
 include_once __DIR__ . '/../includes/header.php';
