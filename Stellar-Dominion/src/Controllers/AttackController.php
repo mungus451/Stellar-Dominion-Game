@@ -96,6 +96,26 @@ const ATK_SOLDIER_LOSS_WIN_MULT  = 0.5;  // fewer losses on victory. Raise to ma
 const ATK_SOLDIER_LOSS_LOSE_MULT = 1.25;  // more losses on defeat. Raise to punish failed attacks; lower if you want gentle defeats.
 const ATK_SOLDIER_LOSS_MIN       = 1;     // at least 1 loss when S0_att > 0. Set to 0 to allow truly lossless edge cases.
 
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Fortification health influence (tunable)
+// h = fort_hp / full_hp. At h=0.5 → neutral; h=0 → "exposed"; h=1.0 → "fortified".
+// If your DB stores a max HP, set STRUCT_FULL_HP_DEFAULT to that value (or update to fetch it).
+const STRUCT_FULL_HP_DEFAULT = 100000;  // set to your game's fort max HP if not in DB
+// Curve shaping (separate low/high to taste)
+const FORT_CURVE_EXP_LOW  = 1.0; // curvature below 50% HP    (1.0 = linear)
+const FORT_CURVE_EXP_HIGH = 1.0; // curvature above 50% HP    (1.0 = linear)
+// Multipliers at the extremes (applied smoothly from 50% → 0% / 50% → 100%)
+// Below 50% HP (penalties for defender):
+const FORT_LOW_GUARD_KILL_BOOST_MAX          = 0.30; // up to +30% guards killed at 0%
+const FORT_LOW_CREDITS_PLUNDER_BOOST_MAX     = 0.35; // up to +35% credits plundered at 0%
+const FORT_LOW_DEF_PENALTY_MAX               = 0.00; // up to -X% defense at 0% (0 disables penalty)
+// Above 50% HP (benefits for defender):
+const FORT_HIGH_DEF_BONUS_MAX                = 0.15; // up to +15% defense at 100%
+const FORT_HIGH_GUARD_KILL_REDUCTION_MAX     = 0.25; // up to -25% guards killed at 100%
+const FORT_HIGH_CREDITS_PLUNDER_REDUCTION_MAX= 0.25; // up to -25% plunder at 100%
+
+
 // ─────────────────────────────────────────────────────────────────────────────
 /** INPUT VALIDATION */
 // ─────────────────────────────────────────────────────────────────────────────
@@ -232,6 +252,33 @@ try {
     $RawAttack  = (($base_soldier_atk * $strength_mult) + $armory_attack_bonus) * $offense_upgrade_mult;
     $RawDefense = (($base_guard_def + $defender_armory_defense_bonus) * $constitution_mult) * $defense_upgrade_mult;
 
+    // ─────────────────────────────────────────────────────────────────────────────
+    // Fortification health → multipliers (runs before final strengths / kills / plunder)
+    // ─────────────────────────────────────────────────────────────────────────────
+    {
+    $fort_hp      = max(0, (int)($defender['fortification_hitpoints'] ?? 0));
+    $fort_full_hp = (int)STRUCT_FULL_HP_DEFAULT; // if you later store max HP in DB, replace here
+    $h = ($fort_full_hp > 0) ? max(0.0, min(1.0, $fort_hp / $fort_full_hp)) : 0.5; // neutral if unknown
+    // Map to t ∈ [-1, +1] where 0 = neutral at 50%
+    $t = ($h - 0.5) * 2.0;
+    $low  = ($t < 0) ? pow(-$t, FORT_CURVE_EXP_LOW)  : 0.0; // 0.5→0 up to 1.0
+    $high = ($t > 0) ? pow( $t, FORT_CURVE_EXP_HIGH) : 0.0; // 0.5→1 up to 1.0
+
+    // Guard kill multiplier ( >1 below 50%, <1 above 50% )
+    $FORT_GUARD_KILL_MULT = (1.0 + FORT_LOW_GUARD_KILL_BOOST_MAX * $low)
+                          * (1.0 - FORT_HIGH_GUARD_KILL_REDUCTION_MAX * $high);
+    // Plunder multiplier ( >1 below 50%, <1 above 50% )
+    $FORT_PLUNDER_MULT    = (1.0 + FORT_LOW_CREDITS_PLUNDER_BOOST_MAX * $low)
+                          * (1.0 - FORT_HIGH_CREDITS_PLUNDER_REDUCTION_MAX * $high);
+    // Defense multiplier ( >=1 above 50%; can be <=1 below 50% if penalty enabled)
+    $FORT_DEFENSE_MULT    = (1.0 - FORT_LOW_DEF_PENALTY_MAX * $low)
+                          * (1.0 + FORT_HIGH_DEF_BONUS_MAX * $high);
+
+    // Apply defense mult directly on raw defense prior to noise/turns
+    $RawDefense *= max(0.10, $FORT_DEFENSE_MULT);
+}
+
+
     // Turns multiplier
     $TurnsMult = min(1 + ATK_TURNS_SOFT_EXP * (pow(max(1, $attack_turns), ATK_TURNS_SOFT_EXP) - 1), ATK_TURNS_MAX_MULT);
 
@@ -254,7 +301,8 @@ try {
     $G0 = max(0, (int)$defender['guards']);
     $KillFrac_raw = GUARD_KILL_BASE_FRAC + GUARD_KILL_ADVANTAGE_GAIN * max(0.0, min(1.0, $R - 1.0));
     $TurnsAssist  = max(0.0, $TurnsMult - 1.0);
-    $KillFrac     = $KillFrac_raw * (1 + 0.2 * $TurnsAssist);
+    $KillFrac     = $KillFrac_raw * (1 + 0.2 * $TurnsAssist)
+                               * (isset($FORT_GUARD_KILL_MULT) ? $FORT_GUARD_KILL_MULT : 1.0);
     if (!$attacker_wins) { $KillFrac *= 0.5; }
 
     $proposed_loss = (int)floor($G0 * $KillFrac);
@@ -310,7 +358,9 @@ try {
         $base_plunder = (int)floor($defender_credits_before * min($steal_pct_raw, CREDITS_STEAL_CAP_PCT));
 
         // Apply anti-farm factor (hourly/daily rules)
-        $credits_stolen = (int)floor($base_plunder * $loot_factor);
+        // Fort health can *increase* or *decrease* plunder beyond the normal cap intent.
+        // We apply it here by multiplying post-cap/pre-anti-farm base plunder.
+        $credits_stolen = (int)floor($base_plunder * (isset($FORT_PLUNDER_MULT) ? $FORT_PLUNDER_MULT : 1.0) * $loot_factor);
     }
 
     $actual_stolen = min($credits_stolen, max(0, (int)$defender['credits'])); // final clamp
