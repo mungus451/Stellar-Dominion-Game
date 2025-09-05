@@ -57,8 +57,8 @@ const CREDITS_STEAL_GROWTH        = 0.1; // Raise to reward big mismatches; lowe
 // loss_frac = BASE + ADV_GAIN * clamp(R-1,0..1) then × small turns boost, ×0.5 if attacker loses. Guard floor prevents dropping below GUARD_FLOOR total.
 
 
-const GUARD_KILL_BASE_FRAC        = 0.02; // Raise to speed attrition in fair fights.
-const GUARD_KILL_ADVANTAGE_GAIN   = 0.04; // Raise to let strong attackers chew guards faster.
+const GUARD_KILL_BASE_FRAC        = 0.001; // Raise to speed attrition in fair fights.
+const GUARD_KILL_ADVANTAGE_GAIN   = 0.02; // Raise to let strong attackers chew guards faster.
 const GUARD_FLOOR                 = 20000; // Raise to extend defensive longevity; lower to allow full wipeouts.
 
 // Structure damage (on defender fortifications)
