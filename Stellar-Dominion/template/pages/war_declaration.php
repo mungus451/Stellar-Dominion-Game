@@ -9,6 +9,7 @@ $ROOT = dirname(__DIR__, 2);
 require_once $ROOT . '/config/config.php';
 require_once $ROOT . '/src/Game/GameData.php';
 require_once $ROOT . '/src/Game/GameFunctions.php';
+require_once $ROOT . '/template/includes/advisor_hydration.php';
 
 // ── Authz: leaders/officers only (hierarchy 1 or 2)
 $user_id = (int)($_SESSION['id'] ?? 0);
@@ -30,6 +31,8 @@ if (!$user_data || !in_array((int)$user_data['hierarchy'], [1, 2], true)) {
     header("Location: /alliance");
     exit;
 }
+
+
 
 // ── Alliances list (exclude own)
 $sql_alliances = "SELECT id, name, tag FROM alliances WHERE id != ?";

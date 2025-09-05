@@ -10,6 +10,7 @@ require_once __DIR__ . '/../../config/config.php';
 require_once __DIR__ . '/../../src/Game/GameData.php';
 require_once __DIR__ . '/../../src/Controllers/BaseAllianceController.php';
 require_once __DIR__ . '/../../src/Controllers/AllianceResourceController.php';
+require_once __DIR__ . '/../includes/advisor_hydration.php';
 
 if (session_status() !== PHP_SESSION_ACTIVE) { @session_start(); }
 $link or die('DB link not set');
@@ -89,47 +90,6 @@ if (!$alliance_id) {
     header("Location: /alliance.php");
     exit;
 }
-
-/* ------------- Advisor stats hydration (credits & next-turn timer) ------------- */
-// Pull the player-facing stats the advisor can display. It will gracefully ignore
-// anything missing, but we provide the essentials here.
-$user_stats = null;
-if ($sessionUserId) {
-    if ($stmt = mysqli_prepare($link, "SELECT credits, banked_credits, attack_turns, last_updated, level, experience FROM users WHERE id = ? LIMIT 1")) {
-        mysqli_stmt_bind_param($stmt, "i", $sessionUserId);
-        mysqli_stmt_execute($stmt);
-        if ($__row = mysqli_fetch_assoc(mysqli_stmt_get_result($stmt))) {
-            $user_stats = [
-                'credits'        => (int)($__row['credits'] ?? 0),
-                'banked_credits' => (int)($__row['banked_credits'] ?? 0),
-                'attack_turns'   => (int)($__row['attack_turns'] ?? 0),
-                'last_updated'   => (string)($__row['last_updated'] ?? ''),
-                'level'          => (int)($__row['level'] ?? 1),
-            ];
-            // Optional progress bar inputs used by advisor if present
-            $user_xp    = (int)($__row['experience'] ?? 0);
-            $user_level = (int)($__row['level'] ?? 1);
-        }
-        mysqli_stmt_close($stmt);
-    }
-}
-
-// Provide an explicit countdown to next turn (advisor can also derive this from last_updated).
-try {
-    $now = new DateTime('now', new DateTimeZone('UTC')); // advisor will also use this if set
-    if (is_array($user_stats) && !empty($user_stats['last_updated'])) {
-        $last = new DateTime((string)$user_stats['last_updated'], new DateTimeZone('UTC'));
-        $elapsed = max(0, $now->getTimestamp() - $last->getTimestamp());
-        $TURN_INTERVAL = 600; // 10 minutes per turn
-        $seconds_until_next_turn = $TURN_INTERVAL - ($elapsed % $TURN_INTERVAL);
-        $seconds_until_next_turn = max(0, min($TURN_INTERVAL, (int)$seconds_until_next_turn));
-        $minutes_until_next_turn = intdiv($seconds_until_next_turn, 60);
-        $seconds_remainder       = $seconds_until_next_turn % 60;
-    }
-} catch (Throwable $e) {
-    // Leave timer vars unset; advisor will fall back safely.
-}
-
 
 /* ------------------------------ Data loads ------------------------------ */
 // Alliance bank & leader
