@@ -8,6 +8,7 @@ date_default_timezone_set('UTC');
 require_once __DIR__ . '/../../config/config.php';
 require_once __DIR__ . '/../../src/Game/GameData.php';
 require_once __DIR__ . '/../../src/Game/GameFunctions.php';
+require_once __DIR__ . '/../includes/advisor_hydration.php';
 
 $user_id = (int)($_SESSION['id'] ?? 0);
 if ($user_id <= 0) { header('Location: /index.php'); exit; }
@@ -76,26 +77,12 @@ while ($row = mysqli_fetch_assoc($targets_rs)) {
 }
 mysqli_stmt_close($stmt_t);
 
-// Timers
-$turn_interval_minutes = 10;
-$last_updated = new DateTime($me['last_updated'] ?? gmdate('Y-m-d H:i:s'), new DateTimeZone('UTC'));
-$now = new DateTime('now', new DateTimeZone('UTC'));
-$interval = $turn_interval_minutes * 60;
-$elapsed  = $now->getTimestamp() - $last_updated->getTimestamp();
-$seconds_until_next_turn = $interval - ($elapsed % $interval);
-if ($seconds_until_next_turn < 0) $seconds_until_next_turn = 0;
-$minutes_until_next_turn = (int)floor($seconds_until_next_turn / 60);
-$seconds_remainder = $seconds_until_next_turn % 60;
-
 // --- HEADER ---
 include_once __DIR__ . '/../includes/header.php';
 ?>
 
 <aside class="lg:col-span-1 space-y-4">
     <?php 
-        $user_xp = (int)($me['experience'] ?? 0);
-        $user_level = (int)($me['level'] ?? 1);
-        // advisor.php expects: $minutes_until_next_turn, $seconds_remainder, $now
         include_once __DIR__ . '/../includes/advisor.php';
     ?>
 

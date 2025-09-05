@@ -12,6 +12,9 @@ if (!isset($_SESSION["loggedin"]) || $_SESSION["loggedin"] !== true) {
     exit;
 }
 require_once __DIR__ . '/../../config/config.php';
+require_once __DIR__ . '/../../src/Game/GameData.php';
+require_once __DIR__ . '/../../src/Game/GameFunctions.php';
+require_once __DIR__ . '/../includes/advisor_hydration.php';
 
 // --- FORM SUBMISSION HANDLING (via AJAX/POST) ---
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
@@ -19,9 +22,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     exit;
 }
 
-// --- PAGE DISPLAY LOGIC ---
-require_once __DIR__ . '/../../src/Game/GameData.php';
-require_once __DIR__ . '/../../src/Game/GameFunctions.php';
 date_default_timezone_set('UTC');
 
 $user_id = (int)$_SESSION['id'];
@@ -132,13 +132,7 @@ function sd_armory_power_line(array $item, string $loadout): string {
     return $label . ': +' . number_format($val) . $suffix;
 }
 
-// --- TIMER CALCULATIONS ---
-$now = new DateTime('now', new DateTimeZone('UTC'));
-$turn_interval_minutes = 10;
-$last_updated = new DateTime($user_stats['last_updated'], new DateTimeZone('UTC'));
-$seconds_until_next_turn = ($turn_interval_minutes * 60) - (($now->getTimestamp() - $last_updated->getTimestamp()) % ($turn_interval_minutes * 60));
-$minutes_until_next_turn = floor($seconds_until_next_turn / 60);
-$seconds_remainder = $seconds_until_next_turn % 60;
+
 
 // --- CSRF TOKEN & HEADER ---
 $csrf_token = generate_csrf_token('upgrade_items');
@@ -148,8 +142,6 @@ include_once __DIR__ . '/../includes/header.php';
 <!-- SIDEBAR -->
 <aside class="lg:col-span-1 space-y-4" id="armory-sidebar" data-charisma-pct="<?php echo (int)$charisma_pct; ?>">
     <?php 
-        $user_xp = (int)$user_stats['experience'];
-        $user_level = (int)$user_stats['level'];
         include_once __DIR__ . '/../includes/advisor.php'; 
     ?>
     <div id="armory-summary" class="content-box rounded-lg p-4 sticky top-4">
