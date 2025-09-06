@@ -1,23 +1,56 @@
 <?php
-// Enable full error reporting
-ini_set('display_errors', 1);
-ini_set('display_startup_errors', 1);
-error_reporting(E_ALL);
+// Load environment variables if running in serverless environment
+if (file_exists(__DIR__ . '/../../vendor/autoload.php')) {
+    require_once __DIR__ . '/../../vendor/autoload.php';
+    // Load .env file if it exists (for local development)
+    if (file_exists(__DIR__ . '/../.env') && class_exists('Dotenv\Dotenv')) {
+        $dotenv = Dotenv\Dotenv::createImmutable(__DIR__ . '/..');
+        $dotenv->load();
+    }
+}
+// Define the project root directory based on the location of this config file.
+if (!defined('PROJECT_ROOT')) {
+    define('PROJECT_ROOT', dirname(__DIR__));
+}
+
+// Initialize DynamoDB session handling if in serverless environment (AWS Lambda)
+if (isset($_ENV['AWS_LAMBDA_FUNCTION_NAME']) || isset($_ENV['DYNAMODB_SESSION_TABLE'])) {
+    require_once PROJECT_ROOT . '/src/Services/DynamoDBSessionHandler.php';
+    StellarDominion\Services\DynamoDBSessionHandler::register();
+}
 
 // Start the session if it's not already started. This is crucial for CSRF protection.
 if (session_status() == PHP_SESSION_NONE) {
     session_start();
 }
 
-// --- Database Credentials ---
-define('DB_SERVER', 'localhost');
-define('DB_USERNAME', 'admin');
-define('DB_PASSWORD', 'password');
-define('DB_NAME', 'users');
+// Enable full error reporting
+ini_set('display_errors', 1);
+ini_set('display_startup_errors', 1);
+error_reporting(E_ALL);
 
-// Define the project root directory based on the location of this config file.
-if (!defined('PROJECT_ROOT')) {
-    define('PROJECT_ROOT', dirname(__DIR__));
+// --- Database Credentials ---
+// Use Secrets Manager in Lambda environment, fallback to environment variables or hardcoded values for local development
+if (file_exists(PROJECT_ROOT . '/src/Services/SecretsManagerService.php')) {
+    require_once PROJECT_ROOT . '/src/Services/SecretsManagerService.php';
+    $dbCredentials = StellarDominion\Services\SecretsManagerService::getDatabaseCredentialsWithFallback(
+        $_ENV['DB_SECRET_ARN'] ?? null,
+        [
+            'username' => $_ENV['DB_USERNAME'] ?? 'admin',
+            'password' => $_ENV['DB_PASSWORD'] ?? '',
+        ]
+    );
+    
+    define('DB_SERVER', $_ENV['DB_HOST'] ?? 'starlight-dominion-db.cluster-cl8ugqwekrkc.us-east-2.rds.amazonaws.com');
+    define('DB_USERNAME', $dbCredentials['username']);
+    define('DB_PASSWORD', $dbCredentials['password']);
+    define('DB_NAME', $_ENV['DB_NAME'] ?? 'users');
+} else {
+    // Fallback if SecretsManagerService is not available
+    define('DB_SERVER', $_ENV['DB_HOST'] ?? 'starlight-dominion-db.cluster-cl8ugqwekrkc.us-east-2.rds.amazonaws.com');
+    define('DB_USERNAME', $_ENV['DB_USERNAME'] ?? 'admin');
+    define('DB_PASSWORD', $_ENV['DB_PASSWORD']);
+    define('DB_NAME', $_ENV['DB_NAME'] ?? 'users');
 }
 
 // Include the new, secure CSRF Protection system.
