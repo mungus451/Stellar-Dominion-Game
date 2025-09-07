@@ -8,6 +8,9 @@
 require_once __DIR__ . '/BaseAllianceController.php';
 require_once __DIR__ . '/../Services/BadgeService.php';
 
+use StellarDominion\Services\FileManager\FileManagerFactory;
+use StellarDominion\Services\FileManager\FileValidator;
+
 class AllianceManagementController extends BaseAllianceController
 {
     public function __construct(mysqli $db)
@@ -622,34 +625,58 @@ class AllianceManagementController extends BaseAllianceController
 
     private function handleAvatarUpload(int $alliance_id): ?string
     {
-        if (isset($_FILES['avatar']) && $_FILES['avatar']['error'] === UPLOAD_ERR_OK) {
-            if ($_FILES['avatar']['size'] > 10000000) {
-                throw new Exception("File too large (10MB max).");
-            }
+        if (isset($_FILES['avatar']) && $_FILES['avatar']['error'] !== UPLOAD_ERR_NO_FILE) {
+            try {
+                // Initialize file validator
+                $validator = new FileValidator([
+                    'allowed_extensions' => ['jpg', 'jpeg', 'png', 'gif', 'avif'],
+                    'allowed_mime_types' => ['image/jpeg', 'image/png', 'image/gif', 'image/avif'],
+                    'max_file_size' => 10485760, // 10MB
+                    'min_file_size' => 1024, // 1KB
+                ]);
 
-            $finfo = new finfo(FILEINFO_MIME_TYPE);
-            $mime_type = $finfo->file($_FILES['avatar']['tmp_name']);
-            $allowed_types = ['image/jpeg', 'image/png', 'image/gif', 'image/avif'];
-
-            if (!in_array($mime_type, $allowed_types)) {
-                throw new Exception("Invalid file type. Only JPG, PNG, GIF, and AVIF are allowed.");
-            }
-
-            $upload_dir = __DIR__ . '/../../public/uploads/avatars/';
-            if (!is_dir($upload_dir)) {
-                if (!mkdir($upload_dir, 0755, true)) {
-                    throw new Exception("Failed to create avatar directory.");
+                // Validate the uploaded file
+                $validation = $validator->validateUploadedFile($_FILES['avatar']);
+                
+                if (!$validation['valid']) {
+                    throw new Exception($validation['error']);
                 }
-            }
 
-            $file_ext = pathinfo($_FILES['avatar']['name'], PATHINFO_EXTENSION);
-            $new_filename = 'alliance_avatar_' . $alliance_id . '_' . time() . '.' . $file_ext;
-            $destination = $upload_dir . $new_filename;
-
-            if (move_uploaded_file($_FILES['avatar']['tmp_name'], $destination)) {
-                return '/uploads/avatars/' . $new_filename;
+                // Get file manager instance
+                $fileManager = FileManagerFactory::createFromEnvironment();
+                
+                // Generate safe filename
+                $safeFilename = $validator->generateSafeFilename(
+                    $_FILES['avatar']['name'], 
+                    'alliance_avatar', 
+                    $alliance_id
+                );
+                
+                // Define destination path
+                $destinationPath = 'avatars/' . $safeFilename;
+                
+                // Upload options
+                $uploadOptions = [
+                    'content_type' => $_FILES['avatar']['type'],
+                    'metadata' => [
+                        'alliance_id' => (string)$alliance_id,
+                        'upload_time' => date('Y-m-d H:i:s'),
+                        'original_name' => $_FILES['avatar']['name'],
+                        'type' => 'alliance_avatar'
+                    ]
+                ];
+                
+                // Attempt upload
+                if ($fileManager->upload($_FILES['avatar']['tmp_name'], $destinationPath, $uploadOptions)) {
+                    // Return the URL for database storage
+                    return $fileManager->getUrl($destinationPath);
+                } else {
+                    throw new Exception("Failed to upload file. Please try again.");
+                }
+                
+            } catch (Exception $e) {
+                throw new Exception("Upload Error: " . $e->getMessage());
             }
-            throw new Exception("Could not move uploaded file.");
         }
         return null;
     }

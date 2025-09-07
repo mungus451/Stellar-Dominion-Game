@@ -123,5 +123,30 @@ define('SMTP_SECURE', 'tls'); // Use 'ssl' for port 465
 define('MAIL_FROM_ADDRESS', 'no-reply@starlightdominion.com');
 define('MAIL_FROM_NAME', 'Starlight Dominion');
 
+// --- File Storage Configuration ---
+// File storage driver: 'local' or 's3'
+define('FILE_STORAGE_DRIVER', $_ENV['FILE_STORAGE_DRIVER'] ?? 'local');
+
+// Local file storage settings
+define('FILE_STORAGE_LOCAL_PATH', $_ENV['FILE_STORAGE_LOCAL_PATH'] ?? PROJECT_ROOT . '/public/uploads');
+define('FILE_STORAGE_LOCAL_URL', $_ENV['FILE_STORAGE_LOCAL_URL'] ?? '/uploads');
+
+// S3 file storage settings
+define('FILE_STORAGE_S3_BUCKET', $_ENV['FILE_STORAGE_S3_BUCKET'] ?? '');
+define('FILE_STORAGE_S3_REGION', $_ENV['FILE_STORAGE_S3_REGION'] ?? 'us-east-1');
+define('FILE_STORAGE_S3_URL', $_ENV['FILE_STORAGE_S3_URL'] ?? null);
+
+// Include FileManager classes
+require_once PROJECT_ROOT . '/src/Services/FileManager/FileManagerInterface.php';
+require_once PROJECT_ROOT . '/src/Services/FileManager/FileDriverType.php';
+require_once PROJECT_ROOT . '/src/Services/FileManager/DriverType.php';
+require_once PROJECT_ROOT . '/src/Services/FileManager/Config/FileManagerConfigInterface.php';
+require_once PROJECT_ROOT . '/src/Services/FileManager/Config/LocalFileManagerConfig.php';
+require_once PROJECT_ROOT . '/src/Services/FileManager/Config/S3FileManagerConfig.php';
+require_once PROJECT_ROOT . '/src/Services/FileManager/LocalFileManager.php';
+require_once PROJECT_ROOT . '/src/Services/FileManager/S3FileManager.php';
+require_once PROJECT_ROOT . '/src/Services/FileManager/FileManagerFactory.php';
+require_once PROJECT_ROOT . '/src/Services/FileManager/FileValidator.php';
+
 
 ?>

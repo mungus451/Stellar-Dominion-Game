@@ -1,0 +1,299 @@
+<?php
+
+namespace StellarDominion\Services\FileManager;
+
+use Aws\S3\S3Client;
+use Aws\Exception\AwsException;
+
+/**
+ * S3 File Manager
+ * 
+ * Implements file operations for Amazon S3 storage.
+ * Handles file uploads, deletions, and management on S3.
+ */
+class S3FileManager implements FileManagerInterface
+{
+	private S3Client $s3Client;
+	private string $bucket;
+	private string $region;
+	private string $baseUrl;
+
+	/**
+	 * Constructor
+	 * 
+	 * @param string $bucket The S3 bucket name
+	 * @param string $region The AWS region
+	 * @param string $accessKeyId AWS access key ID (optional if using IAM roles)
+	 * @param string $secretAccessKey AWS secret access key (optional if using IAM roles)
+	 * @param string $baseUrl Custom base URL for accessing files (optional)
+	 */
+	public function __construct(
+		string $bucket,
+		string $region,
+		?string $accessKeyId = null,
+		?string $secretAccessKey = null,
+		?string $baseUrl = null
+	) {
+		$this->bucket = $bucket;
+		$this->region = $region;
+
+		// Build S3 client configuration
+		$config = [
+			'version' => 'latest',
+			'region' => $region,
+		];
+
+		// Add credentials if provided (for local development)
+		if ($accessKeyId && $secretAccessKey) {
+			$config['credentials'] = [
+				'key' => $accessKeyId,
+				'secret' => $secretAccessKey,
+			];
+		}
+
+		$this->s3Client = new S3Client($config);
+		
+		// Set base URL (use custom or default S3 URL)
+		$this->baseUrl = $baseUrl ?: "https://{$bucket}.s3.{$region}.amazonaws.com";
+	}
+
+	/**
+	 * Upload a file to S3
+	 * 
+	 * @param string $sourceFile The source file path (usually tmp_name from $_FILES)
+	 * @param string $destinationPath The destination path (S3 key)
+	 * @param array $options Additional options (ACL, metadata, etc.)
+	 * @return bool True if upload successful, false otherwise
+	 * @throws \Exception If upload fails with specific error details
+	 */
+	public function upload(string $sourceFile, string $destinationPath, array $options = []): bool
+	{
+		try {
+			// Normalize the destination path (remove leading slash)
+			$key = ltrim($destinationPath, '/');
+
+			// Check if source file exists and is readable
+			if (!is_file($sourceFile) || !is_readable($sourceFile)) {
+				throw new \Exception("Source file does not exist or is not readable: {$sourceFile}");
+			}
+
+			// Default upload parameters
+			$uploadParams = [
+				'Bucket' => $this->bucket,
+				'Key' => $key,
+				'SourceFile' => $sourceFile,
+				'ACL' => $options['acl'] ?? 'public-read', // Default to public read
+			];
+
+			// Add content type if provided
+			if (isset($options['content_type'])) {
+				$uploadParams['ContentType'] = $options['content_type'];
+			} else {
+				// Try to detect content type
+				$finfo = new \finfo(FILEINFO_MIME_TYPE);
+				$uploadParams['ContentType'] = $finfo->file($sourceFile);
+			}
+
+			// Add metadata if provided
+			if (isset($options['metadata']) && is_array($options['metadata'])) {
+				$uploadParams['Metadata'] = $options['metadata'];
+			}
+
+			// Add cache control if provided
+			if (isset($options['cache_control'])) {
+				$uploadParams['CacheControl'] = $options['cache_control'];
+			}
+
+			// Upload the file
+			$result = $this->s3Client->putObject($uploadParams);
+
+			// Check if upload was successful
+			return !empty($result['ObjectURL']);
+
+		} catch (AwsException $e) {
+			throw new \Exception("S3 upload failed: " . $e->getMessage());
+		}
+	}
+
+	/**
+	 * Delete a file from S3
+	 * 
+	 * @param string $filePath The path of the file to delete (S3 key)
+	 * @return bool True if deletion successful, false otherwise
+	 * @throws \Exception If deletion fails with specific error details
+	 */
+	public function delete(string $filePath): bool
+	{
+		try {
+			// Normalize the file path (remove leading slash)
+			$key = ltrim($filePath, '/');
+
+			$this->s3Client->deleteObject([
+				'Bucket' => $this->bucket,
+				'Key' => $key,
+			]);
+
+			return true;
+
+		} catch (AwsException $e) {
+			throw new \Exception("S3 delete failed: " . $e->getMessage());
+		}
+	}
+
+	/**
+	 * Get the public URL for a file
+	 * 
+	 * @param string $filePath The path of the file (S3 key)
+	 * @return string The public URL to access the file
+	 */
+	public function getUrl(string $filePath): string
+	{
+		// Normalize the file path (remove leading slash)
+		$key = ltrim($filePath, '/');
+		return $this->baseUrl . '/' . $key;
+	}
+
+	/**
+	 * Check if a file exists in S3
+	 * 
+	 * @param string $filePath The path of the file to check (S3 key)
+	 * @return bool True if file exists, false otherwise
+	 */
+	public function exists(string $filePath): bool
+	{
+		try {
+			// Normalize the file path (remove leading slash)
+			$key = ltrim($filePath, '/');
+
+			$this->s3Client->headObject([
+				'Bucket' => $this->bucket,
+				'Key' => $key,
+			]);
+
+			return true;
+
+		} catch (AwsException $e) {
+			// If the error is 404, the file doesn't exist
+			if ($e->getStatusCode() === 404) {
+				return false;
+			}
+			
+			// For other errors, re-throw
+			throw new \Exception("S3 exists check failed: " . $e->getMessage());
+		}
+	}
+
+	/**
+	 * Get file information (size, last modified, etc.)
+	 * 
+	 * @param string $filePath The path of the file (S3 key)
+	 * @return array|null File information array or null if file doesn't exist
+	 */
+	public function getFileInfo(string $filePath): ?array
+	{
+		try {
+			// Normalize the file path (remove leading slash)
+			$key = ltrim($filePath, '/');
+
+			$result = $this->s3Client->headObject([
+				'Bucket' => $this->bucket,
+				'Key' => $key,
+			]);
+
+			return [
+				'size' => $result['ContentLength'],
+				'modified' => $result['LastModified']->getTimestamp(),
+				'type' => $result['ContentType'],
+				'etag' => trim($result['ETag'], '"'),
+				'path' => $filePath,
+				'metadata' => $result['Metadata'] ?? [],
+			];
+
+		} catch (AwsException $e) {
+			// If the error is 404, the file doesn't exist
+			if ($e->getStatusCode() === 404) {
+				return null;
+			}
+			
+			// For other errors, re-throw
+			throw new \Exception("S3 file info failed: " . $e->getMessage());
+		}
+	}
+
+	/**
+	 * Move a file from one location to another within S3
+	 * 
+	 * @param string $sourcePath The current file path (S3 key)
+	 * @param string $destinationPath The new file path (S3 key)
+	 * @return bool True if move successful, false otherwise
+	 * @throws \Exception If move operation fails
+	 */
+	public function move(string $sourcePath, string $destinationPath): bool
+	{
+		// S3 doesn't have a native "move" operation, so we copy then delete
+		if ($this->copy($sourcePath, $destinationPath)) {
+			return $this->delete($sourcePath);
+		}
+
+		return false;
+	}
+
+	/**
+	 * Copy a file to another location within S3
+	 * 
+	 * @param string $sourcePath The source file path (S3 key)
+	 * @param string $destinationPath The destination file path (S3 key)
+	 * @return bool True if copy successful, false otherwise
+	 * @throws \Exception If copy operation fails
+	 */
+	public function copy(string $sourcePath, string $destinationPath): bool
+	{
+		try {
+			// Normalize the file paths (remove leading slashes)
+			$sourceKey = ltrim($sourcePath, '/');
+			$destinationKey = ltrim($destinationPath, '/');
+
+			// Check if source file exists
+			if (!$this->exists($sourcePath)) {
+				throw new \Exception("Source file does not exist: {$sourcePath}");
+			}
+
+			$this->s3Client->copyObject([
+				'Bucket' => $this->bucket,
+				'Key' => $destinationKey,
+				'CopySource' => $this->bucket . '/' . $sourceKey,
+				'ACL' => 'public-read', // Maintain public read access
+			]);
+
+			return true;
+
+		} catch (AwsException $e) {
+			throw new \Exception("S3 copy failed: " . $e->getMessage());
+		}
+	}
+
+	/**
+	 * Generate a presigned URL for temporary access to a private file
+	 * 
+	 * @param string $filePath The path of the file (S3 key)
+	 * @param int $expirationMinutes Expiration time in minutes (default: 60)
+	 * @return string The presigned URL
+	 */
+	public function getPresignedUrl(string $filePath, int $expirationMinutes = 60): string
+	{
+		// Normalize the file path (remove leading slash)
+		$key = ltrim($filePath, '/');
+
+		$command = $this->s3Client->getCommand('GetObject', [
+			'Bucket' => $this->bucket,
+			'Key' => $key,
+		]);
+
+		$presignedUrl = $this->s3Client->createPresignedRequest(
+			$command,
+			'+' . $expirationMinutes . ' minutes'
+		);
+
+		return (string) $presignedUrl->getUri();
+	}
+}
