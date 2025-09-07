@@ -117,6 +117,13 @@ const FORT_HIGH_GUARD_KILL_REDUCTION_MAX     = 0.25; // up to -25% guards killed
 const FORT_HIGH_CREDITS_PLUNDER_REDUCTION_MAX= 0.25; // up to -25% plunder at 100%
 
 
+// When foundations are depleted (HP=0), apply percent damage across structures:
+const STRUCT_NOFOUND_WIN_MIN_PCT  = 5;   // 5..15% total distributed on victory
+const STRUCT_NOFOUND_WIN_MAX_PCT  = 15;
+const STRUCT_NOFOUND_LOSE_MIN_PCT = 1;   // 1..3% on defeat
+const STRUCT_NOFOUND_LOSE_MAX_PCT = 3;
+
+
 // ─────────────────────────────────────────────────────────────────────────────
 /** INPUT VALIDATION */
 // ─────────────────────────────────────────────────────────────────────────────
@@ -429,29 +436,57 @@ try {
     // ─────────────────────────────────────────────────────────────────────────
     // STRUCTURE (FORTIFICATION) DAMAGE
     // ─────────────────────────────────────────────────────────────────────────
-    $structure_damage = 0;
-    $hp0 = max(0, (int)($defender['fortification_hitpoints'] ?? 0));
-    if ($hp0 > 0) {
-        if ($attacker_wins) {
-            // Guard shielding (proportional, capped)
-            $ratio_after = ($G_after > 0 && $G0 > 0) ? ($G_after / $G0) : 0.0;
-            $guardShield = 1.0 - min(STRUCT_GUARD_PROTECT_FACTOR, STRUCT_GUARD_PROTECT_FACTOR * $ratio_after);
+$structure_damage = 0;
+$hp0 = max(0, (int)($defender['fortification_hitpoints'] ?? 0));
+if ($hp0 > 0) {
+    if ($attacker_wins) {
+        // Guard shielding (proportional, capped)
+        $ratio_after = ($G_after > 0 && $G0 > 0) ? ($G_after / $G0) : 0.0;
+        $guardShield = 1.0 - min(STRUCT_GUARD_PROTECT_FACTOR, STRUCT_GUARD_PROTECT_FACTOR * $ratio_after);
 
-            $RawStructDmg = STRUCT_BASE_DMG
-                * pow($R, STRUCT_ADVANTAGE_EXP)
-                * pow($TurnsMult, STRUCT_TURNS_EXP)
-                * (1.0 - $guardShield);
+        $RawStructDmg = STRUCT_BASE_DMG
+            * pow($R, STRUCT_ADVANTAGE_EXP)
+            * pow($TurnsMult, STRUCT_TURNS_EXP)
+            * (1.0 - $guardShield);
 
-            $structure_damage = (int)max(
-                (int)floor(STRUCT_MIN_DMG_IF_WIN * $hp0),
-                min((int)round($RawStructDmg), (int)floor(STRUCT_MAX_DMG_IF_WIN * $hp0))
-            );
-            $structure_damage = min($structure_damage, $hp0);
-        } else {
-            $structure_damage = (int)min((int)floor(0.02 * $hp0), (int)floor(0.1 * STRUCT_BASE_DMG));
-        }
+        $structure_damage = (int)max(
+            (int)floor(STRUCT_MIN_DMG_IF_WIN * $hp0),
+            min((int)round($RawStructDmg), (int)floor(STRUCT_MAX_DMG_IF_WIN * $hp0))
+        );
+        $structure_damage = min($structure_damage, $hp0);
+    } else {
+        $structure_damage = (int)min((int)floor(0.02 * $hp0), (int)floor(0.1 * STRUCT_BASE_DMG));
+    }
+} else {
+    // Foundations are fully depleted (equal to 0). Apply a total percent damage value
+    // to the defender's structures and distribute that damage randomly among them.
+    // This does not change "fortification_hitpoints" (already at 0), so we keep
+    // $structure_damage at 0 for the foundation field, and perform structure damage side effects.
+
+    // Choose the total percent to distribute based on battle outcome.
+    $total_structure_percent_damage = $attacker_wins
+        ? rand(STRUCTURE_DAMAGE_NO_FOUNDATION_WIN_MIN_PERCENT, STRUCTURE_DAMAGE_NO_FOUNDATION_WIN_MAX_PERCENT)
+        : rand(STRUCTURE_DAMAGE_NO_FOUNDATION_LOSE_MIN_PERCENT, STRUCTURE_DAMAGE_NO_FOUNDATION_LOSE_MAX_PERCENT);
+
+    // Perform the distribution. This call:
+    // - Ensures rows exist for the defender's current structures,
+    // - Splits the total percent into random chunks,
+    // - Applies damage per structure,
+    // - Handles the "0% health → downgrade one tier and lock until repaired" rule,
+    // - Returns a detailed log of what was applied.
+    $structure_damage_distribution_details = [];
+    if (function_exists('ss_distribute_structure_damage')) {
+        $structure_damage_distribution_details = ss_distribute_structure_damage(
+            $link,
+            (int)$defender['id'],
+            (int)$total_structure_percent_damage
+        );
     }
 
+    // Keep this at zero because this variable is specifically the amount of *foundation* damage.
+    $structure_damage = 0;
+
+}
     // ─────────────────────────────────────────────────────────────────────────
     // EXPERIENCE (XP) GAINS
     // ─────────────────────────────────────────────────────────────────────────

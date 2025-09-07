@@ -18,9 +18,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 }
 
 // --- PAGE DATA ---
-$csrf_intel  = generate_csrf_token('spy_intel');
-$csrf_sabo   = generate_csrf_token('spy_sabotage');
-$csrf_assas  = generate_csrf_token('spy_assassination');
+$csrf_intel   = generate_csrf_token('spy_intel');
+$csrf_sabo    = generate_csrf_token('spy_sabotage');
+$csrf_assas   = generate_csrf_token('spy_assassination');
+$csrf_totals  = generate_csrf_token('spy_total_sabotage');
 
 // current user for sidebar and alliance checks (read-only via StateService)
 $me = ss_get_user_state(
@@ -29,6 +30,11 @@ $me = ss_get_user_state(
     ['id','character_name','level','credits','attack_turns','spies','sentries','last_updated','experience','alliance_id']
 );
 $my_alliance_id = $me['alliance_id'] ?? null;
+
+// Total Sabotage dynamic cost preview (per attacker)
+$sabo_cost_info = function_exists('ss_total_sabotage_cost')
+    ? ss_total_sabotage_cost($link, $user_id)
+    : ['cost'=>0,'base'=>0,'uses'=>0,'mult'=>1.0,'cap'=>0,'net_worth'=>0];
 
 // target list (read-only helper adds army_size; excludes self)
 $targets = ss_get_targets($link, $user_id, 100);
@@ -68,6 +74,7 @@ include_once __DIR__ . '/../includes/header.php';
             <li class="flex justify-between"><span>Spies:</span> <span class="text-white font-semibold"><?php echo number_format((int)($me['spies'] ?? 0)); ?></span></li>
             <li class="flex justify-between"><span>Sentries:</span> <span class="text-white font-semibold"><?php echo number_format((int)($me['sentries'] ?? 0)); ?></span></li>
             <li class="flex justify-between"><span>Attack Turns:</span> <span class="text-white font-semibold"><?php echo number_format((int)($me['attack_turns'] ?? 0)); ?></span></li>
+            <li class="flex justify-between"><span>Total Sabotage Cost:</span> <span class="text-amber-300 font-bold"><?php echo number_format((int)($sabo_cost_info['cost'] ?? 0)); ?></span></li>
             <li class="flex justify-between border-t border-gray-600 pt-2 mt-2">
                 <span>Next Turn In:</span>
                 <span class="text-cyan-300 font-bold"><?php echo sprintf('%02d:%02d', $minutes_until_next_turn, $seconds_remainder); ?></span>
@@ -157,6 +164,39 @@ include_once __DIR__ . '/../includes/header.php';
                                         <input type="hidden" name="defender_id" value="<?php echo (int)$t['id']; ?>">
                                         <input type="number" name="attack_turns" min="1" max="10" value="1" class="w-12 bg-gray-900 border border-gray-600 rounded text-center p-1 text-xs">
                                         <button type="submit" class="bg-amber-700 hover:bg-amber-600 text-white text-xs font-semibold py-1 px-2 rounded-md">Sabotage</button>
+                                    </form>
+                                    <form action="/spy.php" method="POST" class="flex items-center gap-1">
+                                        <input type="hidden" name="csrf_token" value="<?php echo htmlspecialchars($csrf_totals, ENT_QUOTES, 'UTF-8'); ?>">
+                                        <input type="hidden" name="csrf_action" value="spy_total_sabotage">
+                                        <input type="hidden" name="mission_type" value="total_sabotage">
+                                        <input type="hidden" name="defender_id" value="<?php echo (int)$t['id']; ?>">
+                                        <input type="hidden" name="attack_turns" value="1">
+                                        <select name="target_mode" class="bg-gray-900 border border-gray-600 rounded text-xs px-1 py-0.5 mr-1">
+                                            <option value="structure">Structure</option>
+                                            <option value="cache">Loadout Cache</option>
+                                        </select>
+                                        <select name="target_key" class="bg-gray-900 border border-gray-600 rounded text-xs px-1 py-0.5 mr-1">
+                                            <optgroup label="Structures">
+                                                <option value="economy">Economy</option>
+                                                <option value="offense">Offense</option>
+                                                <option value="defense">Defense</option>
+                                                <option value="population">Population</option>
+                                                <option value="armory">Armory</option>
+                                            </optgroup>
+                                            <optgroup label="Loadout">
+                                                <option value="main_weapon">Main Weapons</option>
+                                                <option value="sidearm">Sidearms</option>
+                                                <option value="melee">Melee</option>
+                                                <option value="headgear">Head Gear</option>
+                                                <option value="explosives">Explosives</option>
+                                                <option value="drones">Drones</option>
+                                            </optgroup>
+                                        </select>
+                                        <button type="submit"
+                                                class="bg-fuchsia-700 hover:bg-fuchsia-600 text-white text-xs font-semibold py-1 px-2 rounded-md"
+                                                title="Total Sabotage (cost scales with usage)">
+                                            Total Sabotage
+                                        </button>
                                     </form>
                                     <button type="button"
                                             class="open-assass-modal bg-red-700 hover:bg-red-600 text-white text-xs font-semibold py-1 px-2 rounded-md"
@@ -259,6 +299,41 @@ include_once __DIR__ . '/../includes/header.php';
                                     <input type="hidden" name="defender_id" value="<?php echo (int)$t['id']; ?>">
                                     <input type="hidden" name="attack_turns" value="1" class="turns-for-<?php echo (int)$t['id']; ?>">
                                     <button type="submit" class="bg-amber-700 hover:bg-amber-600 text-white text-xs font-semibold py-1 px-3 rounded-md">Sabotage</button>
+                                </form>
+                                <form action="/spy.php" method="POST">
+                                    <input type="hidden" name="csrf_token" value="<?php echo htmlspecialchars($csrf_totals, ENT_QUOTES, 'UTF-8'); ?>">
+                                    <input type="hidden" name="csrf_action" value="spy_total_sabotage">
+                                    <input type="hidden" name="mission_type" value="total_sabotage">
+                                    <input type="hidden" name="defender_id" value="<?php echo (int)$t['id']; ?>">
+                                    <input type="hidden" name="attack_turns" value="1">
+                                    <div class="flex items-center gap-1">
+                                        <select name="target_mode" class="bg-gray-900 border border-gray-600 rounded text-xs px-1 py-0.5">
+                                            <option value="structure">Structure</option>
+                                            <option value="cache">Loadout Cache</option>
+                                        </select>
+                                        <select name="target_key" class="bg-gray-900 border border-gray-600 rounded text-xs px-1 py-0.5">
+                                            <optgroup label="Structures">
+                                                <option value="economy">Economy</option>
+                                                <option value="offense">Offense</option>
+                                                <option value="defense">Defense</option>
+                                                <option value="population">Population</option>
+                                                <option value="armory">Armory</option>
+                                            </optgroup>
+                                            <optgroup label="Loadout">
+                                                <option value="main_weapon">Main Weapons</option>
+                                                <option value="sidearm">Sidearms</option>
+                                                <option value="melee">Melee</option>
+                                                <option value="headgear">Head Gear</option>
+                                                <option value="explosives">Explosives</option>
+                                                <option value="drones">Drones</option>
+                                            </optgroup>
+                                        </select>
+                                        <button type="submit"
+                                                class="bg-fuchsia-700 hover:bg-fuchsia-600 text-white text-xs font-semibold py-1 px-3 rounded-md"
+                                                title="Total Sabotage (cost scales with usage)">
+                                            Total Sabotage
+                                        </button>
+                                    </div>
                                 </form>
                                 <button type="button"
                                         class="open-assass-modal bg-red-700 hover:bg-red-600 text-white text-xs font-semibold py-1 px-3 rounded-md"

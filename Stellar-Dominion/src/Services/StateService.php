@@ -380,3 +380,213 @@ if (!class_exists('StateService')) {
         }
     }
 }
+
+/** ───────────────────────────────────────────────────────────────────────────
+ * TOTAL SABOTAGE – Tunables
+ * ───────────────────────────────────────────────────────────────────────────*/
+if (!defined('SABOTAGE_MIN_COST_CREDITS'))      define('SABOTAGE_MIN_COST_CREDITS', 25000000); // 25m
+if (!defined('SABOTAGE_MIN_COST_NW_FRACTION'))  define('SABOTAGE_MIN_COST_NW_FRACTION', 0.01); // 1% NW
+if (!defined('SABOTAGE_MAX_COST_NW_FRACTION'))  define('SABOTAGE_MAX_COST_NW_FRACTION', 0.50); // 50% NW cap
+if (!defined('SABOTAGE_WINDOW_DAYS'))          define('SABOTAGE_WINDOW_DAYS', 7);
+if (!defined('SABOTAGE_STEP_PCT'))             define('SABOTAGE_STEP_PCT', 0.20); // +20% per use in window (tunable)
+
+/** Progressive cost with 7-day window reset; returns array with detail. */
+function ss_total_sabotage_cost(mysqli $link, int $user_id): array {
+    $sql = "SELECT net_worth, credits FROM users WHERE id = ?";
+    $st = mysqli_prepare($link, $sql);
+    mysqli_stmt_bind_param($st, "i", $user_id);
+    mysqli_stmt_execute($st);
+    $u = mysqli_fetch_assoc(mysqli_stmt_get_result($st)) ?: ['net_worth'=>0,'credits'=>0];
+    mysqli_stmt_close($st);
+
+    $nw  = max(0, (int)$u['net_worth']);
+    $base = max(SABOTAGE_MIN_COST_CREDITS, (int)floor($nw * SABOTAGE_MIN_COST_NW_FRACTION));
+
+    $now = gmdate('Y-m-d H:i:s');
+    $row = null;
+    if ($st = mysqli_prepare($link, "SELECT window_start, uses FROM spy_total_sabotage_usage WHERE user_id = ?")) {
+        mysqli_stmt_bind_param($st, "i", $user_id);
+        mysqli_stmt_execute($st);
+        $row = mysqli_fetch_assoc(mysqli_stmt_get_result($st));
+        mysqli_stmt_close($st);
+    }
+
+    $uses = 0;
+    if ($row) {
+        $win = strtotime($row['window_start'] . ' UTC');
+        if ($win !== false && time() - $win < SABOTAGE_WINDOW_DAYS * 86400) {
+            $uses = (int)$row['uses'];
+        }
+    }
+
+    $mult = 1.0 + max(0, $uses) * SABOTAGE_STEP_PCT;
+    $cost = (int)floor($base * $mult);
+    $cap  = (int)floor($nw * SABOTAGE_MAX_COST_NW_FRACTION);
+    $cost = min($cost, $cap);
+
+    return [
+        'base'       => $base,
+        'uses'       => $uses,
+        'mult'       => $mult,
+        'cost'       => $cost,
+        'cap'        => $cap,
+        'net_worth'  => $nw,
+        'credits'    => (int)$u['credits'],
+    ];
+}
+
+/** Increment (or start) window on use. */
+function ss_register_total_sabotage_use(mysqli $link, int $user_id): void {
+    $now = gmdate('Y-m-d H:i:s');
+    // Upsert logic
+    $sqlSel = "SELECT window_start, uses FROM spy_total_sabotage_usage WHERE user_id = ?";
+    $st = mysqli_prepare($link, $sqlSel);
+    mysqli_stmt_bind_param($st, "i", $user_id);
+    mysqli_stmt_execute($st);
+    $row = mysqli_fetch_assoc(mysqli_stmt_get_result($st));
+    mysqli_stmt_close($st);
+
+    if ($row) {
+        $inWindow = (time() - strtotime($row['window_start'] . ' UTC')) < SABOTAGE_WINDOW_DAYS * 86400;
+        if ($inWindow) {
+            $sqlUp = "UPDATE spy_total_sabotage_usage SET uses = uses + 1, last_used_at = ? WHERE user_id = ?";
+            $st = mysqli_prepare($link, $sqlUp);
+            mysqli_stmt_bind_param($st, "si", $now, $user_id);
+            mysqli_stmt_execute($st); mysqli_stmt_close($st);
+        } else {
+            $sqlRe = "UPDATE spy_total_sabotage_usage SET window_start = ?, uses = 1, last_used_at = ? WHERE user_id = ?";
+            $st = mysqli_prepare($link, $sqlRe);
+            mysqli_stmt_bind_param($st, "ssi", $now, $now, $user_id);
+            mysqli_stmt_execute($st); mysqli_stmt_close($st);
+        }
+    } else {
+        $sqlIn = "INSERT INTO spy_total_sabotage_usage (user_id, window_start, uses, last_used_at) VALUES (?, ?, 1, ?)";
+        $st = mysqli_prepare($link, $sqlIn);
+        mysqli_stmt_bind_param($st, "iss", $user_id, $now, $now);
+        mysqli_stmt_execute($st); mysqli_stmt_close($st);
+    }
+}
+
+/** ───────────────────────────────────────────────────────────────────────────
+ * STRUCTURE HEALTH MODEL
+ * ───────────────────────────────────────────────────────────────────────────*/
+function ss_get_structure_health_map(mysqli $link, int $user_id): array {
+    $map = [];
+    if ($st = mysqli_prepare($link, "SELECT structure_key, health_pct, locked FROM user_structure_health WHERE user_id = ?")) {
+        mysqli_stmt_bind_param($st, "i", $user_id);
+        mysqli_stmt_execute($st);
+        $rs = mysqli_stmt_get_result($st);
+        while ($r = mysqli_fetch_assoc($rs)) {
+            $map[$r['structure_key']] = ['health' => (int)$r['health_pct'], 'locked' => (int)$r['locked']];
+        }
+        mysqli_stmt_close($st);
+    }
+    return $map;
+}
+
+/** Ensure rows exist (idempotent) for keys present at lvl>0. */
+function ss_ensure_structure_rows(mysqli $link, int $user_id): void {
+    global $upgrades;
+    $map = [
+        'economy'    => 'economy_upgrade_level',
+        'offense'    => 'offense_upgrade_level',
+        'defense'    => 'defense_upgrade_level',
+        'population' => 'population_level',
+        'armory'     => 'armory_level',
+    ];
+    $cols = implode(',', array_map(fn($c) => "`$c`", $map));
+    $st = mysqli_prepare($link, "SELECT " . $cols . " FROM users WHERE id = ?");
+    mysqli_stmt_bind_param($st, "i", $user_id);
+    mysqli_stmt_execute($st);
+    $u = mysqli_fetch_assoc(mysqli_stmt_get_result($st)) ?: [];
+    mysqli_stmt_close($st);
+
+    foreach ($map as $key => $col) {
+        if (((int)($u[$col] ?? 0)) > 0) {
+            $sql = "INSERT IGNORE INTO user_structure_health (user_id, structure_key, health_pct)
+                    VALUES (?, ?, 100)";
+            $ins = mysqli_prepare($link, $sql);
+            mysqli_stmt_bind_param($ins, "is", $user_id, $key);
+            mysqli_stmt_execute($ins);
+            mysqli_stmt_close($ins);
+        }
+    }
+}
+
+/** Production multiplier by health: >=75%→1.0, 25..74%→0.5, <25%→0.0 */
+function ss_structure_output_multiplier_by_key(mysqli $link, int $user_id, string $key): float {
+    $rows = ss_get_structure_health_map($link, $user_id);
+    $h = (int)($rows[$key]['health'] ?? 100);
+    if ($h < 25) return 0.0;
+    if ($h < 75) return 0.5;
+    return 1.0;
+}
+
+/** Apply percent damage to a structure; handle 0%→downgrade+lock. Returns [new_health, downgraded(bool)]. */
+function ss_apply_structure_damage(mysqli $link, int $user_id, string $key, int $pct_damage): array {
+    $pct_damage = max(0, min(100, $pct_damage));
+    $row = ss_get_structure_health_map($link, $user_id)[$key] ?? ['health'=>100,'locked'=>0];
+    if ((int)$row['locked'] === 1) { // safe until repair
+        return [$row['health'], false];
+    }
+    $new = max(0, (int)$row['health'] - $pct_damage);
+
+    $downgraded = false;
+    if ($new <= 0) {
+        // downgrade one tier (if any), set to 0% and lock
+        $colMap = [
+            'economy'    => 'economy_upgrade_level',
+            'offense'    => 'offense_upgrade_level',
+            'defense'    => 'defense_upgrade_level',
+            'population' => 'population_level',
+            'armory'     => 'armory_level',
+        ];
+        $col = $colMap[$key] ?? null;
+        if ($col) {
+            $sql = "UPDATE users SET {$col} = GREATEST(0, {$col} - 1) WHERE id = ?";
+            $st = mysqli_prepare($link, $sql);
+            mysqli_stmt_bind_param($st, "i", $user_id);
+            mysqli_stmt_execute($st); mysqli_stmt_close($st);
+        }
+        $new = 0;
+        $downgraded = true;
+        $sql = "INSERT INTO user_structure_health (user_id, structure_key, health_pct, locked)
+                VALUES (?, ?, 0, 1)
+                ON DUPLICATE KEY UPDATE health_pct = VALUES(health_pct), locked = VALUES(locked)";
+        $up = mysqli_prepare($link, $sql);
+        mysqli_stmt_bind_param($up, "is", $user_id, $key);
+        mysqli_stmt_execute($up); mysqli_stmt_close($up);
+    } else {
+        $sql = "INSERT INTO user_structure_health (user_id, structure_key, health_pct)
+                VALUES (?, ?, ?)
+                ON DUPLICATE KEY UPDATE health_pct = VALUES(health_pct)";
+        $up = mysqli_prepare($link, $sql);
+        mysqli_stmt_bind_param($up, "isi", $user_id, $key, $new);
+        mysqli_stmt_execute($up); mysqli_stmt_close($up);
+    }
+
+    return [$new, $downgraded];
+}
+
+/** Randomly distribute total percent damage across unlocked structures the user currently has. */
+function ss_distribute_structure_damage(mysqli $link, int $user_id, int $total_pct_damage): array {
+    ss_ensure_structure_rows($link, $user_id);
+    $rows = ss_get_structure_health_map($link, $user_id);
+    $keys = [];
+    foreach ($rows as $k => $v) {
+        if ((int)$v['locked'] === 0) $keys[] = $k;
+    }
+    if (!$keys) return [];
+
+    // Split damage into random chunks that sum to total_pct_damage
+    $remaining = max(0, (int)$total_pct_damage);
+    $log = [];
+    while ($remaining > 0 && $keys) {
+        $k = $keys[array_rand($keys)];
+        $chunk = max(1, min($remaining, rand(5, 25))); // 5..25% chunks, tunable
+        [$newH, $down] = ss_apply_structure_damage($link, $user_id, $k, $chunk);
+        $log[] = ['key'=>$k, 'applied'=>$chunk, 'new_health'=>$newH, 'downgraded'=>$down];
+        $remaining -= $chunk;
+    }
+    return $log;
+}

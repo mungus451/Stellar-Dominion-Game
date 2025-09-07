@@ -180,10 +180,16 @@ function calculate_income_summary(mysqli $link, int $user_id, array $user_stats)
         $economy_pct += (float)($upgrades['economy']['levels'][$i]['bonuses']['income'] ?? 0);
     }
     $economy_mult = 1.0 + ($economy_pct / 100.0);
-
+    if (function_exists('ss_structure_output_multiplier_by_key')) {
+        $economy_mult *= ss_structure_output_multiplier_by_key($link, $user_id, 'economy');
+    }
+    // population upgrades -> citizens_per_turn (scale by structure health)
     $citizens_per_turn = $CITIZENS_BASE;
     for ($i = 1, $n = (int)($user_stats['population_level'] ?? 0); $i <= $n; $i++) {
         $citizens_per_turn += (int)($upgrades['population']['levels'][$i]['bonuses']['citizens'] ?? 0);
+    }
+    if (function_exists('ss_structure_output_multiplier_by_key')) {
+        $citizens_per_turn = (int)floor($citizens_per_turn * ss_structure_output_multiplier_by_key($link, $user_id, 'population'));
     }
     $citizens_per_turn += (int)$alliance_bonuses['citizens'];
 

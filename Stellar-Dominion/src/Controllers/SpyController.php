@@ -15,6 +15,7 @@ if (!isset($_SESSION["loggedin"]) || $_SESSION["loggedin"] !== true) {
 require_once __DIR__ . '/../../config/config.php';
 require_once __DIR__ . '/../Game/GameData.php';
 require_once __DIR__ . '/../Game/GameFunctions.php'; // canonical helpers
+require_once __DIR__ . '/../Services/StateService.php'; // sabotage + structure health helpers
 
 // Safety: if helpers weren't loaded for any reason, try again and/or define tiny fallbacks
 if (!function_exists('calculate_income_per_turn') || !function_exists('calculate_offense_power') || !function_exists('calculate_defense_power')) {
@@ -100,6 +101,14 @@ const SPY_INTEL_DRAW_COUNT    = 5;
 const SPY_ASSASSINATE_WINDOW_HRS = 2;
 const SPY_ASSASSINATE_MAX_TRIES  = 2;
 
+// TOTAL SABOTAGE: stricter success bar; separate damage/crit bands
+const SPY_TOTAL_SABOTAGE_MIN_RATIO   = 1.35;   // needs strong spy vs sentry
+const SPY_TOTAL_SABOTAGE_CRIT_RATIO  = 1.60;   // crit threshold
+const SPY_TOTAL_SABO_DMG_MIN_PCT     = 25;     // 25..40% to a structure on success
+const SPY_TOTAL_SABO_DMG_MAX_PCT     = 40;
+const SPY_TOTAL_SABO_CACHE_MIN_PCT   = 25;     // destroy 25..60% of a chosen loadout cache
+const SPY_TOTAL_SABO_CACHE_MAX_PCT   = 60;
+
 /* ─────────────────────────────────────────────────────────────────────────────
  * Helper primitives
  * ────────────────────────────────────────────────────────────────────────────*/
@@ -148,7 +157,7 @@ if ($mission_type === 'assassination' && !in_array($assassination_target, ['work
 mysqli_begin_transaction($link);
 try {
     // Lock attacker
-    $sqlA = "SELECT id, character_name, attack_turns, spies, sentries, level, spy_upgrade_level, defense_upgrade_level, constitution_points
+    $sqlA = "SELECT id, character_name, attack_turns, spies, sentries, level, spy_upgrade_level, defense_upgrade_level, constitution_points, credits
              FROM users WHERE id = ? FOR UPDATE";
     $stmtA = mysqli_prepare($link, $sqlA);
     mysqli_stmt_bind_param($stmtA, "i", $attacker_id);
@@ -284,6 +293,114 @@ try {
                 }
                 break;
             }
+
+            case 'total_sabotage': {
+                // Parameters
+                $target_mode  = isset($_POST['target_mode']) ? (string)$_POST['target_mode'] : 'structure'; // 'structure' | 'cache'
+                $target_key   = isset($_POST['target_key'])  ? (string)$_POST['target_key']  : '';          // e.g. 'economy' or 'main_weapon'
+                if ($target_key === '') {
+                    throw new Exception("Choose a target.");
+                }
+
+                // Progressive cost with 7-day window (min 25m or 1% NW, cap 50%)
+                if (!function_exists('ss_total_sabotage_cost') || !function_exists('ss_register_total_sabotage_use')) {
+                    throw new Exception("Missing sabotage helpers.");
+                }
+                $cost_info = ss_total_sabotage_cost($link, (int)$attacker_id);
+                $cost      = (int)$cost_info['cost'];
+                if ((int)$attacker['credits'] < $cost) {
+                    throw new Exception("Insufficient credits for Total Sabotage. Required: " . number_format($cost));
+                }
+
+                // Spend credits now (transaction open)
+                $sql_pay = "UPDATE users SET credits = credits - ? WHERE id = ?";
+                $stp = mysqli_prepare($link, $sql_pay);
+                mysqli_stmt_bind_param($stp, "ii", $cost, $attacker_id);
+                mysqli_stmt_execute($stp);
+                mysqli_stmt_close($stp);
+
+                // Register usage for progressive cost
+                ss_register_total_sabotage_use($link, (int)$attacker_id);
+
+                // Apply stricter success threshold for Total Sabotage
+                $ts_effective_ratio = $effective_ratio; // already includes turns + luck band
+                $success            = ($ts_effective_ratio >= SPY_TOTAL_SABOTAGE_MIN_RATIO);
+                $outcome            = $success ? 'success' : 'failure';
+                $critical           = ($ts_effective_ratio >= SPY_TOTAL_SABOTAGE_CRIT_RATIO);
+
+                // Prepare details for logging in generic logger at end
+                $detail = [
+                    'mode'     => $target_mode,
+                    'key'      => $target_key,
+                    'critical' => $critical ? 1 : 0,
+                    'cost'     => $cost
+                ];
+
+                if ($success) {
+                    if ($target_mode === 'structure') {
+                        // Ensure health rows exist then apply damage (100% if critical)
+                        if (!function_exists('ss_ensure_structure_rows') || !function_exists('ss_apply_structure_damage')) {
+                            throw new Exception("Missing structure helpers.");
+                        }
+                        ss_ensure_structure_rows($link, (int)$defender_id);
+                        $applied_percent = $critical ? 100 : rand((int)SPY_TOTAL_SABO_DMG_MIN_PCT, (int)SPY_TOTAL_SABO_DMG_MAX_PCT);
+                        [$new_health, $downgraded] = ss_apply_structure_damage($link, (int)$defender_id, (string)$target_key, (int)$applied_percent);
+
+                        $detail['applied_pct'] = (int)$applied_percent;
+                        $detail['new_health']  = (int)$new_health;
+                        $detail['downgraded']  = $downgraded ? 1 : 0;
+
+                        // For report compatibility: store percent in structure_damage field
+                        $structure_damage = (int)$applied_percent;
+                    } elseif ($target_mode === 'cache') {
+                        // Destroy part of chosen loadout cache using GameData category mapping
+                        $destroy_percent = $critical ? 100 : rand((int)SPY_TOTAL_SABO_CACHE_MIN_PCT, (int)SPY_TOTAL_SABO_CACHE_MAX_PCT);
+                        $destroyed_total = 0;
+
+                        // Build item list from GameData loadout category -> item keys
+                        $item_keys = [];
+                        if (isset($armory_loadouts)) {
+                            foreach ($armory_loadouts as $loadout) {
+                                if (isset($loadout['categories'][$target_key]['items']) && is_array($loadout['categories'][$target_key]['items'])) {
+                                    $item_keys = array_merge($item_keys, array_keys($loadout['categories'][$target_key]['items']));
+                                }
+                            }
+                        }
+                        $item_keys = array_values(array_unique($item_keys));
+
+                        if (!empty($item_keys)) {
+                            $sql_sel = "SELECT item_key, quantity FROM user_armory WHERE user_id = ? AND item_key = ?";
+                            $sql_upd = "UPDATE user_armory SET quantity = GREATEST(0, quantity - ?) WHERE user_id = ? AND item_key = ?";
+                            $stS = mysqli_prepare($link, $sql_sel);
+                            $stU = mysqli_prepare($link, $sql_upd);
+                            foreach ($item_keys as $ik) {
+                                mysqli_stmt_bind_param($stS, "is", $defender_id, $ik);
+                                mysqli_stmt_execute($stS);
+                                $r = mysqli_fetch_assoc(mysqli_stmt_get_result($stS)) ?: null;
+                                if (!$r) continue;
+                                $have  = (int)$r['quantity'];
+                                if ($have <= 0) continue;
+                                $delta = (int)floor($have * ($destroy_percent / 100.0));
+                                if ($delta > 0) {
+                                    mysqli_stmt_bind_param($stU, "iis", $delta, $defender_id, $ik);
+                                    mysqli_stmt_execute($stU);
+                                    $destroyed_total += $delta;
+                                }
+                            }
+                            mysqli_stmt_close($stS);
+                            mysqli_stmt_close($stU);
+                        }
+
+                        $detail['destroy_pct']     = (int)$destroy_percent;
+                        $detail['items_destroyed'] = (int)$destroyed_total;
+                        $units_killed              = (int)$destroyed_total; // reuse column for report
+                    }
+                }
+
+                // Hand details to the generic logger below
+                $intel_gathered_json = json_encode($detail);
+                break;
+            }
         }
     }
 
@@ -308,8 +425,8 @@ try {
         INSERT INTO spy_logs
             (attacker_id, defender_id, mission_type, outcome, intel_gathered,
              units_killed, structure_damage, attacker_spy_power, defender_sentry_power,
-             attacker_xp_gained, defender_xp_gained)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+             attacker_xp_gained, defender_xp_gained, mission_time)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, UTC_TIMESTAMP())
     ";
     $stmtL = mysqli_prepare($link, $sql_log);
     mysqli_stmt_bind_param(
