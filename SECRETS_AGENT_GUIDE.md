@@ -1,5 +1,18 @@
 # Secrets Manager Agent Configuration Guide
 
+⚠️ **IMPLEMENTATION STATUS: NOT YET IMPLEMENTED**
+
+This guide documents a **planned future implementation** of AWS Secrets Manager Agent. The `SecretsManagerAgentClient` class and related code **do not currently exist** in the codebase.
+
+**Current Status:**
+- ✅ Documentation: Complete (this guide)
+- ❌ Implementation: Not started
+- ✅ Regular SecretsManagerService: Available and working
+
+**To Use Now:** Use the existing `SecretsManagerService` class for secrets management.
+
+---
+
 This guide explains how to implement AWS Secrets Manager Agent as an alternative to direct API calls, which can significantly reduce costs and improve performance.
 
 ## Agent vs Direct API Comparison

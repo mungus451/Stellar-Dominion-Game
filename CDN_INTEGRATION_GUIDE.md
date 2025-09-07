@@ -1,48 +1,56 @@
 # CDN Integration Guide
 
-The Stellar Dominion file management system now includes comprehensive CDN integration to prevent denial of wallet attacks on S3 and reduce hosting costs.
+The Stellar Dominion file management system includes comprehensive CDN integration to prevent denial of wallet attacks on S3 and reduce hosting costs.
 
-## Features
+✅ **AUTOMATIC CDN DEPLOYMENT**: CloudFront CDN is automatically deployed via `serverless-lift` website construct.
 
-- **Environment-Aware**: Automatically uses CDN in production (Lambda) and direct S3 in development
-- **Cost Optimization**: Aggressive caching strategies to minimize S3 requests
-- **Denial of Wallet Prevention**: CloudFront shields S3 from direct public access
-- **Lambda Compatible**: Works seamlessly with serverless hosting
-- **Local Development Friendly**: No CDN required for development environments
+## Current Deployment Status
+
+- ✅ **S3 Bucket**: Automatically deployed via `serverless.yml`
+- ✅ **CloudFront CDN**: Automatically deployed via `serverless-lift` website construct
+- ✅ **CDN Support Code**: FileManager supports CDN when configured
+- ✅ **Auto CDN Setup**: Included in Serverless configuration via lift constructs
+- ✅ **CDN Environment Variable**: Automatically set via `${construct:website.cname}`
+
+## Architecture
+
+### Current Setup (Automatic CDN via Serverless-Lift)
+```
+┌─────────────────┐    ┌─────────────────┐    ┌─────────────────┐
+│   Lambda API    │    │   CloudFront    │    │   S3 Buckets    │
+│                 │    │   Distribution  │    │                 │
+│ FileManager     │◄──►│   (Auto-created)│◄──►│ • FileStorage   │
+│ (CDN URLs)      │    │                 │    │ • Website Assets│
+└─────────────────┘    │ ${construct:    │    │ (Both via Lift) │
+                       │  website.cname} │    └─────────────────┘
+                       └─────────────────┘
+```
 
 ## Quick Start
 
-### 1. Environment Configuration
+### 1. Automatic Environment Configuration
 
-Add these variables to your environment:
+The serverless.yml automatically provides everything needed:
 
 ```bash
-# For Production (Lambda)
-FILE_STORAGE_S3_BUCKET=stellar-dominion-files
-CLOUDFRONT_DOMAIN=https://cdn.stellar-dominion.com
-
-# For Development (Local)
-FILE_STORAGE_S3_BUCKET=stellar-dominion-dev
-# No CLOUDFRONT_DOMAIN needed - will use direct S3
+# Automatically available in Lambda environment via serverless-lift
+FILE_STORAGE_S3_BUCKET=starlight-dominion-files-{stage}
+CLOUDFRONT_DOMAIN=${construct:website.cname}  # Auto-set by lift construct
+AWS_REGION=us-east-2
 ```
 
-### 2. CloudFront Setup
+### 2. No Manual Setup Required
 
-Use the built-in configuration helper:
+✅ **Everything is automatic**:
 
-```php
-use StellarDominion\Services\FileManager\CloudFrontConfig;
-
-// Get recommended CloudFront configuration
-$config = CloudFrontConfig::getRecommendedConfig('your-s3-bucket-name');
-
-// Get cost optimization tips
-$tips = CloudFrontConfig::getCostOptimizationTips();
-```
+1. **CloudFront Distribution** - Created by `serverless-lift` website construct
+2. **CLOUDFRONT_DOMAIN environment variable** - Automatically set via `${construct:website.cname}`
+3. **Origin Access Control** - Configured by lift construct
+4. **S3 Bucket** - Created by serverless.yml resources
 
 ### 3. Using the File Manager
 
-The CDN integration is automatic:
+The CDN integration works automatically out of the box:
 
 ```php
 use StellarDominion\Services\FileManager\FileManagerFactory;
@@ -52,8 +60,10 @@ $fileManager = FileManagerFactory::create();
 // Upload a file - automatically gets optimized cache headers
 $result = $fileManager->upload('avatars/user_123.jpg', $fileData);
 
-// Get URL - automatically uses CDN in production, S3 in development
+// Get URL (CDN-aware automatically in production)
 $url = $fileManager->getUrl('avatars/user_123.jpg');
+// Production: https://d123456789012.cloudfront.net/avatars/user_123.jpg
+// Development: /uploads/avatars/user_123.jpg
 ```
 
 ## Architecture

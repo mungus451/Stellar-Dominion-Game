@@ -1,6 +1,11 @@
 # AWS Secrets Manager Managed Auto-Rotation with Lambda
 
-This document explains how AWS Secrets Manager **managed auto-rotation** works with Lambda functions and potential issues that may occur during rotation periods.
+This document explains how AWS Secrets Manager **managed auto-rotati```php
+// Application retrieves AWSCURRENT credentials
+$service = SecretsManagerService::create();
+$credentials = $service->getDatabaseCredentialsWithRotationFallback($_ENV['DB_SECRET_ARN']);
+// Connect to database successfully
+```works with Lambda functions and potential issues that may occur during rotation periods.
 
 ## Table of Contents
 
@@ -142,20 +147,14 @@ Secret AWSPENDING: new_password_123  ← This would work
 **Solution**: Our `SecretsManagerService` includes fallback logic:
 ```php
 // If AWSCURRENT fails, automatically try AWSPENDING
-public function getDatabaseCredentials(string $secretArn, string $versionStage = 'AWSCURRENT'): array
+public function getDatabaseCredentialsWithRotationFallback(string $secretArn): array
 {
     try {
-        // Try AWSCURRENT first
-        return $this->getCredentialsFromSecretsManager($secretArn, 'AWSCURRENT');
-    } catch (AwsException $e) {
-        // During rotation, fallback to AWSPENDING
-        if ($versionStage === 'AWSCURRENT') {
-            return $this->getCredentialsFromSecretsManager($secretArn, 'AWSPENDING');
-        }
-        throw $e;
+        return $this->getDatabaseCredentials($secretArn, 'AWSCURRENT');
+    } catch (\Exception $e) {
+        return $this->getDatabaseCredentials($secretArn, 'AWSPENDING');
     }
 }
-```
 
 #### Issue 2: API Rate Limiting
 **Problem**: Multiple Lambda instances calling Secrets Manager simultaneously
@@ -164,34 +163,50 @@ public function getDatabaseCredentials(string $secretArn, string $versionStage =
 
 ### Retry Logic Implementation
 
-Our implementation includes robust retry logic:
+Our implementation includes robust fallback logic for rotation scenarios:
 
 ```php
-public function getDatabaseCredentialsWithRetry(string $secretArn, int $maxRetries = 3, int $retryDelay = 2): array
+public function getDatabaseCredentialsWithRotationFallback(string $secretArn): array
 {
-    for ($attempt = 1; $attempt <= $maxRetries; $attempt++) {
+    try {
+        // Try AWSCURRENT first (99% of the time this works)
+        return $this->getDatabaseCredentials($secretArn, 'AWSCURRENT');
+    } catch (\Exception $e) {
+        // During rotation window, try AWSPENDING as fallback
+        error_log("AWSCURRENT failed during rotation, trying AWSPENDING: " . $e->getMessage());
         try {
-            return $this->getDatabaseCredentials($secretArn);
-        } catch (\Exception $e) {
-            if ($attempt < $maxRetries) {
-                sleep($retryDelay); // Exponential backoff recommended
-            }
+            return $this->getDatabaseCredentials($secretArn, 'AWSPENDING');
+        } catch (\Exception $fallbackException) {
+            error_log("Both AWSCURRENT and AWSPENDING failed: " . $fallbackException->getMessage());
+            throw new \Exception("Unable to retrieve credentials from any version: " . $e->getMessage());
         }
     }
-    throw $lastException;
 }
+
+## Secrets Manager Service Implementation
+
+### Current Implementation
+
+The current implementation provides basic secrets management without the agent:
+
+```php
+// Using the actual SecretsManagerService implementation
+$service = SecretsManagerService::create();
+$credentials = $service->getDatabaseCredentialsWithRotationFallback($_ENV['DB_SECRET_ARN']);
 ```
 
-## Secrets Manager Agent Alternative
+### Future Enhancement: Secrets Manager Agent
 
-### Why Use Secrets Manager Agent?
+The Secrets Manager Agent would address cost and performance concerns but is **not currently implemented**:
 
-The Secrets Manager Agent addresses the cost and performance concerns:
-
-1. **Cost Reduction**: Eliminates repeated API calls
-2. **Performance**: Local HTTP calls (~1-5ms) vs API calls (~50-200ms)
+1. **Cost Reduction**: Would eliminate repeated API calls
+2. **Performance**: Local HTTP calls (~1-5ms) vs API calls (~50-200ms)  
 3. **Reliability**: Built-in caching and retry logic
-4. **Rotation Handling**: Automatically handles version transitions
+4. **Rotation Handling**: Automatic version transitions
+
+### Current Cost Impact
+
+Each `GetSecretValue` call costs $0.05 per 10,000 requests, and API calls add 50-200ms latency.
 
 ### Agent Architecture
 
