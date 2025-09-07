@@ -145,6 +145,36 @@ if (($_SERVER['REQUEST_METHOD'] === 'POST') &&
     exit; // Ensure no further routing occurs after controller handled the POST.
 }
 
+// ─────────────────────────────────────────────────────────────────────────────
+// 4.5) NOTE: STATIC ASSETS NOW SERVED VIA CLOUDFRONT
+// ─────────────────────────────────────────────────────────────────────────────
+//
+// Static assets (/assets/*, /favicon.ico, /robots.txt) are now served directly
+// from S3 via CloudFront using the serverless-lift plugin. No need to handle
+// them in PHP anymore - they bypass Lambda entirely for better performance.
+
+// ─────────────────────────────────────────────────────────────────────────────
+
+// ─────────────────────────────────────────────────────────────────────────────
+// 4.6) SPECIAL-CASE: FAVICON REDIRECT
+// ─────────────────────────────────────────────────────────────────────────────
+//
+// Browsers automatically request /favicon.ico from the root. Redirect this to
+// our actual favicon location in the assets directory.
+if ($request_uri === '/favicon.ico') {
+    try {
+        require_once __DIR__ . '/../src/Controllers/AssetController.php';
+        $controller = new AssetController();
+        $controller->serveAsset('img/favicon.png'); // or favicon.ico if you have one
+        exit;
+    } catch (Exception $e) {
+        error_log("Favicon serving error: " . $e->getMessage());
+        http_response_code(404);
+        echo 'Favicon not found';
+        exit;
+    }
+}
+
 
 // ─────────────────────────────────────────────────────────────────────────────
 // 5) ROUTE TABLE: PUBLIC & AUTHENTICATED VIEWS + ACTION ENDPOINTS

@@ -8,15 +8,15 @@ use Aws\Exception\AwsException;
 /**
  * S3 File Manager
  * 
- * Implements file operations for Amazon S3 storage.
- * Handles file uploads, deletions, and management on S3.
+ * Implements file operations for Amazon S3 storage with CDN integration.
+ * Handles file uploads, deletions, and management on S3 with CloudFront support.
  */
 class S3FileManager implements FileManagerInterface
 {
 	private S3Client $s3Client;
 	private string $bucket;
 	private string $region;
-	private string $baseUrl;
+	private CDNManager $cdnManager;
 
 	/**
 	 * Constructor
@@ -25,7 +25,7 @@ class S3FileManager implements FileManagerInterface
 	 * @param string $region The AWS region
 	 * @param string $accessKeyId AWS access key ID (optional if using IAM roles)
 	 * @param string $secretAccessKey AWS secret access key (optional if using IAM roles)
-	 * @param string $baseUrl Custom base URL for accessing files (optional)
+	 * @param string $baseUrl Custom base URL for accessing files (CDN domain)
 	 */
 	public function __construct(
 		string $bucket,
@@ -53,12 +53,13 @@ class S3FileManager implements FileManagerInterface
 
 		$this->s3Client = new S3Client($config);
 		
-		// Set base URL (use custom or default S3 URL)
-		$this->baseUrl = $baseUrl ?: "https://{$bucket}.s3.{$region}.amazonaws.com";
+		// Initialize CDN manager
+		$s3BucketUrl = "https://{$bucket}.s3.{$region}.amazonaws.com";
+		$this->cdnManager = new CDNManager($s3BucketUrl, $baseUrl);
 	}
 
 	/**
-	 * Upload a file to S3
+	 * Upload a file to S3 with CDN optimization
 	 * 
 	 * @param string $sourceFile The source file path (usually tmp_name from $_FILES)
 	 * @param string $destinationPath The destination path (S3 key)
@@ -77,31 +78,34 @@ class S3FileManager implements FileManagerInterface
 				throw new \Exception("Source file does not exist or is not readable: {$sourceFile}");
 			}
 
+			// Get CDN-optimized upload options
+			$cdnOptions = $this->cdnManager->getOptimizedUploadOptions($destinationPath, $options);
+
 			// Default upload parameters
 			$uploadParams = [
 				'Bucket' => $this->bucket,
 				'Key' => $key,
 				'SourceFile' => $sourceFile,
-				'ACL' => $options['acl'] ?? 'public-read', // Default to public read
+				'ACL' => $cdnOptions['acl'] ?? 'public-read', // Default to public read
 			];
 
 			// Add content type if provided
-			if (isset($options['content_type'])) {
-				$uploadParams['ContentType'] = $options['content_type'];
+			if (isset($cdnOptions['content_type'])) {
+				$uploadParams['ContentType'] = $cdnOptions['content_type'];
 			} else {
 				// Try to detect content type
 				$finfo = new \finfo(FILEINFO_MIME_TYPE);
 				$uploadParams['ContentType'] = $finfo->file($sourceFile);
 			}
 
-			// Add metadata if provided
-			if (isset($options['metadata']) && is_array($options['metadata'])) {
-				$uploadParams['Metadata'] = $options['metadata'];
+			// Add CDN-optimized cache control
+			if (isset($cdnOptions['cache_control'])) {
+				$uploadParams['CacheControl'] = $cdnOptions['cache_control'];
 			}
 
-			// Add cache control if provided
-			if (isset($options['cache_control'])) {
-				$uploadParams['CacheControl'] = $options['cache_control'];
+			// Add metadata if provided
+			if (isset($cdnOptions['metadata']) && is_array($cdnOptions['metadata'])) {
+				$uploadParams['Metadata'] = $cdnOptions['metadata'];
 			}
 
 			// Upload the file
@@ -141,16 +145,14 @@ class S3FileManager implements FileManagerInterface
 	}
 
 	/**
-	 * Get the public URL for a file
+	 * Get the public URL for a file (CDN-aware)
 	 * 
 	 * @param string $filePath The path of the file (S3 key)
-	 * @return string The public URL to access the file
+	 * @return string The public URL to access the file (CDN URL in production, S3 URL in development)
 	 */
 	public function getUrl(string $filePath): string
 	{
-		// Normalize the file path (remove leading slash)
-		$key = ltrim($filePath, '/');
-		return $this->baseUrl . '/' . $key;
+		return $this->cdnManager->getUrl($filePath);
 	}
 
 	/**
@@ -295,5 +297,48 @@ class S3FileManager implements FileManagerInterface
 		);
 
 		return (string) $presignedUrl->getUri();
+	}
+
+	/**
+	 * Get CDN manager instance
+	 * 
+	 * @return CDNManager
+	 */
+	public function getCdnManager(): CDNManager
+	{
+		return $this->cdnManager;
+	}
+
+	/**
+	 * Check if CDN is enabled
+	 * 
+	 * @return bool
+	 */
+	public function isCdnEnabled(): bool
+	{
+		return $this->cdnManager->isCdnEnabled();
+	}
+
+	/**
+	 * Get cost optimization information
+	 * 
+	 * @return array
+	 */
+	public function getCostOptimizationInfo(): array
+	{
+		return $this->cdnManager->getCostOptimizationInfo();
+	}
+
+	/**
+	 * Get direct S3 URL (bypass CDN)
+	 * Used for administrative purposes or when CDN bypass is needed
+	 * 
+	 * @param string $filePath The path of the file (S3 key)
+	 * @return string Direct S3 URL
+	 */
+	public function getDirectS3Url(string $filePath): string
+	{
+		$key = ltrim($filePath, '/');
+		return "https://{$this->bucket}.s3.{$this->region}.amazonaws.com/{$key}";
 	}
 }

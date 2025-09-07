@@ -5,136 +5,206 @@ service: starlight-dominion
 #    team: my-team-id
 
 custom:
-    vpcConfig:
-        securityGroupIds:
-            - sg-0ff35eedea137486d
-        subnetIds:
-            - subnet-0a3a705e98b18cbdf
-            - subnet-0b8171e30dd1a53e2
-            - subnet-0417dd0fe869aaa57
+  vpcConfig:
+    securityGroupIds:
+      - sg-0ff35eedea137486d
+    subnetIds:
+      - subnet-0a3a705e98b18cbdf
+      - subnet-0b8171e30dd1a53e2
+      - subnet-0417dd0fe869aaa57
 
 provider:
-    name: aws
-    region: us-east-2
-    environment:
-        DYNAMODB_SESSION_TABLE: ${self:service}-sessions-${sls:stage}
-        APP_AWS_REGION: ${self:provider.region}
-        # Aurora Serverless v2 Database Configuration
-        DB_HOST: starlight-dominion-db.cluster-cl8ugqwekrkc.us-east-2.rds.amazonaws.com
-        DB_NAME: users
-        DB_SECRET_ARN: !Ref DatabaseCredentialsSecret
-    iam:
-        role:
-            statements:
-                - Effect: Allow
-                  Action:
-                      - dynamodb:GetItem
-                      - dynamodb:PutItem
-                      - dynamodb:UpdateItem
-                      - dynamodb:DeleteItem
-                      - dynamodb:Scan
-                      - dynamodb:Query
-                  Resource:
-                      - "arn:aws:dynamodb:${self:provider.region}:*:table/${self:provider.environment.DYNAMODB_SESSION_TABLE}"
-                - Effect: Allow
-                  Action:
-                      - rds-db:connect
-                  Resource:
-                      - "arn:aws:rds-db:${self:provider.region}:*:dbuser:starlight-dominion-db/admin"
-                - Effect: Allow
-                  Action:
-                      - secretsmanager:GetSecretValue
-                  Resource:
-                      - "arn:aws:secretsmanager:${self:provider.region}:*:secret:${self:service}-db-credentials-*"
+  name: aws
+  region: us-east-2
+  environment:
+    DYNAMODB_SESSION_TABLE: ${self:service}-sessions-${sls:stage}
+    APP_AWS_REGION: ${self:provider.region}
+    # Aurora Serverless v2 Database Configuration
+    DB_HOST: starlight-dominion-db.cluster-cl8ugqwekrkc.us-east-2.rds.amazonaws.com
+    DB_NAME: users
+    DB_SECRET_ARN: !Ref DatabaseCredentialsSecret
+    # File Storage Configuration (for user uploads only)
+    FILE_STORAGE_S3_BUCKET: !Ref FileStorageBucket
+  iam:
+    role:
+      statements:
+        - Effect: Allow
+          Action:
+            - dynamodb:GetItem
+            - dynamodb:PutItem
+            - dynamodb:UpdateItem
+            - dynamodb:DeleteItem
+            - dynamodb:Scan
+            - dynamodb:Query
+          Resource:
+            - "arn:aws:dynamodb:${self:provider.region}:*:table/${self:provider.environment.DYNAMODB_SESSION_TABLE}"
+        - Effect: Allow
+          Action:
+            - rds-db:connect
+          Resource:
+            - "arn:aws:rds-db:${self:provider.region}:*:dbuser:starlight-dominion-db/admin"
+        - Effect: Allow
+          Action:
+            - secretsmanager:GetSecretValue
+          Resource:
+            - "arn:aws:secretsmanager:${self:provider.region}:*:secret:${self:service}-db-credentials-*"
+        - Effect: Allow
+          Action:
+            - s3:GetObject
+            - s3:PutObject
+            - s3:DeleteObject
+            - s3:ListBucket
+          Resource:
+            - !Sub "arn:aws:s3:::${FileStorageBucket}/*"
+            - !Sub "arn:aws:s3:::${FileStorageBucket}"
 
 plugins:
-    - ./vendor/bref/bref
-    # - /home/jray/.config/composer/vendor/bref/bref
+  - ./vendor/bref/bref
+  - serverless-lift
+  # - /home/jray/.config/composer/vendor/bref/bref
+
+constructs:
+  website:
+    type: server-side-website
+    assets:
+      '/assets/*': Stellar-Dominion/public/assets
+      '/favicon.ico': Stellar-Dominion/public/assets/img/favicon.png
+      '/robots.txt': Stellar-Dominion/public/robots.txt
 
 functions:
-    api:
-        handler: Stellar-Dominion/public/index.php
-        description: 'main handler for Stellar Dominion API'
-        runtime: php-81-fpm
-        timeout: 28 # in seconds (API Gateway has a timeout of 29 seconds)
-        vpc: ${self:custom.vpcConfig}
-        environment:
-            DYNAMODB_SESSION_TABLE: ${self:provider.environment.DYNAMODB_SESSION_TABLE}
-            APP_AWS_REGION: ${self:provider.environment.APP_AWS_REGION}
-            DB_HOST: ${self:provider.environment.DB_HOST}
-            DB_NAME: ${self:provider.environment.DB_NAME}
-            DB_SECRET_ARN: ${self:provider.environment.DB_SECRET_ARN}
-        events:
-            -   httpApi: '*'
-    turnProcessor:
-        handler: Stellar-Dominion/src/Game/TurnProcessor.php
-        description: 'process game turns every 10 minutes'
-        runtime: php-81-console
-        vpc: ${self:custom.vpcConfig}
-        environment:
-            DYNAMODB_SESSION_TABLE: ${self:provider.environment.DYNAMODB_SESSION_TABLE}
-            APP_AWS_REGION: ${self:provider.environment.APP_AWS_REGION}
-            DB_HOST: ${self:provider.environment.DB_HOST}
-            DB_NAME: ${self:provider.environment.DB_NAME}
-            DB_SECRET_ARN: ${self:provider.environment.DB_SECRET_ARN}
-        events:
-            - schedule:
-                rate: rate(10 minutes)
+  api:
+    handler: Stellar-Dominion/public/index.php
+    description: "main handler for Stellar Dominion API"
+    runtime: php-81-fpm
+    timeout: 28 # in seconds (API Gateway has a timeout of 29 seconds)
+    vpc: ${self:custom.vpcConfig}
+    environment:
+      DYNAMODB_SESSION_TABLE: ${self:provider.environment.DYNAMODB_SESSION_TABLE}
+      APP_AWS_REGION: ${self:provider.environment.APP_AWS_REGION}
+      DB_HOST: ${self:provider.environment.DB_HOST}
+      DB_NAME: ${self:provider.environment.DB_NAME}
+      DB_SECRET_ARN: ${self:provider.environment.DB_SECRET_ARN}
+      FILE_STORAGE_S3_BUCKET: ${self:provider.environment.FILE_STORAGE_S3_BUCKET}
+    events:
+    -   httpApi: '*'
+  turnProcessor:
+    handler: Stellar-Dominion/src/Game/TurnProcessor.php
+    description: "process game turns every 10 minutes"
+    runtime: php-81-console
+    vpc: ${self:custom.vpcConfig}
+    environment:
+      DYNAMODB_SESSION_TABLE: ${self:provider.environment.DYNAMODB_SESSION_TABLE}
+      APP_AWS_REGION: ${self:provider.environment.APP_AWS_REGION}
+      DB_HOST: ${self:provider.environment.DB_HOST}
+      DB_NAME: ${self:provider.environment.DB_NAME}
+      DB_SECRET_ARN: ${self:provider.environment.DB_SECRET_ARN}
+      FILE_STORAGE_S3_BUCKET: ${self:provider.environment.FILE_STORAGE_S3_BUCKET}
+    events:
+      - schedule:
+          rate: rate(10 minutes)
 
 # Exclude files from deployment
 package:
-    patterns:
-        - '!node_modules/**'
-        - '!tests/**'
-        - '!vendor/bin/**'
-        - '!logs/**'
-        - '!docker/**'
-        - '!docker-compose.yml'
-        - '!.env'
-        - '!Stellar-Dominion/.env'
+  patterns:
+    - "!node_modules/**"
+    - "!tests/**"
+    - "!vendor/bin/**"
+    - "!logs/**"
+    - "!docker/**"
+    - "!docker-compose.yml"
+    - "!.env"
+    - "!Stellar-Dominion/.env"
 
 resources:
-    Transform: AWS::SecretsManager-2020-07-23
-    Resources:
-        DatabaseCredentialsSecret:
-            Type: AWS::SecretsManager::Secret
-            Properties:
-                Name: ${self:service}-db-credentials-${sls:stage}
-                Description: Database credentials for Aurora Serverless v2 cluster with AWS managed auto-rotation
-                SecretString: !Sub |
-                    {
-                        "username": "stellar",
-                        "password": "${env:DB_PASSWORD, 'CHANGE_ME_IN_AWS_CONSOLE'}",
-                        "engine": "mysql",
-                        "host": "starlight-dominion-db.cluster-cl8ugqwekrkc.us-east-2.rds.amazonaws.com",
-                        "port": 3306,
-                        "dbname": "users",
-                        "dbClusterIdentifier": "starlight-dominion-db"
-                    }
-        DatabaseCredentialsSecretRotationSchedule:
-            Type: AWS::SecretsManager::RotationSchedule
-            Properties:
-                SecretId: !Ref DatabaseCredentialsSecret
-                RotationRules:
-                    AutomaticallyAfterDays: 30
-                HostedRotationLambda:
-                    RotationType: MySQLSingleUser
-                    VpcSecurityGroupIds: sg-0eaee4e6a2c67f937
-                    VpcSubnetIds: subnet-0a3a705e98b18cbdf,subnet-0b8171e30dd1a53e2,subnet-0417dd0fe869aaa57
-                    ExcludeCharacters: "\"@/\\"
-        SessionsTable:
-            Type: AWS::DynamoDB::Table
-            Properties:
-                TableName: ${self:provider.environment.DYNAMODB_SESSION_TABLE}
-                AttributeDefinitions:
-                    - AttributeName: session_id
-                      AttributeType: S
-                KeySchema:
-                    - AttributeName: session_id
-                      KeyType: HASH
-                TimeToLiveSpecification:
-                    AttributeName: expires_at
-                    Enabled: true
-                BillingMode: PAY_PER_REQUEST
-                PointInTimeRecoverySpecification:
-                    PointInTimeRecoveryEnabled: true
+  Transform: AWS::SecretsManager-2020-07-23
+  Conditions:
+    # Only create the VPC setup in the dev account/stage
+    IsProduction:
+      Fn::Equals:
+        - ${sls:stage}
+        - prod
+  Resources:
+    # File Storage S3 Bucket (for user uploads only - avatars, documents, etc.)
+    FileStorageBucket:
+      Type: AWS::S3::Bucket
+      Properties:
+        BucketName: ${self:service}-files-${sls:stage}
+        PublicAccessBlockConfiguration:
+          BlockPublicAcls: true
+          BlockPublicPolicy: true
+          IgnorePublicAcls: true
+          RestrictPublicBuckets: true
+        CorsConfiguration:
+          CorsRules:
+            - AllowedHeaders: ["*"]
+              AllowedMethods: [GET, HEAD, PUT, POST]
+              AllowedOrigins: ["*"]
+              MaxAge: 3600
+        VersioningConfiguration:
+          Status: Enabled
+        LifecycleConfiguration:
+          Rules:
+            - Id: DeleteIncompleteMultipartUploads
+              Status: Enabled
+              AbortIncompleteMultipartUpload:
+                DaysAfterInitiation: 1
+
+    DatabaseCredentialsSecret:
+      Type: AWS::SecretsManager::Secret
+      Properties:
+        Name: ${self:service}-db-credentials-${sls:stage}
+        Description: Database credentials for Aurora Serverless v2 cluster with AWS managed auto-rotation
+        SecretString: !Sub |
+          {
+              "username": "stellar",
+              "password": "${env:DB_PASSWORD, 'CHANGE_ME_IN_AWS_CONSOLE'}",
+              "engine": "mysql",
+              "host": "starlight-dominion-db.cluster-cl8ugqwekrkc.us-east-2.rds.amazonaws.com",
+              "port": 3306,
+              "dbname": "users",
+              "dbClusterIdentifier": "starlight-dominion-db"
+          }
+    DatabaseCredentialsSecretRotationSchedule:
+      Type: AWS::SecretsManager::RotationSchedule
+      # Condition: IsProduction
+      Properties:
+        SecretId: !Ref DatabaseCredentialsSecret
+        RotateImmediatelyOnUpdate: true
+        RotationRules:
+          AutomaticallyAfterDays: 30
+        HostedRotationLambda:
+          RotationLambdaName: ${self:service}-db-credentials-rotation-lambda-${sls:stage}
+          RotationType: MySQLSingleUser
+          VpcSecurityGroupIds: sg-0eaee4e6a2c67f937
+          VpcSubnetIds: subnet-0a3a705e98b18cbdf,subnet-0b8171e30dd1a53e2,subnet-0417dd0fe869aaa57
+          ExcludeCharacters: "\"@/\\"
+    SessionsTable:
+      Type: AWS::DynamoDB::Table
+      Properties:
+        TableName: ${self:provider.environment.DYNAMODB_SESSION_TABLE}
+        AttributeDefinitions:
+          - AttributeName: session_id
+            AttributeType: S
+        KeySchema:
+          - AttributeName: session_id
+            KeyType: HASH
+        TimeToLiveSpecification:
+          AttributeName: expires_at
+          Enabled: true
+        BillingMode: PAY_PER_REQUEST
+        PointInTimeRecoverySpecification:
+          PointInTimeRecoveryEnabled: true
+
+  Outputs:
+    FileStorageBucketName:
+      Description: Name of the S3 bucket for file storage
+      Value: !Ref FileStorageBucket
+      Export:
+        Name: ${self:service}-${sls:stage}-FileStorageBucket
+
+    ApiGatewayUrl:
+        Description: API Gateway URL for the application
+        Value: !Sub "https://${HttpApi}.execute-api.${AWS::Region}.amazonaws.com"
+        Export:
+            Name: ${self:service}-${sls:stage}-ApiUrl
+

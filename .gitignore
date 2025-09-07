@@ -4,3 +4,4 @@ logs/*
 *.sql
 vendor/
 .serverless/
+node_modules

@@ -56,12 +56,13 @@ class S3FileManagerConfig implements FileManagerConfigInterface
 		$region = $_ENV['FILE_STORAGE_S3_REGION'] ?? 'us-east-1';
 		$accessKeyId = $_ENV['AWS_ACCESS_KEY_ID'] ?? null;
 		$secretAccessKey = $_ENV['AWS_SECRET_ACCESS_KEY'] ?? null;
-		$baseUrl = $_ENV['FILE_STORAGE_S3_URL'] ?? null;
+		
+		// Support multiple CDN URL environment variables
+		$baseUrl = $_ENV['CLOUDFRONT_DOMAIN'] ?? $_ENV['FILE_STORAGE_CDN_URL'] ?? $_ENV['FILE_STORAGE_S3_URL'] ?? null;
 
 		return new self($bucket, $region, $accessKeyId, $secretAccessKey, $baseUrl);
 	}
 
-	/**
 	/**
 	 * Get the driver type as DriverType object
 	 * 
@@ -197,5 +198,38 @@ class S3FileManagerConfig implements FileManagerConfigInterface
 	public static function createProduction(string $bucket, string $region = 'us-east-1', ?string $cdnUrl = null): self
 	{
 		return new self($bucket, $region, null, null, $cdnUrl);
+	}
+
+	/**
+	 * Create configuration with CloudFront CDN
+	 * 
+	 * @param string $bucket S3 bucket name
+	 * @param string $cloudFrontDomain CloudFront distribution domain
+	 * @param string $region AWS region
+	 * @return self
+	 */
+	public static function createWithCloudFront(string $bucket, string $cloudFrontDomain, string $region = 'us-east-1'): self
+	{
+		return new self($bucket, $region, null, null, $cloudFrontDomain);
+	}
+
+	/**
+	 * Check if CDN is configured
+	 * 
+	 * @return bool True if CDN URL is configured
+	 */
+	public function hasCdn(): bool
+	{
+		return $this->baseUrl !== null;
+	}
+
+	/**
+	 * Get CDN domain if configured
+	 * 
+	 * @return string|null CDN domain or null if not configured
+	 */
+	public function getCdnDomain(): ?string
+	{
+		return $this->baseUrl;
 	}
 }

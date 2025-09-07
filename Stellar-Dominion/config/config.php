@@ -140,6 +140,8 @@ define('FILE_STORAGE_S3_URL', $_ENV['FILE_STORAGE_S3_URL'] ?? null);
 require_once PROJECT_ROOT . '/src/Services/FileManager/FileManagerInterface.php';
 require_once PROJECT_ROOT . '/src/Services/FileManager/FileDriverType.php';
 require_once PROJECT_ROOT . '/src/Services/FileManager/DriverType.php';
+require_once PROJECT_ROOT . '/src/Services/FileManager/CDNManager.php';
+require_once PROJECT_ROOT . '/src/Services/FileManager/CloudFrontConfig.php';
 require_once PROJECT_ROOT . '/src/Services/FileManager/Config/FileManagerConfigInterface.php';
 require_once PROJECT_ROOT . '/src/Services/FileManager/Config/LocalFileManagerConfig.php';
 require_once PROJECT_ROOT . '/src/Services/FileManager/Config/S3FileManagerConfig.php';
