@@ -3,7 +3,7 @@
  * spy_report.php
  *
  * Displays a detailed report of a spy mission with different layouts per mission type,
- * including the new "total_sabotage" mission with structure and loadout cache variants.
+ * including the updated "total_sabotage" mission with structure and loadout variants.
  */
 
 if (session_status() == PHP_SESSION_NONE) {
@@ -18,8 +18,8 @@ $error_message = '';
 
 if ($log_id > 0) {
     $sql = "
-        SELECT sl.*, 
-               att.character_name AS attacker_name, 
+        SELECT sl.*,
+               att.character_name AS attacker_name,
                def.character_name AS defender_name
         FROM spy_logs sl
         JOIN users att ON sl.attacker_id = att.id
@@ -38,39 +38,44 @@ if ($log_id > 0) {
 if (!$log) {
     $error_message = "Spy report not found or you do not have permission to view it.";
 } else {
-    $is_attacker = ($log['attacker_id'] == $_SESSION['id']);
+    $is_attacker = ((int)$log['attacker_id'] === (int)$_SESSION['id']);
     $player_won = ($log['outcome'] === 'success');
 
-    if ($is_attacker) {
-        $player_name = $log['attacker_name'];
-        $opponent_name = $log['defender_name'];
-    } else {
-        $player_name = $log['defender_name'];
-        $opponent_name = $log['attacker_name'];
-    }
+    $player_name   = $is_attacker ? $log['attacker_name'] : $log['defender_name'];
+    $opponent_name = $is_attacker ? $log['defender_name'] : $log['attacker_name'];
 
-    $header_text = $player_won ? 'SUCCESS' : 'FAILURE';
+    $header_text  = $player_won ? 'SUCCESS' : 'FAILURE';
     $header_color = $player_won ? 'text-green-400' : 'text-red-400';
     $summary_text = "Mission " . ($player_won ? "successful." : "failed.");
 
-    // Decode any structured detail that the controller stored in intel_gathered
+    // Structured details saved by controller
     $detail_raw = [];
     if (!empty($log['intel_gathered'])) {
         $decoded = json_decode($log['intel_gathered'], true);
-        if (is_array($decoded)) {
-            $detail_raw = $decoded;
-        }
+        if (is_array($decoded)) { $detail_raw = $decoded; }
     }
 
-    // Friendly labels for structure keys and loadout categories
+    // Friendly labels (support both old and new keys)
     $structure_labels = [
-        'economy'    => 'Economy',
+        // new set used by Total Sabotage rework
         'offense'    => 'Offense',
         'defense'    => 'Defense',
+        'spy'        => 'Spy',
+        'sentry'     => 'Sentry',
+        'worker'     => 'Worker',
+        // legacy structure set (still supported just in case)
+        'economy'    => 'Economy',
         'population' => 'Population',
         'armory'     => 'Armory',
     ];
     $loadout_labels = [
+        // new categories (same as structure)
+        'offense'   => 'Offense',
+        'defense'   => 'Defense',
+        'spy'       => 'Spy',
+        'sentry'    => 'Sentry',
+        'worker'    => 'Worker',
+        // legacy loadout slot names (backward compatible)
         'main_weapon' => 'Main Weapons',
         'sidearm'     => 'Sidearms',
         'melee'       => 'Melee',
@@ -103,7 +108,7 @@ if (!$log) {
             <div class="main-bg border border-gray-700 rounded-lg shadow-2xl p-4 max-w-4xl mx-auto">
                 <h2 class="font-title text-2xl text-cyan-400 text-center mb-4">Spy Report</h2>
 
-                <?php if ($error_message): ?>
+                <?php if (!empty($error_message)): ?>
                     <div class="content-box rounded-lg p-4 text-center text-red-400">
                         <?php echo $error_message; ?>
                         <div class="mt-4">
@@ -136,7 +141,7 @@ if (!$log) {
                         <div class="bg-black/70 p-4 rounded-md text-white space-y-4">
                             <h4 class="font-title text-center border-b border-gray-600 pb-2 mb-4">Mission Debriefing</h4>
                             <p class="text-center font-bold text-lg <?php echo $header_color; ?>"><?php echo $summary_text; ?></p>
-                            
+
                             <div class="grid grid-cols-1 md:grid-cols-2 gap-4 text-sm">
                                 <div class="bg-gray-800/50 p-3 rounded-lg">
                                     <h5 class="font-bold border-b border-gray-600 pb-1 mb-2"><?php echo $is_attacker ? 'Your Spy Force' : 'Enemy Spy Force'; ?></h5>
@@ -152,7 +157,7 @@ if (!$log) {
                                         <li class="flex justify-between"><span>Experience Gained:</span> <span class="font-semibold text-yellow-400">+<?php echo number_format((int)$log['defender_xp_gained']); ?></span></li>
 
                                         <?php
-                                        // Mission-specific details (right-hand box continues below)
+                                        // Mission-specific (right-hand box)
                                         if ($log['mission_type'] === 'intelligence' && $player_won && !empty($log['intel_gathered'])):
                                             $intel = json_decode($log['intel_gathered'], true);
                                             if (is_array($intel)): ?>
@@ -172,59 +177,104 @@ if (!$log) {
 
                             <?php if ($log['mission_type'] === 'total_sabotage'): ?>
                                 <?php
-                                // Prepare friendly fields from $detail_raw
-                                $operation_mode = isset($detail_raw['mode']) ? (string)$detail_raw['mode'] : '';
-                                $operation_target_key = isset($detail_raw['key']) ? (string)$detail_raw['key'] : '';
-                                $operation_target_label = $operation_target_key;
-                                if ($operation_mode === 'structure' && isset($structure_labels[$operation_target_key])) {
-                                    $operation_target_label = $structure_labels[$operation_target_key];
-                                } elseif ($operation_mode === 'cache' && isset($loadout_labels[$operation_target_key])) {
-                                    $operation_target_label = $loadout_labels[$operation_target_key];
+                                // Normalize keys from controller (old/new)
+                                $operation_mode_raw = strtolower((string)($detail_raw['mode'] ?? $detail_raw['operation_mode'] ?? ''));
+                                if ($operation_mode_raw === 'cache') { $operation_mode_raw = 'loadout'; } // legacy synonym
+                                $operation_mode_label = ($operation_mode_raw === 'structure') ? 'Structure' : (($operation_mode_raw === 'loadout') ? 'Loadout Cache' : 'Unknown');
+
+                                $target_key = strtolower((string)($detail_raw['category'] ?? $detail_raw['target'] ?? $detail_raw['key'] ?? ''));
+                                $target_label = $target_key;
+                                if ($operation_mode_raw === 'structure' && isset($structure_labels[$target_key])) {
+                                    $target_label = $structure_labels[$target_key];
+                                } elseif ($operation_mode_raw === 'loadout' && isset($loadout_labels[$target_key])) {
+                                    $target_label = $loadout_labels[$target_key];
                                 }
-                                $operation_cost = isset($detail_raw['cost']) ? (int)$detail_raw['cost'] : 0;
+
+                                $operation_cost = (int)($detail_raw['cost'] ?? 0);
                                 $operation_was_critical = !empty($detail_raw['critical']);
+
+                                // Structure details
+                                $applied_percent    = (int)($detail_raw['applied_pct'] ?? ($log['structure_damage'] ?? 0));
+                                $new_health_percent = isset($detail_raw['new_health']) ? (int)$detail_raw['new_health'] : null;
+                                $was_downgraded     = !empty($detail_raw['downgraded']);
+
+                                // Loadout details
+                                $destroy_percent = (int)($detail_raw['destroy_pct'] ?? 0);
+                                $destroy_cap     = (string)($detail_raw['destroy_cap'] ?? '');
+                                $cap_label       = ($destroy_cap === 'capped_at_75') ? 'Applied (75% max)' : 'None';
+                                $items_total     = (int)($detail_raw['total_items_destroyed'] ?? $detail_raw['items_destroyed'] ?? $log['units_killed']);
+                                $items_breakdown = is_array($detail_raw['items'] ?? null) ? $detail_raw['items'] : [];
                                 ?>
                                 <div class="grid grid-cols-1 md:grid-cols-2 gap-4 text-sm">
                                     <div class="bg-gray-800/50 p-3 rounded-lg">
                                         <h5 class="font-bold border-b border-gray-600 pb-1 mb-2">Total Sabotage — Overview</h5>
                                         <ul class="space-y-1">
-                                            <li class="flex justify-between"><span>Operation Mode:</span> <span class="font-semibold text-white"><?php echo htmlspecialchars($operation_mode === 'structure' ? 'Structure' : ($operation_mode === 'cache' ? 'Loadout Cache' : 'Unknown')); ?></span></li>
-                                            <li class="flex justify-between"><span>Target:</span> <span class="font-semibold text-white"><?php echo htmlspecialchars($operation_target_label); ?></span></li>
+                                            <li class="flex justify-between"><span>Operation Mode:</span> <span class="font-semibold text-white"><?php echo htmlspecialchars($operation_mode_label); ?></span></li>
+                                            <li class="flex justify-between"><span>Target:</span> <span class="font-semibold text-white"><?php echo htmlspecialchars($target_label); ?></span></li>
                                             <li class="flex justify-between"><span>Credits Spent:</span> <span class="font-semibold text-amber-300"><?php echo number_format($operation_cost); ?></span></li>
                                             <li class="flex justify-between"><span>Outcome:</span> <span class="font-semibold <?php echo $player_won ? 'text-green-400' : 'text-red-400'; ?>"><?php echo $player_won ? 'Success' : 'Failure'; ?></span></li>
                                             <li class="flex justify-between"><span>Critical Hit:</span> <span class="font-semibold <?php echo $operation_was_critical ? 'text-fuchsia-300' : 'text-gray-300'; ?>"><?php echo $operation_was_critical ? 'Yes' : 'No'; ?></span></li>
+                                            <?php if ($operation_mode_raw === 'loadout'): ?>
+                                                <li class="flex justify-between"><span>Cap:</span> <span class="font-semibold text-white"><?php echo htmlspecialchars($cap_label); ?></span></li>
+                                            <?php endif; ?>
                                         </ul>
                                     </div>
 
                                     <div class="bg-gray-800/50 p-3 rounded-lg">
                                         <h5 class="font-bold border-b border-gray-600 pb-1 mb-2">Total Sabotage — Result Details</h5>
-                                        <ul class="space-y-1">
-                                            <?php if ($player_won): ?>
-                                                <?php if ($operation_mode === 'structure'): ?>
-                                                    <?php
-                                                    $applied_percent = isset($detail_raw['applied_pct']) ? (int)$detail_raw['applied_pct'] : ((int)$log['structure_damage'] > 0 ? (int)$log['structure_damage'] : 0);
-                                                    $new_health_percent = isset($detail_raw['new_health']) ? (int)$detail_raw['new_health'] : null;
-                                                    $was_downgraded = !empty($detail_raw['downgraded']);
-                                                    ?>
+
+                                        <?php if ($player_won): ?>
+                                            <?php if ($operation_mode_raw === 'structure'): ?>
+                                                <ul class="space-y-1">
                                                     <li class="flex justify-between"><span>Damage Applied:</span> <span class="font-semibold text-red-400">-<?php echo number_format($applied_percent); ?>%</span></li>
                                                     <?php if ($new_health_percent !== null): ?>
                                                         <li class="flex justify-between"><span>New Structure Health:</span> <span class="font-semibold text-white"><?php echo number_format($new_health_percent); ?>%</span></li>
                                                     <?php endif; ?>
                                                     <li class="flex justify-between"><span>Structure Downgraded:</span> <span class="font-semibold <?php echo $was_downgraded ? 'text-orange-300' : 'text-gray-300'; ?>"><?php echo $was_downgraded ? 'Yes' : 'No'; ?></span></li>
-                                                <?php elseif ($operation_mode === 'cache'): ?>
-                                                    <?php
-                                                    $destroy_percent = isset($detail_raw['destroy_pct']) ? (int)$detail_raw['destroy_pct'] : 0;
-                                                    $items_destroyed = isset($detail_raw['items_destroyed']) ? (int)$detail_raw['items_destroyed'] : (int)$log['units_killed'];
-                                                    ?>
+                                                </ul>
+                                            <?php elseif ($operation_mode_raw === 'loadout'): ?>
+                                                <ul class="space-y-1 mb-3">
                                                     <li class="flex justify-between"><span>Cache Destroyed:</span> <span class="font-semibold text-red-400">-<?php echo number_format($destroy_percent); ?>%</span></li>
-                                                    <li class="flex justify-between"><span>Items Destroyed:</span> <span class="font-semibold text-white"><?php echo number_format($items_destroyed); ?></span></li>
+                                                    <li class="flex justify-between"><span>Items Destroyed (total):</span> <span class="font-semibold text-white"><?php echo number_format($items_total); ?></span></li>
+                                                </ul>
+
+                                                <?php if (!empty($items_breakdown)): ?>
+                                                    <div class="overflow-x-auto">
+                                                        <table class="min-w-full text-xs md:text-sm">
+                                                            <thead class="bg-gray-900/60 text-gray-300">
+                                                                <tr>
+                                                                    <th class="px-3 py-2 text-left">Item</th>
+                                                                    <th class="px-3 py-2 text-right">Before</th>
+                                                                    <th class="px-3 py-2 text-right text-red-300">Destroyed</th>
+                                                                    <th class="px-3 py-2 text-right">After</th>
+                                                                </tr>
+                                                            </thead>
+                                                            <tbody class="divide-y divide-gray-700">
+                                                                <?php foreach ($items_breakdown as $row): ?>
+                                                                    <tr>
+                                                                        <td class="px-3 py-2">
+                                                                            <?php
+                                                                                $nm = isset($row['name']) ? $row['name'] : ($row['item_key'] ?? 'Unknown');
+                                                                                echo htmlspecialchars((string)$nm);
+                                                                            ?>
+                                                                        </td>
+                                                                        <td class="px-3 py-2 text-right text-white"><?php echo number_format((int)($row['before'] ?? 0)); ?></td>
+                                                                        <td class="px-3 py-2 text-right text-red-300"><?php echo number_format((int)($row['destroyed'] ?? 0)); ?></td>
+                                                                        <td class="px-3 py-2 text-right text-white"><?php echo number_format((int)($row['after'] ?? 0)); ?></td>
+                                                                    </tr>
+                                                                <?php endforeach; ?>
+                                                            </tbody>
+                                                        </table>
+                                                    </div>
                                                 <?php else: ?>
-                                                    <li class="text-gray-300">No additional details available for this mode.</li>
+                                                    <p class="text-gray-300">No per-item breakdown available.</p>
                                                 <?php endif; ?>
                                             <?php else: ?>
-                                                <li class="text-gray-300">No additional damage occurred due to mission failure.</li>
+                                                <p class="text-gray-300">No additional details available for this mode.</p>
                                             <?php endif; ?>
-                                        </ul>
+                                        <?php else: ?>
+                                            <p class="text-gray-300">No additional damage occurred due to mission failure.</p>
+                                        <?php endif; ?>
                                     </div>
                                 </div>
                             <?php endif; ?>

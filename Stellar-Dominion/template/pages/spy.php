@@ -35,6 +35,9 @@ $my_alliance_id = $me['alliance_id'] ?? null;
 $sabo_cost_info = function_exists('ss_total_sabotage_cost')
     ? ss_total_sabotage_cost($link, $user_id)
     : ['cost'=>0,'base'=>0,'uses'=>0,'mult'=>1.0,'cap'=>0,'net_worth'=>0];
+$net_worth    = (int)($sabo_cost_info['net_worth'] ?? 0);
+$ts_base_min  = max(25000000, (int)floor($net_worth * 0.01)); // “25m or 1% NW”
+$ts_cost      = (int)($sabo_cost_info['cost'] ?? $ts_base_min);
 
 // target list (read-only helper adds army_size; excludes self)
 $targets = ss_get_targets($link, $user_id, 100);
@@ -63,9 +66,7 @@ include_once __DIR__ . '/../includes/header.php';
 ?>
 
 <aside class="lg:col-span-1 space-y-4">
-    <?php 
-        include_once __DIR__ . '/../includes/advisor.php';
-    ?>
+    <?php include_once __DIR__ . '/../includes/advisor.php'; ?>
 
     <div class="content-box rounded-lg p-4 stats-container">
         <h3 class="font-title text-cyan-400 border-b border-gray-600 pb-2 mb-3">Spy Stats</h3>
@@ -74,7 +75,7 @@ include_once __DIR__ . '/../includes/header.php';
             <li class="flex justify-between"><span>Spies:</span> <span class="text-white font-semibold"><?php echo number_format((int)($me['spies'] ?? 0)); ?></span></li>
             <li class="flex justify-between"><span>Sentries:</span> <span class="text-white font-semibold"><?php echo number_format((int)($me['sentries'] ?? 0)); ?></span></li>
             <li class="flex justify-between"><span>Attack Turns:</span> <span class="text-white font-semibold"><?php echo number_format((int)($me['attack_turns'] ?? 0)); ?></span></li>
-            <li class="flex justify-between"><span>Total Sabotage Cost:</span> <span class="text-amber-300 font-bold"><?php echo number_format((int)($sabo_cost_info['cost'] ?? 0)); ?></span></li>
+            <li class="flex justify-between"><span>Total Sabotage Cost:</span> <span class="text-amber-300 font-bold"><?php echo number_format($ts_cost); ?></span></li>
             <li class="flex justify-between border-t border-gray-600 pt-2 mt-2">
                 <span>Next Turn In:</span>
                 <span class="text-cyan-300 font-bold"><?php echo sprintf('%02d:%02d', $minutes_until_next_turn, $seconds_remainder); ?></span>
@@ -95,6 +96,7 @@ include_once __DIR__ . '/../includes/header.php';
         </div>
     <?php endif; ?>
 
+    <!-- DESKTOP TABLE -->
     <div class="content-box rounded-lg p-4 hidden md:block">
         <div class="flex items-center justify-between mb-3">
             <h3 class="font-title text-cyan-400">Operative Targets</h3>
@@ -122,14 +124,15 @@ include_once __DIR__ . '/../includes/header.php';
                         $is_self = ($t['id'] === $user_id);
                         $is_ally = ($my_alliance_id && $my_alliance_id === $t['alliance_id'] && !$is_self);
                         $cant_attack = $is_self || $is_ally;
+                        $tsFormId = 'ts-form-d-' . (int)$t['id'];
                     ?>
                     <tr class="<?php echo $is_self ? 'bg-cyan-900/40' : ''; ?>">
                         <td class="px-3 py-3"><?php echo $rank++; ?></td>
                         <td class="px-3 py-3">
-                            <div class="flex items-center gap-3">
-                                <img src="<?php echo htmlspecialchars($avatar); ?>" alt="Avatar" class="w-8 h-8 rounded-md object-cover">
-                                <div class="leading-tight">
-                                    <div class="text-white font-semibold">
+                            <div class="flex items-center gap-3 min-w-0">
+                                <img src="<?php echo htmlspecialchars($avatar); ?>" alt="Avatar" class="w-8 h-8 rounded-md object-cover shrink-0">
+                                <div class="leading-tight min-w-0">
+                                    <div class="text-white font-semibold truncate">
                                         <?php echo $tag . htmlspecialchars($t['character_name']); ?>
                                         <?php if ($t['is_rival']): ?>
                                             <span class="rival-badge">RIVAL</span>
@@ -139,11 +142,11 @@ include_once __DIR__ . '/../includes/header.php';
                                 </div>
                             </div>
                         </td>
-                        <td class="px-3 py-3 text-right text-white"><?php echo number_format((int)$t['credits']); ?></td>
-                        <td class="px-3 py-3 text-right text-white"><?php echo number_format((int)$t['army_size']); ?></td>
-                        <td class="px-3 py-3 text-right text-white"><?php echo (int)$t['level']; ?></td>
+                        <td class="px-3 py-3 text-right text-white whitespace-nowrap"><?php echo number_format((int)$t['credits']); ?></td>
+                        <td class="px-3 py-3 text-right text-white whitespace-nowrap"><?php echo number_format((int)$t['army_size']); ?></td>
+                        <td class="px-3 py-3 text-right text-white whitespace-nowrap"><?php echo (int)$t['level']; ?></td>
                         <td class="px-3 py-3">
-                            <div class="flex items-center justify-end gap-2">
+                            <div class="flex items-center justify-end gap-2 flex-wrap">
                                 <?php if ($cant_attack): ?>
                                     <span class="text-xs font-semibold <?php echo $is_self ? 'text-cyan-400' : 'text-gray-400'; ?>">
                                         <?php echo $is_self ? 'This is you' : 'Ally'; ?>
@@ -165,7 +168,9 @@ include_once __DIR__ . '/../includes/header.php';
                                         <input type="number" name="attack_turns" min="1" max="10" value="1" class="w-12 bg-gray-900 border border-gray-600 rounded text-center p-1 text-xs">
                                         <button type="submit" class="bg-amber-700 hover:bg-amber-600 text-white text-xs font-semibold py-1 px-2 rounded-md">Sabotage</button>
                                     </form>
-                                    <form action="/spy.php" method="POST" class="flex items-center gap-1">
+
+                                    <!-- TOTAL SABOTAGE (desktop) -->
+                                    <form id="<?php echo $tsFormId; ?>" action="/spy.php" method="POST" class="flex items-center gap-1">
                                         <input type="hidden" name="csrf_token" value="<?php echo htmlspecialchars($csrf_totals, ENT_QUOTES, 'UTF-8'); ?>">
                                         <input type="hidden" name="csrf_action" value="spy_total_sabotage">
                                         <input type="hidden" name="mission_type" value="total_sabotage">
@@ -173,31 +178,24 @@ include_once __DIR__ . '/../includes/header.php';
                                         <input type="hidden" name="attack_turns" value="1">
                                         <select name="target_mode" class="bg-gray-900 border border-gray-600 rounded text-xs px-1 py-0.5 mr-1">
                                             <option value="structure">Structure</option>
-                                            <option value="cache">Loadout Cache</option>
+                                            <option value="loadout">Loadout</option>
                                         </select>
                                         <select name="target_key" class="bg-gray-900 border border-gray-600 rounded text-xs px-1 py-0.5 mr-1">
-                                            <optgroup label="Structures">
-                                                <option value="economy">Economy</option>
-                                                <option value="offense">Offense</option>
-                                                <option value="defense">Defense</option>
-                                                <option value="population">Population</option>
-                                                <option value="armory">Armory</option>
-                                            </optgroup>
-                                            <optgroup label="Loadout">
-                                                <option value="main_weapon">Main Weapons</option>
-                                                <option value="sidearm">Sidearms</option>
-                                                <option value="melee">Melee</option>
-                                                <option value="headgear">Head Gear</option>
-                                                <option value="explosives">Explosives</option>
-                                                <option value="drones">Drones</option>
-                                            </optgroup>
+                                            <option value="offense">Offense</option>
+                                            <option value="defense">Defense</option>
+                                            <option value="spy">Spy</option>
+                                            <option value="sentry">Sentry</option>
+                                            <option value="worker">Worker</option>
                                         </select>
-                                        <button type="submit"
-                                                class="bg-fuchsia-700 hover:bg-fuchsia-600 text-white text-xs font-semibold py-1 px-2 rounded-md"
+                                        <button type="button"
+                                                class="open-ts-modal bg-fuchsia-700 hover:bg-fuchsia-600 text-white text-xs font-semibold py-1 px-2 rounded-md"
+                                                data-form-id="<?php echo $tsFormId; ?>"
+                                                data-defender-name="<?php echo htmlspecialchars($t['character_name']); ?>"
                                                 title="Total Sabotage (cost scales with usage)">
                                             Total Sabotage
                                         </button>
                                     </form>
+
                                     <button type="button"
                                             class="open-assass-modal bg-red-700 hover:bg-red-600 text-white text-xs font-semibold py-1 px-2 rounded-md"
                                             data-defender-id="<?php echo (int)$t['id']; ?>"
@@ -223,6 +221,7 @@ include_once __DIR__ . '/../includes/header.php';
         </div>
     </div>
     
+    <!-- MOBILE LIST -->
     <div class="content-box rounded-lg p-4 md:hidden">
         <div class="flex items-center justify-between mb-3">
             <h3 class="font-title text-cyan-400">Operative Targets</h3>
@@ -238,15 +237,15 @@ include_once __DIR__ . '/../includes/header.php';
                 $is_self = ($t['id'] === $user_id);
                 $is_ally = ($my_alliance_id && $my_alliance_id === $t['alliance_id'] && !$is_self);
                 $cant_attack = $is_self || $is_ally;
-                // Unique ID for the turn input to link forms
                 $mobile_turns_id = "mobile-turns-" . (int)$t['id'];
+                $tsFormIdM = 'ts-form-m-' . (int)$t['id'];
             ?>
             <div class="bg-gray-900/60 border border-gray-700 rounded-lg p-3 <?php echo $is_self ? 'border-cyan-700' : ''; ?>">
-                <div class="flex items-center justify-between">
-                    <div class="flex items-center gap-3">
-                        <img src="<?php echo htmlspecialchars($avatar); ?>" alt="Avatar" class="w-10 h-10 rounded-md object-cover">
-                        <div>
-                            <div class="text-white font-semibold">
+                <div class="flex items-center justify-between gap-3">
+                    <div class="flex items-center gap-3 min-w-0">
+                        <img src="<?php echo htmlspecialchars($avatar); ?>" alt="Avatar" class="w-10 h-10 rounded-md object-cover shrink-0">
+                        <div class="min-w-0">
+                            <div class="text-white font-semibold truncate">
                                 <?php echo $tag . htmlspecialchars($t['character_name']); ?>
                                 <?php if ($t['is_rival']): ?>
                                     <span class="rival-badge">RIVAL</span>
@@ -257,9 +256,9 @@ include_once __DIR__ . '/../includes/header.php';
                             </div>
                         </div>
                     </div>
-                    <div class="text-right text-xs text-gray-300">
-                        <div><span class="text-gray-400">Credits:</span> <span class="text-white font-semibold"><?php echo number_format((int)$t['credits']); ?></span></div>
-                        <div><span class="text-gray-400">Army:</span> <span class="text-white font-semibold"><?php echo number_format((int)$t['army_size']); ?></span></div>
+                    <div class="text-right text-xs text-gray-300 shrink-0">
+                        <div class="whitespace-nowrap"><span class="text-gray-400">Credits:</span> <span class="text-white font-semibold"><?php echo number_format((int)$t['credits']); ?></span></div>
+                        <div class="whitespace-nowrap"><span class="text-gray-400">Army:</span> <span class="text-white font-semibold"><?php echo number_format((int)$t['army_size']); ?></span></div>
                     </div>
                 </div>
 
@@ -283,72 +282,65 @@ include_once __DIR__ . '/../includes/header.php';
                             <input type="number" id="<?php echo $mobile_turns_id; ?>" min="1" max="10" value="1" 
                                    class="w-16 bg-gray-900 border border-gray-600 rounded text-center p-1 text-xs"
                                    oninput="document.querySelectorAll('.turns-for-<?php echo (int)$t['id']; ?>').forEach(el => el.value = this.value)">
-                            <div class="flex-1 flex items-center justify-end gap-2">
-                                <form action="/spy.php" method="POST">
-                                    <input type="hidden" name="csrf_token" value="<?php echo htmlspecialchars($csrf_intel, ENT_QUOTES, 'UTF-8'); ?>">
-                                    <input type="hidden" name="csrf_action" value="spy_intel">
-                                    <input type="hidden" name="mission_type" value="intelligence">
-                                    <input type="hidden" name="defender_id" value="<?php echo (int)$t['id']; ?>">
-                                    <input type="hidden" name="attack_turns" value="1" class="turns-for-<?php echo (int)$t['id']; ?>">
-                                    <button type="submit" class="bg-cyan-700 hover:bg-cyan-600 text-white text-xs font-semibold py-1 px-3 rounded-md">Spy</button>
-                                </form>
-                                <form action="/spy.php" method="POST">
-                                    <input type="hidden" name="csrf_token" value="<?php echo htmlspecialchars($csrf_sabo, ENT_QUOTES, 'UTF-8'); ?>">
-                                    <input type="hidden" name="csrf_action" value="spy_sabotage">
-                                    <input type="hidden" name="mission_type" value="sabotage">
-                                    <input type="hidden" name="defender_id" value="<?php echo (int)$t['id']; ?>">
-                                    <input type="hidden" name="attack_turns" value="1" class="turns-for-<?php echo (int)$t['id']; ?>">
-                                    <button type="submit" class="bg-amber-700 hover:bg-amber-600 text-white text-xs font-semibold py-1 px-3 rounded-md">Sabotage</button>
-                                </form>
-                                <form action="/spy.php" method="POST">
-                                    <input type="hidden" name="csrf_token" value="<?php echo htmlspecialchars($csrf_totals, ENT_QUOTES, 'UTF-8'); ?>">
-                                    <input type="hidden" name="csrf_action" value="spy_total_sabotage">
-                                    <input type="hidden" name="mission_type" value="total_sabotage">
-                                    <input type="hidden" name="defender_id" value="<?php echo (int)$t['id']; ?>">
-                                    <input type="hidden" name="attack_turns" value="1">
-                                    <div class="flex items-center gap-1">
-                                        <select name="target_mode" class="bg-gray-900 border border-gray-600 rounded text-xs px-1 py-0.5">
-                                            <option value="structure">Structure</option>
-                                            <option value="cache">Loadout Cache</option>
-                                        </select>
-                                        <select name="target_key" class="bg-gray-900 border border-gray-600 rounded text-xs px-1 py-0.5">
-                                            <optgroup label="Structures">
-                                                <option value="economy">Economy</option>
-                                                <option value="offense">Offense</option>
-                                                <option value="defense">Defense</option>
-                                                <option value="population">Population</option>
-                                                <option value="armory">Armory</option>
-                                            </optgroup>
-                                            <optgroup label="Loadout">
-                                                <option value="main_weapon">Main Weapons</option>
-                                                <option value="sidearm">Sidearms</option>
-                                                <option value="melee">Melee</option>
-                                                <option value="headgear">Head Gear</option>
-                                                <option value="explosives">Explosives</option>
-                                                <option value="drones">Drones</option>
-                                            </optgroup>
-                                        </select>
-                                        <button type="submit"
-                                                class="bg-fuchsia-700 hover:bg-fuchsia-600 text-white text-xs font-semibold py-1 px-3 rounded-md"
-                                                title="Total Sabotage (cost scales with usage)">
-                                            Total Sabotage
-                                        </button>
-                                    </div>
-                                </form>
+                        </div>
+                        <div class="mt-2 flex flex-wrap items-center gap-2">
+                            <form action="/spy.php" method="POST" class="shrink-0">
+                                <input type="hidden" name="csrf_token" value="<?php echo htmlspecialchars($csrf_intel, ENT_QUOTES, 'UTF-8'); ?>">
+                                <input type="hidden" name="csrf_action" value="spy_intel">
+                                <input type="hidden" name="mission_type" value="intelligence">
+                                <input type="hidden" name="defender_id" value="<?php echo (int)$t['id']; ?>">
+                                <input type="hidden" name="attack_turns" value="1" class="turns-for-<?php echo (int)$t['id']; ?>">
+                                <button type="submit" class="bg-cyan-700 hover:bg-cyan-600 text-white text-xs font-semibold py-1 px-3 rounded-md">Spy</button>
+                            </form>
+                            <form action="/spy.php" method="POST" class="shrink-0">
+                                <input type="hidden" name="csrf_token" value="<?php echo htmlspecialchars($csrf_sabo, ENT_QUOTES, 'UTF-8'); ?>">
+                                <input type="hidden" name="csrf_action" value="spy_sabotage">
+                                <input type="hidden" name="mission_type" value="sabotage">
+                                <input type="hidden" name="defender_id" value="<?php echo (int)$t['id']; ?>">
+                                <input type="hidden" name="attack_turns" value="1" class="turns-for-<?php echo (int)$t['id']; ?>">
+                                <button type="submit" class="bg-amber-700 hover:bg-amber-600 text-white text-xs font-semibold py-1 px-3 rounded-md">Sabotage</button>
+                            </form>
+
+                            <!-- TOTAL SABOTAGE (mobile) -->
+                            <form id="<?php echo $tsFormIdM; ?>" action="/spy.php" method="POST" class="flex items-center gap-1 shrink">
+                                <input type="hidden" name="csrf_token" value="<?php echo htmlspecialchars($csrf_totals, ENT_QUOTES, 'UTF-8'); ?>">
+                                <input type="hidden" name="csrf_action" value="spy_total_sabotage">
+                                <input type="hidden" name="mission_type" value="total_sabotage">
+                                <input type="hidden" name="defender_id" value="<?php echo (int)$t['id']; ?>">
+                                <input type="hidden" name="attack_turns" value="1">
+                                <select name="target_mode" class="bg-gray-900 border border-gray-600 rounded text-xs px-1 py-0.5">
+                                    <option value="structure">Structure</option>
+                                    <option value="loadout">Loadout</option>
+                                </select>
+                                <select name="target_key" class="bg-gray-900 border border-gray-600 rounded text-xs px-1 py-0.5">
+                                    <option value="offense">Offense</option>
+                                    <option value="defense">Defense</option>
+                                    <option value="spy">Spy</option>
+                                    <option value="sentry">Sentry</option>
+                                    <option value="worker">Worker</option>
+                                </select>
                                 <button type="button"
-                                        class="open-assass-modal bg-red-700 hover:bg-red-600 text-white text-xs font-semibold py-1 px-3 rounded-md"
-                                        data-defender-id="<?php echo (int)$t['id']; ?>"
-                                        data-defender-name="<?php echo htmlspecialchars($t['character_name']); ?>">
-                                    Assassinate
+                                        class="open-ts-modal bg-fuchsia-700 hover:bg-fuchsia-600 text-white text-xs font-semibold py-1 px-3 rounded-md"
+                                        data-form-id="<?php echo $tsFormIdM; ?>"
+                                        data-defender-name="<?php echo htmlspecialchars($t['character_name']); ?>"
+                                        title="Total Sabotage (cost scales with usage)">
+                                    Total
                                 </button>
-                                <form action="/view_profile.php" method="GET" class="shrink-0">
-                                    <input type="hidden" name="user" value="<?php echo (int)$t['id']; ?>">
-                                    <input type="hidden" name="id"   value="<?php echo (int)$t['id']; ?>">
-                                    <button type="submit" class="bg-gray-700 hover:bg-gray-600 text-white text-xs font-semibold py-1 px-3 rounded-md">
-                                        Profile
-                                    </button>
-                                </form>
-                            </div>
+                            </form>
+
+                            <button type="button"
+                                    class="open-assass-modal bg-red-700 hover:bg-red-600 text-white text-xs font-semibold py-1 px-3 rounded-md shrink-0"
+                                    data-defender-id="<?php echo (int)$t['id']; ?>"
+                                    data-defender-name="<?php echo htmlspecialchars($t['character_name']); ?>">
+                                Assassinate
+                            </button>
+                            <form action="/view_profile.php" method="GET" class="shrink-0">
+                                <input type="hidden" name="user" value="<?php echo (int)$t['id']; ?>">
+                                <input type="hidden" name="id"   value="<?php echo (int)$t['id']; ?>">
+                                <button type="submit" class="bg-gray-700 hover:bg-gray-600 text-white text-xs font-semibold py-1 px-3 rounded-md">
+                                    Profile
+                                </button>
+                            </form>
                         </div>
                     <?php endif; ?>
                 </div>
@@ -364,6 +356,7 @@ include_once __DIR__ . '/../includes/header.php';
     </div>
 </main>
 
+<!-- ASSASSINATION MODAL -->
 <div id="assass-modal"
      class="fixed inset-0 z-50 hidden items-center justify-center bg-black/70 p-4">
   <div class="w-full max-w-md bg-gray-900 border border-gray-700 rounded-lg shadow-xl">
@@ -418,7 +411,44 @@ include_once __DIR__ . '/../includes/header.php';
   </div>
 </div>
 
+<!-- TOTAL SABOTAGE CONFIRM MODAL -->
+<div id="ts-modal" class="fixed inset-0 z-50 hidden items-center justify-center bg-black/70 p-4">
+  <div class="w-full max-w-md bg-gray-900 border border-gray-700 rounded-lg shadow-xl">
+    <div class="px-4 py-3 border-b border-gray-700 flex items-center justify-between">
+      <h3 class="font-title text-fuchsia-400 text-lg">
+        Confirm Total Sabotage
+      </h3>
+      <button type="button" id="ts-close-x" class="text-gray-400 hover:text-white">✕</button>
+    </div>
+
+    <div class="p-4 space-y-3 text-sm text-gray-200">
+      <p>
+        Target: <span class="font-semibold text-white" id="ts-target-name">Player</span><br>
+        Mode: <span class="font-semibold" id="ts-mode">structure</span> • Category: <span class="font-semibold" id="ts-category">offense</span>
+      </p>
+      <div class="bg-gray-800/60 border border-gray-700 rounded-md p-3">
+        <p class="leading-5">
+          Are you sure? This attack will cost
+          <span class="font-bold text-amber-300" id="ts-cost"><?php echo number_format($ts_cost); ?></span>
+          credits.
+        </p>
+        <p class="text-xs text-gray-400 mt-1">
+          Minimum policy: <span class="font-semibold text-gray-300">25,000,000</span> or
+          <span class="font-semibold text-gray-300">1% of your net worth (<?php echo number_format($net_worth); ?>)</span>,
+          whichever is higher. Current cost already includes any progressive multiplier.
+        </p>
+      </div>
+
+      <div class="flex justify-end gap-2 pt-2">
+        <button type="button" id="ts-cancel" class="bg-gray-700 hover:bg-gray-600 text-white text-sm font-semibold py-2 px-3 rounded-md">Cancel</button>
+        <button type="button" id="ts-confirm" class="bg-fuchsia-700 hover:bg-fuchsia-600 text-white text-sm font-bold py-2 px-3 rounded-md">Proceed</button>
+      </div>
+    </div>
+  </div>
+</div>
+
 <script>
+/* Assassination modal */
 (function () {
   const modal   = document.getElementById('assass-modal');
   const form    = document.getElementById('assass-form');
@@ -452,9 +482,64 @@ include_once __DIR__ . '/../includes/header.php';
   // Close behaviors
   closeX.addEventListener('click', closeModal);
   cancel.addEventListener('click', closeModal);
-  modal.addEventListener('click', (e) => {
-    if (e.target === modal) closeModal(); // click backdrop to close
+  modal.addEventListener('click', (e) => { if (e.target === modal) closeModal(); });
+})();
+
+/* Total Sabotage confirmation modal */
+(function () {
+  const tsModal    = document.getElementById('ts-modal');
+  const tsCloseX   = document.getElementById('ts-close-x');
+  const tsCancel   = document.getElementById('ts-cancel');
+  const tsConfirm  = document.getElementById('ts-confirm');
+  const tsTarget   = document.getElementById('ts-target-name');
+  const tsMode     = document.getElementById('ts-mode');
+  const tsCategory = document.getElementById('ts-category');
+  const tsCostEl   = document.getElementById('ts-cost');
+
+  const TS_COST    = <?php echo (int)$ts_cost; ?>;
+  const TS_BASEMIN = <?php echo (int)$ts_base_min; ?>;
+
+  let pendingForm = null;
+
+  function openTS(formId, defenderName) {
+    const form = document.getElementById(formId);
+    if (!form) return;
+
+    const modeSel = form.querySelector('select[name="target_mode"]');
+    const keySel  = form.querySelector('select[name="target_key"]');
+
+    tsTarget.textContent   = defenderName || 'Target';
+    tsMode.textContent     = (modeSel?.value || 'structure');
+    tsCategory.textContent = (keySel?.options[keySel.selectedIndex]?.text || keySel?.value || 'offense');
+
+    // Update visible cost (server-calculated and already respects progressive rules)
+    tsCostEl.textContent   = new Intl.NumberFormat().format(TS_COST);
+
+    pendingForm = form;
+
+    tsModal.classList.remove('hidden');
+    tsModal.classList.add('flex');
+    document.body.classList.add('overflow-hidden');
+  }
+  function closeTS() {
+    tsModal.classList.add('hidden');
+    tsModal.classList.remove('flex');
+    document.body.classList.remove('overflow-hidden');
+    pendingForm = null;
+  }
+
+  document.querySelectorAll('.open-ts-modal').forEach(btn => {
+    btn.addEventListener('click', (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      openTS(btn.dataset.formId, btn.dataset.defenderName);
+    });
   });
+
+  tsCloseX.addEventListener('click', closeTS);
+  tsCancel.addEventListener('click', closeTS);
+  tsModal.addEventListener('click', (e) => { if (e.target === tsModal) closeTS(); });
+  tsConfirm.addEventListener('click', () => { if (pendingForm) pendingForm.submit(); });
 })();
 </script>
 
