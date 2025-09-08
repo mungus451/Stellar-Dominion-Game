@@ -1,11 +1,13 @@
 <?php
 /**
  * src/Controllers/SpyController.php
- * Total Sabotage (Loadout) fixes:
- *  - Actually decrements defender loadout items across all slots
- *  - Per-item breakdown logged to spy_logs.intel_gathered (JSON)
- *  - Full-wipe (100%) only when raw spy:sentry >= 10x; else cap at 75%
- *  - Report-friendly keys: mode/operation_mode and category/target
+ * Total Sabotage (Loadout) – hard bound to GameData loadouts, no heuristics:
+ *  - Uses $armory_loadouts (GameData.php) only for item inclusion.
+ *  - Offense = soldier, Defense = guard, Spy = spy, Sentry = sentry, Worker = worker.
+ *  - Always includes proper slot items (e.g., helmets in offense).
+ *  - Never pulls items from other loadouts (e.g., Spy main weapon in offense).
+ *  - Total Sabotage success = raw spy:sentry >= 1.0 (no underdog wins, no luck).
+ *  - Loadout destruction = 10–90% (crit adds +10, still max 90%).
  */
 
 if (session_status() == PHP_SESSION_NONE) {
@@ -82,8 +84,8 @@ date_default_timezone_set('UTC');
 /* -------------------------------- tuning ---------------------------------- */
 const SPY_TURNS_SOFT_EXP      = 0.50;
 const SPY_TURNS_MAX_MULT      = 1.35;
-const SPY_RANDOM_BAND         = 0.02;
-const SPY_MIN_SUCCESS_RATIO   = 1.20;
+const SPY_RANDOM_BAND         = 0.01;
+const SPY_MIN_SUCCESS_RATIO   = 1.02;
 
 const SPY_ASSASSINATE_KILL_MIN = 0.02;
 const SPY_ASSASSINATE_KILL_MAX = 0.06;
@@ -101,16 +103,10 @@ const SPY_INTEL_DRAW_COUNT    = 5;
 const SPY_ASSASSINATE_WINDOW_HRS = 2;
 const SPY_ASSASSINATE_MAX_TRIES  = 2;
 
-// Total Sabotage
-const SPY_TOTAL_SABOTAGE_MIN_RATIO   = 1.35;
+// Total Sabotage thresholds (used only for CRIT; success is raw >= 1.0)
 const SPY_TOTAL_SABOTAGE_CRIT_RATIO  = 1.60;
-const SPY_TOTAL_SABO_DMG_MIN_PCT     = 25;
-const SPY_TOTAL_SABO_DMG_MAX_PCT     = 40;
-const SPY_TOTAL_SABO_CACHE_MIN_PCT   = 25;
-const SPY_TOTAL_SABO_CACHE_MAX_PCT   = 60;
 
-
-// ---- core spy calc helpers (guarded) ----
+/* -------------------------- core spy calc helpers ------------------------- */
 if (!function_exists('clamp_float')) {
     function clamp_float($v, $min, $max){ return max($min, min($max, (float)$v)); }
 }
@@ -135,62 +131,51 @@ if (!function_exists('bounded_rand_pct')) {
     }
 }
 
-// ---- Armory helper utilities (deduped) ----
-if (!function_exists('sd_item_bucket_from_meta')) {
-    /** Map an armory item meta array to our 5 buckets. */
-    function sd_item_bucket_from_meta(?array $meta): ?string {
-        if (!$meta) return null;
-        $candidates = [
-            strtolower((string)($meta['bucket']   ?? '')),
-            strtolower((string)($meta['category'] ?? '')),
-            strtolower((string)($meta['role']     ?? '')),
-            strtolower((string)($meta['class']    ?? '')),
-            strtolower((string)($meta['type']     ?? '')),
+/* ----------------------- loadout hard-binding helpers --------------------- */
+/**
+ * Map UI bucket to GameData loadout key.
+ * offense -> soldier, defense -> guard, spy -> spy, sentry -> sentry, worker -> worker
+ */
+if (!function_exists('ts_bucket_to_loadout_key')) {
+    function ts_bucket_to_loadout_key(string $bucket): ?string {
+        static $map = [
+            'offense' => 'soldier',
+            'defense' => 'guard',
+            'spy'     => 'spy',
+            'sentry'  => 'sentry',
+            'worker'  => 'worker',
         ];
-        foreach ($candidates as $v) {
-            if (in_array($v, ['offense','defense','spy','sentry','worker'], true)) return $v;
-            if ($v === 'economy' || $v === 'workers') return 'worker';
-        }
-        return null;
+        $bucket = strtolower($bucket);
+        return $map[$bucket] ?? null;
     }
 }
 
-if (!function_exists('sd_infer_bucket_from_key')) {
-    /** Heuristic fallback: infer bucket from item_key (works with your DB keys). */
-    function sd_infer_bucket_from_key(string $key): ?string {
-        $k = strtolower($key);
+/**
+ * Return the exact set of item_keys allowed for the given bucket,
+ * strictly as defined in GameData.php ($armory_loadouts). No heuristics.
+ */
+if (!function_exists('ts_allowed_item_keys_for_bucket')) {
+    function ts_allowed_item_keys_for_bucket(string $bucket): array {
+        $ldKey = ts_bucket_to_loadout_key($bucket);
+        if (!$ldKey) return [];
+        $LD = $GLOBALS['armory_loadouts'] ?? null;
+        if (!is_array($LD) || !isset($LD[$ldKey]) || !is_array($LD[$ldKey])) return [];
 
-        // worker first (mining/resource tools)
-        if (preg_match('/(mining|resource|harvest|tractor|drill|builder|excavat|scanner)/', $k)) {
-            if (strpos($k, 'resource') !== false || strpos($k, 'mining') !== false) return 'worker';
+        $allowed = [];
+        $cats = $LD[$ldKey]['categories'] ?? [];
+        foreach ($cats as $slotKey => $slotDef) {
+            if (!is_array($slotDef)) continue;
+            $items = $slotDef['items'] ?? [];
+            if (is_array($items)) {
+                foreach ($items as $ik => $_) { $allowed[$ik] = true; }
+            }
         }
-
-        // spy gadgets
-        if (preg_match('/(scrambl|cloak|decrypt|hacker|lockpick|bug|tap|wiretap|goggle|silenc)/', $k)) {
-            return 'spy';
-        }
-
-        // sentry/defense emplacements
-        if (preg_match('/(turret|sentry|projector|autocannon|watchtower|sensor|drone)/', $k)) {
-            return 'sentry';
-        }
-
-        // personal defense
-        if (preg_match('/(shield|armor|armour|suit|helmet|wall|barrier|generator)/', $k)) {
-            return 'defense';
-        }
-
-        // weapons -> offense
-        if (preg_match('/(rifle|pistol|smg|shotgun|blade|dagger|sword|bow|cannon|launcher|grenade|laser|pulse)/', $k)) {
-            return 'offense';
-        }
-
-        return null;
+        return array_keys($allowed);
     }
 }
 
+/** Display name helper retained (no heuristics on selection, only for labels). */
 if (!function_exists('sd_item_name_by_key')) {
-    /** Best-effort display name for item_key for reporting. */
     function sd_item_name_by_key(string $key): string {
         if (isset($GLOBALS['armory_items'][$key]['name'])) return (string)$GLOBALS['armory_items'][$key]['name'];
         if (isset($GLOBALS['ARMORY_ITEMS'][$key]['name'])) return (string)$GLOBALS['ARMORY_ITEMS'][$key]['name'];
@@ -205,10 +190,15 @@ if (!function_exists('sd_item_name_by_key')) {
     }
 }
 
-// ---- XP helpers (guarded) ----
+/* ---- XP helpers (guarded) ---- */
 if (!function_exists('xp_gain_attacker')) {
     function xp_gain_attacker(int $turns, int $level_diff): int {
-        $base = mt_rand(SPY_XP_ATTACKER_MIN, SPY_XP_ATTACKER_MAX);
+        // Base roll
+        $base = mt_rand(
+            defined('SPY_XP_ATTACKER_MIN') ? SPY_XP_ATTACKER_MIN : 100,
+            defined('SPY_XP_ATTACKER_MAX') ? SPY_XP_ATTACKER_MAX : 160
+        );
+        // Mild scaling with turns and level delta
         $scaleTurns = max(0.75, min(1.5, sqrt(max(1, $turns)) / 2));
         $scaleDelta = max(0.1, 1.0 + (0.05 * $level_diff));
         return max(1, (int)floor($base * $scaleTurns * $scaleDelta));
@@ -216,13 +206,15 @@ if (!function_exists('xp_gain_attacker')) {
 }
 if (!function_exists('xp_gain_defender')) {
     function xp_gain_defender(int $turns, int $level_diff): int {
-        $base = mt_rand(SPY_XP_DEFENDER_MIN, SPY_XP_DEFENDER_MAX);
+        $base = mt_rand(
+            defined('SPY_XP_DEFENDER_MIN') ? SPY_XP_DEFENDER_MIN : 40,
+            defined('SPY_XP_DEFENDER_MAX') ? SPY_XP_DEFENDER_MAX : 80
+        );
         $scaleTurns = max(0.75, min(1.25, sqrt(max(1, $turns)) / 2));
         $scaleDelta = max(0.1, 1.0 - (0.05 * $level_diff));
         return max(1, (int)floor($base * $scaleTurns * $scaleDelta));
     }
 }
-
 
 /* -------------------------------- inputs ---------------------------------- */
 $attacker_id          = (int)$_SESSION["id"];
@@ -282,7 +274,7 @@ try {
     $attacker_spy_power  = max(1, ($spy_count * (10 + (int)$attacker['spy_upgrade_level'] * 2)) + $attacker_armory_spy_bonus);
     $defender_sentry_pow = max(1, ($sentry_count * (10 + (int)$defender['defense_upgrade_level'] * 2)) + $defender_armory_sentry_bonus);
 
-    [ $success, $raw_ratio, $effective_ratio ] = decide_success($attacker_spy_power, $defender_sentry_pow, $attack_turns);
+    [ $success_generic, $raw_ratio, $effective_ratio ] = decide_success($attacker_spy_power, $defender_sentry_pow, $attack_turns);
 
     $level_diff = ((int)$defender['level']) - ((int)$attacker['level']);
     $attacker_xp_gained = xp_gain_attacker($attack_turns, $level_diff);
@@ -291,7 +283,17 @@ try {
     $intel_gathered_json = null;
     $units_killed        = 0;   // legacy column reuse
     $structure_damage    = 0;
-    $outcome             = $success ? 'success' : 'failure';
+    $outcome             = 'failure';
+
+    /* ------------------------------- resolve -------------------------------- */
+    $success = $success_generic; // default for non-total_sabotage
+
+    if ($mission_type === 'total_sabotage') {
+        // STRICT rule: eliminate underdog victories
+        // Success depends ONLY on raw spy:sentry >= 1.0 (no luck, no turns multiplier).
+        $success  = ($raw_ratio >= 1.0);
+        $critical = ($raw_ratio >= SPY_TOTAL_SABOTAGE_CRIT_RATIO);
+    }
 
     if ($success) {
         switch ($mission_type) {
@@ -325,6 +327,7 @@ try {
                 $intel = [];
                 foreach ($selected as $k) { $intel[$k] = $pool[$k]; }
                 $intel_gathered_json = json_encode($intel);
+                $outcome = 'success';
                 break;
             }
 
@@ -353,6 +356,7 @@ try {
 
                     $units_killed = $converted;
                 }
+                $outcome = 'success';
                 break;
             }
 
@@ -371,10 +375,11 @@ try {
                         $structure_damage = $dmg;
                     }
                 }
+                $outcome = 'success';
                 break;
             }
 
-                        case 'total_sabotage': {
+            case 'total_sabotage': {
                 // parameters + aliases
                 $target_mode_in = isset($_POST['target_mode']) ? (string)$_POST['target_mode'] : 'structure';
                 $target_mode    = ($target_mode_in === 'cache') ? 'loadout' : $target_mode_in; // legacy support
@@ -404,166 +409,120 @@ try {
                 mysqli_stmt_close($stp);
                 ss_register_total_sabotage_use($link, (int)$attacker_id);
 
-                // success/crit
-                $ts_effective_ratio = $effective_ratio;
-                $success            = ($ts_effective_ratio >= SPY_TOTAL_SABOTAGE_MIN_RATIO);
-                $outcome            = $success ? 'success' : 'failure';
-                $critical           = ($ts_effective_ratio >= SPY_TOTAL_SABOTAGE_CRIT_RATIO);
+                // strict success/crit already computed above for total_sabotage (raw only)
+                $critical = ($raw_ratio >= SPY_TOTAL_SABOTAGE_CRIT_RATIO);
 
-                // details for logger (with report-friendly aliases)
+                // details for logger
                 $detail = [
                     'mode'            => $target_mode,
-                    'operation_mode'  => $target_mode,     // for report
+                    'operation_mode'  => $target_mode,
                     'category'        => $target_key,
-                    'target'          => $target_key,      // for report
+                    'target'          => $target_key,
                     'critical'        => $critical ? 1 : 0,
                     'cost'            => $cost
                 ];
 
-                if ($success) {
-                    if ($target_mode === 'structure') {
-                        if (!function_exists('ss_ensure_structure_rows') || !function_exists('ss_apply_structure_damage')) {
-                            throw new Exception("Missing structure helpers.");
-                        }
-                        ss_ensure_structure_rows($link, (int)$defender_id);
-                        $applied_percent = $critical ? 100 : rand((int)SPY_TOTAL_SABO_DMG_MIN_PCT, (int)SPY_TOTAL_SABO_DMG_MAX_PCT);
-                        [$new_health, $downgraded] = ss_apply_structure_damage($link, (int)$defender_id, (string)$target_key, (int)$applied_percent);
-
-                        $detail['applied_pct'] = (int)$applied_percent;
-                        $detail['new_health']  = (int)$new_health;
-                        $detail['downgraded']  = $downgraded ? 1 : 0;
-
-                        // keep percent in structure_damage for legacy UI
-                        $structure_damage = (int)$applied_percent;
-
-                    } elseif ($target_mode === 'loadout') {
-                        // 10× rule and percent to destroy
-                        $can_full_wipe  = ($raw_ratio >= 10.0);
-                        $max_allowed    = $can_full_wipe ? 100 : 75;
-                        $base_pct       = $critical ? 100 : rand((int)SPY_TOTAL_SABO_CACHE_MIN_PCT, (int)SPY_TOTAL_SABO_CACHE_MAX_PCT);
-                        $destroy_percent = min($max_allowed, $base_pct);
-
-                        // Catalog / loadout definitions (best effort)
-                        $catalog = $GLOBALS['armory_items'] ?? ($GLOBALS['ARMORY_ITEMS'] ?? []);
-                        $LD      = $GLOBALS['armory_loadouts'] ?? ($GLOBALS['ARMORY_LOADOUTS'] ?? null);
-
-                        // Normalize incoming target for dual mode support
-                        $bucket_targets = ['offense','defense','spy','sentry','worker'];
-                        $slot_targets   = ['main_weapon','sidearm','melee','headgear','explosives','drones'];
-
-                        $is_bucket = in_array($target_key, $bucket_targets, true);
-                        $is_slot   = in_array($target_key, $slot_targets, true);
-
-                        // Read defender inventory once (FOR UPDATE so we have a stable "before")
-                        $inv = [];
-                        $sqlInv = "SELECT item_key, quantity FROM user_armory WHERE user_id = ? AND quantity > 0 FOR UPDATE";
-                        $stInv = mysqli_prepare($link, $sqlInv);
-                        mysqli_stmt_bind_param($stInv, "i", $defender_id);
-                        mysqli_stmt_execute($stInv);
-                        $rsInv = mysqli_stmt_get_result($stInv);
-                        while ($row = $rsInv ? mysqli_fetch_assoc($rsInv) : null) {
-                            $inv[(string)$row['item_key']] = (int)$row['quantity'];
-                        }
-                        mysqli_stmt_close($stInv);
-
-                        // Build candidate list
-                        $candidate_keys = [];
-
-                        // A) If a SLOT was requested (legacy UI), gather from loadout definitions across ALL loadouts
-                        if ($is_slot && is_array($LD)) {
-                            foreach ($LD as $loadoutKey => $loadoutDef) {
-                                $cats = $loadoutDef['categories'] ?? [];
-                                if (!isset($cats[$target_key]['items'])) continue;
-                                $items = $cats[$target_key]['items'];
-                                if (is_array($items)) {
-                                    $candidate_keys = array_merge($candidate_keys, array_keys($items));
-                                }
-                            }
-                        }
-
-                        // B) If a BUCKET was requested (new UI), classify inventory by bucket (catalog meta → heuristic)
-                        if ($is_bucket) {
-                            foreach ($inv as $ik => $qty) {
-                                $bucket = sd_item_bucket_from_meta($catalog[$ik] ?? null);
-                                if ($bucket === null) $bucket = sd_infer_bucket_from_key($ik);
-                                if ($bucket === $target_key) $candidate_keys[] = $ik;
-                            }
-                        }
-
-                        // If neither path produced matches (e.g., no loadout map), try a heuristic by slot name
-                        if (empty($candidate_keys) && $is_slot) {
-                            $patterns = [
-                                'main_weapon' => '/(rifle|smg|shotgun|laser|cannon|launcher|pulse)/i',
-                                'sidearm'     => '/(pistol|sidearm|revolver)/i',
-                                'melee'       => '/(knife|sword|dagger|blade|mace|melee)/i',
-                                'headgear'    => '/(helmet|head|visor)/i',
-                                'explosives'  => '/(grenade|explosive|mine|c4|charge)/i',
-                                'drones'      => '/(drone|uav)/i',
-                            ];
-                            $re = $patterns[$target_key] ?? null;
-                            if ($re) {
-                                foreach ($inv as $ik => $qty) {
-                                    if (preg_match($re, $ik)) $candidate_keys[] = $ik;
-                                }
-                            }
-                        }
-
-                        // Keep only items the defender actually has
-                        $candidate_keys = array_values(array_unique(array_filter($candidate_keys, function($ik) use ($inv) {
-                            return isset($inv[$ik]) && $inv[$ik] > 0;
-                        })));
-
-                        // Apply destruction + build breakdown
-                        $breakdown = [];
-                        $destroyed_total = 0;
-                        if (!empty($candidate_keys)) {
-                            $sql_upd = "UPDATE user_armory SET quantity = ? WHERE user_id = ? AND item_key = ?";
-                            $stU = mysqli_prepare($link, $sql_upd);
-
-                            foreach ($candidate_keys as $ik) {
-                                $before = (int)$inv[$ik];
-                                if ($before <= 0) continue;
-
-                                $delta = (int)floor($before * ($destroy_percent / 100.0));
-                                if ($delta <= 0) continue;
-
-                                $after = max(0, $before - $delta);
-                                mysqli_stmt_bind_param($stU, "iis", $after, $defender_id, $ik);
-                                mysqli_stmt_execute($stU);
-
-                                $destroyed_total += $delta;
-                                $breakdown[] = [
-                                    'item_key'  => $ik,
-                                    'name'      => sd_item_name_by_key($ik),
-                                    'before'    => $before,
-                                    'destroyed' => $delta,
-                                    'after'     => $after,
-                                ];
-                            }
-                            mysqli_stmt_close($stU);
-                        }
-
-                        // Report payload
-                        $detail['destroy_pct']           = (int)$destroy_percent;
-                        $detail['destroy_cap']           = $can_full_wipe ? 'none' : 'capped_at_75';
-                        $detail['total_items_destroyed'] = (int)$destroyed_total;
-                        $detail['items']                 = $breakdown;
-
-                        // Legacy column: number for report’s “Items Destroyed (total)”
-                        $units_killed = (int)$destroyed_total;
-
-
-                    } else {
-                        throw new Exception("Invalid target mode.");
+                if ($target_mode === 'structure') {
+                    if (!function_exists('ss_ensure_structure_rows') || !function_exists('ss_apply_structure_damage')) {
+                        throw new Exception("Missing structure helpers.");
                     }
-                } // end if ($success)
+                    ss_ensure_structure_rows($link, (int)$defender_id);
+                    // you can tune this if you want different structure behavior; leaving your original min/max
+                    $applied_percent = $critical ? 100 : rand(25, 40);
+                    [$new_health, $downgraded] = ss_apply_structure_damage($link, (int)$defender_id, (string)$target_key, (int)$applied_percent);
 
-                // Hand details to logger regardless of success/failure
+                    $detail['applied_pct'] = (int)$applied_percent;
+                    $detail['new_health']  = (int)$new_health;
+                    $detail['downgraded']  = $downgraded ? 1 : 0;
+
+                    // legacy UI % bucket
+                    $structure_damage = (int)$applied_percent;
+
+                } elseif ($target_mode === 'loadout') {
+                    // --- Percent to destroy: smooth 10–90%. Crit adds +10 but never beyond 90.
+                    $destroy_percent = rand(10, 90);
+                    if ($critical) { $destroy_percent = min(90, $destroy_percent + 10); }
+
+                    // 1) Allowed keys strictly from GameData loadouts (no heuristics)
+                    $allowed_keys = ts_allowed_item_keys_for_bucket($target_key);
+                    if (empty($allowed_keys)) {
+                        throw new Exception("Loadout catalog missing for '$target_key'.");
+                    }
+                    $allowed_lookup = array_fill_keys($allowed_keys, true);
+
+                    // 2) Read defender inventory once (stable snapshot; FOR UPDATE)
+                    $inv = [];
+                    $sqlInv = "SELECT item_key, quantity FROM user_armory WHERE user_id = ? AND quantity > 0 FOR UPDATE";
+                    $stInv  = mysqli_prepare($link, $sqlInv);
+                    mysqli_stmt_bind_param($stInv, "i", $defender_id);
+                    mysqli_stmt_execute($stInv);
+                    $rsInv = mysqli_stmt_get_result($stInv);
+                    while ($row = $rsInv ? mysqli_fetch_assoc($rsInv) : null) {
+                        $inv[(string)$row['item_key']] = (int)$row['quantity'];
+                    }
+                    mysqli_stmt_close($stInv);
+
+                    // 3) Candidate list = allowed ∩ actually owned
+                    $candidate_keys = [];
+                    foreach ($inv as $ik => $qty) {
+                        if ($qty > 0 && isset($allowed_lookup[$ik])) {
+                            $candidate_keys[] = $ik;
+                        }
+                    }
+
+                    // 4) Apply destruction + build breakdown
+                    $breakdown = [];
+                    $destroyed_total = 0;
+
+                    if (!empty($candidate_keys)) {
+                        $sql_upd = "UPDATE user_armory SET quantity = ? WHERE user_id = ? AND item_key = ?";
+                        $stU     = mysqli_prepare($link, $sql_upd);
+
+                        foreach ($candidate_keys as $ik) {
+                            $before = (int)$inv[$ik];
+                            if ($before <= 0) continue;
+
+                            $delta = (int)floor($before * ($destroy_percent / 100.0));
+                            // Ensure at least 1 is destroyed when present and destroy% > 0
+                            if ($delta <= 0 && $destroy_percent > 0) $delta = 1;
+
+                            $after = max(0, $before - $delta);
+                            mysqli_stmt_bind_param($stU, "iis", $after, $defender_id, $ik);
+                            mysqli_stmt_execute($stU);
+
+                            $destroyed_total += $delta;
+                            $breakdown[] = [
+                                'item_key'  => $ik,
+                                'name'      => sd_item_name_by_key($ik),
+                                'before'    => $before,
+                                'destroyed' => $delta,
+                                'after'     => $after,
+                            ];
+                        }
+                        mysqli_stmt_close($stU);
+                    }
+
+                    // Report payload
+                    $detail['destroy_pct']           = (int)$destroy_percent;
+                    $detail['destroy_cap']           = 'none'; // no 75%/100% toggles anymore
+                    $detail['total_items_destroyed'] = (int)$destroyed_total;
+                    $detail['items']                 = $breakdown;
+
+                    // Legacy column: number for report’s “Items Destroyed (total)”
+                    $units_killed = (int)$destroyed_total;
+
+                } else {
+                    throw new Exception("Invalid target mode.");
+                }
+
+                // Hand details to logger
                 $intel_gathered_json = json_encode($detail);
+                $outcome = 'success';
                 break;
             }
-
         }
+    } else {
+        // failure case – preserve outcome='failure'
     }
 
     // spend turns + xp
