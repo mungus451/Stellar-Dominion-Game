@@ -132,10 +132,6 @@ if (!function_exists('bounded_rand_pct')) {
 }
 
 /* ----------------------- loadout hard-binding helpers --------------------- */
-/**
- * Map UI bucket to GameData loadout key.
- * offense -> soldier, defense -> guard, spy -> spy, sentry -> sentry, worker -> worker
- */
 if (!function_exists('ts_bucket_to_loadout_key')) {
     function ts_bucket_to_loadout_key(string $bucket): ?string {
         static $map = [
@@ -149,18 +145,12 @@ if (!function_exists('ts_bucket_to_loadout_key')) {
         return $map[$bucket] ?? null;
     }
 }
-
-/**
- * Return the exact set of item_keys allowed for the given bucket,
- * strictly as defined in GameData.php ($armory_loadouts). No heuristics.
- */
 if (!function_exists('ts_allowed_item_keys_for_bucket')) {
     function ts_allowed_item_keys_for_bucket(string $bucket): array {
         $ldKey = ts_bucket_to_loadout_key($bucket);
         if (!$ldKey) return [];
         $LD = $GLOBALS['armory_loadouts'] ?? null;
         if (!is_array($LD) || !isset($LD[$ldKey]) || !is_array($LD[$ldKey])) return [];
-
         $allowed = [];
         $cats = $LD[$ldKey]['categories'] ?? [];
         foreach ($cats as $slotKey => $slotDef) {
@@ -173,8 +163,6 @@ if (!function_exists('ts_allowed_item_keys_for_bucket')) {
         return array_keys($allowed);
     }
 }
-
-/** Display name helper retained (no heuristics on selection, only for labels). */
 if (!function_exists('sd_item_name_by_key')) {
     function sd_item_name_by_key(string $key): string {
         if (isset($GLOBALS['armory_items'][$key]['name'])) return (string)$GLOBALS['armory_items'][$key]['name'];
@@ -193,12 +181,10 @@ if (!function_exists('sd_item_name_by_key')) {
 /* ---- XP helpers (guarded) ---- */
 if (!function_exists('xp_gain_attacker')) {
     function xp_gain_attacker(int $turns, int $level_diff): int {
-        // Base roll
         $base = mt_rand(
             defined('SPY_XP_ATTACKER_MIN') ? SPY_XP_ATTACKER_MIN : 100,
             defined('SPY_XP_ATTACKER_MAX') ? SPY_XP_ATTACKER_MAX : 160
         );
-        // Mild scaling with turns and level delta
         $scaleTurns = max(0.75, min(1.5, sqrt(max(1, $turns)) / 2));
         $scaleDelta = max(0.1, 1.0 + (0.05 * $level_diff));
         return max(1, (int)floor($base * $scaleTurns * $scaleDelta));
@@ -289,8 +275,7 @@ try {
     $success = $success_generic; // default for non-total_sabotage
 
     if ($mission_type === 'total_sabotage') {
-        // STRICT rule: eliminate underdog victories
-        // Success depends ONLY on raw spy:sentry >= 1.0 (no luck, no turns multiplier).
+        // STRICT rule: underdog victories disabled; use RAW ratio only
         $success  = ($raw_ratio >= 1.0);
         $critical = ($raw_ratio >= SPY_TOTAL_SABOTAGE_CRIT_RATIO);
     }
@@ -383,13 +368,46 @@ try {
                 // parameters + aliases
                 $target_mode_in = isset($_POST['target_mode']) ? (string)$_POST['target_mode'] : 'structure';
                 $target_mode    = ($target_mode_in === 'cache') ? 'loadout' : $target_mode_in; // legacy support
-                $target_key     = isset($_POST['target_key']) ? (string)$_POST['target_key'] : '';
+                $target_key_in  = isset($_POST['target_key']) ? strtolower((string)$_POST['target_key']) : '';
 
-                $VALID_CATEGORIES = ['offense','defense','spy','sentry','worker'];
-                if ($target_key === 'economy' || $target_key === 'workers') $target_key = 'worker';
-                if ($target_key === '' || !in_array($target_key, $VALID_CATEGORIES, true)) {
-                    throw new Exception("Choose a valid target category.");
+                // ---------- NEW: distinct validation/mapping per mode ----------
+                $structure_key = null;      // resolved name for structure mode
+                $loadout_key   = null;      // validated bucket for loadout mode
+
+                if ($target_mode === 'structure') {
+                    // Map UI buckets to actual structure keys
+                    $map = [
+                        'offense'    => 'offense',
+                        'defense'    => 'defense',
+                        'worker'     => 'population',
+                        'workers'    => 'population',
+                        'population' => 'population',
+                        'spy'        => 'armory',
+                        'armory'     => 'armory',
+                        'sentry'     => 'economy',
+                        'economy'    => 'economy',
+                    ];
+                    $structure_key = $map[$target_key_in] ?? null;
+
+                    $VALID_STRUCTURES = ['offense','defense','economy','population','armory'];
+                    if (!$structure_key || !in_array($structure_key, $VALID_STRUCTURES, true)) {
+                        throw new Exception("Choose a valid target category.");
+                    }
+
+                } elseif ($target_mode === 'loadout') {
+                    // Preserve original bucket validation for unit cache destruction
+                    $tk = $target_key_in;
+                    if ($tk === 'economy' || $tk === 'workers') $tk = 'worker';
+                    $VALID_LOADOUT = ['offense','defense','spy','sentry','worker'];
+                    if ($tk === '' || !in_array($tk, $VALID_LOADOUT, true)) {
+                        throw new Exception("Choose a valid target category.");
+                    }
+                    $loadout_key = $tk;
+
+                } else {
+                    throw new Exception("Invalid target mode.");
                 }
+                // ----------------------------------------------------------------
 
                 // progressive cost
                 if (!function_exists('ss_total_sabotage_cost') || !function_exists('ss_register_total_sabotage_use')) {
@@ -412,12 +430,12 @@ try {
                 // strict success/crit already computed above for total_sabotage (raw only)
                 $critical = ($raw_ratio >= SPY_TOTAL_SABOTAGE_CRIT_RATIO);
 
-                // details for logger
+                // details for logger (use resolved key for structures)
                 $detail = [
                     'mode'            => $target_mode,
                     'operation_mode'  => $target_mode,
-                    'category'        => $target_key,
-                    'target'          => $target_key,
+                    'category'        => ($target_mode === 'structure') ? $structure_key : $loadout_key,
+                    'target'          => ($target_mode === 'structure') ? $structure_key : $loadout_key,
                     'critical'        => $critical ? 1 : 0,
                     'cost'            => $cost
                 ];
@@ -427,15 +445,21 @@ try {
                         throw new Exception("Missing structure helpers.");
                     }
                     ss_ensure_structure_rows($link, (int)$defender_id);
-                    // you can tune this if you want different structure behavior; leaving your original min/max
+
+                    // damage percent
                     $applied_percent = $critical ? 100 : rand(25, 40);
-                    [$new_health, $downgraded] = ss_apply_structure_damage($link, (int)$defender_id, (string)$target_key, (int)$applied_percent);
+                    [$new_health, $downgraded] = ss_apply_structure_damage(
+                        $link,
+                        (int)$defender_id,
+                        (string)$structure_key,
+                        (int)$applied_percent
+                    );
 
                     $detail['applied_pct'] = (int)$applied_percent;
                     $detail['new_health']  = (int)$new_health;
                     $detail['downgraded']  = $downgraded ? 1 : 0;
 
-                    // legacy UI % bucket
+                    // legacy UI bucket
                     $structure_damage = (int)$applied_percent;
 
                 } elseif ($target_mode === 'loadout') {
@@ -444,9 +468,9 @@ try {
                     if ($critical) { $destroy_percent = min(90, $destroy_percent + 10); }
 
                     // 1) Allowed keys strictly from GameData loadouts (no heuristics)
-                    $allowed_keys = ts_allowed_item_keys_for_bucket($target_key);
+                    $allowed_keys = ts_allowed_item_keys_for_bucket($loadout_key);
                     if (empty($allowed_keys)) {
-                        throw new Exception("Loadout catalog missing for '$target_key'.");
+                        throw new Exception("Loadout catalog missing for '$loadout_key'.");
                     }
                     $allowed_lookup = array_fill_keys($allowed_keys, true);
 
@@ -483,7 +507,6 @@ try {
                             if ($before <= 0) continue;
 
                             $delta = (int)floor($before * ($destroy_percent / 100.0));
-                            // Ensure at least 1 is destroyed when present and destroy% > 0
                             if ($delta <= 0 && $destroy_percent > 0) $delta = 1;
 
                             $after = max(0, $before - $delta);
@@ -504,18 +527,15 @@ try {
 
                     // Report payload
                     $detail['destroy_pct']           = (int)$destroy_percent;
-                    $detail['destroy_cap']           = 'none'; // no 75%/100% toggles anymore
+                    $detail['destroy_cap']           = 'none';
                     $detail['total_items_destroyed'] = (int)$destroyed_total;
                     $detail['items']                 = $breakdown;
 
-                    // Legacy column: number for report’s “Items Destroyed (total)”
                     $units_killed = (int)$destroyed_total;
-
                 } else {
                     throw new Exception("Invalid target mode.");
                 }
 
-                // Hand details to logger
                 $intel_gathered_json = json_encode($detail);
                 $outcome = 'success';
                 break;

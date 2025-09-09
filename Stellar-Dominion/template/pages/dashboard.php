@@ -34,6 +34,33 @@ $user_stats = ($user_id > 0)
     ? ss_process_and_get_user_state($link, $user_id, $needed_fields)
     : [];
 
+// --- PULL STRUCTURE HEALTH (for multipliers) ---
+$__default_health = [
+    'offense'  => ['health_pct' => 100, 'locked' => 0],
+    'defense'  => ['health_pct' => 100, 'locked' => 0],
+    'economy'  => ['health_pct' => 100, 'locked' => 0],
+    // population/armory not needed here; leave at defaults elsewhere
+];
+$structure_health = $__default_health;
+
+if ($user_id > 0 && ($stmt = $link->prepare("SELECT structure_key, health_pct, locked FROM user_structure_health WHERE user_id = ?"))) {
+    $stmt->bind_param("i", $user_id);
+    if ($stmt->execute() && ($res = $stmt->get_result())) {
+        while ($row = $res->fetch_assoc()) {
+            $k = $row['structure_key'];
+            if (isset($structure_health[$k])) {
+                $structure_health[$k]['health_pct'] = max(0, min(100, (int)$row['health_pct']));
+                $structure_health[$k]['locked']     = (int)$row['locked'];
+            }
+        }
+    }
+    $stmt->close();
+}
+// Convert to multipliers; locked => 0
+$offense_integrity_mult = ($structure_health['offense']['locked']  ? 0.0 : ($structure_health['offense']['health_pct']  / 100));
+$defense_integrity_mult = ($structure_health['defense']['locked']  ? 0.0 : ($structure_health['defense']['health_pct']  / 100));
+$economy_integrity_mult = ($structure_health['economy']['locked']  ? 0.0 : ($structure_health['economy']['health_pct']  / 100));
+
 // --- FETCH ARMORY DATA (centralized) ---
 $owned_items = ($user_id > 0) ? ss_get_armory_inventory($link, $user_id) : [];
 
@@ -114,7 +141,7 @@ if ($new_net_worth !== (int)$user_stats['net_worth']) {
     }
 }
 
-// --- UPGRADE MULTIPLIERS (for combat stats display only) ---
+// --- UPGRADE MULTIPLIERS (for combat stats display) ---
 $total_offense_bonus_pct = 0;
 for ($i = 1, $n = (int)$user_stats['offense_upgrade_level']; $i <= $n; $i++) {
     $total_offense_bonus_pct += (float)($upgrades['offense']['levels'][$i]['bonuses']['offense'] ?? 0);
@@ -127,12 +154,12 @@ for ($i = 1, $n = (int)$user_stats['defense_upgrade_level']; $i <= $n; $i++) {
 }
 $defense_upgrade_multiplier = 1 + ($total_defense_bonus_pct / 100);
 
-// --- CANONICAL PER-TURN ECONOMY (SINGLE SOURCE OF TRUTH) ---
+// --- CANONICAL PER-TURN ECONOMY ---
 $summary = calculate_income_summary($link, $user_id, $user_stats);
-$credits_per_turn  = (int)$summary['income_per_turn'];
-$citizens_per_turn = (int)$summary['citizens_per_turn'];
+$credits_per_turn  = (int)$summary['income_per_turn'];     // already structure-scaled
+$citizens_per_turn = (int)$summary['citizens_per_turn'];   // already structure-scaled
 
-// --- DERIVED COMBAT STATS (unchanged) ---
+// --- DERIVED COMBAT STATS (armory + attributes + upgrade multipliers) ---
 $strength_bonus = 1 + ((float)$user_stats['strength_points'] * 0.01);
 $constitution_bonus = 1 + ((float)$user_stats['constitution_points'] * 0.01);
 
@@ -148,10 +175,17 @@ $armory_sentry_bonus = sd_sentry_armory_defense_bonus($owned_items, $sentry_coun
 $spy_count = (int)$user_stats['spies'];
 $armory_spy_bonus = sd_spy_armory_attack_bonus($owned_items, $spy_count);
 
-$offense_power = (int)floor((($soldier_count * 10) * $strength_bonus + $armory_attack_bonus) * $offense_upgrade_multiplier);
-$defense_rating = (int)floor(((($guard_count * 10) + $armory_defense_bonus) * $constitution_bonus) * $defense_upgrade_multiplier);
-$spy_offense = (int)floor((($spy_count * 10) + $armory_spy_bonus) * $offense_upgrade_multiplier);
-$sentry_defense = (int)floor(((($sentry_count * 10) + $armory_sentry_bonus)) * $defense_upgrade_multiplier);
+// Base (pre-structure) values
+$offense_power_base   = (($soldier_count * 10) * $strength_bonus + $armory_attack_bonus) * $offense_upgrade_multiplier;
+$defense_rating_base  = ((($guard_count * 10) + $armory_defense_bonus) * $constitution_bonus) * $defense_upgrade_multiplier;
+$spy_offense_base     = ((($spy_count * 10) + $armory_spy_bonus) * $offense_upgrade_multiplier); // spies benefit from offense upgrades
+$sentry_defense_base  = ((($sentry_count * 10) + $armory_sentry_bonus) * $defense_upgrade_multiplier);
+
+// APPLY STRUCTURE HEALTH (linear scaling; locked => 0)
+$offense_power  = (int)floor($offense_power_base  * $offense_integrity_mult);
+$defense_rating = (int)floor($defense_rating_base * $defense_integrity_mult);
+$spy_offense    = (int)floor($spy_offense_base    * $offense_integrity_mult);
+$sentry_defense = (int)floor($sentry_defense_base * $defense_integrity_mult);
 
 // --- POPULATION COUNTS (turn timer comes from advisor_hydration) ---
 $non_military_units = (int)$user_stats['workers'] + (int)$user_stats['untrained_citizens'];
@@ -159,8 +193,6 @@ $offensive_units = (int)$user_stats['soldiers'];
 $utility_units = (int)$user_stats['spies'];
 $total_military_units = $offensive_units + (int)$user_stats['guards'] + (int)$user_stats['sentries'] + $utility_units;
 $total_population = $non_military_units + $total_military_units;
-
-
 
 // Include the universal header AFTER data is ready (advisor needs some of it)
 include_once __DIR__ . '/../includes/header.php';

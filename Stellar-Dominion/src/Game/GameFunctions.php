@@ -179,18 +179,22 @@ function calculate_income_summary(mysqli $link, int $user_id, array $user_stats)
     for ($i = 1, $n = (int)($user_stats['economy_upgrade_level'] ?? 0); $i <= $n; $i++) {
         $economy_pct += (float)($upgrades['economy']['levels'][$i]['bonuses']['income'] ?? 0);
     }
-    $economy_mult = 1.0 + ($economy_pct / 100.0);
-    if (function_exists('ss_structure_output_multiplier_by_key')) {
-        $economy_mult *= ss_structure_output_multiplier_by_key($link, $user_id, 'economy');
-    }
-    // population upgrades -> citizens_per_turn (scale by structure health)
+        // separate upgrade vs health multipliers (so we can expose a pre-structure "base")
+    $economy_mult_upgrades = 1.0 + ($economy_pct / 100.0);
+    $economy_struct_mult  = function_exists('ss_structure_output_multiplier_by_key')
+        ? ss_structure_output_multiplier_by_key($link, $user_id, 'economy')
+        : 1.0;
+    $economy_mult = $economy_mult_upgrades * $economy_struct_mult;
+    // population upgrades -> citizens_per_turn (apply structure health before alliance add-ons)
     $citizens_per_turn = $CITIZENS_BASE;
     for ($i = 1, $n = (int)($user_stats['population_level'] ?? 0); $i <= $n; $i++) {
         $citizens_per_turn += (int)($upgrades['population']['levels'][$i]['bonuses']['citizens'] ?? 0);
     }
-    if (function_exists('ss_structure_output_multiplier_by_key')) {
-        $citizens_per_turn = (int)floor($citizens_per_turn * ss_structure_output_multiplier_by_key($link, $user_id, 'population'));
-    }
+    $citizens_per_turn_base = (int)$citizens_per_turn; // pre-structure, pre-alliance
+    $population_struct_mult = function_exists('ss_structure_output_multiplier_by_key')
+        ? ss_structure_output_multiplier_by_key($link, $user_id, 'population')
+        : 1.0;
+    $citizens_per_turn = (int)floor($citizens_per_turn_base * $population_struct_mult);
     $citizens_per_turn += (int)$alliance_bonuses['citizens'];
 
     // proficiencies
@@ -205,7 +209,12 @@ function calculate_income_summary(mysqli $link, int $user_id, array $user_stats)
     $alli_income_mult   = 1.0 + ((float)$alliance_bonuses['income']    / 100.0);
     $alli_resource_mult = 1.0 + ((float)$alliance_bonuses['resources'] / 100.0);
 
-    $base_income    = $BASE_INCOME_PER_TURN + $worker_income;
+    $base_income     = $BASE_INCOME_PER_TURN + $worker_income;
+    // expose a pre-structure "base" (all other multipliers included), then apply structure to the multiplicative part only
+    $income_per_turn_base = (int)floor(
+        $base_income * $wealth_mult * $economy_mult_upgrades * $alli_income_mult * $alli_resource_mult
+        + (int)$alliance_bonuses['credits']
+    );
     $income_per_turn = (int)floor(
         $base_income * $wealth_mult * $economy_mult * $alli_income_mult * $alli_resource_mult
         + (int)$alliance_bonuses['credits']
@@ -214,6 +223,9 @@ function calculate_income_summary(mysqli $link, int $user_id, array $user_stats)
     return [
         'income_per_turn'          => $income_per_turn,
         'citizens_per_turn'        => (int)$citizens_per_turn,
+        'includes_struct_scaling'  => true,
+        'income_per_turn_base'     => (int)$income_per_turn_base,
+        'citizens_per_turn_base'   => (int)$citizens_per_turn_base,
         'base_income_per_turn'     => (int)$BASE_INCOME_PER_TURN,
         'worker_income'            => (int)$worker_income,
         'worker_armory_bonus'      => (int)$worker_armory_bonus,

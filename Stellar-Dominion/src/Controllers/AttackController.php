@@ -30,6 +30,29 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
 date_default_timezone_set('UTC');
 
+// Fetch per-structure health % for a user (falls back to 100 when missing)
+function sd_get_structure_health_map(mysqli $link, int $user_id): array {
+    $map = ['offense'=>100,'defense'=>100,'spy'=>100,'sentry'=>100,'worker'=>100,'economy'=>100,'population'=>100,'armory'=>100];
+    if ($stmt = mysqli_prepare($link, "SELECT structure_key, health_pct FROM user_structure_health WHERE user_id = ?")) {
+        mysqli_stmt_bind_param($stmt, "i", $user_id);
+        mysqli_stmt_execute($stmt);
+        $res = mysqli_stmt_get_result($stmt);
+        while ($row = $res ? mysqli_fetch_assoc($res) : null) {
+            $k = strtolower((string)$row['structure_key']);
+            $hp = (int)($row['health_pct'] ?? 100);
+            if ($hp < 0) $hp = 0; if ($hp > 100) $hp = 100;
+            $map[$k] = $hp;
+        }
+        mysqli_stmt_close($stmt);
+    }
+    return $map;
+}
+// Convert a health % to a multiplier (dashboard uses linear scaling; clamp to 10–100%)
+function sd_struct_mult_from_pct(int $pct): float {
+    $pct = max(0, min(100, $pct));
+    return max(0.10, $pct / 100.0);
+}
+
 // ─────────────────────────────────────────────────────────────────────────────
 // BALANCE CONSTANTS
 // ─────────────────────────────────────────────────────────────────────────────
@@ -204,6 +227,14 @@ try {
     if ($attacker['alliance_id'] !== NULL && $attacker['alliance_id'] === $defender['alliance_id']) throw new Exception("You cannot attack a member of your own alliance.");
     if ((int)$attacker['attack_turns'] < $attack_turns) throw new Exception("Not enough attack turns.");
 
+    // Structure health (to match dashboard scaling)
+    $atk_struct = sd_get_structure_health_map($link, (int)$attacker_id);
+    $def_struct = sd_get_structure_health_map($link, (int)$defender_id);
+
+    // Dashboard-aligned multipliers
+    $OFFENSE_STRUCT_MULT = sd_struct_mult_from_pct((int)($atk_struct['offense']  ?? 100));
+    $DEFENSE_STRUCT_MULT = sd_struct_mult_from_pct((int)($def_struct['defense'] ?? 100));
+
     // ─────────────────────────────────────────────────────────────────────────
     // RATE LIMIT COUNTS (per-target)
     // ─────────────────────────────────────────────────────────────────────────
@@ -302,9 +333,13 @@ try {
     $base_soldier_atk = max(0, (int)$attacker['soldiers']) * $AVG_UNIT_POWER;
     $base_guard_def   = max(0, (int)$defender['guards'])  * $AVG_UNIT_POWER;
 
-    $RawAttack  = (($base_soldier_atk * $strength_mult) + $armory_attack_bonus) * $offense_upgrade_mult;
-    $RawDefense = (($base_guard_def + $defender_armory_defense_bonus) * $constitution_mult) * $defense_upgrade_mult;
+        $RawAttack  = (($base_soldier_atk * $strength_mult) + $armory_attack_bonus) * $offense_upgrade_mult;
+        // Scale attacker attack by Offense structure integrity (match dashboard)
+        $RawAttack *= $OFFENSE_STRUCT_MULT;
 
+        $RawDefense = (($base_guard_def + $defender_armory_defense_bonus) * $constitution_mult) * $defense_upgrade_mult;
+        // Scale defender defense by Defense structure integrity (match dashboard)
+        $RawDefense *= $DEFENSE_STRUCT_MULT;
     // ─────────────────────────────────────────────────────────────────────────────
     // Fortification health → multipliers (runs before final strengths / kills / plunder)
     // ─────────────────────────────────────────────────────────────────────────────

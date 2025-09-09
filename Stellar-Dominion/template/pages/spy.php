@@ -181,11 +181,12 @@ include_once __DIR__ . '/../includes/header.php';
                                             <option value="loadout">Loadout</option>
                                         </select>
                                         <select name="target_key" class="bg-gray-900 border border-gray-600 rounded text-xs px-1 py-0.5 mr-1">
-                                            <option value="offense">Offense</option>
-                                            <option value="defense">Defense</option>
-                                            <option value="spy">Spy</option>
-                                            <option value="sentry">Sentry</option>
-                                            <option value="worker">Worker</option>
+                                          <!-- Default list for STRUCTURE mode -->
+                                          <option value="offense">Offense</option>
+                                          <option value="defense">Defense</option>
+                                          <option value="armory">Armory</option>
+                                          <option value="economy">Economy</option>
+                                          <option value="population">Population</option>
                                         </select>
                                         <button type="button"
                                                 class="open-ts-modal bg-fuchsia-700 hover:bg-fuchsia-600 text-white text-xs font-semibold py-1 px-2 rounded-md"
@@ -313,11 +314,12 @@ include_once __DIR__ . '/../includes/header.php';
                                     <option value="loadout">Loadout</option>
                                 </select>
                                 <select name="target_key" class="bg-gray-900 border border-gray-600 rounded text-xs px-1 py-0.5">
-                                    <option value="offense">Offense</option>
-                                    <option value="defense">Defense</option>
-                                    <option value="spy">Spy</option>
-                                    <option value="sentry">Sentry</option>
-                                    <option value="worker">Worker</option>
+                                  <!-- Default list for STRUCTURE mode -->
+                                  <option value="offense">Offense</option>
+                                  <option value="defense">Defense</option>
+                                  <option value="armory">Armory</option>
+                                  <option value="economy">Economy</option>
+                                  <option value="population">Population</option>
                                 </select>
                                 <button type="button"
                                         class="open-ts-modal bg-fuchsia-700 hover:bg-fuchsia-600 text-white text-xs font-semibold py-1 px-3 rounded-md"
@@ -541,6 +543,52 @@ include_once __DIR__ . '/../includes/header.php';
   tsModal.addEventListener('click', (e) => { if (e.target === tsModal) closeTS(); });
   tsConfirm.addEventListener('click', () => { if (pendingForm) pendingForm.submit(); });
 })();
+
+// Swap Total Sabotage target choices based on mode (structure vs loadout)
+(function () {
+  const STRUCTURE_CHOICES = [
+    { val: 'offense',    label: 'Offense'    },
+    { val: 'defense',    label: 'Defense'    },
+    { val: 'armory',     label: 'Armory'     }, // Spy -> Armory
+    { val: 'economy',    label: 'Economy'    }, // Sentry -> Economy
+    { val: 'population', label: 'Population' }  // Worker -> Population
+  ];
+  const LOADOUT_CHOICES = [
+    { val: 'offense', label: 'Offense' },
+    { val: 'defense', label: 'Defense' },
+    { val: 'spy',     label: 'Spy'     },
+    { val: 'sentry',  label: 'Sentry'  },
+    { val: 'worker',  label: 'Worker'  }
+  ];
+
+  function applyChoices(modeSel) {
+    const form  = modeSel.closest('form');
+    const keySel = form?.querySelector('select[name="target_key"]');
+    if (!keySel) return;
+
+    const list = (modeSel.value === 'loadout') ? LOADOUT_CHOICES : STRUCTURE_CHOICES;
+    const prev = keySel.value;
+    const valid = new Set(list.map(o => o.val));
+
+    // rebuild options
+    keySel.innerHTML = '';
+    list.forEach(o => {
+      const opt = document.createElement('option');
+      opt.value = o.val; opt.textContent = o.label;
+      keySel.appendChild(opt);
+    });
+
+    // keep previous selection if still valid; otherwise first option
+    keySel.value = valid.has(prev) ? prev : list[0].val;
+  }
+
+  // initialize & bind all TS mode selects (desktop + mobile)
+  document.querySelectorAll('form[id^="ts-form-"] select[name="target_mode"]').forEach(sel => {
+    applyChoices(sel);                  // on page load
+    sel.addEventListener('change', () => applyChoices(sel)); // on toggle
+  });
+})();
+
 </script>
 
 <?php include_once __DIR__ . '/../includes/footer.php'; ?>

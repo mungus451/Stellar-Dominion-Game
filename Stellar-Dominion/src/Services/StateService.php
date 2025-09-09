@@ -513,13 +513,12 @@ function ss_ensure_structure_rows(mysqli $link, int $user_id): void {
     }
 }
 
-/** Production multiplier by health: >=75%→1.0, 25..74%→0.5, <25%→0.0 */
+/** Production multiplier by health: linear with 10% floor (0–100% → 0.10–1.00) */
 function ss_structure_output_multiplier_by_key(mysqli $link, int $user_id, string $key): float {
     $rows = ss_get_structure_health_map($link, $user_id);
-    $h = (int)($rows[$key]['health'] ?? 100);
-    if ($h < 25) return 0.0;
-    if ($h < 75) return 0.5;
-    return 1.0;
+    $pct  = (int)($rows[$key]['health'] ?? 100);
+    $pct  = max(0, min(100, $pct));
+    return max(0.10, $pct / 100.0);
 }
 
 /** Apply percent damage to a structure; handle 0%→downgrade+lock. Returns [new_health, downgraded(bool)]. */
