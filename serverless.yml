@@ -5,7 +5,20 @@
 # Components: API Gateway, Lambda functions, Aurora Serverless v2, S3, DynamoDB
 # =============================================================================
 
-service: starlight-dominion
+service: starlight-dominion-api
+org: rayprogramming
+app: starlight-dominion
+
+stages:
+  prod:
+    observability: true
+    tracing:
+        apiGateway: true
+        lambda: true
+  test:
+    observability: true
+  default:
+    observability: false
 
 # Set your team ID if you are using Bref Cloud for enhanced monitoring/support
 #bref:
@@ -22,6 +35,30 @@ custom:
       - subnet-0a3a705e98b18cbdf  # Private subnet AZ-1
       - subnet-0b8171e30dd1a53e2  # Private subnet AZ-2  
       - subnet-0417dd0fe869aaa57  # Private subnet AZ-3
+
+  # Shared environment variables for all Lambda functions (DRY principle)
+  # Reference with ${self:custom.sharedEnv} to avoid duplication
+  sharedEnv: &sharedEnvironment
+    DYNAMODB_SESSION_TABLE: ${self:provider.environment.DYNAMODB_SESSION_TABLE}
+    APP_AWS_REGION: ${self:provider.environment.APP_AWS_REGION}
+    DB_HOST: ${self:provider.environment.DB_HOST}
+    DB_NAME: ${self:provider.environment.DB_NAME}
+    DB_SECRET_ARN: ${self:provider.environment.DB_SECRET_ARN}
+    FILE_STORAGE_DRIVER: ${self:provider.environment.FILE_STORAGE_DRIVER}
+    FILE_STORAGE_S3_BUCKET: ${self:provider.environment.FILE_STORAGE_S3_BUCKET}
+    FILE_STORAGE_S3_REGION: ${self:provider.environment.FILE_STORAGE_S3_REGION}
+
+  # Domain mapping per stage
+  domainName:
+    prod: sd.rayprogramming.com
+    test: test.sd.rayprogramming.com
+    default: dev.sd.rayprogramming.com
+  
+  scriptable:
+    hooks:
+      after:deploy:deploy: npm run sync-assets
+  
+  SecretsManagerAgentLambdaLayer: arn:aws:lambda:us-east-2:019076941043:layer:secrets-manager-agent-extension:1
 
 # =============================================================================
 # Provider Configuration - AWS Lambda Settings
@@ -44,9 +81,14 @@ provider:
     
     # File Storage Configuration (S3 bucket for user uploads: avatars, documents)
     # CloudFront CDN automatically created by serverless-lift website construct
+    FILE_STORAGE_DRIVER: s3                        # Use S3 for file storage in Lambda
     FILE_STORAGE_S3_BUCKET: !Ref FileStorageBucket
-    CLOUDFRONT_DOMAIN: ${construct:website.cname}  # CDN domain from lift construct
-    
+    FILE_STORAGE_S3_REGION: ${self:provider.region} # S3 region matches Lambda region
+    # Secrets Manager Agent configuration (optional). Provide a Layer ARN for the agent
+    # If not set, functions will continue to use Secrets Manager direct API via SecretsManagerService
+    SECRETS_MANAGER_AGENT_LAYER_ARN: ${env:SECRETS_MANAGER_AGENT_LAYER_ARN, ''}
+    SECRETS_MANAGER_AGENT_ENDPOINT: ${env:SECRETS_MANAGER_AGENT_ENDPOINT, 'http://localhost:2773'}
+    AWS_TOKEN: ${env:AWS_TOKEN, '/var/run/awssmatoken'}
   # IAM permissions for Lambda functions
   iam:
     role:
@@ -93,21 +135,21 @@ provider:
 # =============================================================================
 plugins:
   - ./vendor/bref/bref      # PHP runtime for AWS Lambda
-  - serverless-lift         # Higher-level constructs (server-side websites)
+  # - serverless-lift         # Higher-level constructs (server-side websites)
+  - serverless-scriptable-plugin
 
-# =============================================================================
-# Lift Constructs - Higher-Level AWS Resources  
-# =============================================================================
-constructs:
-  # Server-side website construct for static assets
-  # Automatically creates CloudFront distribution and S3 bucket for assets
-  website:
-    type: server-side-website
-    assets:
-      '/assets/*': Stellar-Dominion/public/assets      # CSS, JS, images
-      '/favicon.ico': Stellar-Dominion/public/assets/img/favicon.png
-      '/robots.txt': Stellar-Dominion/public/robots.txt
-
+# constructs:
+  # Server-side website construct for static assets AND dynamic requests
+  # CloudFront distribution serves assets from S3 and proxies API requests to Lambda
+  # website:
+  #   type: server-side-website
+  #   domain: ${self:custom.domainName.${sls:stage}, self:custom.domainName.default}
+  #   # Note: CloudFront requires certificate in us-east-1 region
+  #   certificate: arn:aws:acm:us-east-1:019076941043:certificate/52ad640b-220b-4fda-a09b-80ca90237671
+  #   assets:
+  #     '/assets/*': Stellar-Dominion/public/assets      # CSS, JS, images
+  #     '/favicon.ico': Stellar-Dominion/public/assets/img/favicon.ico
+  #     '/robots.txt': Stellar-Dominion/public/robots.txt
 # =============================================================================
 # Lambda Functions Configuration
 # =============================================================================
@@ -116,40 +158,58 @@ functions:
   api:
     handler: Stellar-Dominion/public/index.php  # Entry point for PHP application
     description: "main handler for Stellar Dominion API"
-    runtime: php-81-fpm  # PHP 8.1 with FastCGI Process Manager
+    runtime: php-83-fpm
     timeout: 28 # API Gateway timeout is 29s, keep under that limit
     vpc: ${self:custom.vpcConfig}  # Required for Aurora Serverless v2 access
-    
     # Function-specific environment variables (inherits from provider.environment)
-    environment:
-      DYNAMODB_SESSION_TABLE: ${self:provider.environment.DYNAMODB_SESSION_TABLE}
-      APP_AWS_REGION: ${self:provider.environment.APP_AWS_REGION}
-      DB_HOST: ${self:provider.environment.DB_HOST}
-      DB_NAME: ${self:provider.environment.DB_NAME}
-      DB_SECRET_ARN: ${self:provider.environment.DB_SECRET_ARN}
-      FILE_STORAGE_S3_BUCKET: ${self:provider.environment.FILE_STORAGE_S3_BUCKET}
-      CLOUDFRONT_DOMAIN: ${self:provider.environment.CLOUDFRONT_DOMAIN}
+    environment: *sharedEnvironment
+    layers:
+      - ${self:custom.SecretsManagerAgentLambdaLayer}
     events:
-    -   httpApi: '*'  # Catch all HTTP requests (GET, POST, PUT, DELETE, etc.)
+      - httpApi: '*'
     
   # Background job processor - handles game turn processing
   turnProcessor:
     handler: Stellar-Dominion/src/Game/TurnProcessor.php
     description: "process game turns every 10 minutes"
-    runtime: php-81-console  # Console runtime for background tasks
+    runtime: php-83-console
     vpc: ${self:custom.vpcConfig}  # Database access required
-    
-    environment:
-      DYNAMODB_SESSION_TABLE: ${self:provider.environment.DYNAMODB_SESSION_TABLE}
-      APP_AWS_REGION: ${self:provider.environment.APP_AWS_REGION}
-      DB_HOST: ${self:provider.environment.DB_HOST}
-      DB_NAME: ${self:provider.environment.DB_NAME}
-      DB_SECRET_ARN: ${self:provider.environment.DB_SECRET_ARN}
-      FILE_STORAGE_S3_BUCKET: ${self:provider.environment.FILE_STORAGE_S3_BUCKET}
-      CLOUDFRONT_DOMAIN: ${self:provider.environment.CLOUDFRONT_DOMAIN}
+    environment: *sharedEnvironment
+    layers:
+      - ${self:custom.SecretsManagerAgentLambdaLayer}
     events:
       - schedule:
           rate: rate(10 minutes)  # CloudWatch Events trigger every 10 minutes
+
+  # Dedicated API function for advisor polling - optimized for frequent requests
+  advisorPoll:
+    handler: Stellar-Dominion/src/Lambda/AdvisorPollHandler.php
+    description: "Fast advisor polling API endpoint for real-time game state updates"
+    runtime: php-83-fpm
+    timeout: 10
+    vpc: ${self:custom.vpcConfig}  # Database access required
+    environment: *sharedEnvironment
+    layers:
+      - ${self:custom.SecretsManagerAgentLambdaLayer}
+    events:
+      - httpApi:
+          path: /api/advisor_poll.php
+          method: GET
+
+  # Unified API handler for all remaining /api/ endpoints
+  apiHandler:
+    handler: Stellar-Dominion/src/Lambda/ApiHandler.php
+    description: "Unified handler for all /api/ endpoints (except advisor_poll)"
+    runtime: php-83-fpm  # PHP 8.1 with FastCGI Process Manager
+    timeout: 15  # Standard timeout for API operations
+    vpc: ${self:custom.vpcConfig}  # Database access required
+    environment: *sharedEnvironment
+    layers:
+      - ${self:custom.SecretsManagerAgentLambdaLayer}
+    events:
+      - httpApi:
+          path: /api/{proxy+}
+          method: ANY
 
 # =============================================================================
 # Deployment Package Configuration
@@ -165,143 +225,20 @@ package:
     - "!docker-compose.yml"   # Local development files
     - "!.env"                 # Environment files (use environment variables instead)
     - "!Stellar-Dominion/.env"
+    - "!secrets-manager-agent/**"
+    - "!**.md"              # Markdown documentation
+    - "!.github/**"          # GitHub configuration files
+    - "!serverless.yml"      # Exclude self to avoid recursion
 
 # =============================================================================
 # CloudFormation Resources - AWS Infrastructure
 # =============================================================================
 resources:
-  # Enable AWS Secrets Manager auto-rotation features
-  Transform: AWS::SecretsManager-2020-07-23
-  
-  # Conditional resource creation based on deployment stage
-  Conditions:
-    # Only create production-specific resources in prod stage
-    IsProduction:
-      Fn::Equals:
-        - ${sls:stage}
-        - prod
-        
-  Resources:
-    # -------------------------------------------------------------------------
-    # S3 Bucket for User File Storage (avatars, documents, etc.)
-    # -------------------------------------------------------------------------
-    # NOTE: CloudFront CDN is automatically created by serverless-lift website construct
-    # and configured via CLOUDFRONT_DOMAIN environment variable for file uploads
-    FileStorageBucket:
-      Type: AWS::S3::Bucket
-      Properties:
-        BucketName: ${self:service}-files-${sls:stage}
-        
-        # Security: Block all public access by default
-        # Files should be accessed through CloudFront or pre-signed URLs
-        PublicAccessBlockConfiguration:
-          BlockPublicAcls: true       # Block public ACLs
-          BlockPublicPolicy: true     # Block public bucket policies  
-          IgnorePublicAcls: true      # Ignore existing public ACLs
-          RestrictPublicBuckets: true # Restrict public bucket access
-          
-        # CORS configuration for web uploads
-        CorsConfiguration:
-          CorsRules:
-            - AllowedHeaders: ["*"]
-              AllowedMethods: [GET, HEAD, PUT, POST]  # Common upload/download methods
-              AllowedOrigins: ["*"]  # TODO: Restrict to actual domain
-              MaxAge: 3600  # Cache preflight requests for 1 hour
-              
-        # Enable versioning for data protection and recovery
-        VersioningConfiguration:
-          Status: Enabled
-          
-        # Lifecycle rules for cost optimization
-        LifecycleConfiguration:
-          Rules:
-            # Clean up incomplete multipart uploads to reduce storage costs
-            - Id: DeleteIncompleteMultipartUploads
-              Status: Enabled
-              AbortIncompleteMultipartUpload:
-                DaysAfterInitiation: 1  # Delete after 1 day
-
-    # -------------------------------------------------------------------------
-    # AWS Secrets Manager - Database Credentials with Auto-Rotation
-    # -------------------------------------------------------------------------
-    # Stores Aurora Serverless v2 credentials with automatic 30-day rotation
-    DatabaseCredentialsSecret:
-      Type: AWS::SecretsManager::Secret
-      Properties:
-        Name: ${self:service}-db-credentials-${sls:stage}
-        Description: Database credentials for Aurora Serverless v2 cluster with AWS managed auto-rotation
-        
-        # Initial secret value (password should be changed in AWS Console)
-        SecretString: !Sub |
-          {
-              "username": "stellar",
-              "password": "${env:DB_PASSWORD, 'CHANGE_ME_IN_AWS_CONSOLE'}",
-              "engine": "mysql",
-              "host": "starlight-dominion-db.cluster-cl8ugqwekrkc.us-east-2.rds.amazonaws.com",
-              "port": 3306,
-              "dbname": "users",
-              "dbClusterIdentifier": "starlight-dominion-db"
-          }
-          
-    # Automatic rotation schedule using AWS managed Lambda function
-    # Uses MySQLSingleUser template - no custom Lambda code required
-    DatabaseCredentialsSecretRotationSchedule:
-      Type: AWS::SecretsManager::RotationSchedule
-      # Condition: IsProduction  # Uncomment to only rotate in production
-      Properties:
-        SecretId: !Ref DatabaseCredentialsSecret
-        RotateImmediatelyOnUpdate: true  # Rotate when template changes
-        
-        # Rotation frequency
-        RotationRules:
-          AutomaticallyAfterDays: 30  # Rotate every 30 days
-          
-        # AWS managed rotation Lambda (no custom code needed)
-        HostedRotationLambda:
-          RotationLambdaName: ${self:service}-db-credentials-rotation-lambda-${sls:stage}
-          RotationType: MySQLSingleUser  # AWS managed template for MySQL
-          
-          # VPC configuration for Aurora access (different security group for rotation)
-          VpcSecurityGroupIds: sg-0eaee4e6a2c67f937  # Rotation Lambda security group
-          VpcSubnetIds: subnet-0a3a705e98b18cbdf,subnet-0b8171e30dd1a53e2,subnet-0417dd0fe869aaa57
-          
-          # Password complexity requirements
-          ExcludeCharacters: "\"@/\\"  # Avoid problematic characters in passwords
-          
-    # -------------------------------------------------------------------------
-    # DynamoDB Table for Session Storage
-    # -------------------------------------------------------------------------
-    # Replaces PHP session files with scalable, serverless session storage
-    SessionsTable:
-      Type: AWS::DynamoDB::Table
-      Properties:
-        TableName: ${self:provider.environment.DYNAMODB_SESSION_TABLE}
-        
-        # Primary key configuration
-        AttributeDefinitions:
-          - AttributeName: session_id
-            AttributeType: S  # String type
-            
-        KeySchema:
-          - AttributeName: session_id
-            KeyType: HASH  # Partition key for even distribution
-            
-        # Automatic session expiration using DynamoDB TTL
-        TimeToLiveSpecification:
-          AttributeName: expires_at  # Unix timestamp field
-          Enabled: true
-          
-        # Pay-per-request billing for cost optimization
-        BillingMode: PAY_PER_REQUEST  # No provisioned capacity needed
-        
-        # Enable point-in-time recovery for data protection
-        PointInTimeRecoverySpecification:
-          PointInTimeRecoveryEnabled: true
-
-  # ===========================================================================
-  # CloudFormation Outputs - Resource Information for Other Stacks
-  # ===========================================================================
-  Outputs:
+  - ${file(./infrastructure/database.yml)}
+  - ${file(./infrastructure/buckets.yml)}
+  - ${file(./infrastructure/cdn.yml)}
+  - ${file(./infrastructure/dns.yml)}
+outputs:
     # S3 bucket name for external reference
     FileStorageBucketName:
       Description: Name of the S3 bucket for file storage
@@ -315,4 +252,16 @@ resources:
         Value: !Sub "https://${HttpApi}.execute-api.${AWS::Region}.amazonaws.com"
         Export:
             Name: ${self:service}-${sls:stage}-ApiUrl
+
+    UploadsCloudFrontDomainName:
+      Description: Domain name for uploads CloudFront distribution
+      Value: !GetAtt CloudFrontDistribution.DomainName
+      Export:
+        Name: ${self:service}-${sls:stage}-UploadsCloudFrontDomainName
+
+    AssetsBucketName:
+      Description: Name of the assets S3 bucket
+      Value: !Ref AssetsBucket
+      Export:
+        Name: ${self:service}-${sls:stage}-AssetsBucket
 

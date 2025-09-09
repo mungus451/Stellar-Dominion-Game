@@ -1,0 +1,38 @@
+Resources:
+    # -------------------------------------------------------------------------
+    # S3 Bucket for User File Storage (avatars, documents, etc.)
+    # -------------------------------------------------------------------------
+    FileStorageBucket:
+      Type: AWS::S3::Bucket
+      Properties:
+        BucketName: ${self:service}-files-${sls:stage}
+        
+        # Security: Block all public access by default
+        # Files should be accessed through CloudFront or pre-signed URLs
+        PublicAccessBlockConfiguration:
+          BlockPublicAcls: true       # Block public ACLs
+          BlockPublicPolicy: true     # Block public bucket policies  
+          IgnorePublicAcls: true      # Ignore existing public ACLs
+          RestrictPublicBuckets: true # Restrict public bucket access
+          
+        # CORS configuration for web uploads
+        CorsConfiguration:
+          CorsRules:
+            - AllowedHeaders: ["*"]
+              AllowedMethods: [GET, HEAD, PUT, POST]  # Common upload/download methods
+              AllowedOrigins: ["*"]  # TODO: Restrict to actual domain
+              MaxAge: 3600  # Cache preflight requests for 1 hour
+              
+        # Enable versioning for data protection and recovery
+        # Currently disabled as this causes higher costs.
+        # VersioningConfiguration:
+        #   Status: Enabled  # Enable if versioning is needed
+          
+        # Lifecycle rules for cost optimization
+        LifecycleConfiguration:
+          Rules:
+            # Clean up incomplete multipart uploads to reduce storage costs
+            - Id: DeleteIncompleteMultipartUploads
+              Status: Enabled
+              AbortIncompleteMultipartUpload:
+                DaysAfterInitiation: 1  # Delete after 1 day

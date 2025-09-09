@@ -336,6 +336,7 @@ $authenticated_routes = [
     '/war_leaderboard', '/war_leaderboard.php',
     '/alliance_war_history', '/alliance_war_history.php',
     '/diplomacy', '/diplomacy.php', '/view_alliance', '/view_alliance.php'
+    // Note: /api/ endpoints handled by dedicated Lambda functions with their own auth
 ];
 
 // ─────────────────────────────────────────────────────────────────────────────

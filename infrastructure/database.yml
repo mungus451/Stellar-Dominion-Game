@@ -1,0 +1,73 @@
+# Enable AWS Secrets Manager auto-rotation features
+Transform: AWS::SecretsManager-2020-07-23
+Resources:
+    # -------------------------------------------------------------------------
+    # AWS Secrets Manager - Database Credentials with Auto-Rotation
+    # -------------------------------------------------------------------------
+    # Stores Aurora Serverless v2 credentials with automatic 30-day rotation
+    DatabaseCredentialsSecret:
+      Type: AWS::SecretsManager::Secret
+      Properties:
+        Name: ${self:service}-db-credentials-${sls:stage}
+        Description: Database credentials for Aurora Serverless v2 cluster with AWS managed auto-rotation
+        # Initial secret value (password should be changed in AWS Console)
+        SecretString: !Sub |
+          {
+              "username": "stellar",
+              "password": "${env:DB_PASSWORD, 'CHANGE_ME_IN_AWS_CONSOLE'}",
+              "engine": "mysql",
+              "host": "starlight-dominion-db.cluster-cl8ugqwekrkc.us-east-2.rds.amazonaws.com",
+              "port": 3306,
+              "dbname": "users",
+              "dbClusterIdentifier": "starlight-dominion-db"
+          }
+          
+    # Automatic rotation schedule using AWS managed Lambda function
+    # Uses MySQLSingleUser template - no custom Lambda code required
+    DatabaseCredentialsSecretRotationSchedule:
+      Type: AWS::SecretsManager::RotationSchedule
+      # Condition: IsProduction  # Uncomment to only rotate in production
+      Properties:
+        SecretId: !Ref DatabaseCredentialsSecret
+        # Rotation frequency
+        RotationRules:
+          AutomaticallyAfterDays: 30  # Rotate every 30 days
+        # AWS managed rotation Lambda (no custom code needed)
+        HostedRotationLambda:
+          RotationLambdaName: ${self:service}-db-credentials-rotation-lambda-${sls:stage}
+          RotationType: MySQLSingleUser  # AWS managed template for MySQL
+          # VPC configuration for Aurora access (different security group for rotation)
+          VpcSecurityGroupIds: sg-0eaee4e6a2c67f937  # Rotation Lambda security group
+          VpcSubnetIds: subnet-0a3a705e98b18cbdf,subnet-0b8171e30dd1a53e2,subnet-0417dd0fe869aaa57
+          # Password complexity requirements
+          ExcludeCharacters: "\"@/\\"  # Avoid problematic characters in passwords
+          
+    # -------------------------------------------------------------------------
+    # DynamoDB Table for Session Storage
+    # -------------------------------------------------------------------------
+    # Replaces PHP session files with scalable, serverless session storage
+    SessionsTable:
+      Type: AWS::DynamoDB::Table
+      Properties:
+        TableName: ${self:provider.environment.DYNAMODB_SESSION_TABLE}
+        
+        # Primary key configuration
+        AttributeDefinitions:
+          - AttributeName: session_id
+            AttributeType: S  # String type
+            
+        KeySchema:
+          - AttributeName: session_id
+            KeyType: HASH  # Partition key for even distribution
+            
+        # Automatic session expiration using DynamoDB TTL
+        TimeToLiveSpecification:
+          AttributeName: expires_at  # Unix timestamp field
+          Enabled: true
+          
+        # Pay-per-request billing for cost optimization
+        BillingMode: PAY_PER_REQUEST  # No provisioned capacity needed
+        
+        # Enable point-in-time recovery for data protection
+        PointInTimeRecoverySpecification:
+          PointInTimeRecoveryEnabled: true

@@ -8,7 +8,7 @@ The application deploys the following AWS resources:
 
 ```
 ┌─────────────────────────────────────────────────────────────────┐
-│                        AWS Infrastructure                        │
+│                        AWS Infrastructure                       │
 ├─────────────────────────────────────────────────────────────────┤
 │                                                                 │
 │  ┌─────────────────┐    ┌─────────────────┐    ┌──────────────┐ │
@@ -19,18 +19,18 @@ The application deploys the following AWS resources:
 │                         │ • turnProcessor │                     │
 │                         └─────────────────┘                     │
 │                                  │                              │
-│  ┌─────────────────┐             │           ┌─────────────────┐ │
-│  │   S3 Bucket     │◄────────────┘           │   DynamoDB      │ │
-│  │                 │                         │                 │ │
-│  │ File Storage    │                         │ Session Storage │ │
-│  └─────────────────┘                         └─────────────────┘ │
+│  ┌─────────────────┐             │          ┌─────────────────┐ │
+│  │   S3 Bucket     │◄────────────┘          │   DynamoDB      │ │
+│  │                 │                        │                 │ │
+│  │ File Storage    │                        │ Session Storage │ │
+│  └─────────────────┘                        └─────────────────┘ │
 │                                                                 │
-│  ┌─────────────────┐    ┌─────────────────┐                    │
-│  │ Secrets Manager │    │   CloudWatch    │                    │
-│  │                 │    │                 │                    │
-│  │ DB Credentials  │    │ Logs & Events   │                    │
-│  │ (Auto-rotation) │    │                 │                    │
-│  └─────────────────┘    └─────────────────┘                    │
+│  ┌─────────────────┐    ┌─────────────────┐                     │
+│  │ Secrets Manager │    │   CloudWatch    │                     │
+│  │                 │    │                 │                     │
+│  │ DB Credentials  │    │ Logs & Events   │                     │
+│  │ (Auto-rotation) │    │                 │                     │
+│  └─────────────────┘    └─────────────────┘                     │
 └─────────────────────────────────────────────────────────────────┘
 ```
 
@@ -42,9 +42,13 @@ The application deploys the following AWS resources:
 node --version  # Should be 18.x or higher
 npm --version
 
-# Serverless Framework
-npm install -g serverless
-sls --version
+# Serverless Framework v4 (compatible with Bref 2.4.11+)
+npm install -g serverless@4
+sls --version  # Should show v4.x.x
+
+# Note: Serverless v4 requires account login for usage
+# You can also use osls (open source version) if preferred:
+# npm install -g osls
 
 # PHP 8.1 and Composer
 php --version   # Should be 8.1.x
@@ -79,6 +83,38 @@ composer install --no-dev --optimize-autoloader
 
 # Install Node.js dependencies  
 npm install
+```
+
+## Serverless Framework v4 Upgrade
+
+This project has been upgraded to support Serverless Framework v4, which offers improved performance and features.
+
+### Key Changes in v4:
+- **Enhanced Performance**: Faster deployments and better optimization
+- **Improved CLI**: Better user experience and error reporting  
+- **Account Integration**: Requires Serverless account (free for <$2M revenue)
+- **Plugin Compatibility**: Most plugins work with v4, some may show deprecation warnings
+
+### Compatibility Status:
+- ✅ **Bref 2.4.11+**: Fully compatible with Serverless v4
+- ✅ **serverless-lift**: Works with minor deprecation warnings
+- ✅ **Current Configuration**: All resources deploy successfully
+
+### Login Requirement:
+Serverless v4 requires account login:
+```bash
+# First time setup
+sls login
+
+# Or use license key
+export SERVERLESS_LICENSE_KEY=your-key-here
+```
+
+### Alternative (Open Source):
+If you prefer open source without account requirements:
+```bash
+npm uninstall -g serverless
+npm install -g osls  # Open source version (v3)
 ```
 
 ## Pre-Deployment Configuration

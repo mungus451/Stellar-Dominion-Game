@@ -1,0 +1,23 @@
+Resources:
+  # -------------------------------------------------------------------------
+  # Route53 Record for uploads domain pointing to CloudFront distribution
+  # -------------------------------------------------------------------------
+  RecordSet:
+    Type: AWS::Route53::RecordSet
+    Properties:
+      HostedZoneName: ${self:custom.domainName.${sls:stage}, self:custom.domainName.default}.
+      Name: ${self:custom.domainName.${sls:stage}, self:custom.domainName.default}.
+      Type: A
+      AliasTarget:
+        DNSName: !GetAtt CloudFrontDistribution.DomainName
+        HostedZoneId: Z2FDTNDATAQYW2  # CloudFront hosted zone ID (global)
+
+  RecordSetIpv6:
+    Type: AWS::Route53::RecordSet
+    Properties:
+      HostedZoneName: ${self:custom.domainName.${sls:stage}, self:custom.domainName.default}.
+      Name: ${self:custom.domainName.${sls:stage}, self:custom.domainName.default}.
+      Type: AAAA
+      AliasTarget:
+        DNSName: !GetAtt CloudFrontDistribution.DomainName
+        HostedZoneId: Z2FDTNDATAQYW2  # CloudFront hosted zone ID (global)

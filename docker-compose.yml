@@ -1,0 +1,108 @@
+services:
+  # Web server with PHP
+  web:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: stellar-dominion-web
+    ports:
+      - "8080:80"
+    volumes:
+      - ./Stellar-Dominion:/var/www/html
+      - ./logs:/var/log/stellar-dominion:Z
+      - ./vendor:/var/www/vendor:Z
+    environment:
+      - MYSQL_HOST=${DB_HOST}
+      - MYSQL_DATABASE=stellar_dominion
+      - MYSQL_USER=admin
+      - MYSQL_PASSWORD=password
+      - PHP_ENV=development
+    networks:
+      - stellar-network
+
+  # MariaDB (backup DB) — use when profile "backup_db" is active
+  database:
+    image: mariadb:10.11
+    container_name: stellar-dominion-db_backup
+    restart: unless-stopped
+    profiles: ["backup_db"]
+    environment:
+      MYSQL_ROOT_PASSWORD: root_password
+      MYSQL_DATABASE: stellar_dominion
+      MYSQL_USER: admin
+      MYSQL_PASSWORD: password
+    ports:
+      - "3306:3306"
+    volumes:
+      - db_data:/var/lib/mysql
+      - ./9_1_backup.sql:/docker-entrypoint-initdb.d/backup.sql:ro
+    networks:
+      - stellar-network
+
+  # MySQL (updated DB) — use when profile "updated_db" is active
+  db:
+    image: mysql:8.0
+    container_name: stellar-dominion-db
+    profiles: ["updated_db"]
+    ports:
+      - "3306:3306"
+    environment:
+      MYSQL_ROOT_PASSWORD: root_password
+      MYSQL_DATABASE: stellar_dominion
+      MYSQL_USER: admin
+      MYSQL_PASSWORD: password
+    volumes:
+      - mysql_data:/var/lib/mysql
+      - ./Stellar-Dominion/config/database.sql:/docker-entrypoint-initdb.d/01-schema.sql
+      - ./docker/mysql/init/02-missing-tables.sql:/docker-entrypoint-initdb.d/02-missing-tables.sql
+      - ./docker/mysql/init/03-test-data.sql:/docker-entrypoint-initdb.d/03-test-data.sql
+    networks:
+      - stellar-network
+    command: --default-authentication-plugin=mysql_native_password
+
+  # Redis for session storage and caching (future)
+  redis:
+    image: redis:7-alpine
+    container_name: stellar-dominion-redis
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    networks:
+      - stellar-network
+    command: redis-server --appendonly yes
+
+  # phpMyAdmin (only when a DB profile is active)
+  phpmyadmin:
+    image: phpmyadmin:latest
+    container_name: stellar-dominion-phpmyadmin
+    profiles: ["updated_db", "backup_db"]
+    ports:
+      - "8081:80"
+    environment:
+      PMA_HOST: ${DB_HOST}
+      PMA_USER: admin
+      PMA_PASSWORD: password
+      PMA_ARBITRARY: 1
+    networks:
+      - stellar-network
+
+  # Node.js for frontend build tools (always on with web)
+  node:
+    image: node:18-alpine
+    container_name: stellar-dominion-node
+    working_dir: /app
+    volumes:
+      - ./Stellar-Dominion:/app
+    command: tail -f /dev/null
+    networks:
+      - stellar-network
+
+volumes:
+  mysql_data:
+  db_data:
+  redis_data:
+
+networks:
+  stellar-network:
+    driver: bridge
