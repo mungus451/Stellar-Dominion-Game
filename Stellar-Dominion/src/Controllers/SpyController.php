@@ -23,6 +23,9 @@ require_once __DIR__ . '/../Game/GameData.php';
 require_once __DIR__ . '/../Game/GameFunctions.php';
 require_once __DIR__ . '/../Services/StateService.php';
 
+// Upgrades tree (safe default if not found)
+$upgrades = $GLOBALS['UPGRADES'] ?? ($GLOBALS['upgrades'] ?? []);
+
 /* ------------------------------- fallbacks -------------------------------- */
 if (!function_exists('calculate_income_per_turn') || !function_exists('calculate_offense_power') || !function_exists('calculate_defense_power')) {
     @require_once __DIR__ . '/../Game/GameFunctions.php';
@@ -223,8 +226,10 @@ if ($mission_type === 'assassination' && !in_array($assassination_target, ['work
 /* --------------------------- transaction & logic -------------------------- */
 mysqli_begin_transaction($link);
 try {
-    // Attacker
-    $sqlA = "SELECT id, character_name, attack_turns, spies, sentries, level, spy_upgrade_level, defense_upgrade_level, constitution_points, credits
+    // Attacker (include dexterity_points!)
+    $sqlA = "SELECT id, character_name, attack_turns, spies, sentries, level,
+                    spy_upgrade_level, defense_upgrade_level, dexterity_points,
+                    constitution_points, credits
              FROM users WHERE id = ? FOR UPDATE";
     $stmtA = mysqli_prepare($link, $sqlA);
     mysqli_stmt_bind_param($stmtA, "i", $attacker_id);
@@ -251,28 +256,42 @@ try {
     $attacker_armory = fetch_user_armory($link, $attacker_id);
     $defender_armory = fetch_user_armory($link, $defender_id);
 
-    // Powers (with armory bonuses)
-    $spy_count = (int)$attacker['spies'];
-    $attacker_armory_spy_bonus = sd_spy_armory_attack_bonus($attacker_armory, $spy_count);
+    // Powers (with armory bonuses + proficiency)
+    $spy_count    = (int)$attacker['spies'];
     $sentry_count = (int)$defender['sentries'];
+
+    // Armory (category-capped by slots × unit_count)
+    $attacker_armory_spy_bonus    = sd_spy_armory_attack_bonus($attacker_armory, $spy_count);
     $defender_armory_sentry_bonus = sd_sentry_armory_defense_bonus($defender_armory, $sentry_count);
 
-    $attacker_spy_power  = max(1, ($spy_count * (10 + (int)$attacker['spy_upgrade_level'] * 2)) + $attacker_armory_spy_bonus);
-    $defender_sentry_pow = max(1, ($sentry_count * (10 + (int)$defender['defense_upgrade_level'] * 2)) + $defender_armory_sentry_bonus);
+    // Proficiency multipliers
+    $dex_mult = 1 + ((float)($attacker['dexterity_points'] ?? 0) * 0.01);
+    $con_mult = 1 + ((float)($defender['constitution_points'] ?? 0) * 0.01);
 
-    [ $success_generic, $raw_ratio, $effective_ratio ] = decide_success($attacker_spy_power, $defender_sentry_pow, $attack_turns);
+    // Upgrade contribution baked into per-unit base (10 + 2 × level)
+    $attacker_base_per = 10 + ((int)($attacker['spy_upgrade_level'] ?? 0) * 2);
+    $defender_base_per = 10 + ((int)($defender['defense_upgrade_level'] ?? 0) * 2); // sentries share the defense track
 
-    $level_diff = ((int)$defender['level']) - ((int)$attacker['level']);
-    $attacker_xp_gained = xp_gain_attacker($attack_turns, $level_diff);
-    $defender_xp_gained = xp_gain_defender($attack_turns, $level_diff);
-
-    $intel_gathered_json = null;
-    $units_killed        = 0;   // legacy column reuse
-    $structure_damage    = 0;
-    $outcome             = 'failure';
+    // Apply proficiency to the per-unit base, then add armory bonuses
+    $attacker_spy_power  = max(1, (int)floor(($spy_count * $attacker_base_per * $dex_mult) + $attacker_armory_spy_bonus));
+    $defender_sentry_pow = max(1, (int)floor(($sentry_count * $defender_base_per * $con_mult) + $defender_armory_sentry_bonus));
 
     /* ------------------------------- resolve -------------------------------- */
-    $success = $success_generic; // default for non-total_sabotage
+    // Decide success + ratios up front
+    list($success_generic, $raw_ratio, $effective_ratio) =
+        decide_success((float)$attacker_spy_power, (float)$defender_sentry_pow, (int)$attack_turns);
+    $success = $success_generic;
+
+    // Initialize derived outputs so they’re never undefined
+    $units_killed        = 0;
+    $structure_damage    = 0;
+    $intel_gathered_json = null;
+    $critical            = false;
+
+    // Precompute XP (scaled by relative level)
+    $level_diff = (int)$defender['level'] - (int)$attacker['level'];
+    $attacker_xp_gained = xp_gain_attacker((int)$attack_turns, $level_diff);
+    $defender_xp_gained = xp_gain_defender((int)$attack_turns, $level_diff);
 
     if ($mission_type === 'total_sabotage') {
         // STRICT rule: underdog victories disabled; use RAW ratio only
@@ -312,7 +331,6 @@ try {
                 $intel = [];
                 foreach ($selected as $k) { $intel[$k] = $pool[$k]; }
                 $intel_gathered_json = json_encode($intel);
-                $outcome = 'success';
                 break;
             }
 
@@ -341,7 +359,6 @@ try {
 
                     $units_killed = $converted;
                 }
-                $outcome = 'success';
                 break;
             }
 
@@ -360,7 +377,6 @@ try {
                         $structure_damage = $dmg;
                     }
                 }
-                $outcome = 'success';
                 break;
             }
 
@@ -370,12 +386,11 @@ try {
                 $target_mode    = ($target_mode_in === 'cache') ? 'loadout' : $target_mode_in; // legacy support
                 $target_key_in  = isset($_POST['target_key']) ? strtolower((string)$_POST['target_key']) : '';
 
-                // ---------- NEW: distinct validation/mapping per mode ----------
+                // ---------- distinct validation/mapping per mode ----------
                 $structure_key = null;      // resolved name for structure mode
                 $loadout_key   = null;      // validated bucket for loadout mode
 
                 if ($target_mode === 'structure') {
-                    // Map UI buckets to actual structure keys
                     $map = [
                         'offense'    => 'offense',
                         'defense'    => 'defense',
@@ -388,14 +403,12 @@ try {
                         'economy'    => 'economy',
                     ];
                     $structure_key = $map[$target_key_in] ?? null;
-
                     $VALID_STRUCTURES = ['offense','defense','economy','population','armory'];
                     if (!$structure_key || !in_array($structure_key, $VALID_STRUCTURES, true)) {
                         throw new Exception("Choose a valid target category.");
                     }
 
                 } elseif ($target_mode === 'loadout') {
-                    // Preserve original bucket validation for unit cache destruction
                     $tk = $target_key_in;
                     if ($tk === 'economy' || $tk === 'workers') $tk = 'worker';
                     $VALID_LOADOUT = ['offense','defense','spy','sentry','worker'];
@@ -407,7 +420,7 @@ try {
                 } else {
                     throw new Exception("Invalid target mode.");
                 }
-                // ----------------------------------------------------------------
+                // ----------------------------------------------------------
 
                 // progressive cost
                 if (!function_exists('ss_total_sabotage_cost') || !function_exists('ss_register_total_sabotage_use')) {
@@ -427,7 +440,7 @@ try {
                 mysqli_stmt_close($stp);
                 ss_register_total_sabotage_use($link, (int)$attacker_id);
 
-                // strict success/crit already computed above for total_sabotage (raw only)
+                // strict success/crit already computed above (raw only)
                 $critical = ($raw_ratio >= SPY_TOTAL_SABOTAGE_CRIT_RATIO);
 
                 // details for logger (use resolved key for structures)
@@ -463,18 +476,18 @@ try {
                     $structure_damage = (int)$applied_percent;
 
                 } elseif ($target_mode === 'loadout') {
-                    // --- Percent to destroy: smooth 10–90%. Crit adds +10 but never beyond 90.
+                    // Percent to destroy: 10–90%. Crit adds +10 but never beyond 90.
                     $destroy_percent = rand(10, 90);
                     if ($critical) { $destroy_percent = min(90, $destroy_percent + 10); }
 
-                    // 1) Allowed keys strictly from GameData loadouts (no heuristics)
+                    // 1) Allowed keys strictly from GameData loadouts
                     $allowed_keys = ts_allowed_item_keys_for_bucket($loadout_key);
                     if (empty($allowed_keys)) {
                         throw new Exception("Loadout catalog missing for '$loadout_key'.");
                     }
                     $allowed_lookup = array_fill_keys($allowed_keys, true);
 
-                    // 2) Read defender inventory once (stable snapshot; FOR UPDATE)
+                    // 2) Read defender inventory (FOR UPDATE)
                     $inv = [];
                     $sqlInv = "SELECT item_key, quantity FROM user_armory WHERE user_id = ? AND quantity > 0 FOR UPDATE";
                     $stInv  = mysqli_prepare($link, $sqlInv);
@@ -537,29 +550,51 @@ try {
                 }
 
                 $intel_gathered_json = json_encode($detail);
-                $outcome = 'success';
                 break;
             }
         }
     } else {
-        // failure case – preserve outcome='failure'
+        // failure case – no branch effects; fields stay at defaults
     }
 
-    // spend turns + xp
-    $sql_upA = "UPDATE users SET attack_turns = attack_turns - ?, experience = experience + ? WHERE id = ?";
+    // spend turns + xp (NULL-safe for legacy data)
+    $sql_upA = "UPDATE users SET attack_turns = attack_turns - ?, experience = COALESCE(experience,0) + ? WHERE id = ?";
     $stmtUA = mysqli_prepare($link, $sql_upA);
+    $attacker_xp_gained = (int)$attacker_xp_gained;
     mysqli_stmt_bind_param($stmtUA, "iii", $attack_turns, $attacker_xp_gained, $attacker_id);
     mysqli_stmt_execute($stmtUA);
     mysqli_stmt_close($stmtUA);
 
-    $sql_upD = "UPDATE users SET experience = experience + ? WHERE id = ?";
+    $sql_upD = "UPDATE users SET experience = COALESCE(experience,0) + ? WHERE id = ?";
     $stmtUD = mysqli_prepare($link, $sql_upD);
+    $defender_xp_gained = (int)$defender_xp_gained;
     mysqli_stmt_bind_param($stmtUD, "ii", $defender_xp_gained, $defender_id);
     mysqli_stmt_execute($stmtUD);
     mysqli_stmt_close($stmtUD);
 
     check_and_process_levelup($attacker_id, $link);
     check_and_process_levelup($defender_id, $link);
+
+    // ---------- normalize all fields for logging (prevent NOT NULL violations) ----------
+    $mission_type = in_array($mission_type, ['intelligence','sabotage','assassination','total_sabotage'], true)
+        ? $mission_type : 'intelligence';
+
+    // ints: force non-null
+    $attacker_spy_power  = (int)($attacker_spy_power ?? 0);
+    $defender_sentry_pow = (int)($defender_sentry_pow ?? 0);
+    $attacker_xp_gained  = (int)($attacker_xp_gained ?? 0);
+    $defender_xp_gained  = (int)($defender_xp_gained ?? 0);
+    $units_killed        = (int)($units_killed ?? 0);
+    $structure_damage    = (int)($structure_damage ?? 0);
+
+    // intel JSON: allow NULL or a JSON string; coerce arrays/objects to JSON
+    if ($intel_gathered_json !== null && !is_string($intel_gathered_json)) {
+        $intel_gathered_json = json_encode($intel_gathered_json);
+    }
+
+    // Finalize outcome right before logging (never NULL / invalid)
+    $outcome = ($success === true) ? 'success' : 'failure';
+    if ($outcome !== 'success' && $outcome !== 'failure') { $outcome = 'failure'; }
 
     // log
     $sql_log = "
