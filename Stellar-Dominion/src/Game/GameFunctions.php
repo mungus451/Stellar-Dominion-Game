@@ -9,6 +9,9 @@
  * - 30m “assassination to untrained” release
  */
 
+require_once __DIR__ . '/../Game/GameData.php';
+require_once __DIR__ . '/../../config/balance.php';
+
 /* ────────────────────────────────────────────────────────────────────────────
  * LEVEL UP
  * ──────────────────────────────────────────────────────────────────────────*/
@@ -179,12 +182,14 @@ function calculate_income_summary(mysqli $link, int $user_id, array $user_stats)
     for ($i = 1, $n = (int)($user_stats['economy_upgrade_level'] ?? 0); $i <= $n; $i++) {
         $economy_pct += (float)($upgrades['economy']['levels'][$i]['bonuses']['income'] ?? 0);
     }
-        // separate upgrade vs health multipliers (so we can expose a pre-structure "base")
+
+    // separate upgrade vs health multipliers (so we can expose a pre-structure "base")
     $economy_mult_upgrades = 1.0 + ($economy_pct / 100.0);
-    $economy_struct_mult  = function_exists('ss_structure_output_multiplier_by_key')
+    $economy_struct_mult   = function_exists('ss_structure_output_multiplier_by_key')
         ? ss_structure_output_multiplier_by_key($link, $user_id, 'economy')
         : 1.0;
     $economy_mult = $economy_mult_upgrades * $economy_struct_mult;
+
     // population upgrades -> citizens_per_turn (apply structure health before alliance add-ons)
     $citizens_per_turn = $CITIZENS_BASE;
     for ($i = 1, $n = (int)($user_stats['population_level'] ?? 0); $i <= $n; $i++) {
@@ -209,33 +214,59 @@ function calculate_income_summary(mysqli $link, int $user_id, array $user_stats)
     $alli_income_mult   = 1.0 + ((float)$alliance_bonuses['income']    / 100.0);
     $alli_resource_mult = 1.0 + ((float)$alliance_bonuses['resources'] / 100.0);
 
-    $base_income     = $BASE_INCOME_PER_TURN + $worker_income;
-    // expose a pre-structure "base" (all other multipliers included), then apply structure to the multiplicative part only
+    // income before structure & maintenance
+    $base_income = $BASE_INCOME_PER_TURN + $worker_income;
+
+    // pre-structure "base" (all other multipliers included), used for analytics/UI
     $income_per_turn_base = (int)floor(
         $base_income * $wealth_mult * $economy_mult_upgrades * $alli_income_mult * $alli_resource_mult
         + (int)$alliance_bonuses['credits']
     );
-    $income_per_turn = (int)floor(
+
+    // apply structure to the multiplicative part only
+    $income_pre_maintenance = (int)floor(
         $base_income * $wealth_mult * $economy_mult * $alli_income_mult * $alli_resource_mult
         + (int)$alliance_bonuses['credits']
     );
 
+    // --- per-turn unit maintenance (tuneable via config/balance.php or ENV) ---
+    // Not affected by structure health.
+    $m = function_exists('sd_unit_maintenance') ? sd_unit_maintenance() : [
+        'soldiers' => defined('SD_MAINT_SOLDIER') ? SD_MAINT_SOLDIER : 10,
+        'sentries' => defined('SD_MAINT_SENTRY')  ? SD_MAINT_SENTRY  : 5,
+        'guards'   => defined('SD_MAINT_GUARD')   ? SD_MAINT_GUARD   : 5,
+        'spies'    => defined('SD_MAINT_SPY')     ? SD_MAINT_SPY     : 15,
+    ];
+    $soldiers = (int)($user_stats['soldiers'] ?? 0);
+    $guards   = (int)($user_stats['guards']   ?? 0);
+    $sentries = (int)($user_stats['sentries'] ?? 0);
+    $spies    = (int)($user_stats['spies']    ?? 0);
+
+    $maintenance_per_turn =
+          ($soldiers * (int)$m['soldiers'])
+        + ($sentries * (int)$m['sentries'])
+        + ($guards   * (int)$m['guards'])
+        + ($spies    * (int)$m['spies']);
+
+    $income_per_turn = $income_pre_maintenance - $maintenance_per_turn;
+
     return [
-        'income_per_turn'          => $income_per_turn,
-        'citizens_per_turn'        => (int)$citizens_per_turn,
-        'includes_struct_scaling'  => true,
-        'income_per_turn_base'     => (int)$income_per_turn_base,
-        'citizens_per_turn_base'   => (int)$citizens_per_turn_base,
-        'base_income_per_turn'     => (int)$BASE_INCOME_PER_TURN,
-        'worker_income'            => (int)$worker_income,
-        'worker_armory_bonus'      => (int)$worker_armory_bonus,
+        'income_per_turn'           => (int)$income_per_turn,         // includes structure + maintenance
+        'citizens_per_turn'         => (int)$citizens_per_turn,       // includes structure
+        'includes_struct_scaling'   => true,
+        'income_per_turn_base'      => (int)$income_per_turn_base,    // pre-structure, pre-maintenance
+        'citizens_per_turn_base'    => (int)$citizens_per_turn_base,
+        'maintenance_per_turn'      => (int)$maintenance_per_turn,
+        'base_income_per_turn'      => (int)$BASE_INCOME_PER_TURN,
+        'worker_income'             => (int)$worker_income,
+        'worker_armory_bonus'       => (int)$worker_armory_bonus,
         'mult' => [
             'wealth'             => $wealth_mult,
             'economy'            => $economy_mult,
             'alliance_income'    => $alli_income_mult,
             'alliance_resources' => $alli_resource_mult,
         ],
-        'alliance_additive_credits'=> (int)$alliance_bonuses['credits'],
+        'alliance_additive_credits' => (int)$alliance_bonuses['credits'],
     ];
 }
 
@@ -254,7 +285,8 @@ function process_offline_turns(mysqli $link, int $user_id): void {
     // release any completed 30m conversions
     release_untrained_units($link, $user_id);
 
-    $sql_check = "SELECT id, last_updated, workers, wealth_points, economy_upgrade_level, population_level, alliance_id
+    $sql_check = "SELECT id, last_updated, workers, wealth_points, economy_upgrade_level, population_level, alliance_id,
+                         soldiers, guards, sentries, spies
                   FROM users WHERE id = ?";
     if ($stmt_check = mysqli_prepare($link, $sql_check)) {
         mysqli_stmt_bind_param($stmt_check, "i", $user_id);

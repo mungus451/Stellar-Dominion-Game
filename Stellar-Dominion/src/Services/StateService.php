@@ -518,7 +518,7 @@ function ss_structure_output_multiplier_by_key(mysqli $link, int $user_id, strin
     $rows = ss_get_structure_health_map($link, $user_id);
     $pct  = (int)($rows[$key]['health'] ?? 100);
     $pct  = max(0, min(100, $pct));
-    return max(0.10, $pct / 100.0);
+    return max(0.10, $pct / 100.0); // linear with 10% floor
 }
 
 /** Apply percent damage to a structure; handle 0%→downgrade+lock. Returns [new_health, downgraded(bool)]. */

@@ -13,6 +13,7 @@ if (!isset($_SESSION["loggedin"]) || $_SESSION["loggedin"] !== true) {
 }
 require_once __DIR__ . '/../../config/config.php';
 require_once __DIR__ . '/../../src/Services/StateService.php'; // Centralized state
+require_once __DIR__ . '/../../config/balance.php';
 require_once __DIR__ . '/../includes/advisor_hydration.php';
 
 // --- FORM SUBMISSION HANDLING ---
@@ -39,7 +40,10 @@ $user_stats = ss_get_user_state($link, $user_id, $needed_fields);
 $unit_costs = ['workers' => 100, 'soldiers' => 250, 'guards' => 250, 'sentries' => 500, 'spies' => 1000];
 $unit_names = ['workers' => 'Worker', 'soldiers' => 'Soldier', 'guards' => 'Guard', 'sentries' => 'Sentry', 'spies' => 'Spy'];
 $unit_descriptions = ['workers' => '+50 Credits per turn', 'soldiers' => '+8-12 Offense Power', 'guards' => '+8-12 Defense Power', 'sentries' => '+10 Fortification', 'spies' => '+10 Infiltration'];
-$charisma_discount = 1 - ($user_stats['charisma_points'] * 0.01);
+
+// Cap charisma discount at SD_CHARISMA_DISCOUNT_CAP_PCT
+$discount_pct = min((int)$user_stats['charisma_points'], (int)SD_CHARISMA_DISCOUNT_CAP_PCT);
+$charisma_discount = 1 - ($discount_pct / 100.0);
 
 // --- TABS (add "recovery") ---
 $current_tab = 'train';

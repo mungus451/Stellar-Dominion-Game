@@ -1,8 +1,8 @@
 <?php
 /**
- * Optimized turn/deposit cron (with structure scaling)
- * - Uses calculate_income_summary() for parity with dashboard
- * - Applies Economy + Population structure integrity multipliers (10–100%)
+ * Optimized turn/deposit cron (structure scaling + unit maintenance)
+ * - Uses calculate_income_summary() (single source of truth)
+ * - Summary already includes: Economy/Population structure scaling and maintenance
  * - One prepared UPDATE; integer time math; guarded results
  */
 date_default_timezone_set('UTC');
@@ -23,39 +23,6 @@ $link = mysqli_connect(DB_SERVER, DB_USERNAME, DB_PASSWORD, DB_NAME);
 if (!$link) { write_log("ERROR DB connect"); exit(1); }
 
 /* ────────────────────────────────────────────────────────────────────────────
- * Helpers: structure scaling (Economy + Population)
- * ──────────────────────────────────────────────────────────────────────────── */
-
-/** Clamp 0–100% → multiplier (min 10%) */
-function sd_struct_mult_from_pct(int $pct): float {
-    $pct = max(0, min(100, $pct));
-    return max(0.10, $pct / 100.0);
-}
-
-/** Fetch economy/population health and return their multipliers. */
-function sd_turns_structure_multipliers(mysqli $link, int $user_id): array {
-    // defaults when row(s) missing
-    $hp = ['economy' => 100, 'population' => 100];
-
-    if ($stmt = mysqli_prepare($link, "SELECT structure_key, health_pct FROM user_structure_health WHERE user_id = ?")) {
-        mysqli_stmt_bind_param($stmt, "i", $user_id);
-        if (mysqli_stmt_execute($stmt) && ($res = mysqli_stmt_get_result($stmt))) {
-            while ($row = $res ? mysqli_fetch_assoc($res) : null) {
-                $k = strtolower((string)$row['structure_key']);
-                if (isset($hp[$k])) {
-                    $hp[$k] = max(0, min(100, (int)$row['health_pct']));
-                }
-            }
-        }
-        mysqli_stmt_close($stmt);
-    }
-
-    $econ_mult = sd_struct_mult_from_pct($hp['economy']);     // credits/turn
-    $pop_mult  = sd_struct_mult_from_pct($hp['population']);  // citizens/turn
-    return [$econ_mult, $pop_mult];
-}
-
-/* ────────────────────────────────────────────────────────────────────────────
  * Game settings
  * ──────────────────────────────────────────────────────────────────────────── */
 $turn_interval_minutes = 10;
@@ -64,8 +31,14 @@ $attack_turns_per_turn = 2;
 /* ────────────────────────────────────────────────────────────────────────────
  * Stream users and process elapsed turns + deposit regen
  * ──────────────────────────────────────────────────────────────────────────── */
-$sql_select_users = "SELECT id, last_updated, workers, wealth_points, economy_upgrade_level, population_level, alliance_id, deposits_today, last_deposit_timestamp
-                     FROM users";
+$sql_select_users = "
+    SELECT
+        id, last_updated,
+        workers, wealth_points, economy_upgrade_level, population_level, alliance_id,
+        soldiers, guards, sentries, spies,              -- needed for maintenance
+        deposits_today, last_deposit_timestamp
+    FROM users
+";
 $result = mysqli_query($link, $sql_select_users);
 
 if ($result) {
@@ -129,7 +102,7 @@ if ($result) {
         $gained_credits = 0; $gained_citizens = 0; $gained_attack_turns = 0;
 
         if ($turns_to_process > 0) {
-            // Canonical summary – already includes structure scaling
+            // Canonical summary – already includes structure scaling and maintenance
             $summary = calculate_income_summary($link, $uid, $user);
             $income_per_turn   = (int)($summary['income_per_turn']   ?? 0);
             $citizens_per_turn = (int)($summary['citizens_per_turn'] ?? 0);

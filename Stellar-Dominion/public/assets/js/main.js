@@ -198,7 +198,7 @@ document.addEventListener('DOMContentLoaded', () => {
         const availableCitizens  = toInt(availableCitizensEl?.dataset.amount, 0);
         const availableCredits   = toInt(availableCreditsEl?.dataset.amount, 0);
         const charismaDiscount   = toFloat(trainForm?.dataset.charismaDiscount, 1);
-        const refundRate         = 0.75;
+        const refundRate         = 0.0;
 
         // Tab switching
         const activeClasses = ['bg-gray-700', 'text-white', 'font-semibold'];
