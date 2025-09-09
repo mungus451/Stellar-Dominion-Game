@@ -13,9 +13,15 @@ if (!isset($_SESSION["loggedin"]) || $_SESSION["loggedin"] !== true) {
 }
 
 require_once __DIR__ . '/../../config/config.php';
-require_once __DIR__ . '/../../config/balance.php';          // SD_CHARISMA_DISCOUNT_CAP_PCT
+require_once __DIR__ . '/../../config/balance.php';            // SD_CHARISMA_DISCOUNT_CAP_PCT
 require_once __DIR__ . '/../../src/Services/StateService.php'; // centralized reads/timers
 require_once __DIR__ . '/../includes/advisor_hydration.php';
+
+// --- POST: Delegate to controller (avoids 404; no public shim needed) ---
+if ($_SERVER['REQUEST_METHOD'] === 'POST') {
+    require_once __DIR__ . '/../../src/Controllers/LevelUpController.php';
+    exit; // controller handles redirect/flash
+}
 
 // --- DATA FETCHING (via StateService) ---
 $user_id = (int)$_SESSION['id'];
@@ -44,7 +50,6 @@ if ((int)$user_stats['charisma_points'] > $cap) {
         $user_stats['level_up_points'] += $over;
         $user_stats['charisma_points']  = $cap;
 
-        // Optional flash so the player knows why their points changed
         $_SESSION['level_up_message'] = "Refunded {$over} point(s) from Charisma overflow (cap {$cap}%).";
     }
 }
@@ -79,7 +84,8 @@ include_once __DIR__ . '/../includes/header.php';
         </div>
     <?php endif; ?>
 
-    <form action="/src/Controllers/LevelUpController.php" method="POST"
+    <!-- Post back to this page -->
+    <form action="/levels.php" method="POST"
           x-data="{
               max: <?php echo (int)$user_stats['level_up_points']; ?>,
               s: 0, c: 0, w: 0, d: 0, ch: 0,
@@ -89,6 +95,7 @@ include_once __DIR__ . '/../includes/header.php';
           x-init="$watch('ch', v => { if(Number(v) > chRoom) ch = chRoom; });">
 
         <?php echo csrf_token_field('spend_points'); ?>
+        <input type="hidden" name="csrf_action" value="spend_points">
 
         <div class="content-box rounded-lg p-4">
             <p class="text-center text-lg">

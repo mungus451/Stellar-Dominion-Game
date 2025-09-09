@@ -15,14 +15,43 @@ if (!isset($_SESSION["loggedin"]) || $_SESSION["loggedin"] !== true) { header("l
 require_once __DIR__ . '/../../config/config.php';
 require_once __DIR__ . '/../../config/balance.php'; // SD_CHARISMA_DISCOUNT_CAP_PCT
 
-// --- CSRF ---
+// --- CSRF TOKEN VALIDATION ---
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
-    if (!isset($_POST['csrf_token']) || !function_exists('validate_csrf_token') || !validate_csrf_token($_POST['csrf_token'])) {
-        $_SESSION['level_up_error'] = "A security error occurred (Invalid Token). Please try again.";
-        header("location: /levels.php");
-        exit;
+    // Prefer the app's original helper if it exists.
+    if (function_exists('protect_csrf')) {
+        protect_csrf(); // reads csrf_token + csrf_action and throws/redirects on failure
+    } else {
+        // Fallback to validate_csrf_token with support for signatures (token[, action])
+        $token  = $_POST['csrf_token']  ?? '';
+        $action = $_POST['csrf_action'] ?? '';
+        $ok = false;
+
+        if (function_exists('validate_csrf_token')) {
+            try {
+                $rf = new ReflectionFunction('validate_csrf_token');
+                $argc = $rf->getNumberOfParameters();
+                if ($argc >= 2) {
+                    $ok = validate_csrf_token($token, $action);
+                } else {
+                    $ok = validate_csrf_token($token);
+                }
+            } catch (Throwable $e) {
+                $ok = false;
+            }
+        } else {
+            // Last-resort naive check if your app stores tokens in session per action
+            $sess = $_SESSION['csrf_tokens'][$action] ?? ($_SESSION['csrf_token'] ?? '');
+            $ok = $token && $sess && hash_equals((string)$sess, (string)$token);
+        }
+
+        if (!$ok) {
+            $_SESSION['level_up_error'] = "A security error occurred (Invalid Token). Please try again.";
+            header("location: /levels.php");
+            exit;
+        }
     }
 }
+// --- END CSRF VALIDATION ---
 
 // --- INPUT ---
 $add_strength     = isset($_POST['strength_points'])    ? max(0, (int)$_POST['strength_points'])    : 0;
