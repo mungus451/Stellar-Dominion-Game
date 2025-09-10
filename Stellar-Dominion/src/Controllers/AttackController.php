@@ -227,6 +227,12 @@ try {
     if ($attacker['alliance_id'] !== NULL && $attacker['alliance_id'] === $defender['alliance_id']) throw new Exception("You cannot attack a member of your own alliance.");
     if ((int)$attacker['attack_turns'] < $attack_turns) throw new Exception("Not enough attack turns.");
 
+    // Guardrail 2: ±10 level bracket for all battle attacks
+    $level_diff_abs = abs(((int)$attacker['level']) - ((int)$defender['level']));
+    if ($level_diff_abs > 10) {
+        throw new Exception("You can only attack players within ±10 levels of you.");
+    }
+
     // Structure health (to match dashboard scaling)
     $atk_struct = sd_get_structure_health_map($link, (int)$attacker_id);
     $def_struct = sd_get_structure_health_map($link, (int)$defender_id);

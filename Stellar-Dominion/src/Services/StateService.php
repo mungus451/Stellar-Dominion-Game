@@ -384,11 +384,12 @@ if (!class_exists('StateService')) {
 /** ───────────────────────────────────────────────────────────────────────────
  * TOTAL SABOTAGE – Tunables
  * ───────────────────────────────────────────────────────────────────────────*/
-if (!defined('SABOTAGE_MIN_COST_CREDITS'))      define('SABOTAGE_MIN_COST_CREDITS', 25000000); // 25m
-if (!defined('SABOTAGE_MIN_COST_NW_FRACTION'))  define('SABOTAGE_MIN_COST_NW_FRACTION', 0.01); // 1% NW
-if (!defined('SABOTAGE_MAX_COST_NW_FRACTION'))  define('SABOTAGE_MAX_COST_NW_FRACTION', 0.50); // 50% NW cap
-if (!defined('SABOTAGE_WINDOW_DAYS'))          define('SABOTAGE_WINDOW_DAYS', 7);
-if (!defined('SABOTAGE_STEP_PCT'))             define('SABOTAGE_STEP_PCT', 0.20); // +20% per use in window (tunable)
+// Guardrail update: flat cost = 10% of net worth (no progressive scaling)
+if (!defined('SABOTAGE_MIN_COST_CREDITS'))      define('SABOTAGE_MIN_COST_CREDITS', 0);
+if (!defined('SABOTAGE_MIN_COST_NW_FRACTION'))  define('SABOTAGE_MIN_COST_NW_FRACTION', 0.10); // 10% NW
+if (!defined('SABOTAGE_MAX_COST_NW_FRACTION'))  define('SABOTAGE_MAX_COST_NW_FRACTION', 0.10); // hard cap also 10%
+if (!defined('SABOTAGE_WINDOW_DAYS'))          define('SABOTAGE_WINDOW_DAYS', 1);
+if (!defined('SABOTAGE_STEP_PCT'))             define('SABOTAGE_STEP_PCT', 0.0);
 
 /** Progressive cost with 7-day window reset; returns array with detail. */
 function ss_total_sabotage_cost(mysqli $link, int $user_id): array {

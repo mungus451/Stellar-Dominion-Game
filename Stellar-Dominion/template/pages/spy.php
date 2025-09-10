@@ -36,7 +36,7 @@ $sabo_cost_info = function_exists('ss_total_sabotage_cost')
     ? ss_total_sabotage_cost($link, $user_id)
     : ['cost'=>0,'base'=>0,'uses'=>0,'mult'=>1.0,'cap'=>0,'net_worth'=>0];
 $net_worth    = (int)($sabo_cost_info['net_worth'] ?? 0);
-$ts_base_min  = max(25000000, (int)floor($net_worth * 0.01)); // “25m or 1% NW”
+$ts_base_min  = (int)floor($net_worth * 0.10);                // 10% NW flat
 $ts_cost      = (int)($sabo_cost_info['cost'] ?? $ts_base_min);
 
 // target list (read-only helper adds army_size; excludes self)
@@ -192,7 +192,7 @@ include_once __DIR__ . '/../includes/header.php';
                                                 class="open-ts-modal bg-fuchsia-700 hover:bg-fuchsia-600 text-white text-xs font-semibold py-1 px-2 rounded-md"
                                                 data-form-id="<?php echo $tsFormId; ?>"
                                                 data-defender-name="<?php echo htmlspecialchars($t['character_name']); ?>"
-                                                title="Total Sabotage (cost scales with usage)">
+                                                title="Total Sabotage (cost = 10% of net worth)">
                                             Total Sabotage
                                         </button>
                                     </form>
@@ -325,7 +325,7 @@ include_once __DIR__ . '/../includes/header.php';
                                         class="open-ts-modal bg-fuchsia-700 hover:bg-fuchsia-600 text-white text-xs font-semibold py-1 px-3 rounded-md"
                                         data-form-id="<?php echo $tsFormIdM; ?>"
                                         data-defender-name="<?php echo htmlspecialchars($t['character_name']); ?>"
-                                        title="Total Sabotage (cost scales with usage)">
+                                        title="Total Sabotage (cost = 10% of net worth)">
                                     Total
                                 </button>
                             </form>

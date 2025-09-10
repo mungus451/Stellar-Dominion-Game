@@ -269,6 +269,15 @@ try {
     // Keep defender fresh
     process_offline_turns($link, $defender_id);
 
+    // ─────────────────────────────────────────────────────────────
+    // Guardrail 2: ±10 level bracket for all spy offenses
+    // Applies to intelligence, sabotage, assassination, total_sabotage
+    $level_diff_abs = abs(((int)$attacker['level']) - ((int)$defender['level']));
+    if ($level_diff_abs > 10) {
+        throw new Exception("You can only perform spy actions against players within ±10 levels of you.");
+    }
+    // ─────────────────────────────────────────────────────────────
+
     // === DASHBOARD-CONSISTENT ESPIONAGE POWER ===
     $spy_count    = (int)$attacker['spies'];
     $sentry_count = (int)$defender['sentries'];
@@ -445,6 +454,43 @@ try {
                 } else {
                     throw new Exception("Invalid target mode.");
                 }
+
+                // ─────────────────────────────────────────────────────────
+                // Guardrail 1 & 4: TS frequency limits (rolling 24h)
+                //  - Attacker: once per 24h
+                //  - Defender: max 5 receives per 24h
+                // Use spy_logs to enforce atomically inside this txn.
+                $sql_att_once = "
+                    SELECT COUNT(*) AS c
+                      FROM spy_logs
+                     WHERE attacker_id = ?
+                       AND mission_type = 'total_sabotage'
+                       AND mission_time >= (UTC_TIMESTAMP() - INTERVAL 24 HOUR)";
+                if ($stA = mysqli_prepare($link, $sql_att_once)) {
+                    mysqli_stmt_bind_param($stA, "i", $attacker_id);
+                    mysqli_stmt_execute($stA);
+                    $rowA = mysqli_fetch_assoc(mysqli_stmt_get_result($stA));
+                    mysqli_stmt_close($stA);
+                    if ((int)($rowA['c'] ?? 0) >= 1) {
+                        throw new Exception("You can only use Total Sabotage once every 24 hours.");
+                    }
+                }
+                $sql_def_cap = "
+                    SELECT COUNT(*) AS c
+                      FROM spy_logs
+                     WHERE defender_id = ?
+                       AND mission_type = 'total_sabotage'
+                       AND mission_time >= (UTC_TIMESTAMP() - INTERVAL 24 HOUR)";
+                if ($stD = mysqli_prepare($link, $sql_def_cap)) {
+                    mysqli_stmt_bind_param($stD, "i", $defender_id);
+                    mysqli_stmt_execute($stD);
+                    $rowD = mysqli_fetch_assoc(mysqli_stmt_get_result($stD));
+                    mysqli_stmt_close($stD);
+                    if ((int)($rowD['c'] ?? 0) >= 5) {
+                        throw new Exception("This player has already been Total Sabotaged 5 times in the last 24 hours.");
+                    }
+                }
+                // ─────────────────────────────────────────────────────────
 
                 // progressive cost
                 if (!function_exists('ss_total_sabotage_cost') || !function_exists('ss_register_total_sabotage_use')) {

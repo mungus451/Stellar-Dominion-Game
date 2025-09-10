@@ -210,6 +210,7 @@ include_once __DIR__ . '/../includes/header.php';
                         <div class="mt-2"><?php echo sd_percent_bar($health_pct); ?></div>
                         <div class="mt-2"><?php echo sd_effect_line($type, $health_pct); ?></div>
 
+                        <?php if ($type !== 'fortifications'): ?>
                         <!-- Repair button (per-structure) -->
                         <form action="/structures.php" method="POST" class="mt-3">
                             <input type="hidden" name="csrf_token"  value="<?php echo htmlspecialchars($structure_action_token); ?>">
@@ -224,6 +225,7 @@ include_once __DIR__ . '/../includes/header.php';
                                 <?php echo ($health_pct >= 100) ? 'Fully Repaired' : 'Repair'; ?>
                             </button>
                         </form>
+                        <?php endif; ?>
                     </div>
                 </div>
                 <!-- /Integrity & Production -->
