@@ -5,7 +5,6 @@
  *  - Uses $armory_loadouts (GameData.php) only for item inclusion.
  *  - Offense = soldier, Defense = guard, Spy = spy, Sentry = sentry, Worker = worker.
  *  - Always includes proper slot items (e.g., helmets in offense).
- *  - Never pulls items from other loadouts (e.g., Spy main weapon in offense).
  *  - Total Sabotage success = raw spy:sentry >= 1.0 (no underdog wins, no luck).
  *  - Loadout destruction = 10–90% (crit adds +10, still max 90%).
  */

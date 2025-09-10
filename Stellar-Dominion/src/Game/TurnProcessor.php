@@ -3,7 +3,6 @@
  * Optimized turn/deposit cron (structure scaling + unit maintenance)
  * - Uses calculate_income_summary() (single source of truth)
  * - Summary already includes: Economy/Population structure scaling and maintenance
- * - One prepared UPDATE; integer time math; guarded results
  */
 date_default_timezone_set('UTC');
 $log_file = __DIR__ . '/cron_log.txt';
