@@ -41,6 +41,10 @@ class S3FileManager implements FileManagerInterface
 		$config = [
 			'version' => 'latest',
 			'region' => $region,
+			// Force use of VPC endpoints when running in Lambda/VPC environment
+			'use_path_style_endpoint' => false,
+			// Disable dual-stack to ensure VPC endpoint usage
+			'use_dual_stack_endpoint' => false,
 		];
 
 		// Add credentials if provided (for local development)
@@ -48,6 +52,18 @@ class S3FileManager implements FileManagerInterface
 			$config['credentials'] = [
 				'key' => $accessKeyId,
 				'secret' => $secretAccessKey,
+			];
+		}
+
+		// For VPC environments, ensure we use the VPC endpoint
+		// The AWS SDK will automatically use VPC endpoints when available in the route table
+		if (isset($_ENV['AWS_LAMBDA_FUNCTION_NAME'])) {
+			// Running in Lambda - VPC endpoint should be used automatically
+			$config['signature_version'] = 'v4';
+			// Add timeout settings for Lambda environment
+			$config['http'] = [
+				'timeout' => 20, // 20 second timeout for uploads
+				'connect_timeout' => 5, // 5 second connection timeout
 			];
 		}
 
@@ -115,7 +131,25 @@ class S3FileManager implements FileManagerInterface
 			return !empty($result['ObjectURL']);
 
 		} catch (AwsException $e) {
-			throw new \Exception("S3 upload failed: " . $e->getMessage());
+			// Enhanced error logging for VPC endpoint debugging
+			$errorCode = $e->getAwsErrorCode();
+			$errorMessage = $e->getMessage();
+			$errorType = $e->getAwsErrorType();
+			
+			// Log detailed error information for troubleshooting
+			error_log("S3 Upload Error - Code: {$errorCode}, Type: {$errorType}, Message: {$errorMessage}");
+			
+			// Check for common VPC endpoint issues
+			if (strpos($errorMessage, 'timeout') !== false || 
+				strpos($errorMessage, 'connection') !== false ||
+				$errorCode === 'RequestTimeout') {
+				throw new \Exception("S3 upload timeout - check VPC endpoint configuration. Error: " . $errorMessage);
+			}
+			
+			throw new \Exception("S3 upload failed: " . $errorMessage);
+		} catch (\Exception $e) {
+			error_log("S3 Upload Exception: " . $e->getMessage());
+			throw new \Exception("Upload error: " . $e->getMessage());
 		}
 	}
 

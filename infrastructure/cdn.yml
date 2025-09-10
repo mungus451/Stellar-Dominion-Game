@@ -1,12 +1,16 @@
 Resources:
       # -------------------------------------------------------------------------
-      # CloudFront Origin Access Identity and Distribution for uploads domain
+      # CloudFront Origin Access Control for S3 bucket access
       # -------------------------------------------------------------------------
-      CloudFrontOriginAccessIdentity:
-        Type: AWS::CloudFront::CloudFrontOriginAccessIdentity
+      CloudFrontOriginAccessControl:
+        Type: AWS::CloudFront::OriginAccessControl
         Properties:
-          CloudFrontOriginAccessIdentityConfig:
-            Comment: Access identity for ${self:service}-files-${sls:stage} bucket
+          OriginAccessControlConfig:
+            Name: !Sub "${AWS::StackName}-OAC"
+            OriginAccessControlOriginType: s3
+            SigningBehavior: always
+            SigningProtocol: sigv4
+            Description: Origin Access Control for ${self:service}-files-${sls:stage} bucket
 
       FileStorageBucketPolicy:
         Type: AWS::S3::BucketPolicy
@@ -18,9 +22,12 @@ Resources:
               - Sid: AllowCloudFrontServicePrincipalReadOnly
                 Effect: Allow
                 Principal:
-                  CanonicalUser: !GetAtt CloudFrontOriginAccessIdentity.S3CanonicalUserId
+                  Service: cloudfront.amazonaws.com
                 Action: s3:GetObject
                 Resource: !Sub "arn:aws:s3:::${FileStorageBucket}/*"
+                Condition:
+                  StringEquals:
+                    "AWS:SourceArn": !Sub "arn:aws:cloudfront::${AWS::AccountId}:distribution/${CloudFrontDistribution}"
       CloudFrontDistribution:
         Type: AWS::CloudFront::Distribution
         Properties:
@@ -38,7 +45,8 @@ Resources:
               - Id: FileStorageOrigin
                 DomainName: !GetAtt FileStorageBucket.DomainName
                 S3OriginConfig:
-                  OriginAccessIdentity: !Sub "origin-access-identity/cloudfront/${CloudFrontOriginAccessIdentity}"
+                  OriginAccessIdentity: ""
+                OriginAccessControlId: !Ref CloudFrontOriginAccessControl
             DefaultCacheBehavior:
               TargetOriginId: ApiOrigin
               ViewerProtocolPolicy: redirect-to-https
@@ -112,8 +120,9 @@ Resources:
                     Forward: none
             Aliases:
               - ${self:custom.domainName.${sls:stage}, self:custom.domainName.default}
+            PriceClass: PriceClass_100
             ViewerCertificate:
               # Use the same ACM cert used by the website construct (must be in us-east-1)
               AcmCertificateArn: arn:aws:acm:us-east-1:019076941043:certificate/52ad640b-220b-4fda-a09b-80ca90237671
               SslSupportMethod: sni-only
-            DefaultRootObject: index.html
+              MinimumProtocolVersion: TLSv1.2_2021

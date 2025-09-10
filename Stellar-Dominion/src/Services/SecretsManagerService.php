@@ -31,7 +31,7 @@ class SecretsManagerService
     }
 
     /**
-     * Get database credentials from Secrets Manager
+     * Get database credentials from Secrets Manager with extension optimization
      * 
      * @param string $secretArn The ARN of the secret containing database credentials
      * @param string $versionStage The version stage to retrieve (AWSCURRENT or AWSPENDING)
@@ -46,43 +46,127 @@ class SecretsManagerService
             return self::$credentialsCache[$cacheKey];
         }
 
+        // Try AWS Parameters and Secrets Extension first (faster, local cache)
+        $credentials = $this->tryExtensionRetrieval($secretArn, $versionStage);
+        
+        if ($credentials === null) {
+            // Fallback to direct AWS SDK call
+            $credentials = $this->retrieveViaAwsSdk($secretArn, $versionStage);
+        }
+
+        // Cache credentials for the duration of the Lambda execution
+        self::$credentialsCache[$cacheKey] = $credentials;
+        return $credentials;
+    }
+
+    /**
+     * Try to retrieve credentials using AWS Parameters and Secrets Extension
+     * 
+     * @param string $secretArn The ARN of the secret
+     * @param string $versionStage The version stage
+     * @return array|null Credentials array or null if extension not available
+     */
+    private function tryExtensionRetrieval(string $secretArn, string $versionStage): ?array
+    {
+        // Check if extension is available
+        $port = $_ENV['PARAMETERS_SECRETS_EXTENSION_HTTP_PORT'] ?? '2773';
+        $extensionUrl = "http://localhost:{$port}/secretsmanager/get?secretId=" . urlencode($secretArn);
+        
+        if ($versionStage !== 'AWSCURRENT') {
+            $extensionUrl .= "&versionStage=" . urlencode($versionStage);
+        }
+
+        // Use curl with short timeout since this should be very fast
+        $ch = curl_init();
+        curl_setopt_array($ch, [
+            CURLOPT_URL => $extensionUrl,
+            CURLOPT_RETURNTRANSFER => true,
+            CURLOPT_TIMEOUT => 2,
+            CURLOPT_CONNECTTIMEOUT => 1,
+            CURLOPT_HTTPHEADER => [
+                'X-Aws-Parameters-Secrets-Token: ' . ($_ENV['AWS_SESSION_TOKEN'] ?? ''),
+            ],
+        ]);
+
+        $response = curl_exec($ch);
+        $httpCode = curl_getinfo($ch, CURLINFO_HTTP_CODE);
+        curl_close($ch);
+
+        if ($response === false || $httpCode !== 200) {
+            // Extension not available or failed, will fallback to SDK
+            return null;
+        }
+
+        $secretData = json_decode($response, true);
+        if (json_last_error() !== JSON_ERROR_NONE) {
+            error_log("Failed to parse extension response JSON: " . json_last_error_msg());
+            return null;
+        }
+
+        // Extract SecretString from the extension response
+        if (!isset($secretData['SecretString'])) {
+            error_log("SecretString not found in extension response");
+            return null;
+        }
+
+        return $this->parseSecretString($secretData['SecretString']);
+    }
+
+    /**
+     * Retrieve credentials using direct AWS SDK call
+     * 
+     * @param string $secretArn The ARN of the secret
+     * @param string $versionStage The version stage
+     * @return array Database credentials
+     * @throws \Exception If unable to retrieve or parse credentials
+     */
+    private function retrieveViaAwsSdk(string $secretArn, string $versionStage): array
+    {
         try {
             $result = $this->secretsClient->getSecretValue([
                 'SecretId' => $secretArn,
                 'VersionStage' => $versionStage
             ]);
             
-
             if (!isset($result['SecretString'])) {
                 throw new \Exception("Secret string not found in secret: {$secretArn}");
             }
 
-            $secretData = json_decode($result['SecretString'], true);
-            
-            if (json_last_error() !== JSON_ERROR_NONE) {
-                throw new \Exception("Failed to parse secret JSON: " . json_last_error_msg());
-            }
-
-            if (!isset($secretData['username']) || !isset($secretData['password'])) {
-                throw new \Exception("Secret must contain 'username' and 'password' fields");
-            }
-
-            // Cache credentials for the duration of the Lambda execution
-            self::$credentialsCache[$cacheKey] = [
-                'username' => $secretData['username'],
-                'password' => $secretData['password'],
-                'host' => $secretData['host'] ?? null,
-                'port' => $secretData['port'] ?? 3306,
-                'dbname' => $secretData['dbname'] ?? null,
-                'engine' => $secretData['engine'] ?? 'mysql'
-            ];
-
-            return self::$credentialsCache[$cacheKey];
+            return $this->parseSecretString($result['SecretString']);
 
         } catch (AwsException $e) {
             error_log("AWS Secrets Manager Error: " . $e->getMessage());
             throw new \Exception("Failed to retrieve database credentials: " . $e->getMessage());
         }
+    }
+
+    /**
+     * Parse secret string JSON into credentials array
+     * 
+     * @param string $secretString JSON string containing credentials
+     * @return array Parsed credentials
+     * @throws \Exception If unable to parse
+     */
+    private function parseSecretString(string $secretString): array
+    {
+        $secretData = json_decode($secretString, true);
+        
+        if (json_last_error() !== JSON_ERROR_NONE) {
+            throw new \Exception("Failed to parse secret JSON: " . json_last_error_msg());
+        }
+
+        if (!isset($secretData['username']) || !isset($secretData['password'])) {
+            throw new \Exception("Secret must contain 'username' and 'password' fields");
+        }
+
+        return [
+            'username' => $secretData['username'],
+            'password' => $secretData['password'],
+            'host' => $secretData['host'] ?? null,
+            'port' => $secretData['port'] ?? 3306,
+            'dbname' => $secretData['dbname'] ?? null,
+            'engine' => $secretData['engine'] ?? 'mysql'
+        ];
     }
 
     /**

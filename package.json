@@ -3,7 +3,7 @@
     "sync-assets": "node ./scripts/sync-assets.js"
   },
   "config": {
-    "stage": "dev"
+    "stage": "prod"
   },
   "devDependencies": {
     "serverless-domain-manager": "^8.0.0",

@@ -58,7 +58,8 @@ custom:
     hooks:
       after:deploy:deploy: npm run sync-assets
   
-  SecretsManagerAgentLambdaLayer: arn:aws:lambda:us-east-2:019076941043:layer:secrets-manager-agent-extension:1
+  # AWS-provided Secrets Manager extension layer (compatible with Amazon Linux 2)
+  SecretsManagerAgentLambdaLayer: arn:aws:lambda:us-east-2:590474943231:layer:AWS-Parameters-and-Secrets-Lambda-Extension:23
 
 # =============================================================================
 # Provider Configuration - AWS Lambda Settings
@@ -84,11 +85,12 @@ provider:
     FILE_STORAGE_DRIVER: s3                        # Use S3 for file storage in Lambda
     FILE_STORAGE_S3_BUCKET: !Ref FileStorageBucket
     FILE_STORAGE_S3_REGION: ${self:provider.region} # S3 region matches Lambda region
-    # Secrets Manager Agent configuration (optional). Provide a Layer ARN for the agent
-    # If not set, functions will continue to use Secrets Manager direct API via SecretsManagerService
-    SECRETS_MANAGER_AGENT_LAYER_ARN: ${env:SECRETS_MANAGER_AGENT_LAYER_ARN, ''}
-    SECRETS_MANAGER_AGENT_ENDPOINT: ${env:SECRETS_MANAGER_AGENT_ENDPOINT, 'http://localhost:2773'}
-    AWS_TOKEN: ${env:AWS_TOKEN, '/var/run/awssmatoken'}
+    # AWS Parameters and Secrets Extension configuration
+    # The AWS extension uses different environment variables than custom implementations
+    PARAMETERS_SECRETS_EXTENSION_CACHE_ENABLED: true
+    PARAMETERS_SECRETS_EXTENSION_CACHE_SIZE: 1000
+    PARAMETERS_SECRETS_EXTENSION_HTTP_PORT: 2773
+    PARAMETERS_SECRETS_EXTENSION_MAX_CONNECTIONS: 3
   # IAM permissions for Lambda functions
   iam:
     role:
@@ -157,10 +159,10 @@ functions:
   # Main API function - handles all HTTP requests
   api:
     handler: Stellar-Dominion/public/index.php  # Entry point for PHP application
-    description: "main handler for Stellar Dominion API"
+    description: "main handler for Stellar Dominion API with file upload support"
     runtime: php-83-fpm
-    timeout: 28 # API Gateway timeout is 29s, keep under that limit
-    vpc: ${self:custom.vpcConfig}  # Required for Aurora Serverless v2 access
+    timeout: 29 # API Gateway max is 30s, file uploads via VPC S3 endpoint should be fast
+    vpc: ${self:custom.vpcConfig}  # Required for Aurora Serverless v2 access + S3 VPC endpoint
     # Function-specific environment variables (inherits from provider.environment)
     environment: *sharedEnvironment
     layers:
@@ -258,10 +260,3 @@ outputs:
       Value: !GetAtt CloudFrontDistribution.DomainName
       Export:
         Name: ${self:service}-${sls:stage}-UploadsCloudFrontDomainName
-
-    AssetsBucketName:
-      Description: Name of the assets S3 bucket
-      Value: !Ref AssetsBucket
-      Export:
-        Name: ${self:service}-${sls:stage}-AssetsBucket
-

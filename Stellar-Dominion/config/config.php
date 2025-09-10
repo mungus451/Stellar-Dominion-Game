@@ -29,6 +29,22 @@ ini_set('display_errors', 1);
 ini_set('display_startup_errors', 1);
 error_reporting(E_ALL);
 
+// Configure PHP for file uploads in Lambda environment
+if (isset($_ENV['AWS_LAMBDA_FUNCTION_NAME'])) {
+    // Running in Lambda - optimize for VPC S3 endpoint uploads
+    ini_set('max_execution_time', 25); // Stay under 29s Lambda timeout
+    ini_set('upload_max_filesize', '10M');
+    ini_set('post_max_size', '10M');
+    ini_set('memory_limit', '256M');
+    ini_set('max_input_time', 20); // Max time to parse input
+} else {
+    // Local development settings
+    ini_set('max_execution_time', 60);
+    ini_set('upload_max_filesize', '10M');
+    ini_set('post_max_size', '10M');
+    ini_set('memory_limit', '512M');
+}
+
 // --- Database Credentials ---
 // Use Secrets Manager in Lambda environment, fallback to environment variables or hardcoded values for local development
 if (file_exists(PROJECT_ROOT . '/src/Services/SecretsManagerService.php')) {
