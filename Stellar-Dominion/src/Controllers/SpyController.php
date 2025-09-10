@@ -205,6 +205,24 @@ if (!function_exists('xp_gain_defender')) {
     }
 }
 
+/* -------- structure health multiplier (dashboard-consistent) -------------- */
+if (!function_exists('sd_get_structure_output_mult')) {
+    function sd_get_structure_output_mult(mysqli $link, int $user_id, string $key): float {
+        if (function_exists('ss_structure_output_multiplier_by_key')) {
+            return (float)ss_structure_output_multiplier_by_key($link, $user_id, $key);
+        }
+        $st = mysqli_prepare($link, "SELECT health_pct, locked FROM user_structure_health WHERE user_id = ? AND structure_key = ? LIMIT 1");
+        if (!$st) return 1.0;
+        mysqli_stmt_bind_param($st, "is", $user_id, $key);
+        mysqli_stmt_execute($st);
+        $row = mysqli_fetch_assoc(mysqli_stmt_get_result($st));
+        mysqli_stmt_close($st);
+        if (!$row) return 1.0;
+        if ((int)$row['locked'] === 1) return 0.0;
+        return max(0.0, min(1.0, ((int)$row['health_pct']) / 100.0));
+    }
+}
+
 /* -------------------------------- inputs ---------------------------------- */
 $attacker_id          = (int)$_SESSION["id"];
 $defender_id          = isset($_POST['defender_id'])    ? (int)$_POST['defender_id'] : 0;
@@ -226,10 +244,10 @@ if ($mission_type === 'assassination' && !in_array($assassination_target, ['work
 /* --------------------------- transaction & logic -------------------------- */
 mysqli_begin_transaction($link);
 try {
-    // Attacker (include dexterity_points!)
+    // Attacker (include dexterity_points & offense_upgrade_level)
     $sqlA = "SELECT id, character_name, attack_turns, spies, sentries, level,
-                    spy_upgrade_level, defense_upgrade_level, dexterity_points,
-                    constitution_points, credits
+                    spy_upgrade_level, offense_upgrade_level, defense_upgrade_level,
+                    dexterity_points, constitution_points, credits
              FROM users WHERE id = ? FOR UPDATE";
     $stmtA = mysqli_prepare($link, $sqlA);
     mysqli_stmt_bind_param($stmtA, "i", $attacker_id);
@@ -252,32 +270,40 @@ try {
     // Keep defender fresh
     process_offline_turns($link, $defender_id);
 
-    // Armories
-    $attacker_armory = fetch_user_armory($link, $attacker_id);
-    $defender_armory = fetch_user_armory($link, $defender_id);
-
-    // Powers (with armory bonuses + proficiency)
+    // === DASHBOARD-CONSISTENT ESPIONAGE POWER ===
     $spy_count    = (int)$attacker['spies'];
     $sentry_count = (int)$defender['sentries'];
 
-    // Armory (category-capped by slots × unit_count)
-    $attacker_armory_spy_bonus    = sd_spy_armory_attack_bonus($attacker_armory, $spy_count);
-    $defender_armory_sentry_bonus = sd_sentry_armory_defense_bonus($defender_armory, $sentry_count);
+    // Owned items same as dashboard
+    $owned_att = function_exists('sd_get_owned_items') ? sd_get_owned_items($link, (int)$attacker_id) : fetch_user_armory($link, (int)$attacker_id);
+    $owned_def = function_exists('sd_get_owned_items') ? sd_get_owned_items($link, (int)$defender_id) : fetch_user_armory($link, (int)$defender_id);
 
-    // Proficiency multipliers
-    $dex_mult = 1 + ((float)($attacker['dexterity_points'] ?? 0) * 0.01);
-    $con_mult = 1 + ((float)($defender['constitution_points'] ?? 0) * 0.01);
+    // Armory bonuses (slot-capped per category)
+    $attacker_armory_spy_bonus    = function_exists('sd_spy_armory_attack_bonus') ? sd_spy_armory_attack_bonus($owned_att, $spy_count) : 0;
+    $defender_armory_sentry_bonus = function_exists('sd_sentry_armory_defense_bonus') ? sd_sentry_armory_defense_bonus($owned_def, $sentry_count) : 0;
 
-    // Upgrade contribution baked into per-unit base (10 + 2 × level)
-    $attacker_base_per = 10 + ((int)($attacker['spy_upgrade_level'] ?? 0) * 2);
-    $defender_base_per = 10 + ((int)($defender['defense_upgrade_level'] ?? 0) * 2); // sentries share the defense track
+    // Upgrade multipliers (sum %)
+    $off_pct = 0.0;
+    for ($i = 1, $n = (int)($attacker['offense_upgrade_level'] ?? 0); $i <= $n; $i++) {
+        $off_pct += (float)($upgrades['offense']['levels'][$i]['bonuses']['offense'] ?? 0);
+    }
+    $def_pct = 0.0;
+    for ($i = 1, $n = (int)($defender['defense_upgrade_level'] ?? 0); $i <= $n; $i++) {
+        $def_pct += (float)($upgrades['defense']['levels'][$i]['bonuses']['defense'] ?? 0);
+    }
+    $off_mult = 1.0 + ($off_pct / 100.0);
+    $def_mult = 1.0 + ($def_pct / 100.0);
 
-    // Apply proficiency to the per-unit base, then add armory bonuses
-    $attacker_spy_power  = max(1, (int)floor(($spy_count * $attacker_base_per * $dex_mult) + $attacker_armory_spy_bonus));
-    $defender_sentry_pow = max(1, (int)floor(($sentry_count * $defender_base_per * $con_mult) + $defender_armory_sentry_bonus));
+    // Structure multipliers
+    $offense_integrity_mult = sd_get_structure_output_mult($link, (int)$attacker_id, 'offense');
+    $defense_integrity_mult = sd_get_structure_output_mult($link, (int)$defender_id, 'defense');
+
+    // Base + armory, then scale by upgrades and structure integrity (match dashboard)
+    $attacker_spy_power  = max(1, (int)floor(((($spy_count * 10) + $attacker_armory_spy_bonus)      * $off_mult) * $offense_integrity_mult));
+    $defender_sentry_pow = max(1, (int)floor(((($sentry_count * 10) + $defender_armory_sentry_bonus) * $def_mult) * $defense_integrity_mult));
 
     /* ------------------------------- resolve -------------------------------- */
-    // Decide success + ratios up front
+    // Decide success + ratios up front using corrected powers
     list($success_generic, $raw_ratio, $effective_ratio) =
         decide_success((float)$attacker_spy_power, (float)$defender_sentry_pow, (int)$attack_turns);
     $success = $success_generic;
@@ -302,17 +328,17 @@ try {
     if ($success) {
         switch ($mission_type) {
             case 'intelligence': {
-                $def_income  = calculate_income_per_turn($link, $defender_id, $defender, $upgrades, $defender_armory);
-                $def_offense = calculate_offense_power($link, $defender_id, $defender, $upgrades, $defender_armory);
-                $def_defense = calculate_defense_power($link, $defender_id, $defender, $upgrades, $defender_armory);
+                $def_income  = calculate_income_per_turn($link, $defender_id, $defender, $upgrades, $owned_def);
+                $def_offense = calculate_offense_power($link, $defender_id, $defender, $upgrades, $owned_def);
+                $def_defense = calculate_defense_power($link, $defender_id, $defender, $upgrades, $owned_def);
 
                 $def_spy_count = (int)$defender['spies'];
                 $def_sentry_count = (int)$defender['sentries'];
-                $def_armory_spy_bonus = sd_spy_armory_attack_bonus($defender_armory, $def_spy_count);
-                $def_armory_sentry_bonus = sd_sentry_armory_defense_bonus($defender_armory, $def_sentry_count);
+                $def_armory_spy_bonus = function_exists('sd_spy_armory_attack_bonus') ? sd_spy_armory_attack_bonus($owned_def, $def_spy_count) : 0;
+                $def_armory_sentry_bonus = function_exists('sd_sentry_armory_defense_bonus') ? sd_sentry_armory_defense_bonus($owned_def, $def_sentry_count) : 0;
 
-                $def_spy_off = max(1, ($def_spy_count * (10 + (int)$defender['spy_upgrade_level'] * 2)) + $def_armory_spy_bonus);
-                $def_sentry  = max(1, ($def_sentry_count * (10 + (int)$defender['defense_upgrade_level'] * 2)) + $def_armory_sentry_bonus);
+                $def_spy_off = max(1, (($def_spy_count * 10) + $def_armory_spy_bonus));
+                $def_sentry  = max(1, (($def_sentry_count * 10) + $def_armory_sentry_bonus));
 
                 $pool = [
                     'Offense Power'  => $def_offense,
@@ -386,9 +412,9 @@ try {
                 $target_mode    = ($target_mode_in === 'cache') ? 'loadout' : $target_mode_in; // legacy support
                 $target_key_in  = isset($_POST['target_key']) ? strtolower((string)$_POST['target_key']) : '';
 
-                // ---------- distinct validation/mapping per mode ----------
-                $structure_key = null;      // resolved name for structure mode
-                $loadout_key   = null;      // validated bucket for loadout mode
+                // distinct validation/mapping per mode
+                $structure_key = null;
+                $loadout_key   = null;
 
                 if ($target_mode === 'structure') {
                     $map = [
@@ -420,7 +446,6 @@ try {
                 } else {
                     throw new Exception("Invalid target mode.");
                 }
-                // ----------------------------------------------------------
 
                 // progressive cost
                 if (!function_exists('ss_total_sabotage_cost') || !function_exists('ss_register_total_sabotage_use')) {
@@ -443,7 +468,7 @@ try {
                 // strict success/crit already computed above (raw only)
                 $critical = ($raw_ratio >= SPY_TOTAL_SABOTAGE_CRIT_RATIO);
 
-                // details for logger (use resolved key for structures)
+                // details for logger
                 $detail = [
                     'mode'            => $target_mode,
                     'operation_mode'  => $target_mode,
