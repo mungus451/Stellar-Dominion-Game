@@ -49,7 +49,7 @@ function sd_calc_structure_repair_cost(array $user_stats, array $upgrades, strin
     $missing = max(0, 100 - (int)$health_pct);
     if ($missing <= 0) return 0;
 
-    $SHARE = 0.9; // 25% of next upgrade cost for a 100% repair
+    $SHARE = 0.25; // 25% of next upgrade cost for a 100% repair
     $cost  = (int)floor($next_cost * $SHARE * ($missing / 100));
     return max(0, $cost);
 }
