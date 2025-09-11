@@ -11,6 +11,7 @@ declare(strict_types=1);
  *  - SD_MAINT_SENTRY         (credits/turn, default 5)
  *  - SD_MAINT_GUARD          (credits/turn, default 5)
  *  - SD_MAINT_SPY            (credits/turn, default 15)
+ *  - SD_FATIGUE_PURGE_PCT    (0.0–1.0, default 0.01 i.e. 1% of unmaintained troops)
  */
 
 if (!function_exists('sd_env_int')) {
@@ -49,6 +50,17 @@ if (!defined('SD_MAINT_GUARD')) {
 }
 if (!defined('SD_MAINT_SPY')) {
     define('SD_MAINT_SPY', sd_env_int('SD_MAINT_SPY', 15));
+}
+
+/**
++ * Percent of the *unmaintained* troops to purge per turn when maintenance
++ * cannot be paid. For example, if 30% of maintenance is unpaid this turn and
++ * SD_FATIGUE_PURGE_PCT = 0.01, we purge 0.3% of the current troop counts.
++ */
+if (!defined('SD_FATIGUE_PURGE_PCT')) {
+    $v = getenv('SD_FATIGUE_PURGE_PCT');
+    $v = is_numeric($v) ? (float)$v : 0.01;
+    define('SD_FATIGUE_PURGE_PCT', max(0.0, min(1.0, $v)));
 }
 
 /**

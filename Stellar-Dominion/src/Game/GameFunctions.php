@@ -285,8 +285,8 @@ function process_offline_turns(mysqli $link, int $user_id): void {
     // release any completed 30m conversions
     release_untrained_units($link, $user_id);
 
-    $sql_check = "SELECT id, last_updated, workers, wealth_points, economy_upgrade_level, population_level, alliance_id,
-                         soldiers, guards, sentries, spies
+    $sql_check = "SELECT id, last_updated, credits, workers, wealth_points, economy_upgrade_level, population_level, alliance_id,
++                         soldiers, guards, sentries, spies
                   FROM users WHERE id = ?";
     if ($stmt_check = mysqli_prepare($link, $sql_check)) {
         mysqli_stmt_bind_param($stmt_check, "i", $user_id);
@@ -315,17 +315,76 @@ function process_offline_turns(mysqli $link, int $user_id): void {
 
         $utc_now = gmdate('Y-m-d H:i:s');
         $sql_upd = "UPDATE users
-                       SET attack_turns = attack_turns + ?,
-                           untrained_citizens = untrained_citizens + ?,
-                           credits = GREATEST(0, credits + ?),
-                           last_updated = ?
-                     WHERE id = ?";
+           SET attack_turns = attack_turns + ?,
+               untrained_citizens = untrained_citizens + ?,
+               credits = GREATEST(0, credits + ?),
+               last_updated = ?
+         WHERE id = ?";
         if ($stmt_upd = mysqli_prepare($link, $sql_upd)) {
+            // Compute fatigue using the same summary math as cron
+            $summary = calculate_income_summary($link, (int)$user['id'], $user);
+            $income_per_turn   = (int)($summary['income_per_turn']   ?? 0);
+            $maint_per_turn    = (int)($summary['maintenance_per_turn'] ?? 0);
+            $income_pre_maint  = $income_per_turn + $maint_per_turn;
+            $T                 = (int)$turns_to_process;
+
+            $credits_before  = (int)$user['credits'];
+            $maint_total     = max(0, $maint_per_turn * $T);
+            $funds_available = $credits_before + ($income_pre_maint * $T);
+
+            // 1) apply credits/citizens/turns update
             mysqli_stmt_bind_param($stmt_upd, "iiisi",
                 $gained_attack_turns, $gained_citizens, $gained_credits, $utc_now, $user_id
             );
             mysqli_stmt_execute($stmt_upd);
             mysqli_stmt_close($stmt_upd);
+
+            // 2) fatigue purge if unpaid maintenance remains
+            if ($maint_total > 0 && $funds_available < $maint_total) {
+                $unpaid_ratio = ($maint_total - $funds_available) / $maint_total; // 0..1
+                if ($unpaid_ratio > 0) {
+                    $purge_ratio = min(1.0, $unpaid_ratio) * (defined('SD_FATIGUE_PURGE_PCT') ? SD_FATIGUE_PURGE_PCT : 0.01);
+                    $soldiers = (int)($user['soldiers'] ?? 0);
+                    $guards   = (int)($user['guards']   ?? 0);
+                    $sentries = (int)($user['sentries'] ?? 0);
+                    $spies    = (int)($user['spies']    ?? 0);
+                    $total_troops = $soldiers + $guards + $sentries + $spies;
+
+                    $purge_soldiers = (int)floor($soldiers * $purge_ratio);
+                    $purge_guards   = (int)floor($guards   * $purge_ratio);
+                    $purge_sentries = (int)floor($sentries * $purge_ratio);
+                    $purge_spies    = (int)floor($spies    * $purge_ratio);
+
+                    if (($purge_soldiers + $purge_guards + $purge_sentries + $purge_spies) === 0 && $total_troops > 0) {
+                        $maxType = 'soldiers'; $maxVal = $soldiers;
+                        if ($guards   > $maxVal) { $maxType = 'guards';   $maxVal = $guards; }
+                        if ($sentries > $maxVal) { $maxType = 'sentries'; $maxVal = $sentries; }
+                        if ($spies    > $maxVal) { $maxType = 'spies';    $maxVal = $spies; }
+                        switch ($maxType) {
+                            case 'guards':   $purge_guards   = min(1, $guards);   break;
+                            case 'sentries': $purge_sentries = min(1, $sentries); break;
+                            case 'spies':    $purge_spies    = min(1, $spies);    break;
+                            default:         $purge_soldiers = min(1, $soldiers); break;
+                        }
+                    }
+
+                    if ($purge_soldiers + $purge_guards + $purge_sentries + $purge_spies > 0) {
+                        $sql_purge = "UPDATE users
+                                       SET soldiers = GREATEST(0, soldiers - ?),
+                                           guards   = GREATEST(0, guards   - ?),
+                                           sentries = GREATEST(0, sentries - ?),
+                                           spies    = GREATEST(0, spies    - ?)
+                                     WHERE id = ?";
+                        if ($stmt_purge = mysqli_prepare($link, $sql_purge)) {
+                            mysqli_stmt_bind_param($stmt_purge, "iiiii",
+                                $purge_soldiers, $purge_guards, $purge_sentries, $purge_spies, $user_id
+                            );
+                            mysqli_stmt_execute($stmt_purge);
+                            mysqli_stmt_close($stmt_purge);
+                        }
+                    }
+               }
+            }
         }
     }
 }
