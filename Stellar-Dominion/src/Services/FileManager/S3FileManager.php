@@ -16,70 +16,56 @@ class S3FileManager implements FileManagerInterface
 	private S3Client $s3Client;
 	private string $bucket;
 	private string $region;
-	private CDNManager $cdnManager;
 
 	/**
-	 * Constructor
+	 * Constructor - Uses AWS SDK credential chain (IAM roles, environment variables, etc.)
 	 * 
 	 * @param string $bucket The S3 bucket name
 	 * @param string $region The AWS region
-	 * @param string $accessKeyId AWS access key ID (optional if using IAM roles)
-	 * @param string $secretAccessKey AWS secret access key (optional if using IAM roles)
-	 * @param string $baseUrl Custom base URL for accessing files (CDN domain)
+	 * @param string|null $baseUrl Custom base URL for accessing files (optional)
 	 */
 	public function __construct(
 		string $bucket,
 		string $region,
-		?string $accessKeyId = null,
-		?string $secretAccessKey = null,
 		?string $baseUrl = null
 	) {
 		$this->bucket = $bucket;
 		$this->region = $region;
 
-		// Build S3 client configuration
+		// Build S3 client configuration using AWS SDK credential chain
 		$config = [
 			'version' => 'latest',
 			'region' => $region,
-			// Force use of VPC endpoints when running in Lambda/VPC environment
-			'use_path_style_endpoint' => false,
-			// Disable dual-stack to ensure VPC endpoint usage
-			'use_dual_stack_endpoint' => false,
+			// AWS SDK will automatically use credential chain:
+			// 1. Environment variables (AWS_ACCESS_KEY_ID, AWS_SECRET_ACCESS_KEY)
+			// 2. IAM instance profile (Lambda execution role)
+			// 3. AWS credentials file
+			// 4. IAM roles for Amazon EC2
 		];
-
-		// Add credentials if provided (for local development)
-		if ($accessKeyId && $secretAccessKey) {
-			$config['credentials'] = [
-				'key' => $accessKeyId,
-				'secret' => $secretAccessKey,
-			];
-		}
 
 		// For VPC environments, ensure we use the VPC endpoint
 		// The AWS SDK will automatically use VPC endpoints when available in the route table
 		if (isset($_ENV['AWS_LAMBDA_FUNCTION_NAME'])) {
 			// Running in Lambda - VPC endpoint should be used automatically
 			$config['signature_version'] = 'v4';
-			// Add timeout settings for Lambda environment
+			// Add timeout settings for Lambda environment - keep 5s connect timeout
 			$config['http'] = [
-				'timeout' => 20, // 20 second timeout for uploads
-				'connect_timeout' => 5, // 5 second connection timeout
+				'timeout' => 25, // 25 second timeout for uploads
+				'connect_timeout' => 5, // 5 second connection timeout for VPC
 			];
+			// Force path-style addressing for VPC Gateway endpoint compatibility
+			$config['use_path_style_endpoint'] = true;
 		}
 
 		$this->s3Client = new S3Client($config);
-		
-		// Initialize CDN manager
-		$s3BucketUrl = "https://{$bucket}.s3.{$region}.amazonaws.com";
-		$this->cdnManager = new CDNManager($s3BucketUrl, $baseUrl);
 	}
 
 	/**
-	 * Upload a file to S3 with CDN optimization
+	 * Upload a file to S3 (bucket policy controls access)
 	 * 
 	 * @param string $sourceFile The source file path (usually tmp_name from $_FILES)
 	 * @param string $destinationPath The destination path (S3 key)
-	 * @param array $options Additional options (ACL, metadata, etc.)
+	 * @param array $options Additional options (metadata, content_type, etc.)
 	 * @return bool True if upload successful, false otherwise
 	 * @throws \Exception If upload fails with specific error details
 	 */
@@ -94,38 +80,42 @@ class S3FileManager implements FileManagerInterface
 				throw new \Exception("Source file does not exist or is not readable: {$sourceFile}");
 			}
 
-			// Get CDN-optimized upload options
-			$cdnOptions = $this->cdnManager->getOptimizedUploadOptions($destinationPath, $options);
-
-			// Default upload parameters
+			// Default upload parameters (let bucket control ACL)
 			$uploadParams = [
 				'Bucket' => $this->bucket,
 				'Key' => $key,
 				'SourceFile' => $sourceFile,
-				'ACL' => $cdnOptions['acl'] ?? 'public-read', // Default to public read
+				// No ACL parameter - bucket policy controls access
 			];
 
 			// Add content type if provided
-			if (isset($cdnOptions['content_type'])) {
-				$uploadParams['ContentType'] = $cdnOptions['content_type'];
+			if (isset($options['content_type'])) {
+				$uploadParams['ContentType'] = $options['content_type'];
 			} else {
 				// Try to detect content type
 				$finfo = new \finfo(FILEINFO_MIME_TYPE);
 				$uploadParams['ContentType'] = $finfo->file($sourceFile);
 			}
 
-			// Add CDN-optimized cache control
-			if (isset($cdnOptions['cache_control'])) {
-				$uploadParams['CacheControl'] = $cdnOptions['cache_control'];
+			// Add cache control for images
+			$extension = strtolower(pathinfo($destinationPath, PATHINFO_EXTENSION));
+			if (in_array($extension, ['jpg', 'jpeg', 'png', 'gif', 'webp', 'avif'])) {
+				$uploadParams['CacheControl'] = 'max-age=31536000'; // 1 year for images
 			}
 
 			// Add metadata if provided
-			if (isset($cdnOptions['metadata']) && is_array($cdnOptions['metadata'])) {
-				$uploadParams['Metadata'] = $cdnOptions['metadata'];
+			if (isset($options['metadata']) && is_array($options['metadata'])) {
+				$uploadParams['Metadata'] = $options['metadata'];
 			}
 
 			// Upload the file
+			$uploadStartTime = microtime(true);
 			$result = $this->s3Client->putObject($uploadParams);
+			$uploadEndTime = microtime(true);
+			$uploadDuration = round(($uploadEndTime - $uploadStartTime) * 1000, 2);
+			
+			// Log successful upload timing for VPC endpoint performance monitoring
+			error_log("S3 Upload Success - Duration: {$uploadDuration}ms, Key: {$key}, Size: " . filesize($sourceFile) . " bytes");
 
 			// Check if upload was successful
 			return !empty($result['ObjectURL']);
@@ -179,14 +169,17 @@ class S3FileManager implements FileManagerInterface
 	}
 
 	/**
-	 * Get the public URL for a file (CDN-aware)
+	 * Get the public URL for a file (domain-relative)
 	 * 
 	 * @param string $filePath The path of the file (S3 key)
-	 * @return string The public URL to access the file (CDN URL in production, S3 URL in development)
+	 * @return string The public URL to access the file through your domain
 	 */
 	public function getUrl(string $filePath): string
 	{
-		return $this->cdnManager->getUrl($filePath);
+		$key = ltrim($filePath, '/');
+		// Return domain-relative URL that will be served directly by CloudFront CDN
+		// CDN is configured to serve /* directly from S3
+		return "/{$key}";
 	}
 
 	/**
@@ -298,7 +291,7 @@ class S3FileManager implements FileManagerInterface
 				'Bucket' => $this->bucket,
 				'Key' => $destinationKey,
 				'CopySource' => $this->bucket . '/' . $sourceKey,
-				'ACL' => 'public-read', // Maintain public read access
+				// No ACL parameter - bucket policy controls access
 			]);
 
 			return true;
@@ -331,48 +324,5 @@ class S3FileManager implements FileManagerInterface
 		);
 
 		return (string) $presignedUrl->getUri();
-	}
-
-	/**
-	 * Get CDN manager instance
-	 * 
-	 * @return CDNManager
-	 */
-	public function getCdnManager(): CDNManager
-	{
-		return $this->cdnManager;
-	}
-
-	/**
-	 * Check if CDN is enabled
-	 * 
-	 * @return bool
-	 */
-	public function isCdnEnabled(): bool
-	{
-		return $this->cdnManager->isCdnEnabled();
-	}
-
-	/**
-	 * Get cost optimization information
-	 * 
-	 * @return array
-	 */
-	public function getCostOptimizationInfo(): array
-	{
-		return $this->cdnManager->getCostOptimizationInfo();
-	}
-
-	/**
-	 * Get direct S3 URL (bypass CDN)
-	 * Used for administrative purposes or when CDN bypass is needed
-	 * 
-	 * @param string $filePath The path of the file (S3 key)
-	 * @return string Direct S3 URL
-	 */
-	public function getDirectS3Url(string $filePath): string
-	{
-		$key = ltrim($filePath, '/');
-		return "https://{$this->bucket}.s3.{$this->region}.amazonaws.com/{$key}";
 	}
 }

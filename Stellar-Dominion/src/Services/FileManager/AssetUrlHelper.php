@@ -3,10 +3,10 @@
 namespace StellarDominion\Services\FileManager;
 
 /**
- * Asset URL Helper for CloudFront Integration
+ * Asset URL Helper
  * 
- * Provides easy access to static assets served through CloudFront.
- * Assets are automatically uploaded to S3 and served via CloudFront CDN.
+ * Provides easy access to static assets using relative paths.
+ * Assets are served directly from the local assets directory.
  */
 class AssetUrlHelper
 {
@@ -58,17 +58,7 @@ class AssetUrlHelper
     }
 
     /**
-     * Check if CDN is enabled
-     * 
-     * @return bool Always false since we use relative paths for stage independence
-     */
-    public static function isCdnEnabled(): bool
-    {
-        return false;
-    }
-
-    /**
-     * Get the base CDN URL
+     * Get the base URL for assets
      * 
      * @return string Base URL for assets (always relative)
      */

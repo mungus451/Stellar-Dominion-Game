@@ -9,16 +9,18 @@ service: starlight-dominion-api
 org: rayprogramming
 app: starlight-dominion
 
-stages:
-  prod:
-    observability: true
-    tracing:
-        apiGateway: true
-        lambda: true
-  test:
-    observability: true
-  default:
-    observability: false
+# Observability and Tracing Configuration (uncomment to enable)
+# Requires Serverless Framework subscription
+# stages:
+#   prod:
+#     observability: true
+#     tracing:*
+#         apiGateway: true
+#         lambda: true
+#   test:
+#     observability: true
+#   default:
+#     observability: false
 
 # Set your team ID if you are using Bref Cloud for enhanced monitoring/support
 #bref:
@@ -67,6 +69,9 @@ custom:
 provider:
   name: aws
   region: us-east-2  # Ohio region - cost-effective for US deployments
+  
+  # CloudWatch Logs configuration for Lambda functions
+  logRetentionInDays: 7  # Set log retention to 7 days for cost optimization
   
   # Global environment variables available to all Lambda functions
   environment:
@@ -172,7 +177,7 @@ functions:
     
   # Background job processor - handles game turn processing
   turnProcessor:
-    handler: Stellar-Dominion/src/Game/TurnProcessor.php
+    handler: Stellar-Dominion/src/Lambda/TurnProcessorHandler.php
     description: "process game turns every 10 minutes"
     runtime: php-83-console
     vpc: ${self:custom.vpcConfig}  # Database access required

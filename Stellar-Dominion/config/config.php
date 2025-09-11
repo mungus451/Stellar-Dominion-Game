@@ -14,7 +14,23 @@ if (!defined('PROJECT_ROOT')) {
 }
 
 // Initialize DynamoDB session handling if in serverless environment (AWS Lambda)
-if (isset($_ENV['AWS_LAMBDA_FUNCTION_NAME']) || isset($_ENV['DYNAMODB_SESSION_TABLE'])) {
+// OR if DynamoDB session table is configured (for consistency across environments)
+// OR if we detect we're running on AWS (EC2, ECS, etc.)
+$shouldUseDynamoDB = isset($_ENV['AWS_LAMBDA_FUNCTION_NAME']) || 
+                     isset($_ENV['DYNAMODB_SESSION_TABLE']) || 
+                     isset($_ENV['AWS_REGION']) || 
+                     isset($_ENV['AWS_DEFAULT_REGION']) ||
+                     file_exists('/opt/aws/bin/cfn-signal'); // AWS EC2 indicator
+
+if ($shouldUseDynamoDB) {
+    // Set default DynamoDB session table if not specified
+    if (!isset($_ENV['DYNAMODB_SESSION_TABLE'])) {
+        $_ENV['DYNAMODB_SESSION_TABLE'] = 'starlight-dominion-api-sessions-prod';
+    }
+    if (!isset($_ENV['APP_AWS_REGION'])) {
+        $_ENV['APP_AWS_REGION'] = $_ENV['AWS_REGION'] ?? $_ENV['AWS_DEFAULT_REGION'] ?? 'us-east-2';
+    }
+    
     require_once PROJECT_ROOT . '/src/Services/DynamoDBSessionHandler.php';
     StellarDominion\Services\DynamoDBSessionHandler::register();
 }
@@ -156,8 +172,6 @@ define('FILE_STORAGE_S3_URL', $_ENV['FILE_STORAGE_S3_URL'] ?? null);
 require_once PROJECT_ROOT . '/src/Services/FileManager/FileManagerInterface.php';
 require_once PROJECT_ROOT . '/src/Services/FileManager/FileDriverType.php';
 require_once PROJECT_ROOT . '/src/Services/FileManager/DriverType.php';
-require_once PROJECT_ROOT . '/src/Services/FileManager/CDNManager.php';
-require_once PROJECT_ROOT . '/src/Services/FileManager/CloudFrontConfig.php';
 require_once PROJECT_ROOT . '/src/Services/FileManager/Config/FileManagerConfigInterface.php';
 require_once PROJECT_ROOT . '/src/Services/FileManager/Config/LocalFileManagerConfig.php';
 require_once PROJECT_ROOT . '/src/Services/FileManager/Config/S3FileManagerConfig.php';

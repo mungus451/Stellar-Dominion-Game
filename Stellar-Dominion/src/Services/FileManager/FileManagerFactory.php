@@ -120,10 +120,7 @@ class FileManagerFactory
 
 		return new S3FileManager(
 			$config->getBucket(),
-			$config->getRegion(),
-			$config->getAccessKeyId(),
-			$config->getSecretAccessKey(),
-			$config->getBaseUrl()
+			$config->getRegion()
 		);
 	}
 
@@ -157,9 +154,6 @@ class FileManagerFactory
 	{
 		$bucket = $config['bucket'] ?? '';
 		$region = $config['region'] ?? 'us-east-1';
-		$accessKeyId = $config['access_key_id'] ?? null;
-		$secretAccessKey = $config['secret_access_key'] ?? null;
-		$baseUrl = $config['base_url'] ?? null;
 
 		if (empty($bucket)) {
 			throw new \Exception("S3 file storage requires 'bucket' configuration");
@@ -167,10 +161,7 @@ class FileManagerFactory
 
 		return new S3FileManager(
 			$bucket,
-			$region,
-			$accessKeyId,
-			$secretAccessKey,
-			$baseUrl
+			$region
 		);
 	}
 
@@ -190,7 +181,7 @@ class FileManagerFactory
 				return LocalFileManagerConfig::createDefault();
 
 			case FileDriverType::S3:
-				throw new \Exception("S3 configuration requires a bucket name. Use S3FileManagerConfig::createDevelopment() or S3FileManagerConfig::createProduction()");
+				throw new \Exception("S3 configuration requires a bucket name. Use S3FileManagerConfig::createDevelopment()");
 
 			default:
 				throw new \Exception("Unsupported file storage driver: {$driver}");
@@ -223,7 +214,6 @@ class FileManagerFactory
 					'region' => 'us-east-1',
 					'access_key_id' => null,
 					'secret_access_key' => null,
-					'base_url' => null,
 				];
 
 			default:

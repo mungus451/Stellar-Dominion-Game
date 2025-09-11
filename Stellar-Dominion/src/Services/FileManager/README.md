@@ -1,94 +1,442 @@
 # File Manager Service
 
-The File Manager Service provides a unified interface for file operations across different storage backends (local filesystem and Amazon S3) with optional CDN integration for cost optimization and performance.
+The File Manager Service provides a unified interface for file operations across different storage backends (local filesystem and Amazon S3) with comprehensive validation and security for the Stellar Dominion game.
 
 ## Architecture Overview
 
 ```
 ┌─────────────────────────────────────────────────────────────────┐
-│                    FileManagerFactory                          │
+│                    FileManagerFactory                           │
 │  Creates appropriate manager based on configuration/environment │
 └─────────────────────┬───────────────────────────────────────────┘
                       │
         ┌─────────────┴──────────────┐
         │                            │
-┌───────▼──────┐              ┌──────▼─────┐
+┌───────▼────────┐            ┌──────▼──────┐
 │LocalFileManager│            │S3FileManager│
 │                │            │             │
 │ - Local storage│            │ - AWS S3    │
-│ - File system  │            │ - CDN ready │
-│ - Development  │            │ - Production│
+│ - File system  │            │ - Production│
+│ - Development  │            │ - Cloud     │
 └────────────────┘            └─────────────┘
-                                      │
-                              ┌───────▼──────┐
-                              │  CDNManager  │
-                              │              │
-                              │ - CloudFront │
-                              │ - Cache opts │
-                              │ - Cost mgmt  │
-                              └──────────────┘
+        │                            │
+        └─────────────┬──────────────┘
+                      │
+        ┌─────────────▼──────────────┐
+        │      Supporting Classes    │
+        │ - FileValidator            │
+        │ - AssetUrlHelper           │
+        │ - DriverType               │
+        │ - Config Objects           │
+        └────────────────────────────┘
 ```
 
 ## Core Components
 
 ### FileManagerInterface
 The main interface that all file managers implement:
-- `upload(string $path, $data, array $options = []): array`
-- `delete(string $path): bool` 
-- `exists(string $path): bool`
-- `getUrl(string $path): string`
-- `listFiles(string $directory = ''): array`
+- `upload(string $sourceFile, string $destinationPath, array $options = []): bool`
+- `delete(string $filePath): bool` 
+- `exists(string $filePath): bool`
+- `getUrl(string $filePath): string`
+- `getFileInfo(string $filePath): ?array`
+- `move(string $sourcePath, string $destinationPath): bool`
+- `copy(string $sourcePath, string $destinationPath): bool`
 
 ### FileManagerFactory
-Factory class that creates the appropriate file manager based on:
-1. **Configuration objects** (preferred, type-safe)
-2. **Environment variables** (automatic detection)
-3. **Configuration arrays** (legacy support)
+Factory class that creates the appropriate file manager using multiple initialization methods:
 
-### Storage Drivers
+1. **Configuration Objects** (Type-safe, preferred)
+   ```php
+   $config = new S3FileManagerConfig($bucket, $region);
+   $manager = FileManagerFactory::createFromConfig($config);
+   ```
 
-#### LocalFileManager
-- **Use Case**: Development, local testing, small deployments
-- **Storage**: Local filesystem
-- **URLs**: Direct file paths (`/uploads/file.jpg`)
-- **Configuration**: Base directory and URL
+2. **Environment Variables** (Automatic detection)
+   ```php
+   $manager = FileManagerFactory::createFromEnvironment();
+   ```
 
-#### S3FileManager  
-- **Use Case**: Production, cloud deployments, scalable storage
-- **Storage**: Amazon S3 buckets
-- **URLs**: S3 URLs or CDN URLs (via CDNManager)
-- **Configuration**: Bucket, region, credentials (optional with IAM)
+3. **Configuration Arrays** (Legacy support)
+   ```php
+   $manager = FileManagerFactory::create(['driver' => 's3', 'bucket' => 'my-bucket']);
+   ```
 
-### CDN Integration
+## Storage Drivers
 
-#### CDNManager
-Handles intelligent URL generation with environment-aware CDN usage:
-- **Production**: Uses CloudFront CDN for cost optimization
-- **Development**: Direct S3 URLs for simplicity
-- **Caching**: File-type specific cache strategies
+### LocalFileManager
+**Purpose**: Development, testing, and small-scale deployments
 
-#### CloudFrontConfig
-Provides pre-configured CloudFront settings optimized for:
-- **Cost reduction**: Aggressive caching, proper TTLs
-- **Security**: Origin Access Control (OAC)
-- **Performance**: Edge locations, compression
+**Features**:
+- Local filesystem storage with directory management
+- Automatic directory creation with proper permissions (0755)
+- Support for both uploaded files and regular file operations
+- File existence and security validation
+- Writable directory verification
+
+**Configuration**:
+```php
+$manager = new LocalFileManager('/var/www/uploads', '/uploads');
+```
+
+**Use Cases**:
+- Development environments
+- Local testing
+- Small deployments without cloud requirements
+
+### S3FileManager
+**Purpose**: Production cloud deployments with scalable storage
+
+**Features**:
+- AWS S3 storage with automatic credential chain
+- VPC endpoint optimization for Lambda environments
+- Automatic cache headers for browser optimization
+- Automatic content type detection
+- Enhanced error handling for VPC environments
+- Path-style addressing for VPC Gateway endpoints
+
+**AWS Credential Chain**:
+1. Environment variables (AWS_ACCESS_KEY_ID, AWS_SECRET_ACCESS_KEY)
+2. IAM instance profile (Lambda execution role)
+3. AWS credentials file
+4. IAM roles for Amazon EC2
+
+**Configuration**:
+```php
+$manager = new S3FileManager('my-bucket', 'us-east-1');
+```
+
+**Lambda Optimizations**:
+- VPC endpoint automatic detection
+- Path-style addressing for gateway endpoints
+- Optimized timeouts (25s upload, 5s connect)
+- Enhanced error logging for troubleshooting
+## Supporting Classes
+
+### FileValidator
+Comprehensive file validation with security checks:
+
+**Features**:
+- File size validation (min/max limits)
+- Extension validation (whitelist approach)
+- MIME type validation (real file inspection)
+- Security checks (malicious file detection)
+- Upload error handling
+
+**Configuration**:
+```php
+$validator = new FileValidator([
+    'allowed_extensions' => ['jpg', 'jpeg', 'png', 'gif', 'avif'],
+    'allowed_mime_types' => ['image/jpeg', 'image/png', 'image/gif', 'image/avif'],
+    'max_file_size' => 10485760, // 10MB
+    'min_file_size' => 1024      // 1KB
+]);
+
+$result = $validator->validateUploadedFile($_FILES['avatar']);
+if (!$result['valid']) {
+    throw new Exception($result['error']);
+}
+```
+
+### AssetUrlHelper
+Static asset URL management with relative paths:
+
+**Features**:
+- Stage-independent relative URLs
+- Type-specific URL generation (CSS, JS, images)
+- Preload tag generation for critical assets
+- Simple relative path management
+
+**Usage**:
+```php
+// Get asset URLs
+$cssUrl = AssetUrlHelper::getCssUrl('style.css');        // /assets/css/style.css
+$jsUrl = AssetUrlHelper::getJsUrl('main.js');            // /assets/js/main.js
+$imageUrl = AssetUrlHelper::getImageUrl('logo.png');     // /assets/img/logo.png
+
+// Generate preload tags
+$preloadTags = AssetUrlHelper::generatePreloadTags([
+    'css/critical.css',
+    'js/app.js'
+]);
+```
+
+### DriverType & FileDriverType
+Type-safe driver selection with validation:
+
+**Features**:
+- Compile-time type safety
+- String validation and normalization
+- Support for LOCAL and S3 drivers
+- Invalid driver prevention
+
+**Usage**:
+```php
+// Type-safe creation
+$driverType = DriverType::s3();
+$driverType = DriverType::fromString('local');
+
+// Validation
+FileDriverType::validate('s3'); // throws exception if invalid
+$normalized = FileDriverType::normalize('S3'); // returns 's3'
+```
+
+## Configuration System
+
+### Interface-Based Configuration
+All configuration objects implement `FileManagerConfigInterface`:
+
+```php
+interface FileManagerConfigInterface
+{
+    public function getDriverType(): DriverType;
+    public function validate(): void;
+    public function toArray(): array;
+}
+```
+
+### LocalFileManagerConfig
+Configuration for local filesystem storage:
+
+```php
+$config = new LocalFileManagerConfig(
+    baseDirectory: '/var/www/uploads',
+    baseUrl: '/uploads'
+);
+```
+
+### S3FileManagerConfig  
+Configuration for S3 storage:
+
+```php
+$config = new S3FileManagerConfig(
+    bucket: 'stellar-dominion-files',
+    region: 'us-east-2'
+);
+```
 
 ## Usage Examples
 
-### Basic Usage (Auto-Detection)
-
+### Basic File Upload
 ```php
 use StellarDominion\Services\FileManager\FileManagerFactory;
+use StellarDominion\Services\FileManager\FileValidator;
 
-// Automatically detects environment and creates appropriate manager
-$fileManager = FileManagerFactory::create();
+// Create manager (auto-detects environment)
+$fileManager = FileManagerFactory::createFromEnvironment();
 
-// Upload a file
-$result = $fileManager->upload('avatars/user_123.jpg', $imageData);
+// Validate uploaded file
+$validator = new FileValidator();
+$validation = $validator->validateUploadedFile($_FILES['avatar']);
 
-// Get URL (CDN-aware in production)
+if (!$validation['valid']) {
+    throw new Exception('Invalid file: ' . $validation['error']);
+}
+
+// Upload file
+$success = $fileManager->upload(
+    $_FILES['avatar']['tmp_name'],
+    'avatars/user_' . $userId . '.jpg'
+);
+
+if ($success) {
+    $url = $fileManager->getUrl('avatars/user_' . $userId . '.jpg');
+    echo "File uploaded successfully: " . $url;
+}
+```
+
+### Environment-Based Configuration
+```php
+// Set environment variables
+$_ENV['FILE_STORAGE_DRIVER'] = 's3';
+$_ENV['FILE_STORAGE_S3_BUCKET'] = 'my-bucket';
+$_ENV['AWS_REGION'] = 'us-east-1';
+
+// Factory automatically detects S3 configuration
+$fileManager = FileManagerFactory::createFromEnvironment();
+```
+
+### Configuration Object Usage (Recommended)
+```php
+use StellarDominion\Services\FileManager\Config\S3FileManagerConfig;
+
+// Type-safe configuration
+$config = new S3FileManagerConfig('my-bucket', 'us-east-1');
+$fileManager = FileManagerFactory::createFromConfig($config);
+
+// Automatic validation
+$config->validate(); // Throws exception if invalid
+```
+
+## File Operations
+
+### Standard Operations
+```php
+// Upload file
+$success = $fileManager->upload($tempFile, 'uploads/document.pdf');
+
+// Check existence
+if ($fileManager->exists('uploads/document.pdf')) {
+    // File exists
+}
+
+// Get file info
+$info = $fileManager->getFileInfo('uploads/document.pdf');
+// Returns: ['size' => 1024, 'last_modified' => '2025-01-01', ...]
+
+// Move file
+$fileManager->move('temp/file.pdf', 'permanent/file.pdf');
+
+// Copy file
+$fileManager->copy('original/file.pdf', 'backup/file.pdf');
+
+// Delete file
+$fileManager->delete('uploads/old_file.pdf');
+
+// Get public URL
+$url = $fileManager->getUrl('uploads/document.pdf');
+```
+
+## Environment Detection
+
+The system automatically adapts to different environments:
+
+### Lambda Environment
+- Detects `$_ENV['AWS_LAMBDA_FUNCTION_NAME']`
+- Uses S3FileManager with VPC optimizations
+- Enables path-style addressing for VPC endpoints
+- Sets appropriate timeouts for serverless
+
+### Local Development
+- Uses LocalFileManager by default
+- Creates directories automatically
+- Validates file permissions
+
+## Security Features
+
+### File Validation Security
+- **Real MIME type checking**: Inspects file content, not just extension
+- **Extension whitelist**: Only allows explicitly permitted file types
+- **Size limits**: Prevents large file attacks
+- **Upload error handling**: Proper PHP upload error detection
+
+### S3 Security
+- **IAM role integration**: No hardcoded credentials in Lambda
+- **VPC endpoint support**: Secure internal AWS communication
+- **Bucket policies**: Access control at storage level
+- **Content type enforcement**: Automatic content type detection
+
+### Local Storage Security
+- **Directory permissions**: Automatic 0755 for directories, 0644 for files
+- **Path validation**: Prevents directory traversal attacks
+- **Writable checks**: Validates directory access before operations
+
+## Error Handling
+
+### Comprehensive Error Coverage
+```php
+try {
+    $fileManager->upload($source, $destination);
+} catch (\Exception $e) {
+    // Specific error types:
+    // - File permission errors
+    // - S3 connection timeouts
+    // - Invalid file types
+    // - Disk space issues
+    error_log("Upload failed: " . $e->getMessage());
+}
+```
+
+### S3-Specific Error Handling
+- VPC endpoint timeout detection
+- Connection failure diagnostics
+- AWS credential validation
+- Enhanced logging for troubleshooting
+
+## Performance Optimizations
+
+### S3 Optimizations
+- **Content type detection**: Automatic MIME type setting
+- **Cache headers**: 1-year cache for images  
+- **VPC endpoints**: Reduced latency in Lambda
+- **Timeouts**: Optimized for serverless environment
+
+### Local Optimizations
+- **Directory caching**: Minimizes filesystem calls
+- **Permission checks**: Validates access upfront
+- **Batch operations**: Efficient for multiple files
+
+## Development vs Production
+
+### Development (Local)
+```env
+FILE_STORAGE_DRIVER=local
+FILE_STORAGE_LOCAL_DIR=/var/www/html/public/uploads
+FILE_STORAGE_LOCAL_URL=/uploads
+```
+
+### Production (Lambda + S3)
+```env
+FILE_STORAGE_DRIVER=s3
+FILE_STORAGE_S3_BUCKET=stellar-dominion-files
+AWS_REGION=us-east-1
+```
+
+## Integration with Stellar Dominion
+
+The File Manager Service integrates with:
+- **User avatars**: Profile image management
+- **Game assets**: Static resource serving
+- **Document uploads**: File attachment system
+- **Asset delivery**: Optimized static file serving
+
+### Typical Usage Patterns
+1. **Avatar uploads**: User profile images via LocalFileManager (dev) or S3FileManager (prod)
+2. **Static assets**: CSS/JS/images via AssetUrlHelper with relative paths
+3. **File validation**: All uploads validated via FileValidator
+4. **Environment adaptation**: Automatic driver selection via Factory
+
+## Usage Examples
+
+### Basic File Upload
+```php
+use StellarDominion\Services\FileManager\FileManagerFactory;
+use StellarDominion\Services\FileManager\FileValidator;
+
+// Create manager (auto-detects environment)
+$fileManager = FileManagerFactory::createFromEnvironment();
+
+// Validate uploaded file
+$validator = new FileValidator();
+$validation = $validator->validateUploadedFile($_FILES['avatar']);
+
+if (!$validation['valid']) {
+    throw new Exception('Invalid file: ' . $validation['error']);
+}
+
+// Upload file
+$success = $fileManager->upload(
+    $_FILES['avatar']['tmp_name'],
+    'avatars/user_' . $userId . '.jpg'
+);
+
+if ($success) {
+    $url = $fileManager->getUrl('avatars/user_' . $userId . '.jpg');
+    echo "File uploaded successfully: " . $url;
+}
+```
+
+### Environment-Based Configuration
+```php
+// Set environment variables
+$_ENV['FILE_STORAGE_DRIVER'] = 's3';
+$_ENV['FILE_STORAGE_S3_BUCKET'] = 'my-bucket';
+$_ENV['AWS_REGION'] = 'us-east-1';
+
+// Factory automatically detects S3 configuration
+$fileManager = FileManagerFactory::createFromEnvironment();
 $url = $fileManager->getUrl('avatars/user_123.jpg');
-// Production: https://cdn.stellar-dominion.com/avatars/user_123.jpg
+// Production: https://stellar-dominion.com/avatars/user_123.jpg
 // Development: /uploads/avatars/user_123.jpg
 ```
 
@@ -101,10 +449,7 @@ use StellarDominion\Services\FileManager\FileManagerFactory;
 // Create S3 configuration
 $config = new S3FileManagerConfig(
     bucket: 'stellar-dominion-files',
-    region: 'us-east-2',
-    accessKeyId: null, // Uses IAM role in Lambda
-    secretAccessKey: null, // Uses IAM role in Lambda
-    baseUrl: 'https://cdn.stellar-dominion.com' // CDN domain
+    region: 'us-east-2'
 );
 
 // Create manager from configuration
@@ -119,156 +464,140 @@ The factory automatically detects these environment variables:
 # S3 Configuration (for production/Lambda)
 FILE_STORAGE_S3_BUCKET=stellar-dominion-files
 AWS_REGION=us-east-2
-CLOUDFRONT_DOMAIN=https://cdn.stellar-dominion.com
 
 # Local Configuration (for development)
 FILE_STORAGE_LOCAL_DIR=/var/www/uploads
 FILE_STORAGE_LOCAL_URL=/uploads
 ```
 
-## File Type Optimization
-
-The CDN manager applies different caching strategies based on file types:
-
-### Images (`avatars/`, `images/`)
-- **Browser Cache**: 1 year (aggressive caching)
-- **CDN Cache**: 2 years
-- **Extensions**: jpg, jpeg, png, gif, webp, avif, svg
-- **Rationale**: Images rarely change, maximize cache hits
-
-### Documents (`documents/`, `files/`)
-- **Browser Cache**: 1 day (moderate caching)
-- **CDN Cache**: 2 days  
-- **Extensions**: pdf, doc, docx, txt
-- **Rationale**: Documents may update, balance freshness vs performance
-
-### Other Files
-- **Browser Cache**: 1 hour (conservative)
-- **CDN Cache**: 1 hour
-- **Rationale**: Unknown file types, prioritize freshness
-
 ## Environment Detection
 
-The system automatically detects the runtime environment:
+The system automatically adapts to different environments:
 
+### Lambda Environment
+- Detects `$_ENV['AWS_LAMBDA_FUNCTION_NAME']`
+- Uses S3FileManager with VPC optimizations
+- Enables path-style addressing for VPC endpoints
+- Sets appropriate timeouts for serverless
+
+### Local Development
+- Uses LocalFileManager by default
+- Creates directories automatically
+- Validates file permissions
+
+## File Operations
+
+### Standard Operations
 ```php
-// Production detection (Lambda)
-if (isset($_ENV['AWS_LAMBDA_FUNCTION_NAME'])) {
-    // Use S3FileManager with CDN
+// Upload file
+$success = $fileManager->upload($tempFile, 'uploads/document.pdf');
+
+// Check existence
+if ($fileManager->exists('uploads/document.pdf')) {
+    // File exists
 }
 
-// Development detection
-else {
-    // Use LocalFileManager
-}
+// Get file info
+$info = $fileManager->getFileInfo('uploads/document.pdf');
+// Returns: ['size' => 1024, 'last_modified' => '2025-01-01', ...]
+
+// Move file
+$fileManager->move('temp/file.pdf', 'permanent/file.pdf');
+
+// Copy file
+$fileManager->copy('original/file.pdf', 'backup/file.pdf');
+
+// Delete file
+$fileManager->delete('uploads/old_file.pdf');
+
+// Get public URL
+$url = $fileManager->getUrl('uploads/document.pdf');
 ```
+
+## Security Features
+
+### File Validation Security
+- **Real MIME type checking**: Inspects file content, not just extension
+- **Extension whitelist**: Only allows explicitly permitted file types
+- **Size limits**: Prevents large file attacks
+- **Upload error handling**: Proper PHP upload error detection
+
+### S3 Security
+- **IAM role integration**: No hardcoded credentials in Lambda
+- **VPC endpoint support**: Secure internal AWS communication
+- **Bucket policies**: Access control at storage level
+- **Content type enforcement**: Automatic content type detection
+
+### Local Storage Security
+- **Directory permissions**: Automatic 0755 for directories, 0644 for files
+- **Path validation**: Prevents directory traversal attacks
+- **Writable checks**: Validates directory access before operations
 
 ## Error Handling
 
-All file operations include comprehensive error handling:
-
+### Comprehensive Error Coverage
 ```php
 try {
-    $result = $fileManager->upload('path/file.jpg', $data);
-    if (!$result['success']) {
-        throw new Exception($result['error']);
-    }
-} catch (Exception $e) {
-    error_log("File upload failed: " . $e->getMessage());
-    // Handle gracefully
+    $fileManager->upload($source, $destination);
+} catch (\Exception $e) {
+    // Specific error types:
+    // - File permission errors
+    // - S3 connection timeouts
+    // - Invalid file types
+    // - Disk space issues
+    error_log("Upload failed: " . $e->getMessage());
 }
 ```
 
-## Security Considerations
+### S3-Specific Error Handling
+- VPC endpoint timeout detection
+- Connection failure diagnostics
+- AWS credential validation
+- Enhanced logging for troubleshooting
 
-### S3 Security
-- **IAM Roles**: Production uses IAM roles instead of access keys
-- **Bucket Policies**: Restrict access to CloudFront only
-- **CORS**: Configured for specific origins only
-- **Versioning**: Enabled for data protection
+## Performance Optimizations
 
-### CDN Security
-- **Origin Access Control**: Prevents direct S3 access
-- **Cache Poisoning**: Proper cache headers prevent attacks
-- **HTTPS Only**: All CDN traffic uses SSL/TLS
+### S3 Optimizations
+- **Content type detection**: Automatic MIME type setting
+- **Cache headers**: 1-year cache for images  
+- **VPC endpoints**: Reduced latency in Lambda
+- **Timeouts**: Optimized for serverless environment
 
-### File Validation
-```php
-use StellarDominion\Services\FileManager\FileValidator;
+### Local Optimizations
+- **Directory caching**: Minimizes filesystem calls
+- **Permission checks**: Validates access upfront
+- **Batch operations**: Efficient for multiple files
 
-$validator = new FileValidator([
-    'max_size' => 5 * 1024 * 1024, // 5MB
-    'allowed_types' => ['image/jpeg', 'image/png'],
-    'allowed_extensions' => ['jpg', 'jpeg', 'png']
-]);
+## Development vs Production
 
-if (!$validator->validate($file)) {
-    throw new Exception('Invalid file: ' . $validator->getError());
-}
-```
-
-## Cost Optimization
-
-### CDN Benefits
-1. **Request Reduction**: 90%+ reduction in S3 requests
-2. **Bandwidth Savings**: Edge locations reduce transfer costs
-3. **Attack Protection**: CloudFront shields S3 from abuse
-4. **Global Performance**: Faster loading worldwide
-
-### Monitoring Costs
-```php
-$cdnManager = new CDNManager($s3Url, $cdnDomain);
-$info = $cdnManager->getCostOptimizationInfo();
-
-foreach ($info['recommendations'] as $tip) {
-    echo "💡 " . $tip . "\n";
-}
-```
-
-## Configuration Files
-
-### Local Development (.env)
+### Development (Local)
 ```env
 FILE_STORAGE_DRIVER=local
-FILE_STORAGE_LOCAL_DIR=/var/www/uploads
+FILE_STORAGE_LOCAL_DIR=/var/www/html/public/uploads
 FILE_STORAGE_LOCAL_URL=/uploads
 ```
 
-### Production Lambda (serverless.yml)
-```yaml
-environment:
-  FILE_STORAGE_S3_BUCKET: !Ref FileStorageBucket
-  # CLOUDFRONT_DOMAIN: https://d123.cloudfront.net (manual setup)
+### Production (Lambda + S3)
+```env
+FILE_STORAGE_DRIVER=s3
+FILE_STORAGE_S3_BUCKET=stellar-dominion-files
+AWS_REGION=us-east-1
 ```
 
-## Testing
+## Integration with Stellar Dominion
 
-### Unit Tests
-```php
-public function testFileUpload()
-{
-    $manager = FileManagerFactory::create();
-    $result = $manager->upload('test/file.txt', 'test content');
-    
-    $this->assertTrue($result['success']);
-    $this->assertTrue($manager->exists('test/file.txt'));
-}
-```
+The File Manager Service integrates with:
+- **User avatars**: Profile image management
+- **Game assets**: Static resource serving
+- **Document uploads**: File attachment system
+- **Asset delivery**: Optimized static file serving
 
-### Integration Tests
-```php
-public function testCdnIntegration()
-{
-    $manager = FileManagerFactory::create();
-    $url = $manager->getUrl('test/file.jpg');
-    
-    if (CDNManager::isProductionEnvironment()) {
-        $this->assertStringContains('cloudfront', $url);
-    } else {
-        $this->assertStringStartsWith('/uploads', $url);
-    }
-}
-```
+### Typical Usage Patterns
+1. **Avatar uploads**: User profile images via LocalFileManager (dev) or S3FileManager (prod)
+2. **Static assets**: CSS/JS/images via AssetUrlHelper with relative paths
+3. **File validation**: All uploads validated via FileValidator
+4. **Environment adaptation**: Automatic driver selection via Factory
+
 
 ## Troubleshooting
 
@@ -278,28 +607,13 @@ public function testCdnIntegration()
    - Check `FILE_STORAGE_S3_BUCKET` environment variable
    - Verify bucket exists and IAM permissions
 
-2. **"CDN not working"**
-   - Ensure `CLOUDFRONT_DOMAIN` is set in production
-   - Check CloudFront distribution configuration
-
-3. **"File upload fails"**
+2. **"File upload fails"**
    - Check file size limits and permissions
    - Verify storage backend configuration
 
-4. **"High S3 costs"**
+3. **"High S3 costs"**
    - Implement CloudFront CDN
    - Review cache headers and TTL settings
-
-### Debug Information
-```php
-// Get current configuration
-$info = FileManagerFactory::getEnvironmentInfo();
-print_r($info);
-
-// Check CDN status
-$cdnManager = new CDNManager($s3Url, $cdnDomain);
-echo "CDN Enabled: " . ($cdnManager->isCdnEnabled() ? 'Yes' : 'No');
-```
 
 ## Best Practices
 
@@ -318,5 +632,3 @@ See individual class files for detailed API documentation:
 - `FileManagerFactory.php` - Factory methods
 - `S3FileManager.php` - S3 implementation
 - `LocalFileManager.php` - Local implementation
-- `CDNManager.php` - CDN optimization
-- `CloudFrontConfig.php` - CDN configuration

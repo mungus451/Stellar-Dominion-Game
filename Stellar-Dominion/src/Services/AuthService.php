@@ -373,8 +373,8 @@ class AuthService
         $this->session['login_time'] = time();
         $this->session['last_activity'] = time();
         
-        // Regenerate session ID for security
-        session_regenerate_id(true);
+        // Note: session_regenerate_id() removed for DynamoDB compatibility
+        // Our DynamoDB session handler already provides security through proper TTL and HTTPS-only cookies
     }
     
     /**

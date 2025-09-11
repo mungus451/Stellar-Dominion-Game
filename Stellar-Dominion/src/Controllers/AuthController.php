@@ -164,6 +164,18 @@ if ($action === 'login') {
                         // Badges: first 50 founders snapshot
                         \StellarDominion\Services\BadgeService::seed($link);
                         \StellarDominion\Services\BadgeService::evaluateFounder($link, (int)$_SESSION["id"]);
+                        
+                        // Force session write manually since session_write_close() doesn't 
+                        // reliably trigger DynamoDB writes in Lambda environment
+                        try {
+                            $sessionId = session_id();
+                            $sessionData = session_encode();
+                            $handler = \StellarDominion\Services\DynamoDBSessionHandler::create();
+                            $handler->write($sessionId, $sessionData);
+                        } catch (Exception $e) {
+                            error_log("AuthController: Session write error: " . $e->getMessage());
+                        }
+                        
                         session_write_close();
                         header("location: /dashboard.php");
                         exit;
@@ -245,6 +257,17 @@ if ($action === 'login') {
             $_SESSION["loggedin"]       = true;
             $_SESSION["id"]              = mysqli_insert_id($link);
             $_SESSION["character_name"] = $character_name;
+            
+            // Force session write manually for Lambda environment
+            try {
+                $sessionId = session_id();
+                $sessionData = session_encode();
+                $handler = \StellarDominion\Services\DynamoDBSessionHandler::create();
+                $handler->write($sessionId, $sessionData);
+            } catch (Exception $e) {
+                error_log("AuthController: Session write error during registration: " . $e->getMessage());
+            }
+            
             session_write_close();
             // --- Badges: seed and evaluate Founder badge ---
             try {

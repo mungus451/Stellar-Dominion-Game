@@ -66,7 +66,7 @@ Resources:
                 Cookies:
                   Forward: all
             CacheBehaviors:
-              - PathPattern: /uploads/*
+              - PathPattern: /avatars/*
                 TargetOriginId: FileStorageOrigin
                 ViewerProtocolPolicy: redirect-to-https
                 AllowedMethods:

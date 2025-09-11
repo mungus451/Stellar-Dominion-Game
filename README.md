@@ -243,10 +243,6 @@ $fileManager = FileManagerFactory::createFromEnvironment();
 $localConfig = new LocalFileManagerConfig('/path/to/uploads', '/uploads');
 $fileManager = FileManagerFactory::createFromConfig($localConfig);
 
-// S3 with IAM roles (production)
-$s3Config = S3FileManagerConfig::createProduction('my-bucket', 'us-east-1', 'https://cdn.example.com');
-$fileManager = FileManagerFactory::createFromConfig($s3Config);
-
 // S3 for development
 $s3Config = S3FileManagerConfig::createDevelopment('my-dev-bucket');
 $fileManager = FileManagerFactory::createFromConfig($s3Config);
