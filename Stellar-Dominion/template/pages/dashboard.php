@@ -199,6 +199,11 @@ include_once __DIR__ . '/../includes/header.php';
 
 // (Optional) We keep the connection open; footer doesn’t require DB, but other includes might.
 ?>
+                <div class="lg:col-span-4">
+                    <div class="rounded-xl border border-yellow-500/50 bg-yellow-900/60 p-3 md:p-4 shadow text-yellow-200 text-sm md:text-base text-center">
+                        Server Reset: 9-11-2025 9:30am EST, You will find your citizens reset to 1000, your bank cleared, your alliance wiped and all things as if you just created your account. This is unfortunately an unavoidable part of development and will be done as little as often to maintain playability! Thankyou for your support, feel free to contact the Dev on discord!
+                    </div>
+                </div>
 
                 <aside class="lg:col-span-1 space-y-4">
                     <?php 
