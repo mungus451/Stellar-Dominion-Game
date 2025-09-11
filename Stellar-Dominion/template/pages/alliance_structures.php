@@ -17,7 +17,7 @@ $link or die('DB link not set');
 
 // nav context
 $active_menu = 'ALLIANCE';
-$active_page = 'Structures';
+$active_page = 'alliance_structures.php';
 $page_title  = 'Alliance Structures';
 
 // cap per slot

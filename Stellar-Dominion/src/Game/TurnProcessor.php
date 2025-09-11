@@ -46,7 +46,7 @@ if ($result) {
     $sql_update = "UPDATE users SET
                         attack_turns = attack_turns + ?,
                         untrained_citizens = untrained_citizens + ?,
-                        credits = credits + ?,
+                        credits = GREATEST(0, credits + ?),
                         deposits_today = GREATEST(0, deposits_today - ?),
                         last_updated = ?,
                         last_deposit_timestamp = IF(? > 0, NOW(), last_deposit_timestamp)

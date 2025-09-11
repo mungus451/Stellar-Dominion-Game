@@ -43,9 +43,12 @@ $owned_items = ss_get_armory_inventory($link, $user_id);
 $current_tab = (isset($_GET['loadout']) && isset($armory_loadouts[$_GET['loadout']])) ? $_GET['loadout'] : 'soldier';
 $current_loadout = $armory_loadouts[$current_tab];
 
-$charisma_points  = (int)($user_stats['charisma_points'] ?? 0);
-$charisma_pct     = max(0, $charisma_points);                    // each point = 1%
-$charisma_mult    = max(0.0, 1.0 - ($charisma_pct / 100.0));     // discount multiplier
+// Use the new charisma function from balance.php for consistency
+require_once __DIR__ . '/../../config/balance.php';
+$charisma_points = (int)($user_stats['charisma_points'] ?? 0);
+$charisma_mult   = sd_charisma_discount_multiplier($charisma_points);
+$charisma_pct    = (1.0 - $charisma_mult) * 100;
+
 
 // Flatten items for dependency names
 $flat_item_details = [];
@@ -59,8 +62,6 @@ foreach ($armory_loadouts as $loadout) {
  * --------------------------------------------------------------------------
  * ARMORY STAT HELPERS
  * --------------------------------------------------------------------------
- * Updated to show proper labels per-loadout. **WORKER maps 'attack' to Production**
- * so your existing GameData values (attack: 10, 15, …) render as Production bonuses.
  */
 function sd_armory_pick_power(array $item, string $loadout): array {
     $loadout = strtolower($loadout);
@@ -70,38 +71,25 @@ function sd_armory_pick_power(array $item, string $loadout): array {
         'guard'   => ['defense','guard_defense','shield','power'],
         'sentry'  => ['defense','sentry_defense','shield','power'],
         'spy'     => ['infiltration','spy_power','spy','spy_attack','spy_offense','attack','power'],
-        // NOTE: include 'attack' here to use GameData's numbers as Production
         'worker'  => ['production','income','bonus','utility','attack','power'],
         'default' => ['power','attack','defense'],
     ];
     $labelMap = [
-        'attack'         => 'Attack',        // will override to Production if worker (below)
-        'offense'        => 'Attack',
-        'power'          => 'Power',
-        'defense'        => 'Defense',
-        'guard_defense'  => 'Defense',
-        'sentry_defense' => 'Defense',
-        'shield'         => 'Defense',
-        'spy'            => 'Infiltration',
-        'spy_attack'     => 'Infiltration',
-        'spy_offense'    => 'Infiltration',
-        'infiltration'   => 'Infiltration',
-        'spy_power'      => 'Infiltration',
-        'utility'        => 'Production',
-        'production'     => 'Production',
-        'income'         => 'Production',
+        'attack'         => 'Attack', 'offense'        => 'Attack', 'power'          => 'Power',
+        'defense'        => 'Defense', 'guard_defense'  => 'Defense', 'sentry_defense' => 'Defense',
+        'shield'         => 'Defense', 'spy'            => 'Infiltration', 'spy_attack'     => 'Infiltration',
+        'spy_offense'    => 'Infiltration', 'infiltration'   => 'Infiltration', 'spy_power'      => 'Infiltration',
+        'utility'        => 'Production', 'production'     => 'Production', 'income'         => 'Production',
         'bonus'          => 'Production',
     ];
     $candidates = $candidatesByLoadout[$loadout] ?? $candidatesByLoadout['default'];
     foreach ($candidates as $k) {
         if (array_key_exists($k, $item) && is_numeric($item[$k])) {
             $label = $labelMap[$k] ?? (($loadout === 'worker') ? 'Production' : 'Power');
-            // If this is the WORKER loadout, treat whatever numeric we found as Production
             if ($loadout === 'worker') { $label = 'Production'; }
             return [$label, (float)$item[$k]];
         }
     }
-    // Fallbacks when numeric key is missing
     if ($loadout === 'spy')    return ['Infiltration', null];
     if ($loadout === 'worker') return ['Production',   null];
     if ($loadout === 'guard' || $loadout === 'sentry') return ['Defense', null];
@@ -111,7 +99,6 @@ function sd_armory_pick_power(array $item, string $loadout): array {
 function sd_armory_power_line(array $item, string $loadout): string {
     [$label, $val] = sd_armory_pick_power($item, $loadout);
     if ($val === null) return $label . ': N/A';
-    // Add "credits" suffix for worker to clarify unit
     $suffix = ($loadout === 'worker') ? ' credits' : '';
     return $label . ': +' . number_format($val) . $suffix;
 }
@@ -123,7 +110,6 @@ $csrf_token = generate_csrf_token('upgrade_items');
 include_once __DIR__ . '/../includes/header.php';
 ?>
 
-<!-- SIDEBAR -->
 <aside class="lg:col-span-1 space-y-4" id="armory-sidebar" data-charisma-pct="<?php echo (int)$charisma_pct; ?>">
     <?php 
         include_once __DIR__ . '/../includes/advisor.php'; 
@@ -150,7 +136,6 @@ include_once __DIR__ . '/../includes/header.php';
     </div>
 </aside>
 
-<!-- MAIN -->
 <main class="lg:col-span-3">
     <div class="content-box rounded-lg p-4">
         <h3 class="font-title text-2xl text-cyan-400 border-b border-gray-600 pb-2 mb-3">Armory Market</h3>
@@ -189,9 +174,19 @@ include_once __DIR__ . '/../includes/header.php';
                                 $owned_quantity  = (int)($owned_items[$item_key] ?? 0);
                                 $base_cost       = (int)($item['cost'] ?? 0);
                                 $discounted_cost = (int)floor($base_cost * $charisma_mult);
-
                                 $is_locked = false;
                                 $requirements = [];
+                                
+                                // ### CHANGE 1 of 2: Determine the unit/item limit and add it to the HTML ###
+                                $purchase_limit = 999999;
+                                if (!empty($item['requires'])) {
+                                    // This is a T2+ item, limited by the number of prerequisite items owned.
+                                    $purchase_limit = (int)($owned_items[$item['requires']] ?? 0);
+                                } else {
+                                    // This is a T1 item, limited by the number of units.
+                                    $unit_key = $current_loadout['unit'];
+                                    $purchase_limit = (int)($user_stats[$unit_key] ?? 0);
+                                }
 
                                 if (!empty($item['requires'])) {
                                     $required_item_key = $item['requires'];
@@ -210,15 +205,15 @@ include_once __DIR__ . '/../includes/header.php';
                                 $item_class = $is_locked ? 'opacity-60' : '';
                             ?>
                             <div class="armory-item bg-gray-900/60 rounded p-3 border border-gray-700 <?php echo $item_class; ?>" 
-                                 data-item-key="<?php echo htmlspecialchars($item_key); ?>">
+                                 data-item-key="<?php echo htmlspecialchars($item_key); ?>"
+                                 data-purchase-limit="<?php echo $purchase_limit; ?>"
+                                 data-owned-quantity="<?php echo $owned_quantity; ?>">
                                 <p class="font-semibold text-white"><?php echo htmlspecialchars($item['name']); ?></p>
 
-                                <!-- Production/Attack/Defense line -->
                                 <p class="text-xs text-green-400">
                                     <?php echo htmlspecialchars(sd_armory_power_line($item, $current_tab)); ?>
                                 </p>
 
-                                <!-- Keep visible cost as discounted, expose base+discounted via data-* for summary math -->
                                 <p class="text-xs text-yellow-400"
                                    data-base-cost="<?php echo (int)$base_cost; ?>"
                                    data-discounted-cost="<?php echo (int)$discounted_cost; ?>">
@@ -234,7 +229,6 @@ include_once __DIR__ . '/../includes/header.php';
                                         <input type="number" 
                                                name="items[<?php echo htmlspecialchars($item_key); ?>]" 
                                                min="0" 
-                                               max="<?php echo isset($item['requires']) ? (int)($owned_items[$item['requires']] ?? 0) : 999999; ?>" 
                                                placeholder="0" 
                                                class="armory-item-quantity bg-gray-900/50 border border-gray-600 rounded-md w-20 text-center p-1"
                                                data-item-name="<?php echo htmlspecialchars($item['name']); ?>">
@@ -277,8 +271,7 @@ include_once __DIR__ . '/../includes/footer.php';
     const summaryBox = document.getElementById('summary-items');
     const grandTotalEl = document.getElementById('grand-total');
 
-    // cart: itemKey -> {name, base, disc, qty}
-    const cart = {};
+    const cart = {}; // cart: itemKey -> {name, base, disc, qty}
 
     function getRowCosts(row) {
         const base = parseInt(row.querySelector('[data-base-cost]')?.getAttribute('data-base-cost') || '0', 10);
@@ -304,12 +297,10 @@ include_once __DIR__ . '/../includes/footer.php';
             grandTotalEl.textContent = '0';
             return;
         }
-
         keys.forEach(k => {
             const { name, base, disc, qty } = cart[k];
             const sub = disc * qty;
             total += sub;
-
             const li = document.createElement('div');
             li.className = 'flex justify-between text-sm';
             li.innerHTML = `
@@ -323,16 +314,7 @@ include_once __DIR__ . '/../includes/footer.php';
             `;
             summaryBox.appendChild(li);
         });
-
         grandTotalEl.textContent = fmt.format(total);
-    }
-
-    function currentTotalExcluding(exKey) {
-        return Object.keys(cart).reduce((sum, k) => {
-            if (k === exKey) return sum;
-            const { disc, qty } = cart[k];
-            return sum + (disc * qty);
-        }, 0);
     }
 
     function onQtyChange(input) {
@@ -356,20 +338,34 @@ include_once __DIR__ . '/../includes/footer.php';
         btn.addEventListener('click', () => {
             const row = btn.closest('.armory-item');
             const input = row.querySelector('.armory-item-quantity');
+            if (!input) return;
+
+            // ### CHANGE 2 of 2: Implement the new "Max" button logic ###
             const key = row.getAttribute('data-item-key');
             const { disc } = getRowCosts(row);
-            const already = Object.keys(cart).reduce((sum, k) => {
-                if (k === key) return sum;
+
+            // 1. Get limit based on units or prerequisite items
+            const purchaseLimit = parseInt(row.getAttribute('data-purchase-limit') || '0', 10);
+            const ownedQty = parseInt(row.getAttribute('data-owned-quantity') || '0', 10);
+            const itemLimit = Math.max(0, purchaseLimit - ownedQty);
+
+            // 2. Get limit based on available credits
+            const otherItemsTotal = Object.keys(cart).reduce((sum, k) => {
+                if (k === key) return sum; // Exclude the current item from the total
                 return sum + (cart[k].disc * cart[k].qty);
             }, 0);
-            const remaining = Math.max(0, creditsAvail - already);
-            const maxQ = disc > 0 ? Math.floor(remaining / disc) : 0;
-            input.value = String(maxQ);
+            const remainingCredits = Math.max(0, creditsAvail - otherItemsTotal);
+            const creditsLimit = disc > 0 ? Math.floor(remainingCredits / disc) : 0;
+            
+            // 3. The true max is the *minimum* of the two limits
+            const maxQuantity = Math.min(itemLimit, creditsLimit);
+            
+            input.value = String(maxQuantity);
             onQtyChange(input);
         });
     });
 
-    // Initialize any pre-filled values (if any)
+    // Initialize any pre-filled values
     qtyInputs.forEach(inp => onQtyChange(inp));
 })();
 </script>

@@ -317,7 +317,7 @@ function process_offline_turns(mysqli $link, int $user_id): void {
         $sql_upd = "UPDATE users
                        SET attack_turns = attack_turns + ?,
                            untrained_citizens = untrained_citizens + ?,
-                           credits = credits + ?,
+                           credits = GREATEST(0, credits + ?),
                            last_updated = ?
                      WHERE id = ?";
         if ($stmt_upd = mysqli_prepare($link, $sql_upd)) {
