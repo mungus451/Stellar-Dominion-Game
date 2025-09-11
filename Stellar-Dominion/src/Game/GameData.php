@@ -279,11 +279,11 @@ $armory_loadouts = [
                 'title' => 'Utility Main Equipment (Mining Lasers & Drills)',
                 'slots' => 1,
                 'items' => [
-                    'mining_laser' => ['name' => 'Mining Laser', 'attack' => 10, 'cost' => 10000, 'notes' => 'Can be used as a makeshift weapon.'],
-                    'heavy_drill' => ['name' => 'Heavy Drill', 'attack' => 15, 'cost' => 15000, 'notes' => 'Can break through tough materials.', 'requires' => 'mining_laser', 'armory_level_req' => 1],
-                    'plasma_cutter' => ['name' => 'Plasma Cutter', 'attack' => 20, 'cost' => 20000, 'notes' => 'Can cut through almost anything.', 'requires' => 'heavy_drill', 'armory_level_req' => 2],
-                    'seismic_charge' => ['name' => 'Seismic Charge', 'attack' => 25, 'cost' => 25000, 'notes' => 'Can create powerful explosions.', 'requires' => 'plasma_cutter', 'armory_level_req' => 3],
-                    'terraforming_beam' => ['name' => 'Terraforming Beam', 'attack' => 30, 'cost' => 30000, 'notes' => 'Can reshape the very earth.', 'requires' => 'seismic_charge', 'armory_level_req' => 4],
+                    'mining_laser' => ['name' => 'Mining Laser', 'attack' => 40, 'cost' => 80000, 'notes' => 'Can be used as a makeshift weapon.'],
+                    'heavy_drill' => ['name' => 'Heavy Drill', 'attack' => 60, 'cost' => 100000, 'notes' => 'Can break through tough materials.', 'requires' => 'mining_laser', 'armory_level_req' => 1],
+                    'plasma_cutter' => ['name' => 'Plasma Cutter', 'attack' => 80, 'cost' => 120000, 'notes' => 'Can cut through almost anything.', 'requires' => 'heavy_drill', 'armory_level_req' => 2],
+                    'seismic_charge' => ['name' => 'Seismic Charge', 'attack' => 100, 'cost' => 150000, 'notes' => 'Can create powerful explosions.', 'requires' => 'plasma_cutter', 'armory_level_req' => 3],
+                    'terraforming_beam' => ['name' => 'Terraforming Beam', 'attack' => 150, 'cost' => 300000, 'notes' => 'Can reshape the very earth.', 'requires' => 'seismic_charge', 'armory_level_req' => 4],
                 ]
             ],
             'resource_enhancement' => [
