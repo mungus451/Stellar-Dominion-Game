@@ -19,19 +19,52 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 }
 
 // --- PAGE DATA ---
-$csrf_token = generate_csrf_token('attack');
+$csrf_token  = generate_csrf_token('attack');
+$invite_csrf = generate_csrf_token('invite');
 
 $me = ss_get_user_state($link, $user_id, [
     'id','character_name','level','credits','banked_credits',
-    'attack_turns','last_updated','experience','alliance_id'
+    'attack_turns','last_updated','experience','alliance_id','alliance_role_id'
 ]);
+
 $my_alliance_id = $me['alliance_id'] ?? null;
+
+// Check 'invite members' permission if in an alliance
+$can_invite_members = false;
+if (!empty($me['alliance_role_id'])) {
+    if ($stmt_perm = mysqli_prepare($link, "SELECT can_invite_members FROM alliance_roles WHERE id = ? LIMIT 1")) {
+        mysqli_stmt_bind_param($stmt_perm, "i", $me['alliance_role_id']);
+        mysqli_stmt_execute($stmt_perm);
+        $perm_row = mysqli_fetch_assoc(mysqli_stmt_get_result($stmt_perm)) ?: [];
+        mysqli_stmt_close($stmt_perm);
+        $can_invite_members = (bool)($perm_row['can_invite_members'] ?? 0);
+    }
+}
 
 // Target list (include self on this page) via StateService.
 // Pass 0 so the WHERE u.id <> ? does not exclude anyone.
 $targets = ss_get_targets($link, 0, 100);
 // NOTE: ss_get_targets already computes army_size
- 
+
+// Prefetch pending alliance invitations/applications for targets to control Invite UI
+$pendingInvites = $pendingApps = [];
+$targetIds = array_map('intval', array_column($targets, 'id'));
+if (!empty($targetIds)) {
+    $inList = implode(',', $targetIds);
+    // Pending invitations (any alliance)
+    $sqlInv = "SELECT invitee_id FROM alliance_invitations WHERE status = 'pending' AND invitee_id IN ($inList)";
+    if ($resInv = mysqli_query($link, $sqlInv)) {
+        while ($r = mysqli_fetch_assoc($resInv)) { $pendingInvites[(int)$r['invitee_id']] = true; }
+        mysqli_free_result($resInv);
+    }
+    // Pending applications (any alliance)
+    $sqlApp = "SELECT user_id FROM alliance_applications WHERE status = 'pending' AND user_id IN ($inList)";
+    if ($resApp = mysqli_query($link, $sqlApp)) {
+        while ($r = mysqli_fetch_assoc($resApp)) { $pendingApps[(int)$r['user_id']] = true; }
+        mysqli_free_result($resApp);
+    }
+}
+
 foreach ($targets as &$row) {
 
     // --- Rivalry Check Logic ---
@@ -213,10 +246,21 @@ include_once __DIR__ . '/../includes/header.php';
                         $avatar = $t['avatar_path'] ?: '/assets/img/default_avatar.webp';
                         $tag = !empty($t['alliance_tag']) ? '<span class="alliance-tag">[' . htmlspecialchars($t['alliance_tag']) . ']</span> ' : '';
                         
-                        // NEW: Determine if the target is an ally or the player themselves.
+                        // Determine if the target is an ally or the player themselves.
                         $is_self = ($t['id'] === $user_id);
                         $is_ally = ($my_alliance_id && $my_alliance_id === $t['alliance_id'] && !$is_self);
                         $cant_attack = $is_self || $is_ally;
+
+                        // Invite UI conditions
+                        $hasPendingInvite = !empty($pendingInvites[(int)$t['id']]);
+                        $hasPendingApp    = !empty($pendingApps[(int)$t['id']]);
+                        $eligibleForInvite = $my_alliance_id
+                            && $can_invite_members
+                            && !$is_self
+                            && !$is_ally
+                            && empty($t['alliance_id'])
+                            && !$hasPendingInvite
+                            && !$hasPendingApp;
                     ?>
                     <tr class="<?php echo $is_self ? 'bg-cyan-900/40' : ''; // Highlight the player's own row ?>">
                         <td class="px-3 py-3"><?php echo $rank++; ?></td>
@@ -226,7 +270,7 @@ include_once __DIR__ . '/../includes/header.php';
                                 <div class="leading-tight">
                                     <div class="text-white font-semibold">
                                         <?php echo $tag . htmlspecialchars($t['character_name']); ?>
-                                        <?php if ($t['is_rival']): ?>
+                                        <?php if (!empty($t['is_rival'])): ?>
                                             <span class="rival-badge">RIVAL</span>
                                         <?php endif; ?>
                                     </div>
@@ -255,6 +299,20 @@ include_once __DIR__ . '/../includes/header.php';
                                         <input type="number" name="attack_turns" min="1" max="10" value="1" class="w-12 bg-gray-900 border border-gray-600 rounded text-center p-1 text-xs">
                                         <button type="submit" class="bg-red-700 hover:bg-red-600 text-white text-xs font-semibold py-1 px-2 rounded-md">Attack</button>
                                     </form>
+
+                                    <?php if ($eligibleForInvite): ?>
+                                        <form action="/attack.php" method="POST" class="inline-block" onsubmit="event.stopPropagation();">
+                                            <input type="hidden" name="csrf_token"  value="<?php echo htmlspecialchars($invite_csrf, ENT_QUOTES, 'UTF-8'); ?>">
+                                            <input type="hidden" name="csrf_action" value="invite">
+                                            <input type="hidden" name="action"      value="alliance_invite">
+                                            <input type="hidden" name="invitee_id"  value="<?php echo (int)$t['id']; ?>">
+                                            <button type="submit" class="bg-indigo-700 hover:bg-indigo-600 text-white text-xs font-semibold py-1 px-2 rounded-md">Invite</button>
+                                        </form>
+                                    <?php elseif ($my_alliance_id && $can_invite_members && empty($t['alliance_id'])): ?>
+                                        <button type="button" class="bg-gray-800 text-gray-400 text-xs font-semibold py-1 px-2 rounded-md cursor-not-allowed" disabled>
+                                            <?php echo $hasPendingInvite ? 'Invited' : ($hasPendingApp ? 'Applied' : 'Invite'); ?>
+                                        </button>
+                                    <?php endif; ?>
                                 <?php endif; ?>
 
                                 <form action="/view_profile.php" method="GET" class="inline-block" onsubmit="event.stopPropagation();">
@@ -288,10 +346,21 @@ include_once __DIR__ . '/../includes/header.php';
                 $avatar = $t['avatar_path'] ?: '/assets/img/default_avatar.webp';
                 $tag = !empty($t['alliance_tag']) ? '<span class="alliance-tag">[' . htmlspecialchars($t['alliance_tag']) . ']</span> ' : '';
 
-                // NEW: Determine if the target is an ally or the player themselves for mobile view.
+                // Determine if the target is an ally or the player themselves for mobile view.
                 $is_self = ($t['id'] === $user_id);
                 $is_ally = ($my_alliance_id && $my_alliance_id === $t['alliance_id'] && !$is_self);
                 $cant_attack = $is_self || $is_ally;
+
+                // Invite UI conditions
+                $hasPendingInvite = !empty($pendingInvites[(int)$t['id']]);
+                $hasPendingApp    = !empty($pendingApps[(int)$t['id']]);
+                $eligibleForInvite = $my_alliance_id
+                    && $can_invite_members
+                    && !$is_self
+                    && !$is_ally
+                    && empty($t['alliance_id'])
+                    && !$hasPendingInvite
+                    && !$hasPendingApp;
             ?>
             <div class="bg-gray-900/60 border border-gray-700 rounded-lg p-3 <?php echo $is_self ? 'border-cyan-700' : ''; ?>">
                 <div class="flex items-center justify-between">
@@ -300,7 +369,7 @@ include_once __DIR__ . '/../includes/header.php';
                         <div>
                             <div class="text-white font-semibold">
                                 <?php echo $tag . htmlspecialchars($t['character_name']); ?>
-                                <?php if ($t['is_rival']): ?>
+                                <?php if (!empty($t['is_rival'])): ?>
                                     <span class="rival-badge">RIVAL</span>
                                 <?php endif; ?>
                             </div>
@@ -332,6 +401,20 @@ include_once __DIR__ . '/../includes/header.php';
                             <input type="number" name="attack_turns" min="1" max="10" value="1" class="flex-1 bg-gray-900 border border-gray-600 rounded text-center p-1 text-xs">
                             <button type="submit" class="bg-red-700 hover:bg-red-600 text-white text-xs font-semibold py-1 px-3 rounded-md">Attack</button>
                         </form>
+
+                        <?php if ($eligibleForInvite): ?>
+                            <form action="/attack.php" method="POST" class="shrink-0" onsubmit="event.stopPropagation();">
+                                <input type="hidden" name="csrf_token"  value="<?php echo htmlspecialchars($invite_csrf, ENT_QUOTES, 'UTF-8'); ?>">
+                                <input type="hidden" name="csrf_action" value="invite">
+                                <input type="hidden" name="action"      value="alliance_invite">
+                                <input type="hidden" name="invitee_id"  value="<?php echo (int)$t['id']; ?>">
+                                <button type="submit" class="bg-indigo-700 hover:bg-indigo-600 text-white text-xs font-semibold py-1 px-3 rounded-md">Invite</button>
+                            </form>
+                        <?php elseif ($my_alliance_id && $can_invite_members && empty($t['alliance_id'])): ?>
+                            <button type="button" class="bg-gray-800 text-gray-400 text-xs font-semibold py-1 px-3 rounded-md cursor-not-allowed" disabled>
+                                <?php echo $hasPendingInvite ? 'Invited' : ($hasPendingApp ? 'Applied' : 'Invite'); ?>
+                            </button>
+                        <?php endif; ?>
                     <?php endif; ?>
 
                     <form action="/view_profile.php" method="GET" class="shrink-0" onsubmit="event.stopPropagation();">

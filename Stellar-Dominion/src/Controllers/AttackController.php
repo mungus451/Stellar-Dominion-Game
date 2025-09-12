@@ -28,6 +28,85 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 }
 // --- END CSRF VALIDATION ---
 
+// ─────────────────────────────────────────────────────────────────────────────
+// Alliance invite action (posted from attack.php)
+// ─────────────────────────────────────────────────────────────────────────────
+if (($_POST['action'] ?? '') === 'alliance_invite') {
+    try {
+        if (($_POST['csrf_action'] ?? '') !== 'invite') {
+            throw new Exception('Invalid CSRF context.');
+        }
+        $inviter_id = (int)($_SESSION['id'] ?? 0);
+        $invitee_id = (int)($_POST['invitee_id'] ?? 0);
+        if ($inviter_id <= 0 || $invitee_id <= 0) {
+            throw new Exception('Invalid request.');
+        }
+        if ($inviter_id === $invitee_id) {
+            throw new Exception('You cannot invite yourself.');
+        }
+        // Fetch inviter alliance + permission
+        $sql = "SELECT u.alliance_id, u.alliance_role_id, ar.can_invite_members, u.character_name
+                FROM users u
+                LEFT JOIN alliance_roles ar ON ar.id = u.alliance_role_id
+                WHERE u.id = ? LIMIT 1";
+        $stmt = mysqli_prepare($link, $sql);
+        mysqli_stmt_bind_param($stmt, "i", $inviter_id);
+        mysqli_stmt_execute($stmt);
+        $inviter = mysqli_fetch_assoc(mysqli_stmt_get_result($stmt)) ?: [];
+        mysqli_stmt_close($stmt);
+        $alliance_id = (int)($inviter['alliance_id'] ?? 0);
+        if ($alliance_id <= 0) {
+            throw new Exception('You are not in an alliance.');
+        }
+        if (empty($inviter['can_invite_members'])) {
+            throw new Exception('You do not have permission to invite members.');
+        }
+        // Invitee must exist and not be in an alliance
+        $stmt2 = mysqli_prepare($link, "SELECT id, character_name, alliance_id FROM users WHERE id = ? LIMIT 1");
+        mysqli_stmt_bind_param($stmt2, "i", $invitee_id);
+        mysqli_stmt_execute($stmt2);
+        $invitee = mysqli_fetch_assoc(mysqli_stmt_get_result($stmt2)) ?: [];
+        mysqli_stmt_close($stmt2);
+        if (!$invitee) {
+            throw new Exception('Target user not found.');
+        }
+        if (!empty($invitee['alliance_id'])) {
+            throw new Exception('That commander already belongs to an alliance.');
+        }
+        // Cannot already have a pending invite (globally unique per invitee)
+        $stmt3 = mysqli_prepare($link, "SELECT id FROM alliance_invitations WHERE invitee_id = ? AND status = 'pending' LIMIT 1");
+        mysqli_stmt_bind_param($stmt3, "i", $invitee_id);
+        mysqli_stmt_execute($stmt3);
+        $hasInvite = mysqli_fetch_assoc(mysqli_stmt_get_result($stmt3));
+        mysqli_stmt_close($stmt3);
+        if ($hasInvite) {
+            throw new Exception('This commander already has a pending invitation.');
+        }
+        // Prevent if they have a pending application (clean UX)
+        $stmt4 = mysqli_prepare($link, "SELECT id FROM alliance_applications WHERE user_id = ? AND status = 'pending' LIMIT 1");
+        mysqli_stmt_bind_param($stmt4, "i", $invitee_id);
+        mysqli_stmt_execute($stmt4);
+        $hasApp = mysqli_fetch_assoc(mysqli_stmt_get_result($stmt4));
+        mysqli_stmt_close($stmt4);
+        if ($hasApp) {
+            throw new Exception('This commander has a pending alliance application.');
+        }
+        // Insert invitation
+        $stmt5 = mysqli_prepare($link, "INSERT INTO alliance_invitations (alliance_id, inviter_id, invitee_id, status) VALUES (?, ?, ?, 'pending')");
+        mysqli_stmt_bind_param($stmt5, "iii", $alliance_id, $inviter_id, $invitee_id);
+        if (!mysqli_stmt_execute($stmt5)) {
+            $err = mysqli_error($link);
+            mysqli_stmt_close($stmt5);
+            throw new Exception('Could not create invitation: ' . $err);
+        }
+        mysqli_stmt_close($stmt5);
+        $_SESSION['attack_message'] = 'Invitation sent to ' . htmlspecialchars($invitee['character_name']) . '.';
+    } catch (Throwable $e) {
+        $_SESSION['attack_error'] = 'Invite failed: ' . $e->getMessage();
+    }
+    header('Location: /attack.php'); exit;
+}
+
 date_default_timezone_set('UTC');
 
 // Fetch per-structure health % for a user (falls back to 100 when missing)
@@ -106,7 +185,7 @@ const ATK_SOLDIER_LOSS_ADV_GAIN  = 0.80;
 const ATK_SOLDIER_LOSS_TURNS_EXP = 0.2;
 const ATK_SOLDIER_LOSS_WIN_MULT  = 0.5;
 const ATK_SOLDIER_LOSS_LOSE_MULT = 1.25;
-const ATK_SOLDIER_LOSS_MIN       = 1;
+const ATK_SOLDIER_LOSS_MIN       = 0;
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Fortification health influence (tunable)
