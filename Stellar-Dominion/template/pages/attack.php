@@ -18,6 +18,30 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     exit;
 }
 
+// --- PAGINATION (match war_history.php pattern) ---
+$allowed_per_page = [10, 20, 50, 100];
+$items_per_page = isset($_GET['show']) ? (int)$_GET['show'] : 20;
+if (!in_array($items_per_page, $allowed_per_page, true)) { $items_per_page = 20; }
+$current_page = isset($_GET['page']) ? max(1, (int)$_GET['page']) : 1;
+
+// Total players (include self on this page by excluding id 0)
+$total_players = function_exists('ss_count_targets') ? ss_count_targets($link, 0) : 0;
+$total_pages   = max(1, (int)ceil(($total_players ?: 1) / $items_per_page));
+if ($current_page > $total_pages) { $current_page = $total_pages; }
+$offset = ($current_page - 1) * $items_per_page;
+$from   = $total_players > 0 ? ($offset + 1) : 0;
+$to     = min($offset + $items_per_page, $total_players);
+
+// derived nav helpers
+$prev_page = max(1, $current_page - 1);
+$next_page = min($total_pages, $current_page + 1);
+
+// windowed page list (max 10 pages shown)
+$page_window = 10;
+$start_page  = max(1, $current_page - (int)floor($page_window / 2));
+$end_page    = min($total_pages, $start_page + $page_window - 1);
+$start_page  = max(1, $end_page - $page_window + 1);
+
 // --- PAGE DATA ---
 $csrf_token  = generate_csrf_token('attack');
 $invite_csrf = generate_csrf_token('invite');
@@ -43,7 +67,7 @@ if (!empty($me['alliance_role_id'])) {
 
 // Target list (include self on this page) via StateService.
 // Pass 0 so the WHERE u.id <> ? does not exclude anyone.
-$targets = ss_get_targets($link, 0, 100);
+$targets = ss_get_targets($link, 0, $items_per_page, $offset);
 // NOTE: ss_get_targets already computes army_size
 
 // Prefetch pending alliance invitations/applications for targets to control Invite UI
@@ -224,7 +248,11 @@ include_once __DIR__ . '/../includes/header.php';
     <div class="content-box rounded-lg p-4 hidden md:block">
         <div class="flex items-center justify-between mb-3">
             <h3 class="font-title text-cyan-400">Target List</h3>
-            <div class="text-xs text-gray-400">Showing <?php echo count($targets); ?> players</div>
+            <div class="text-xs text-gray-400">
+                Showing <?php echo number_format($from); ?>–<?php echo number_format($to); ?>
+                of <?php echo number_format($total_players); ?> •
+                Page <?php echo $current_page; ?>/<?php echo $total_pages; ?>
+            </div>
         </div>
 
         <div class="overflow-x-auto">
@@ -241,7 +269,7 @@ include_once __DIR__ . '/../includes/header.php';
                 </thead>
                 <tbody class="divide-y divide-gray-700">
                     <?php
-                    $rank = 1;
+                    $rank = $offset + 1;
                     foreach ($targets as $t):
                         $avatar = $t['avatar_path'] ?: '/assets/img/default_avatar.webp';
                         $tag = !empty($t['alliance_tag']) ? '<span class="alliance-tag">[' . htmlspecialchars($t['alliance_tag']) . ']</span> ' : '';
@@ -331,17 +359,43 @@ include_once __DIR__ . '/../includes/header.php';
                 </tbody>
             </table>
         </div>
+
+        <?php if ($total_pages > 1): ?>
+        <div class="mt-4 flex flex-wrap justify-center items-center gap-2 text-sm">
+            <a href="/attack.php?show=<?php echo $items_per_page; ?>&page=1"
+               class="px-3 py-1 bg-gray-700 rounded-md hover:bg-cyan-600 <?php if ($current_page == 1) echo 'hidden'; ?>">&laquo; First</a>
+            <a href="/attack.php?show=<?php echo $items_per_page; ?>&page=<?php echo $prev_page; ?>"
+               class="px-3 py-1 bg-gray-700 rounded-md hover:bg-cyan-600">&laquo;</a>
+            <?php for ($i = $start_page; $i <= $end_page; $i++): ?>
+                <a href="/attack.php?show=<?php echo $items_per_page; ?>&page=<?php echo $i; ?>"
+                   class="px-3 py-1 <?php echo $i == $current_page ? 'bg-cyan-600 font-bold' : 'bg-gray-700'; ?> rounded-md hover:bg-cyan-600"><?php echo $i; ?></a>
+            <?php endfor; ?>
+            <a href="/attack.php?show=<?php echo $items_per_page; ?>&page=<?php echo $next_page; ?>"
+               class="px-3 py-1 bg-gray-700 rounded-md hover:bg-cyan-600">&raquo;</a>
+            <a href="/attack.php?show=<?php echo $items_per_page; ?>&page=<?php echo $total_pages; ?>"
+               class="px-3 py-1 bg-gray-700 rounded-md hover:bg-cyan-600 <?php if ($current_page == $total_pages) echo 'hidden'; ?>">Last &raquo;</a>
+            <form method="GET" action="/attack.php" class="inline-flex items-center gap-1">
+                <input type="hidden" name="show" value="<?php echo $items_per_page; ?>">
+                <input type="number" name="page" min="1" max="<?php echo $total_pages; ?>" value="<?php echo $current_page; ?>"
+                       class="bg-gray-900 border border-gray-600 rounded-md w-16 text-center p-1 text-xs">
+                <button type="submit" class="px-3 py-1 bg-gray-700 rounded-md hover:bg-cyan-600 text-xs">Go</button>
+            </form>
+        </div>
+        <?php endif; ?>
     </div>
 
     <div class="content-box rounded-lg p-4 md:hidden">
         <div class="flex items-center justify-between mb-3">
             <h3 class="font-title text-cyan-400">Targets</h3>
-            <div class="text-xs text-gray-400">Showing <?php echo count($targets); ?></div>
+            <div class="text-xs text-gray-400">
+                Showing <?php echo number_format($from); ?>–<?php echo number_format($to); ?>
+                of <?php echo number_format($total_players); ?>
+            </div>
         </div>
 
         <div class="space-y-3">
             <?php
-            $rank = 1;
+            $rank = $offset + 1;
             foreach ($targets as $t):
                 $avatar = $t['avatar_path'] ?: '/assets/img/default_avatar.webp';
                 $tag = !empty($t['alliance_tag']) ? '<span class="alliance-tag">[' . htmlspecialchars($t['alliance_tag']) . ']</span> ' : '';
@@ -434,6 +488,29 @@ include_once __DIR__ . '/../includes/header.php';
             <div class="text-center text-gray-400 py-6">No targets found.</div>
             <?php endif; ?>
         </div>
+
+        <?php if ($total_pages > 1): ?>
+        <div class="mt-4 flex flex-wrap justify-center items-center gap-2 text-sm">
+            <a href="/attack.php?show=<?php echo $items_per_page; ?>&page=1"
+               class="px-3 py-1 bg-gray-700 rounded-md hover:bg-cyan-600 <?php if ($current_page == 1) echo 'hidden'; ?>">&laquo; First</a>
+            <a href="/attack.php?show=<?php echo $items_per_page; ?>&page=<?php echo $prev_page; ?>"
+               class="px-3 py-1 bg-gray-700 rounded-md hover:bg-cyan-600">&laquo;</a>
+            <?php for ($i = $start_page; $i <= $end_page; $i++): ?>
+                <a href="/attack.php?show=<?php echo $items_per_page; ?>&page=<?php echo $i; ?>"
+                   class="px-3 py-1 <?php echo $i == $current_page ? 'bg-cyan-600 font-bold' : 'bg-gray-700'; ?> rounded-md hover:bg-cyan-600"><?php echo $i; ?></a>
+            <?php endfor; ?>
+            <a href="/attack.php?show=<?php echo $items_per_page; ?>&page=<?php echo $next_page; ?>"
+               class="px-3 py-1 bg-gray-700 rounded-md hover:bg-cyan-600">&raquo;</a>
+            <a href="/attack.php?show=<?php echo $items_per_page; ?>&page=<?php echo $total_pages; ?>"
+               class="px-3 py-1 bg-gray-700 rounded-md hover:bg-cyan-600 <?php if ($current_page == $total_pages) echo 'hidden'; ?>">Last &raquo;</a>
+            <form method="GET" action="/attack.php" class="inline-flex items-center gap-1">
+                <input type="hidden" name="show" value="<?php echo $items_per_page; ?>">
+                <input type="number" name="page" min="1" max="<?php echo $total_pages; ?>" value="<?php echo $current_page; ?>"
+                       class="bg-gray-900 border border-gray-600 rounded-md w-16 text-center p-1 text-xs">
+                <button type="submit" class="px-3 py-1 bg-gray-700 rounded-md hover:bg-cyan-600 text-xs">Go</button>
+            </form>
+        </div>
+        <?php endif; ?>
     </div>
 </main>
 

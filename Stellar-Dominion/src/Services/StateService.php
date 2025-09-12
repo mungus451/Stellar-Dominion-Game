@@ -183,8 +183,9 @@ function ss_seconds_until_next_turn(string $last_updated, int $turn_interval_min
 }
 
 /** Fetch list of attack targets (same shape as UI uses), with computed army_size. */
-function ss_get_targets(mysqli $link, int $exclude_user_id, int $limit = 100): array {
-    $limit = max(1, min(500, (int)$limit));
+function ss_get_targets(mysqli $link, int $exclude_user_id, int $limit = 100, int $offset = 0): array {
+    $limit  = max(1, min(500, (int)$limit));
+    $offset = max(0, (int)$offset);
     $sql = "
         SELECT
             u.id, u.character_name, u.level, u.credits, u.avatar_path,
@@ -194,10 +195,10 @@ function ss_get_targets(mysqli $link, int $exclude_user_id, int $limit = 100): a
         LEFT JOIN alliances a ON a.id = u.alliance_id
         WHERE u.id <> ?
         ORDER BY u.level DESC, u.credits DESC
-        LIMIT {$limit}";
+        LIMIT ? OFFSET ?";
     $stmt = mysqli_prepare($link, $sql);
     if (!$stmt) return [];
-    mysqli_stmt_bind_param($stmt, "i", $exclude_user_id);
+    mysqli_stmt_bind_param($stmt, "iii", $exclude_user_id, $limit, $offset);
     mysqli_stmt_execute($stmt);
     $rs = mysqli_stmt_get_result($stmt);
     $out = [];
@@ -207,6 +208,19 @@ function ss_get_targets(mysqli $link, int $exclude_user_id, int $limit = 100): a
     }
     mysqli_stmt_close($stmt);
     return $out;
+}
+
+/** Count total targets (matching same filter as ss_get_targets). */
+function ss_count_targets(mysqli $link, int $exclude_user_id): int {
+    $sql = "SELECT COUNT(*) AS c FROM users u WHERE u.id <> ?";
+    $stmt = mysqli_prepare($link, $sql);
+    if (!$stmt) return 0;
+    mysqli_stmt_bind_param($stmt, "i", $exclude_user_id);
+    if (!mysqli_stmt_execute($stmt)) { mysqli_stmt_close($stmt); return 0; }
+    $rs = mysqli_stmt_get_result($stmt);
+    $row = $rs ? mysqli_fetch_assoc($rs) : null;
+    mysqli_stmt_close($stmt);
+    return (int)($row['c'] ?? 0);
 }
 
 /** Fetch armory inventory as [item_key => quantity]. */
