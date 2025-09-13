@@ -9,8 +9,35 @@ require_once __DIR__ . '/../../config/config.php';
 require_once __DIR__ . '/../../src/Services/StateService.php'; // Centralized state
 require_once __DIR__ . '/../includes/advisor_hydration.php';
 
-$user_id = (int)($_SESSION['id'] ?? 0);
+// Always define $user_id before any usage
+$user_id = isset($_SESSION['id']) ? (int)$_SESSION['id'] : 0;
 if ($user_id <= 0) { header('Location: /index.php'); exit; }
+
+// Username search (sidebar). Exact match first, then partial LIKE → redirect to profile on success.
+if (isset($_GET['search_user'])) {
+    $needle = trim((string)$_GET['search_user']);
+    if ($needle !== '') {
+        // Exact match
+        if ($stmt = mysqli_prepare($link, "SELECT id FROM users WHERE character_name = ? LIMIT 1")) {
+            mysqli_stmt_bind_param($stmt, "s", $needle);
+            mysqli_stmt_execute($stmt);
+            $row = mysqli_fetch_assoc(mysqli_stmt_get_result($stmt));
+            mysqli_stmt_close($stmt);
+            if (!empty($row['id'])) { header("Location: /view_profile.php?id=".(int)$row['id']); exit; }
+        }
+        // Partial match (first hit)
+        $like = '%'.$needle.'%';
+        if ($stmt2 = mysqli_prepare($link, "SELECT id FROM users WHERE character_name LIKE ? ORDER BY level DESC, id ASC LIMIT 1")) {
+            mysqli_stmt_bind_param($stmt2, "s", $like);
+            mysqli_stmt_execute($stmt2);
+            $row2 = mysqli_fetch_assoc(mysqli_stmt_get_result($stmt2));
+            mysqli_stmt_close($stmt2);
+            if (!empty($row2['id'])) { header("Location: /view_profile.php?id=".(int)$row2['id']); exit; }
+        }
+        $_SESSION['attack_error'] = "No player found for '".htmlspecialchars($needle, ENT_QUOTES, 'UTF-8')."'.";
+        // fall through to render page with error banner
+    }
+}
 
 // Handle POST via controller (unchanged app flow)
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
@@ -46,7 +73,7 @@ $start_page  = max(1, $end_page - $page_window + 1);
 $csrf_token  = generate_csrf_token('attack');
 $invite_csrf = generate_csrf_token('invite');
 
-$me = ss_get_user_state($link, $user_id, [
+$me = ss_get_user_state($link, (int)$user_id, [
     'id','character_name','level','credits','banked_credits',
     'attack_turns','last_updated','experience','alliance_id','alliance_role_id'
 ]);
@@ -90,7 +117,6 @@ if (!empty($targetIds)) {
 }
 
 foreach ($targets as &$row) {
-
     // --- Rivalry Check Logic ---
     $row['is_rival'] = false;
     if ($my_alliance_id && $row['alliance_id'] && $my_alliance_id != $row['alliance_id']) {
@@ -109,6 +135,7 @@ foreach ($targets as &$row) {
     }
     // --- END: Rivalry Check ---
 }
+unset($row); // break reference
 
 // Timers
 $turn_interval_minutes = 10;
@@ -118,9 +145,24 @@ include_once __DIR__ . '/../includes/header.php';
 ?>
 
 <aside class="lg:col-span-1 space-y-4">
-    <?php  
-        include_once __DIR__ . '/../includes/advisor.php';
-    ?>
+    <!-- Player quick search -->
+    <div class="content-box rounded-lg p-3">
+        <form method="GET" action="/attack.php" class="space-y-2">
+            <label for="search_user" class="block text-xs text-gray-300">Find Player by Username</label>
+            <div class="flex items-center gap-2">
+                <input id="search_user" name="search_user" type="text" placeholder="Enter username"
+                       class="flex-1 bg-gray-900 border border-gray-600 rounded-md px-2 py-1 text-sm text-white"
+                       maxlength="64" autocomplete="off">
+                <button type="submit"
+                        class="bg-cyan-700 hover:bg-cyan-600 text-white text-xs font-semibold py-1 px-2 rounded-md">
+                    Search
+                </button>
+            </div>
+            <p class="text-[11px] text-gray-400">Exact username works best. Partial is OK.</p>
+        </form>
+    </div>
+
+    <?php include_once __DIR__ . '/../includes/advisor.php'; ?>
     </aside>
 
 <main class="lg:col-span-3 space-y-4">
@@ -272,10 +314,19 @@ include_once __DIR__ . '/../includes/header.php';
                     $rank = $offset + 1;
                     foreach ($targets as $t):
                         $avatar = $t['avatar_path'] ?: '/assets/img/default_avatar.webp';
-                        $tag = !empty($t['alliance_tag']) ? '<span class="alliance-tag">[' . htmlspecialchars($t['alliance_tag']) . ']</span> ' : '';
-                        
+                        // Clickable alliance tag → /alliance.php?id={alliance_id}
+                        if (!empty($t['alliance_id']) && !empty($t['alliance_tag'])) {
+                            $tag = '<a href="/view_alliance.php?id='.(int)$t['alliance_id'].'" class="text-cyan-400 hover:underline">'
+                                 . '<span class="alliance-tag">[' . htmlspecialchars($t['alliance_tag']) . ']</span>'
+                                 . '</a> ';
+                        } else {
+                            $tag = !empty($t['alliance_tag'])
+                                ? '<span class="alliance-tag">[' . htmlspecialchars($t['alliance_tag']) . ']</span> '
+                                : '';
+                        }
+
                         // Determine if the target is an ally or the player themselves.
-                        $is_self = ($t['id'] === $user_id);
+                        $is_self = ((int)$t['id'] === (int)$user_id);
                         $is_ally = ($my_alliance_id && $my_alliance_id === $t['alliance_id'] && !$is_self);
                         $cant_attack = $is_self || $is_ally;
 
@@ -398,10 +449,18 @@ include_once __DIR__ . '/../includes/header.php';
             $rank = $offset + 1;
             foreach ($targets as $t):
                 $avatar = $t['avatar_path'] ?: '/assets/img/default_avatar.webp';
-                $tag = !empty($t['alliance_tag']) ? '<span class="alliance-tag">[' . htmlspecialchars($t['alliance_tag']) . ']</span> ' : '';
+                if (!empty($t['alliance_id']) && !empty($t['alliance_tag'])) {
+                    $tag = '<a href="/view_alliance.php?id='.(int)$t['alliance_id'].'" class="text-cyan-400 hover:underline">'
+                         . '<span class="alliance-tag">[' . htmlspecialchars($t['alliance_tag']) . ']</span>'
+                         . '</a> ';
+                } else {
+                    $tag = !empty($t['alliance_tag'])
+                        ? '<span class="alliance-tag">[' . htmlspecialchars($t['alliance_tag']) . ']</span> '
+                        : '';
+                }
 
                 // Determine if the target is an ally or the player themselves for mobile view.
-                $is_self = ($t['id'] === $user_id);
+                $is_self = ((int)$t['id'] === (int)$user_id);
                 $is_ally = ($my_alliance_id && $my_alliance_id === $t['alliance_id'] && !$is_self);
                 $cant_attack = $is_self || $is_ally;
 

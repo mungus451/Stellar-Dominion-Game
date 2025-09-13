@@ -155,7 +155,7 @@ const CREDITS_STEAL_GROWTH        = 0.1;  // Raise to reward big mismatches; low
 // loss_frac = BASE + ADV_GAIN * clamp(R-1,0..1) then × small turns boost, ×0.5 if attacker loses. Guard floor prevents dropping below GUARD_FLOOR total.
 const GUARD_KILL_BASE_FRAC        = 0.001; // Raise to speed attrition in fair fights.
 const GUARD_KILL_ADVANTAGE_GAIN   = 0.02;  // Raise to let strong attackers chew guards faster.
-const GUARD_FLOOR                 = 20000; // Raise to extend defensive longevity; lower to allow full wipeouts.
+const GUARD_FLOOR                 = 5000; // Raise to extend defensive longevity; lower to allow full wipeouts.
 
 // Structure damage (on defender fortifications)
 // Pipeline: Raw = STRUCT_BASE_DMG * R^STRUCT_ADVANTAGE_EXP * Turns^STRUCT_TURNS_EXP * (1 - guardShield)
@@ -171,6 +171,30 @@ const STRUCT_MAX_DMG_IF_WIN       = 0.25; // Lower max to prevent chunking.
 
 // Prestige
 const BASE_PRESTIGE_GAIN          = 10; // Flat baseline per battle.
+
+// ─────────────────────────────────────────────────────────────────────────────
+// EXPERIENCE (XP) TUNING
+// ─────────────────────────────────────────────────────────────────────────────
+// Global multiplier applied to both sides at the very end
+const XP_GLOBAL_MULT                  = 1.0;
+// Attacker base ranges
+const XP_ATK_WIN_MIN                  = 150;
+const XP_ATK_WIN_MAX                  = 300;
+const XP_ATK_LOSE_MIN                 = 100;
+const XP_ATK_LOSE_MAX                 = 200;
+// Defender base ranges
+const XP_DEF_WIN_MIN                  = 100;
+const XP_DEF_WIN_MAX                  = 150;
+const XP_DEF_LOSE_MIN                 = 75;
+const XP_DEF_LOSE_MAX                 = 125;
+// Level-gap scaling (Δ = target.level - self.level). Positive means you hit higher level.
+const XP_LEVEL_SLOPE_VS_HIGHER        = 0.07; // per level when target is higher level
+const XP_LEVEL_SLOPE_VS_LOWER         = 0.10; // per level when target is lower level
+const XP_LEVEL_MIN_MULT               = 0.10; // clamp for extreme gaps
+// Turns influence (exponent). Defender default 0.0 preserves legacy behavior.
+const XP_ATK_TURNS_EXP                = 1.0;  // 1.0 = linear by turns; <1 softens, >1 amplifies
+const XP_DEF_TURNS_EXP                = 0.0;  // 0.0 = ignore turns for defender (legacy)
+
 
 // Anti-farm limits
 const HOURLY_FULL_LOOT_CAP            = 5;     // first 5 attacks in last hour = full loot
@@ -241,6 +265,21 @@ $COMBAT_TUNING = [
     'STRUCT_MIN_DMG_IF_WIN'             => STRUCT_MIN_DMG_IF_WIN,
     'STRUCT_MAX_DMG_IF_WIN'             => STRUCT_MAX_DMG_IF_WIN,
     'BASE_PRESTIGE_GAIN'                => BASE_PRESTIGE_GAIN,
+    // XP knobs
+    'XP_GLOBAL_MULT'                    => XP_GLOBAL_MULT,
+    'XP_ATK_WIN_MIN'                    => XP_ATK_WIN_MIN,
+    'XP_ATK_WIN_MAX'                    => XP_ATK_WIN_MAX,
+    'XP_ATK_LOSE_MIN'                   => XP_ATK_LOSE_MIN,
+    'XP_ATK_LOSE_MAX'                   => XP_ATK_LOSE_MAX,
+    'XP_DEF_WIN_MIN'                    => XP_DEF_WIN_MIN,
+    'XP_DEF_WIN_MAX'                    => XP_DEF_WIN_MAX,
+    'XP_DEF_LOSE_MIN'                   => XP_DEF_LOSE_MIN,
+    'XP_DEF_LOSE_MAX'                   => XP_DEF_LOSE_MAX,
+    'XP_LEVEL_SLOPE_VS_HIGHER'          => XP_LEVEL_SLOPE_VS_HIGHER,
+    'XP_LEVEL_SLOPE_VS_LOWER'           => XP_LEVEL_SLOPE_VS_LOWER,
+    'XP_LEVEL_MIN_MULT'                 => XP_LEVEL_MIN_MULT,
+    'XP_ATK_TURNS_EXP'                  => XP_ATK_TURNS_EXP,
+    'XP_DEF_TURNS_EXP'                  => XP_DEF_TURNS_EXP,
     'HOURLY_FULL_LOOT_CAP'              => HOURLY_FULL_LOOT_CAP,
     'HOURLY_REDUCED_LOOT_MAX'           => HOURLY_REDUCED_LOOT_MAX,
     'HOURLY_REDUCED_LOOT_FACTOR'        => HOURLY_REDUCED_LOOT_FACTOR,
@@ -490,7 +529,7 @@ try {
     }
 
     // ─────────────────────────────────────────────────────────────────────────
-    // NEW: ATTACKER SOLDIER COMBAT CASUALTIES (adds to fatigue_casualties)
+    // ATTACKER SOLDIER COMBAT CASUALTIES (adds to fatigue_casualties)
     // ─────────────────────────────────────────────────────────────────────────
     $S0_att = max(0, (int)$attacker['soldiers']);
     if ($S0_att > 0) {
@@ -550,8 +589,8 @@ try {
     } else {
         // Foundations are fully depleted — distribute percent damage to structures
         $total_structure_percent_damage = $attacker_wins
-            ? rand(STRUCT_NOFOUND_WIN_MIN_PCT,  STRUCT_NOFOUND_WIN_MAX_PCT)
-            : rand(STRUCT_NOFOUND_LOSE_MIN_PCT, STRUCT_NOFOUND_LOSE_MAX_PCT);
+            ? mt_rand(STRUCT_NOFOUND_WIN_MIN_PCT,  STRUCT_NOFOUND_WIN_MAX_PCT)
+            : mt_rand(STRUCT_NOFOUND_LOSE_MIN_PCT, STRUCT_NOFOUND_LOSE_MAX_PCT);
 
         $structure_damage_distribution_details = [];
         if (function_exists('ss_distribute_structure_damage')) {
@@ -566,12 +605,21 @@ try {
     }
 
     // ─────────────────────────────────────────────────────────────────────────
-    // EXPERIENCE (XP) GAINS
+    // EXPERIENCE (XP) GAINS — Tunable
     // ─────────────────────────────────────────────────────────────────────────
-    $level_diff_attacker = ((int)$defender['level']) - ((int)$attacker['level']);
-    $attacker_xp_gained  = max(1, (int)floor(($attacker_wins ? rand(150, 200) : rand(40, 60)) * $attack_turns * max(0.1, 1 + ($level_diff_attacker * ($level_diff_attacker > 0 ? 0.07 : 0.10)))));
-    $level_diff_defender = ((int)$attacker['level']) - ((int)$defender['level']);
-    $defender_xp_gained  = max(1, (int)floor(($attacker_wins ? rand(40, 60) : rand(75, 100)) * max(0.1, 1 + ($level_diff_defender * ($level_diff_defender > 0 ? 0.07 : 0.10)))));
+    // Attacker
+    $level_diff_attacker   = ((int)$defender['level']) - ((int)$attacker['level']); // + if target higher
+    $atk_base              = $attacker_wins ? mt_rand(XP_ATK_WIN_MIN, XP_ATK_WIN_MAX) : mt_rand(XP_ATK_LOSE_MIN, XP_ATK_LOSE_MAX);
+    $atk_level_mult        = max(XP_LEVEL_MIN_MULT, 1 + ($level_diff_attacker * ($level_diff_attacker > 0 ? XP_LEVEL_SLOPE_VS_HIGHER : XP_LEVEL_SLOPE_VS_LOWER)));
+    $atk_turns_mult        = pow(max(1, (int)$attack_turns), XP_ATK_TURNS_EXP);
+    $attacker_xp_gained    = max(1, (int)floor($atk_base * $atk_turns_mult * $atk_level_mult * XP_GLOBAL_MULT));
+
+    // Defender
+    $level_diff_defender   = ((int)$attacker['level']) - ((int)$defender['level']); // + if attacker higher
+    $def_base              = $attacker_wins ? mt_rand(XP_DEF_WIN_MIN, XP_DEF_WIN_MAX) : mt_rand(XP_DEF_LOSE_MIN, XP_DEF_LOSE_MAX);
+    $def_level_mult        = max(XP_LEVEL_MIN_MULT, 1 + ($level_diff_defender * ($level_diff_defender > 0 ? XP_LEVEL_SLOPE_VS_HIGHER : XP_LEVEL_SLOPE_VS_LOWER)));
+    $def_turns_mult        = pow(max(1, (int)$attack_turns), XP_DEF_TURNS_EXP);
+    $defender_xp_gained    = max(1, (int)floor($def_base * $def_turns_mult * $def_level_mult * XP_GLOBAL_MULT));
 
     // ─────────────────────────────────────────────────────────────────────────
     // POST-BATTLE ECON/STATE UPDATES
