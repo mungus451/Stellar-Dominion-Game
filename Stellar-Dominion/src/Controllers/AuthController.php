@@ -159,11 +159,16 @@ if ($action === 'login') {
                         // --- End IP Logger Update ---
 
                         $_SESSION["loggedin"]       = true;
-                        $_SESSION["id"]              = $id;
+                        // Set both legacy 'id' and new 'user_id' for compatibility across Lambdas
+                        $_SESSION["id"] = $id;
+                        $_SESSION["user_id"] = $id;
                         $_SESSION["character_name"] = $character_name;
                         // Badges: first 50 founders snapshot
                         \StellarDominion\Services\BadgeService::seed($link);
                         \StellarDominion\Services\BadgeService::evaluateFounder($link, (int)$_SESSION["id"]);
+                        
+                        // Force session write to ensure it's saved to DynamoDB
+                        session_write_close();
                         
                         header("location: /dashboard.php");
                         exit;

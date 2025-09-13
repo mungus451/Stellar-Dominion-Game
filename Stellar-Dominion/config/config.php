@@ -17,10 +17,7 @@ if (!defined('PROJECT_ROOT')) {
 // OR if DynamoDB session table is configured (for consistency across environments)
 // OR if we detect we're running on AWS (EC2, ECS, etc.)
 $shouldUseDynamoDB = isset($_ENV['AWS_LAMBDA_FUNCTION_NAME']) || 
-                     isset($_ENV['DYNAMODB_SESSION_TABLE']) || 
-                     isset($_ENV['AWS_REGION']) || 
-                     isset($_ENV['AWS_DEFAULT_REGION']) ||
-                     file_exists('/opt/aws/bin/cfn-signal'); // AWS EC2 indicator
+                     isset($_ENV['DYNAMODB_SESSION_TABLE']); // AWS EC2 indicator
 
 if ($shouldUseDynamoDB) {
     // Set default DynamoDB session table if not specified
@@ -32,21 +29,18 @@ if ($shouldUseDynamoDB) {
     }
     
     require_once PROJECT_ROOT . '/src/Services/DynamoDBSessionHandler.php';
-    
+    $isHttps = (!empty($_SERVER['HTTPS']) && $_SERVER['HTTPS'] !== 'off')
+        || (($_SERVER['HTTP_X_FORWARDED_PROTO'] ?? '') === 'https');
     // Configure session settings BEFORE registering handler
     ini_set('session.gc_maxlifetime', 3600); // 1 hour
     ini_set('session.cookie_lifetime', 0); // Session cookie (expires when browser closes)
-    ini_set('session.cookie_secure', isset($_SERVER['HTTPS']) ? '1' : '0');
+    ini_set('session.cookie_secure', $isHttps ? '1' : '0');
     ini_set('session.cookie_httponly', '1');
     ini_set('session.cookie_samesite', 'Strict');
     
     StellarDominion\Services\DynamoDBSessionHandler::register();
 }
 
-// Start the session if it's not already started. This is crucial for CSRF protection.
-if (session_status() == PHP_SESSION_NONE) {
-    session_start();
-}
 
 // Enable full error reporting
 ini_set('display_errors', 1);
@@ -67,6 +61,17 @@ if (isset($_ENV['AWS_LAMBDA_FUNCTION_NAME'])) {
     ini_set('upload_max_filesize', '10M');
     ini_set('post_max_size', '10M');
     ini_set('memory_limit', '512M');
+}
+    // Ensure cookie domain is set so the browser sends the cookie to all subdomains
+    // Prefer an explicit environment override, fallback to the production domain.
+    if (!ini_get('session.cookie_domain')) {
+        ini_set('session.cookie_domain', $_ENV['SESSION_COOKIE_DOMAIN'] ?? '.starlightdominion.com');
+    }
+
+
+// Start the session if it's not already started. This is crucial for CSRF protection.
+if (session_status() == PHP_SESSION_NONE) {
+    session_start();
 }
 
 // --- Database Credentials ---
