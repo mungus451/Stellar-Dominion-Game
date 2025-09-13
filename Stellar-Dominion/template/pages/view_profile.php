@@ -39,6 +39,89 @@ mysqli_stmt_close($stmt);
 
 if (!$profile) { header('Location: /attack.php'); exit; }
 
+/** ── Time helpers (Dominion time = America/New_York) ──────────────────── */
+if (!function_exists('format_et_time')) {
+    function format_et_time(string $utcTs, string $fmt = 'H:i'): string {
+        try {
+            $dt = new DateTime($utcTs, new DateTimeZone('UTC'));
+            $dt->setTimezone(new DateTimeZone('America/New_York'));
+            return $dt->format($fmt);
+        } catch (Throwable $e) {
+            return $utcTs; // fallback
+        }
+    }
+}
+
+/** ── Head-to-head attacks (viewer ↔ profile): today(ET) & last hour ───── */
+$h2h_today = ['count' => 0, 'rows' => []];
+$h2h_hour  = ['count' => 0, 'rows' => []];
+if ($is_logged_in && $viewer_id && $viewer_id !== $profile_id) {
+    // Compute ET day window, then convert to UTC for querying
+    $tzET    = new DateTimeZone('America/New_York');
+    $nowET   = new DateTime('now', $tzET);
+    $startET = (clone $nowET); $startET->setTime(0, 0, 0);
+    $endET   = (clone $startET); $endET->modify('+1 day');
+
+    $startUtcDay = (clone $startET)->setTimezone(new DateTimeZone('UTC'))->format('Y-m-d H:i:s');
+    $endUtcDay   = (clone $endET)->setTimezone(new DateTimeZone('UTC'))->format('Y-m-d H:i:s');
+
+    // Absolute last 60 minutes window in UTC
+    $nowUtc      = new DateTime('now', new DateTimeZone('UTC'));
+    $oneHourAgo  = (clone $nowUtc)->modify('-1 hour');
+    $oneHourAgoS = $oneHourAgo->format('Y-m-d H:i:s');
+    $nowUtcS     = $nowUtc->format('Y-m-d H:i:s');
+
+    $sql_union = "
+        SELECT 'out' AS dir, battle_time
+          FROM battle_logs
+         WHERE attacker_id = ? AND defender_id = ?
+           AND battle_time >= ? AND battle_time < ?
+        UNION ALL
+        SELECT 'in'  AS dir, battle_time
+          FROM battle_logs
+         WHERE attacker_id = ? AND defender_id = ?
+           AND battle_time >= ? AND battle_time < ?
+        ORDER BY battle_time DESC";
+
+    // Today (ET window in UTC)
+    if ($stmt_h2d = mysqli_prepare($link, $sql_union)) {
+        mysqli_stmt_bind_param(
+            $stmt_h2d,
+            "iissiiss",
+            $viewer_id, $profile_id, $startUtcDay, $endUtcDay,
+            $profile_id, $viewer_id, $startUtcDay, $endUtcDay
+        );
+        mysqli_stmt_execute($stmt_h2d);
+        if ($res = mysqli_stmt_get_result($stmt_h2d)) {
+            while ($row = $res->fetch_assoc()) {
+                $h2h_today['rows'][] = ['dir' => ($row['dir'] === 'out' ? 'out' : 'in'), 'ts' => $row['battle_time']];
+            }
+            $res->free();
+        }
+        mysqli_stmt_close($stmt_h2d);
+        $h2h_today['count'] = count($h2h_today['rows']);
+    }
+
+    // Last hour
+    if ($stmt_h1h = mysqli_prepare($link, $sql_union)) {
+        mysqli_stmt_bind_param(
+            $stmt_h1h,
+            "iissiiss",
+            $viewer_id, $profile_id, $oneHourAgoS, $nowUtcS,
+            $profile_id, $viewer_id, $oneHourAgoS, $nowUtcS
+        );
+        mysqli_stmt_execute($stmt_h1h);
+        if ($res = mysqli_stmt_get_result($stmt_h1h)) {
+            while ($row = $res->fetch_assoc()) {
+                $h2h_hour['rows'][] = ['dir' => ($row['dir'] === 'out' ? 'out' : 'in'), 'ts' => $row['battle_time']];
+            }
+            $res->free();
+        }
+        mysqli_stmt_close($stmt_h1h);
+        $h2h_hour['count'] = count($h2h_hour['rows']);
+    }
+}
+
 /** ── Permissions/flags ────────────────────────────────────────────────── */
 $viewer_permissions = ['can_invite_members' => 0];
 if ($viewer) {
@@ -73,12 +156,17 @@ if ($viewer && !empty($viewer['alliance_id']) && !empty($profile['alliance_id'])
 $army_size    = (int)$profile['soldiers'] + (int)$profile['guards'] + (int)$profile['sentries'] + (int)$profile['spies'];
 $is_online    = (time() - (int)strtotime($profile['last_updated'])) < 900;
 
-// Last Online (≤ 7 days) using last_login_at if available
+// Last Online (≤ 7 days) using last_login_at, shown in ET
 $last_online_label = '';
 if (!empty($profile['last_login_at'])) {
-    $last_login_ts = strtotime($profile['last_login_at']);
-    if ($last_login_ts !== false && (time() - $last_login_ts) <= (7 * 24 * 3600)) {
-        $last_online_label = gmdate('Y-m-d H:i', $last_login_ts) . ' UTC';
+    try {
+        $lastLoginUtc = new DateTime($profile['last_login_at'], new DateTimeZone('UTC'));
+        $last_login_ts = $lastLoginUtc->getTimestamp();
+        if ((time() - $last_login_ts) <= (7 * 24 * 3600)) {
+            $last_online_label = format_et_time($profile['last_login_at'], 'Y-m-d H:i') . ' ET';
+        }
+    } catch (Throwable $e) {
+        // ignore; keep empty label
     }
 }
 
@@ -136,6 +224,70 @@ include_once __DIR__ . '/../includes/header.php';
 <!-- MAIN must be a sibling (no extra wrapping grid around both) -->
 <main class="lg:col-span-3 space-y-6"
       x-data="{ panels:{ attack:true, spy:true, recruit:true, badges:true, war:true, rank:true }, showAvatar:false }">
+
+    <!-- H2H Banner (uses same dark blue background via content-box) -->
+    <?php if ($is_logged_in && $viewer_id !== $profile_id): ?>
+        <div class="content-box rounded-lg p-3">
+            <div class="space-y-2">
+                <div class="flex flex-col md:flex-row md:items-center md:justify-between gap-2">
+                    <div class="font-title text-cyan-300">
+                        Attacks vs
+                        <span class="font-bold">
+                            <?php echo htmlspecialchars($profile['character_name']); ?>
+                        </span>
+                    </div>
+                </div>
+
+                <!-- Today (ET) -->
+                <div class="flex flex-col md:flex-row md:items-center md:justify-between gap-2">
+                    <div class="text-sm text-gray-200">
+                        <span class="font-semibold">Today (ET):</span>
+                        <span class="font-bold"><?php echo (int)$h2h_today['count']; ?></span>
+                    </div>
+                    <?php if ($h2h_today['count'] > 0): ?>
+                        <div class="text-xs text-gray-300 flex flex-wrap gap-2">
+                            <?php foreach ($h2h_today['rows'] as $r): ?>
+                                <span class="px-2 py-1 bg-gray-800 rounded-full">
+                                    <?php if ($r['dir'] === 'out'): ?>
+                                        You → <?php echo htmlspecialchars($profile['character_name']); ?>
+                                    <?php else: ?>
+                                        <?php echo htmlspecialchars($profile['character_name']); ?> → You
+                                    <?php endif; ?>
+                                    • <?php echo format_et_time($r['ts'], 'H:i'); ?> ET
+                                </span>
+                            <?php endforeach; ?>
+                        </div>
+                    <?php else: ?>
+                        <div class="text-xs text-gray-400">No attacks between you today.</div>
+                    <?php endif; ?>
+                </div>
+
+                <!-- Last Hour -->
+                <div class="flex flex-col md:flex-row md:items-center md:justify-between gap-2 border-t border-gray-700 pt-2">
+                    <div class="text-sm text-gray-200">
+                        <span class="font-semibold">Last hour:</span>
+                        <span class="font-bold"><?php echo (int)$h2h_hour['count']; ?></span>
+                    </div>
+                    <?php if ($h2h_hour['count'] > 0): ?>
+                        <div class="text-xs text-gray-300 flex flex-wrap gap-2">
+                            <?php foreach ($h2h_hour['rows'] as $r): ?>
+                                <span class="px-2 py-1 bg-gray-800 rounded-full">
+                                    <?php if ($r['dir'] === 'out'): ?>
+                                        You → <?php echo htmlspecialchars($profile['character_name']); ?>
+                                    <?php else: ?>
+                                        <?php echo htmlspecialchars($profile['character_name']); ?> → You
+                                    <?php endif; ?>
+                                    • <?php echo format_et_time($r['ts'], 'H:i'); ?> ET
+                                </span>
+                            <?php endforeach; ?>
+                        </div>
+                    <?php else: ?>
+                        <div class="text-xs text-gray-400">No attacks in the past hour.</div>
+                    <?php endif; ?>
+                </div>
+            </div>
+        </div>
+    <?php endif; ?>
 
     <!-- Profile Header / Hero -->
     <div class="content-box rounded-lg p-6">
