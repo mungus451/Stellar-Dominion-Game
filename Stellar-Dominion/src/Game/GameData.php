@@ -279,55 +279,55 @@ $armory_loadouts = [
                 'title' => 'Utility Main Equipment (Mining Lasers & Drills)',
                 'slots' => 1,
                 'items' => [
-                    'mining_laser' => ['name' => 'Mining Laser', 'attack' => 40, 'cost' => 80000, 'notes' => 'Can be used as a makeshift weapon.'],
-                    'heavy_drill' => ['name' => 'Heavy Drill', 'attack' => 60, 'cost' => 100000, 'notes' => 'Can break through tough materials.', 'requires' => 'mining_laser', 'armory_level_req' => 1],
-                    'plasma_cutter' => ['name' => 'Plasma Cutter', 'attack' => 80, 'cost' => 120000, 'notes' => 'Can cut through almost anything.', 'requires' => 'heavy_drill', 'armory_level_req' => 2],
-                    'seismic_charge' => ['name' => 'Seismic Charge', 'attack' => 100, 'cost' => 150000, 'notes' => 'Can create powerful explosions.', 'requires' => 'plasma_cutter', 'armory_level_req' => 3],
-                    'terraforming_beam' => ['name' => 'Terraforming Beam', 'attack' => 150, 'cost' => 300000, 'notes' => 'Can reshape the very earth.', 'requires' => 'seismic_charge', 'armory_level_req' => 4],
+                    'mining_laser' => ['name' => 'Mining Laser', 'attack' => 80, 'cost' => 30000, 'notes' => 'Can be used as a makeshift weapon.'],
+                    'heavy_drill' => ['name' => 'Heavy Drill', 'attack' => 100, 'cost' => 50000, 'notes' => 'Can break through tough materials.', 'requires' => 'mining_laser', 'armory_level_req' => 1],
+                    'plasma_cutter' => ['name' => 'Plasma Cutter', 'attack' => 120, 'cost' => 70000, 'notes' => 'Can cut through almost anything.', 'requires' => 'heavy_drill', 'armory_level_req' => 2],
+                    'seismic_charge' => ['name' => 'Seismic Charge', 'attack' => 140, 'cost' => 90000, 'notes' => 'Can create powerful explosions.', 'requires' => 'plasma_cutter', 'armory_level_req' => 3],
+                    'terraforming_beam' => ['name' => 'Terraforming Beam', 'attack' => 160, 'cost' => 110000, 'notes' => 'Can reshape the very earth.', 'requires' => 'seismic_charge', 'armory_level_req' => 4],
                 ]
             ],
             'resource_enhancement' => [
                 'title' => 'Resource Enhancement Tools',
                 'slots' => 1,
                 'items' => [
-                    'resource_scanner' => ['name' => 'Resource Scanner', 'attack' => 5, 'cost' => 5000, 'notes' => 'Finds hidden resource deposits.'],
-                    'geological_analyzer' => ['name' => 'Geological Analyzer', 'attack' => 10, 'cost' => 7500, 'notes' => 'Identifies the best places to mine.', 'requires' => 'resource_scanner', 'armory_level_req' => 1],
-                    'harvester_drone' => ['name' => 'Harvester Drone', 'attack' => 15, 'cost' => 10000, 'notes' => 'Automatically collects nearby resources.', 'requires' => 'geological_analyzer', 'armory_level_req' => 2],
-                    'matter_converter' => ['name' => 'Matter Converter', 'attack' => 20, 'cost' => 12500, 'notes' => 'Converts raw materials into credits.', 'requires' => 'harvester_drone', 'armory_level_req' => 3],
-                    'genesis_device' => ['name' => 'Genesis Device', 'attack' => 25, 'cost' => 15000, 'notes' => 'Creates new resources from nothing.', 'requires' => 'matter_converter', 'armory_level_req' => 4],
+                    'resource_scanner' => ['name' => 'Resource Scanner', 'attack' => 20, 'cost' => 5000, 'notes' => 'Finds hidden resource deposits.'],
+                    'geological_analyzer' => ['name' => 'Geological Analyzer', 'attack' => 40, 'cost' => 7500, 'notes' => 'Identifies the best places to mine.', 'requires' => 'resource_scanner', 'armory_level_req' => 1],
+                    'harvester_drone' => ['name' => 'Harvester Drone', 'attack' => 60, 'cost' => 10000, 'notes' => 'Automatically collects nearby resources.', 'requires' => 'geological_analyzer', 'armory_level_req' => 2],
+                    'matter_converter' => ['name' => 'Matter Converter', 'attack' => 80, 'cost' => 12500, 'notes' => 'Converts raw materials into credits.', 'requires' => 'harvester_drone', 'armory_level_req' => 3],
+                    'genesis_device' => ['name' => 'Genesis Device', 'attack' => 100, 'cost' => 15000, 'notes' => 'Creates new resources from nothing.', 'requires' => 'matter_converter', 'armory_level_req' => 4],
                 ]
             ],
             'exo_rig_plating' => [
                 'title' => 'Defensive Gear (Exo-Rig Plating)',
                 'slots' => 1,
                 'items' => [
-                    'worker_harness' => ['name' => 'Worker Harness', 'attack' => 5, 'cost' => 2500, 'notes' => 'Provides basic protection.'],
-                    'reinforced_plating' => ['name' => 'Reinforced Plating', 'attack' => 10, 'cost' => 3750, 'notes' => 'Protects against workplace accidents.', 'requires' => 'worker_harness', 'armory_level_req' => 1],
-                    'hazard_suit' => ['name' => 'Hazard Suit', 'attack' => 15, 'cost' => 5000, 'notes' => 'Protects against environmental hazards.', 'requires' => 'reinforced_plating', 'armory_level_req' => 2],
-                    'blast_shield' => ['name' => 'Blast Shield', 'attack' => 20, 'cost' => 6250, 'notes' => 'Protects against explosions.', 'requires' => 'hazard_suit', 'armory_level_req' => 3],
-                    'power_armor' => ['name' => 'Power Armor', 'attack' => 25, 'cost' => 7500, 'notes' => 'The ultimate in worker protection.', 'requires' => 'blast_shield', 'armory_level_req' => 4],
+                    'worker_harness' => ['name' => 'Worker Harness', 'attack' => 10, 'cost' => 2500, 'notes' => 'Provides basic protection.'],
+                    'reinforced_plating' => ['name' => 'Reinforced Plating', 'attack' => 20, 'cost' => 3750, 'notes' => 'Protects against workplace accidents.', 'requires' => 'worker_harness', 'armory_level_req' => 1],
+                    'hazard_suit' => ['name' => 'Hazard Suit', 'attack' => 30, 'cost' => 5000, 'notes' => 'Protects against environmental hazards.', 'requires' => 'reinforced_plating', 'armory_level_req' => 2],
+                    'blast_shield' => ['name' => 'Blast Shield', 'attack' => 40, 'cost' => 6250, 'notes' => 'Protects against explosions.', 'requires' => 'hazard_suit', 'armory_level_req' => 3],
+                    'power_armor' => ['name' => 'Power Armor', 'attack' => 50, 'cost' => 7500, 'notes' => 'The ultimate in worker protection.', 'requires' => 'blast_shield', 'armory_level_req' => 4],
                 ]
             ],
             'scanners' => [
                 'title' => 'Utility Headgear (Scanners)',
                 'slots' => 1,
                 'items' => [
-                    'geiger_counter' => ['name' => 'Geiger Counter', 'attack' => 2, 'cost' => 3000, 'notes' => 'Detects radiation.'],
-                    'mineral_scanner' => ['name' => 'Mineral Scanner', 'attack' => 4, 'cost' => 4500, 'notes' => 'Detects valuable minerals.', 'requires' => 'geiger_counter', 'armory_level_req' => 1],
-                    'lifeform_scanner' => ['name' => 'Lifeform Scanner', 'attack' => 6, 'cost' => 6000, 'notes' => 'Detects nearby lifeforms.', 'requires' => 'mineral_scanner', 'armory_level_req' => 2],
-                    'energy_scanner' => ['name' => 'Energy Scanner', 'attack' => 8, 'cost' => 7500, 'notes' => 'Detects energy signatures.', 'requires' => 'lifeform_scanner', 'armory_level_req' => 3],
-                    'omni_scanner' => ['name' => 'Omni-Scanner', 'attack' => 10, 'cost' => 9000, 'notes' => 'Detects everything.', 'requires' => 'energy_scanner', 'armory_level_req' => 4],
+                    'geiger_counter' => ['name' => 'Geiger Counter', 'attack' => 12, 'cost' => 3000, 'notes' => 'Detects radiation.'],
+                    'mineral_scanner' => ['name' => 'Mineral Scanner', 'attack' => 24, 'cost' => 4500, 'notes' => 'Detects valuable minerals.', 'requires' => 'geiger_counter', 'armory_level_req' => 1],
+                    'lifeform_scanner' => ['name' => 'Lifeform Scanner', 'attack' => 36, 'cost' => 6000, 'notes' => 'Detects nearby lifeforms.', 'requires' => 'mineral_scanner', 'armory_level_req' => 2],
+                    'energy_scanner' => ['name' => 'Energy Scanner', 'attack' => 48, 'cost' => 7500, 'notes' => 'Detects energy signatures.', 'requires' => 'lifeform_scanner', 'armory_level_req' => 3],
+                    'omni_scanner' => ['name' => 'Omni-Scanner', 'attack' => 60, 'cost' => 9000, 'notes' => 'Detects everything.', 'requires' => 'energy_scanner', 'armory_level_req' => 4],
                 ]
             ],
             'drones' => [
                 'title' => 'Construction & Repair Drones',
                 'slots' => 1,
                 'items' => [
-                    'repair_drone' => ['name' => 'Repair Drone', 'attack' => 5, 'cost' => 4000, 'notes' => 'Can repair damaged structures.'],
-                    'construction_drone' => ['name' => 'Construction Drone', 'attack' => 10, 'cost' => 6000, 'notes' => 'Can build new structures.', 'requires' => 'repair_drone', 'armory_level_req' => 1],
-                    'salvage_drone' => ['name' => 'Salvage Drone', 'attack' => 15, 'cost' => 8000, 'notes' => 'Can salvage materials from wreckage.', 'requires' => 'construction_drone', 'armory_level_req' => 2],
-                    'fabricator_drone' => ['name' => 'Fabricator Drone', 'attack' => 20, 'cost' => 10000, 'notes' => 'Can create new items from raw materials.', 'requires' => 'salvage_drone', 'armory_level_req' => 3],
-                    'replicator_drone' => ['name' => 'Replicator Drone', 'attack' => 25, 'cost' => 12000, 'notes' => 'Can create anything.', 'requires' => 'fabricator_drone', 'armory_level_req' => 4],
+                    'repair_drone' => ['name' => 'Repair Drone', 'attack' => 15, 'cost' => 4000, 'notes' => 'Can repair damaged structures.'],
+                    'construction_drone' => ['name' => 'Construction Drone', 'attack' => 30, 'cost' => 6000, 'notes' => 'Can build new structures.', 'requires' => 'repair_drone', 'armory_level_req' => 1],
+                    'salvage_drone' => ['name' => 'Salvage Drone', 'attack' => 45, 'cost' => 8000, 'notes' => 'Can salvage materials from wreckage.', 'requires' => 'construction_drone', 'armory_level_req' => 2],
+                    'fabricator_drone' => ['name' => 'Fabricator Drone', 'attack' => 65, 'cost' => 10000, 'notes' => 'Can create new items from raw materials.', 'requires' => 'salvage_drone', 'armory_level_req' => 3],
+                    'replicator_drone' => ['name' => 'Replicator Drone', 'attack' => 85, 'cost' => 12000, 'notes' => 'Can create anything.', 'requires' => 'fabricator_drone', 'armory_level_req' => 4],
                 ]
             ]
         ]
