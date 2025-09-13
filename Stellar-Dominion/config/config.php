@@ -32,6 +32,14 @@ if ($shouldUseDynamoDB) {
     }
     
     require_once PROJECT_ROOT . '/src/Services/DynamoDBSessionHandler.php';
+    
+    // Configure session settings BEFORE registering handler
+    ini_set('session.gc_maxlifetime', 3600); // 1 hour
+    ini_set('session.cookie_lifetime', 0); // Session cookie (expires when browser closes)
+    ini_set('session.cookie_secure', isset($_SERVER['HTTPS']) ? '1' : '0');
+    ini_set('session.cookie_httponly', '1');
+    ini_set('session.cookie_samesite', 'Strict');
+    
     StellarDominion\Services\DynamoDBSessionHandler::register();
 }
 
@@ -73,13 +81,13 @@ if (file_exists(PROJECT_ROOT . '/src/Services/SecretsManagerService.php')) {
         ]
     );
     
-    define('DB_SERVER', $_ENV['DB_HOST'] ?? 'starlight-dominion-db.cluster-cl8ugqwekrkc.us-east-2.rds.amazonaws.com');
+    define('DB_SERVER', $_ENV['DB_HOST'] ?? 'starlight-dominion.cl8ugqwekrkc.us-east-2.rds.amazonaws.com');
     define('DB_USERNAME', $dbCredentials['username']);
     define('DB_PASSWORD', $dbCredentials['password']);
     define('DB_NAME', $_ENV['DB_NAME'] ?? 'users');
 } else {
     // Fallback if SecretsManagerService is not available
-    define('DB_SERVER', $_ENV['DB_HOST'] ?? 'starlight-dominion-db.cluster-cl8ugqwekrkc.us-east-2.rds.amazonaws.com');
+    define('DB_SERVER', $_ENV['DB_HOST'] ?? 'starlight-dominion.cl8ugqwekrkc.us-east-2.rds.amazonaws.com');
     define('DB_USERNAME', $_ENV['DB_USERNAME'] ?? 'admin');
     define('DB_PASSWORD', $_ENV['DB_PASSWORD']);
     define('DB_NAME', $_ENV['DB_NAME'] ?? 'users');
@@ -117,8 +125,21 @@ $sms_gateways = [
 
 // --- Modern Error Handling for Connection ---
 try {
+    $mysqli = mysqli_init();
+
+    // Verify server certificate when connecting directly to the RDS DNS name
+    mysqli_options($mysqli, MYSQLI_OPT_SSL_VERIFY_SERVER_CERT, true);
+
+    // Load CA bundle; key/cert are NULL because client certs are not required for RDS
+    // mysqli_ssl_set($mysqli, NULL, NULL, $caPath, NULL, NULL);
+
+    // Use SSL flag to force TLS
+    $flags = MYSQLI_CLIENT_SSL;
     // Attempt to connect to MySQL database
-    $link = mysqli_connect(DB_SERVER, DB_USERNAME, DB_PASSWORD, DB_NAME);
+    if (!mysqli_real_connect($mysqli, DB_SERVER, DB_USERNAME, DB_PASSWORD, DB_NAME, 3306, NULL, $flags)) {
+        throw new Exception("ERROR: Could not connect. " . mysqli_connect_error());
+    }
+    $link = $mysqli;
 
     // Check if the connection failed
     if ($link === false) {
