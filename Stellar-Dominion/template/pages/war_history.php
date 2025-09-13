@@ -57,16 +57,18 @@ if (function_exists('ss_count_war_history') && function_exists('ss_get_war_histo
     // WHERE by view
     $where = 'b.attacker_id = ? OR b.defender_id = ?';
     $bind_types_count = 'ii';
-    if ($view === 'attacks')   { $where = 'b.attacker_id = ?'; $bind_types_count = 'i'; }
-    elseif ($view === 'defenses'){ $where = 'b.defender_id = ?'; $bind_types_count = 'i'; }
+    if ($view === 'attacks')      { $where = 'b.attacker_id = ?'; $bind_types_count = 'i'; }
+    elseif ($view === 'defenses') { $where = 'b.defender_id = ?'; $bind_types_count = 'i'; }
 
-    // Count
+    // Count (FIX: avoid casting mysqli_result to int)
     $total_rows = 0;
     if ($stmtCnt = mysqli_prepare($link, "SELECT COUNT(*) AS c FROM battle_logs b WHERE $where")) {
         if ($bind_types_count === 'ii') { mysqli_stmt_bind_param($stmtCnt, "ii", $user_id, $user_id); }
         else                            { mysqli_stmt_bind_param($stmtCnt, "i",  $user_id); }
         mysqli_stmt_execute($stmtCnt);
-        $total_rows = (int)($res = mysqli_stmt_get_result($stmtCnt)) ? (int)mysqli_fetch_assoc($res)['c'] : 0;
+        $res = mysqli_stmt_get_result($stmtCnt);
+        $row = $res ? mysqli_fetch_assoc($res) : null;
+        $total_rows = $row ? (int)$row['c'] : 0;
         mysqli_stmt_close($stmtCnt);
     }
 
@@ -163,7 +165,7 @@ include_once __DIR__ . '/../includes/header.php';
         </div>
 
         <div class="text-xs text-gray-400 mb-2">
-            Showing <?php echo number_format(min($total_rows, $offset+1)); ?>–<?php echo number_format(min($offset+$items_per_page, $total_rows)); ?>
+            Showing <?php echo number_format(min(max(0,$total_rows), $offset + (empty($rows)?0:1))); ?>–<?php echo number_format(min($offset + count($rows), $total_rows)); ?>
             of <?php echo number_format($total_rows); ?> • Page <?php echo $current_page; ?>/<?php echo $total_pages; ?>
         </div>
 
