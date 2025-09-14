@@ -14,8 +14,7 @@ if (!isset($_SESSION["loggedin"]) || $_SESSION["loggedin"] !== true) { header("l
 // Correct path from src/Controllers/ to the root config/ folder
 require_once __DIR__ . '/../../config/config.php'; 
 
-use StellarDominion\Services\FileManager\FileManagerFactory;
-use StellarDominion\Services\FileManager\FileValidator;
+use StellarDominion\Services\Upload\AvatarUploader;
 
 // --- CSRF TOKEN VALIDATION ---
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
@@ -35,66 +34,17 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 $user_id = $_SESSION['id'];
 $biography = isset($_POST['biography']) ? trim($_POST['biography']) : '';
 $avatar_path = null;
-$upload_error_message = null;
 
-// --- Avatar Upload Logic using FileManager ---
+// Delegate avatar upload to AvatarUploader service
 if (isset($_FILES['avatar']) && $_FILES['avatar']['error'] !== UPLOAD_ERR_NO_FILE) {
     try {
-        // Initialize file validator
-        $validator = new FileValidator([
-            'allowed_extensions' => ['jpg', 'jpeg', 'png', 'gif', 'avif'],
-            'allowed_mime_types' => ['image/jpeg', 'image/png', 'image/gif', 'image/avif'],
-            'max_file_size' => 10485760, // 10MB
-            'min_file_size' => 1024, // 1KB
-        ]);
-
-        // Validate the uploaded file
-        $validation = $validator->validateUploadedFile($_FILES['avatar']);
-        
-        if (!$validation['valid']) {
-            $upload_error_message = $validation['error'];
-        } else {
-            // Get file manager instance
-            $fileManager = FileManagerFactory::createFromEnvironment();
-            
-            // Generate safe filename
-            $safeFilename = $validator->generateSafeFilename(
-                $_FILES['avatar']['name'], 
-                'avatar', 
-                $user_id
-            );
-            
-            // Define destination path
-            $destinationPath = 'avatars/' . $safeFilename;
-            
-            // Upload options
-            $uploadOptions = [
-                'content_type' => $_FILES['avatar']['type'],
-                'metadata' => [
-                    'user_id' => (string)$user_id,
-                    'upload_time' => date('Y-m-d H:i:s'),
-                    'original_name' => $_FILES['avatar']['name'],
-                ]
-            ];
-            
-            // Attempt upload
-            if ($fileManager->upload($_FILES['avatar']['tmp_name'], $destinationPath, $uploadOptions)) {
-                // Get the URL for database storage
-                $avatar_path = $fileManager->getUrl($destinationPath);
-            } else {
-                $upload_error_message = "Failed to upload file. Please try again.";
-            }
-        }
-        
+        $uploader = new AvatarUploader();
+        $avatar_path = $uploader->uploadAvatarFromRequest($_FILES['avatar'], 'avatar', (int)$user_id);
     } catch (Exception $e) {
-        $upload_error_message = "Upload Error: " . $e->getMessage();
+        $_SESSION['profile_error'] = "Upload Error: " . $e->getMessage();
+        header("location: /profile.php");
+        exit;
     }
-}
-
-if ($upload_error_message) {
-    $_SESSION['profile_error'] = $upload_error_message;
-    header("location: /profile.php");
-    exit;
 }
 
 // --- Database Update ---

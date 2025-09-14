@@ -625,59 +625,16 @@ class AllianceManagementController extends BaseAllianceController
 
     private function handleAvatarUpload(int $alliance_id): ?string
     {
+        // Delegate avatar upload to AvatarUploader service
         if (isset($_FILES['avatar']) && $_FILES['avatar']['error'] !== UPLOAD_ERR_NO_FILE) {
             try {
-                // Initialize file validator
-                $validator = new FileValidator([
-                    'allowed_extensions' => ['jpg', 'jpeg', 'png', 'gif', 'avif'],
-                    'allowed_mime_types' => ['image/jpeg', 'image/png', 'image/gif', 'image/avif'],
-                    'max_file_size' => 10485760, // 10MB
-                    'min_file_size' => 1024, // 1KB
-                ]);
-
-                // Validate the uploaded file
-                $validation = $validator->validateUploadedFile($_FILES['avatar']);
-                
-                if (!$validation['valid']) {
-                    throw new Exception($validation['error']);
-                }
-
-                // Get file manager instance
-                $fileManager = FileManagerFactory::createFromEnvironment();
-                
-                // Generate safe filename
-                $safeFilename = $validator->generateSafeFilename(
-                    $_FILES['avatar']['name'], 
-                    'alliance_avatar', 
-                    $alliance_id
-                );
-                
-                // Define destination path
-                $destinationPath = 'avatars/' . $safeFilename;
-                
-                // Upload options
-                $uploadOptions = [
-                    'content_type' => $_FILES['avatar']['type'],
-                    'metadata' => [
-                        'alliance_id' => (string)$alliance_id,
-                        'upload_time' => date('Y-m-d H:i:s'),
-                        'original_name' => $_FILES['avatar']['name'],
-                        'type' => 'alliance_avatar'
-                    ]
-                ];
-                
-                // Attempt upload
-                if ($fileManager->upload($_FILES['avatar']['tmp_name'], $destinationPath, $uploadOptions)) {
-                    // Return the URL for database storage
-                    return $fileManager->getUrl($destinationPath);
-                } else {
-                    throw new Exception("Failed to upload file. Please try again.");
-                }
-                
+                $uploader = new \StellarDominion\Services\Upload\AvatarUploader();
+                return $uploader->uploadAvatarFromRequest($_FILES['avatar'], 'alliance_avatar', $alliance_id);
             } catch (Exception $e) {
                 throw new Exception("Upload Error: " . $e->getMessage());
             }
         }
+
         return null;
     }
 
