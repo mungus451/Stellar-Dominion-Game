@@ -192,7 +192,6 @@ define('FILE_STORAGE_LOCAL_URL', $_ENV['FILE_STORAGE_LOCAL_URL'] ?? '/uploads');
 // S3 file storage settings
 define('FILE_STORAGE_S3_BUCKET', $_ENV['FILE_STORAGE_S3_BUCKET'] ?? '');
 define('FILE_STORAGE_S3_REGION', $_ENV['FILE_STORAGE_S3_REGION'] ?? 'us-east-1');
-define('FILE_STORAGE_S3_URL', $_ENV['FILE_STORAGE_S3_URL'] ?? null);
 
 // Include FileManager classes
 require_once PROJECT_ROOT . '/src/Services/FileManager/FileManagerInterface.php';
