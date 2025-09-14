@@ -25,7 +25,6 @@ The File Manager Service provides a unified interface for file operations across
         ┌─────────────▼──────────────┐
         │      Supporting Classes    │
         │ - FileValidator            │
-        │ - AssetUrlHelper           │
         │ - DriverType               │
         │ - Config Objects           │
         └────────────────────────────┘
