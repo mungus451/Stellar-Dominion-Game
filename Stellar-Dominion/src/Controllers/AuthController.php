@@ -16,6 +16,7 @@ require_once __DIR__ . '/../Game/GameData.php';
 require_once __DIR__ . '/../Lib/PHPMailer/src/PHPMailer.php';
 require_once __DIR__ . '/../Lib/PHPMailer/src/SMTP.php';
 require_once __DIR__ . '/../Lib/PHPMailer/src/Exception.php';
+require_once __DIR__ . '/../Services/BadgeService.php';
 
 use PHPMailer\PHPMailer\PHPMailer;
 use PHPMailer\PHPMailer\Exception;
@@ -242,6 +243,13 @@ if ($action === 'login') {
             $_SESSION["id"]              = mysqli_insert_id($link);
             $_SESSION["character_name"] = $character_name;
             session_write_close();
+            // --- Badges: seed and evaluate Founder badge ---
+            try {
+                \StellarDominion\Services\BadgeService::seed($link);
+                \StellarDominion\Services\BadgeService::evaluateFounder($link, (int)$_SESSION["id"]);
+            } catch (\Throwable $e) {
+                // do not block registration on badge errors
+            }
             header("location: /tutorial.php");
             exit;
         }

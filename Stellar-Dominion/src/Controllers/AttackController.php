@@ -15,6 +15,7 @@ require_once __DIR__ . '/../../config/config.php';
 require_once __DIR__ . '/../Game/GameData.php';
 require_once __DIR__ . '/../Game/GameFunctions.php';
 require_once __DIR__ . '/../Services/StateService.php';
+require_once __DIR__ . '/../Services/BadgeService.php';
 
 // --- CSRF TOKEN VALIDATION ---
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
@@ -749,6 +750,17 @@ try {
     mysqli_stmt_execute($stmt_log);
     $battle_log_id = mysqli_insert_id($link);
     mysqli_stmt_close($stmt_log);
+
+    // --- Badges: seed and evaluate (non-fatal if any issue) ---
+    if (function_exists('mysqli_begin_transaction')) { /* keep tx semantics */}
+
+    try {
+        \StellarDominion\Services\BadgeService::seed($link);
+        \StellarDominion\Services\BadgeService::evaluateAttack($link, (int)$attacker_id, (int)$defender_id, (string)$outcome);
+    } catch (\Throwable $e) {
+        // swallow to avoid blocking battle flow
+    }
+
 
     // Commit + redirect to battle report
     mysqli_commit($link);

@@ -14,14 +14,14 @@ $upgrades = [
         'levels' => [
             // Phase 1: 50k to 750m
             1  => ['name' => 'Foundation Outpost',    'cost' => 50000,           'level_req' => 1,  'bonuses' => [], 'description' => 'Establishes a basic command structure on a remote world.', 'hitpoints' => 1000],
-            2  => ['name' => 'Planetary Base',        'cost' => 150000,          'level_req' => 5,  'bonuses' => [], 'description' => 'A fortified base securing planetary control.', 'hitpoints' => 2500],
-            3  => ['name' => 'Orbital Station',       'cost' => 500000,          'level_req' => 10,  'bonuses' => [], 'description' => 'Extends your influence into planetary orbit.', 'hitpoints' => 5000],
-            4  => ['name' => 'Star Fortress',         'cost' => 2000000,         'level_req' => 15,  'bonuses' => [], 'description' => 'A heavily armed bastion guarding your sector.', 'hitpoints' => 10000],
-            5  => ['name' => 'Galactic Citadel',      'cost' => 10000000,         'level_req' => 20,  'bonuses' => [], 'description' => 'The unshakable heart of your expanding empire.', 'hitpoints' => 20000],
+            2  => ['name' => 'Planetary Base',        'cost' => 15000000,          'level_req' => 5,  'bonuses' => [], 'description' => 'A fortified base securing planetary control.', 'hitpoints' => 2500],
+            3  => ['name' => 'Orbital Station',       'cost' => 32000000,          'level_req' => 10,  'bonuses' => [], 'description' => 'Extends your influence into planetary orbit.', 'hitpoints' => 5000],
+            4  => ['name' => 'Star Fortress',         'cost' => 51000000,         'level_req' => 15,  'bonuses' => [], 'description' => 'A heavily armed bastion guarding your sector.', 'hitpoints' => 10000],
+            5  => ['name' => 'Galactic Citadel',      'cost' => 77000000,         'level_req' => 20,  'bonuses' => [], 'description' => 'The unshakable heart of your expanding empire.', 'hitpoints' => 20000],
 
             // Phase 2:
 
-            6  => ['name' => 'Nebula Bastion',        'cost' => 75000000,         'level_req' => 25,  'bonuses' => [], 'description' => 'Concealed within cosmic clouds, it controls hyperspace routes.', 'hitpoints' => 40000],
+            6  => ['name' => 'Nebula Bastion',        'cost' => 123000000,         'level_req' => 25,  'bonuses' => [], 'description' => 'Concealed within cosmic clouds, it controls hyperspace routes.', 'hitpoints' => 40000],
             7  => ['name' => 'Quantum Keep',          'cost' => 180000000,        'level_req' => 30,  'bonuses' => [], 'description' => 'Utilizes quantum defenses to repel any known attack vector.', 'hitpoints' => 75000],
             8  => ['name' => 'Singularity Spire',     'cost' => 360000000,        'level_req' => 35,  'bonuses' => [], 'description' => 'Powered by a contained singularity, bending space around it.', 'hitpoints' => 150000],
             9  => ['name' => 'Dark Matter Bastille',  'cost' => 550000000,        'level_req' => 45,  'bonuses' => [], 'description' => 'Constructed with exotic matter, impervious to conventional detection.', 'hitpoints' => 250000],
