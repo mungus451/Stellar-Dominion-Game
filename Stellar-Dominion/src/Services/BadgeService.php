@@ -18,6 +18,16 @@ class BadgeService
         'Plunderer II (1m)'    => ['icon' => 'assets/img/worker.png',  'desc' => 'Stole a total of 1,000,000 credits.',     'threshold' => 1_000_000],
         'Plunderer III (10m)'  => ['icon' => 'assets/img/worker.png',  'desc' => 'Stole a total of 10,000,000 credits.',    'threshold' => 10_000_000],
         'Plunderer IV (100m)'  => ['icon' => 'assets/img/worker.png',  'desc' => 'Stole a total of 100,000,000 credits.',   'threshold' => 100_000_000],
+        'Plunderer V (1b)'        => ['icon' => 'assets/img/worker.png', 'desc' => 'Stole a total of 1,000,000,000 credits.', 'threshold' => 1000000000],
+        'Plunderer VI (10b)'      => ['icon' => 'assets/img/worker.png', 'desc' => 'Stole a total of 10,000,000,000 credits.', 'threshold' => 10000000000],
+        'Plunderer VII (100b)'    => ['icon' => 'assets/img/worker.png', 'desc' => 'Stole a total of 100,000,000,000 credits.', 'threshold' => 100000000000],
+        'Plunderer VIII (1t)'     => ['icon' => 'assets/img/worker.png', 'desc' => 'Stole a total of 1,000,000,000,000 credits.', 'threshold' => 1000000000000],
+        'Plunderer IX (10t)'      => ['icon' => 'assets/img/worker.png', 'desc' => 'Stole a total of 10,000,000,000,000 credits.', 'threshold' => 10000000000000],
+        'Plunderer X (100t)'      => ['icon' => 'assets/img/worker.png', 'desc' => 'Stole a total of 100,000,000,000,000 credits.', 'threshold' => 100000000000000],
+        'Plunderer XI (1qa)'      => ['icon' => 'assets/img/worker.png', 'desc' => 'Stole a total of 1,000,000,000,000,000 credits.', 'threshold' => 1000000000000000],
+        'Plunderer XII (10qa)'    => ['icon' => 'assets/img/worker.png', 'desc' => 'Stole a total of 10,000,000,000,000,000 credits.', 'threshold' => 10000000000000000],
+        'Plunderer XIII (100qa)'  => ['icon' => 'assets/img/worker.png', 'desc' => 'Stole a total of 100,000,000,000,000,000 credits.', 'threshold' => 100000000000000000],
+        'Plunderer XIV (1qi)'     => ['icon' => 'assets/img/worker.png', 'desc' => 'Stole a total of 1,000,000,000,000,000,000 credits.', 'threshold' => 1000000000000000000],
 
         // Attacks launched (lifetime, regardless of outcome)
         'Warmonger I (10)'     => ['icon' => 'assets/img/soldier.png', 'desc' => 'Launched 10 total attacks.',              'threshold' => 10],
@@ -117,13 +127,34 @@ class BadgeService
         $plunder = 0;
         if ($res = $link->query("SELECT COALESCE(SUM(credits_stolen),0) AS s FROM battle_logs WHERE attacker_id = {$attackerId}")) {
             $row = $res->fetch_assoc();
+            // Casting to int is safe on 64-bit PHP. On 32-bit, consider BCMath (see note below).
             $plunder = (int)($row['s'] ?? 0);
             $res->free();
         }
-        if ($plunder >= 100000)      self::award($link, $attackerId, 'Plunderer I (100k)');
-        if ($plunder >= 1000000)     self::award($link, $attackerId, 'Plunderer II (1m)');
-        if ($plunder >= 10000000)    self::award($link, $attackerId, 'Plunderer III (10m)');
-        if ($plunder >= 100000000)   self::award($link, $attackerId, 'Plunderer IV (100m)');
+
+        // Award up to 1 quintillion (10^18), every power of ten from 1e5 to 1e18.
+        $plunderTiers = [
+            100000              => 'Plunderer I (100k)',
+            1000000             => 'Plunderer II (1m)',
+            10000000            => 'Plunderer III (10m)',
+            100000000           => 'Plunderer IV (100m)',
+            1000000000          => 'Plunderer V (1b)',
+            10000000000         => 'Plunderer VI (10b)',
+            100000000000        => 'Plunderer VII (100b)',
+            1000000000000       => 'Plunderer VIII (1t)',
+            10000000000000      => 'Plunderer IX (10t)',
+            100000000000000     => 'Plunderer X (100t)',
+            1000000000000000    => 'Plunderer XI (1qa)',
+            10000000000000000   => 'Plunderer XII (10qa)',
+            100000000000000000  => 'Plunderer XIII (100qa)',
+            1000000000000000000 => 'Plunderer XIV (1qi)',
+        ];
+
+foreach ($plunderTiers as $threshold => $name) {
+    if ($plunder >= $threshold) {
+        self::award($link, $attackerId, $name);
+    }
+}
 
         // ---- Successful defenses (defender) ----
         // A defense is successful when attacker outcome = 'defeat'
