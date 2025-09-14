@@ -46,8 +46,7 @@ if (function_exists('ss_count_spy_history') && function_exists('ss_get_spy_histo
     $total_rows = (int)ss_count_spy_history($link, $user_id, $view);
     $rows = ss_get_spy_history($link, $user_id, $view, $items_per_page, $offset);
 } else {
-    // Fallback: dynamic SQL that adapts to real columns in spy_logs
-    // 1) Column discovery
+    // Column discovery
     $cols = [];
     if ($resCols = mysqli_query($link, "SHOW COLUMNS FROM spy_logs")) {
         while ($c = mysqli_fetch_assoc($resCols)) { $cols[strtolower($c['Field'])] = true; }
@@ -55,23 +54,36 @@ if (function_exists('ss_count_spy_history') && function_exists('ss_get_spy_histo
     }
     $has = function($name) use ($cols){ return isset($cols[strtolower($name)]); };
 
-    // 2) Build WHERE depending on view
+    // WHERE depending on view
     $where = 's.attacker_id = ? OR s.defender_id = ?';
     $bind_types_count = 'ii';
     if ($view === 'sent')       { $where = 's.attacker_id = ?'; $bind_types_count = 'i'; }
     elseif ($view === 'received'){ $where = 's.defender_id = ?'; $bind_types_count = 'i'; }
 
-    // 3) Count
+    // --- COUNT (with mysqlnd fallback) ---
     $total_rows = 0;
     if ($stmtCnt = mysqli_prepare($link, "SELECT COUNT(*) AS c FROM spy_logs s WHERE $where")) {
         if ($bind_types_count === 'ii') { mysqli_stmt_bind_param($stmtCnt, "ii", $user_id, $user_id); }
         else                            { mysqli_stmt_bind_param($stmtCnt, "i", $user_id); }
         mysqli_stmt_execute($stmtCnt);
-        $total_rows = (int)($res = mysqli_stmt_get_result($stmtCnt)) ? (int)mysqli_fetch_assoc($res)['c'] : 0;
+
+        if (function_exists('mysqli_stmt_get_result')) {
+            $res = mysqli_stmt_get_result($stmtCnt);
+            if ($res) {
+                $row = mysqli_fetch_assoc($res);
+                $total_rows = (int)($row['c'] ?? 0);
+                mysqli_free_result($res);
+            }
+        } else {
+            mysqli_stmt_bind_result($stmtCnt, $c);
+            if (mysqli_stmt_fetch($stmtCnt)) {
+                $total_rows = (int)$c;
+            }
+        }
         mysqli_stmt_close($stmtCnt);
     }
 
-    // 4) Safe select expressions based on existing columns
+    // --- Safe select expressions based on existing columns ---
     $missionExpr =
         $has('mission')      ? 's.mission' :
         ($has('action')      ? 's.action' :
@@ -105,7 +117,7 @@ if (function_exists('ss_count_spy_history') && function_exists('ss_get_spy_histo
         ($has('event_time')? 's.event_time' :
         ($has('timestamp') ? 's.timestamp'  : 'NOW()')));
 
-    // 5) Page fetch
+    // --- PAGE FETCH (with mysqlnd fallback) ---
     $sql = "
         SELECT
             s.id,
@@ -134,13 +146,42 @@ if (function_exists('ss_count_spy_history') && function_exists('ss_get_spy_histo
             mysqli_stmt_bind_param($stmt, "iii", $user_id, $items_per_page, $offset);
         }
         mysqli_stmt_execute($stmt);
-        $res = mysqli_stmt_get_result($stmt);
-        while ($r = $res ? mysqli_fetch_assoc($res) : null) { $rows[] = $r; }
+
+        if (function_exists('mysqli_stmt_get_result')) {
+            $res = mysqli_stmt_get_result($stmt);
+            while ($res && ($r = mysqli_fetch_assoc($res))) {
+                $rows[] = $r;
+            }
+            if ($res) { mysqli_free_result($res); }
+        } else {
+            // Bind each column by alias order
+            mysqli_stmt_bind_result(
+                $stmt,
+                $id, $attacker_id, $defender_id,
+                $attacker_name, $defender_name,
+                $mission, $result, $spies_lost, $sentries_killed, $intel, $spy_time
+            );
+            while (mysqli_stmt_fetch($stmt)) {
+                $rows[] = [
+                    'id'               => (int)$id,
+                    'attacker_id'      => (int)$attacker_id,
+                    'defender_id'      => (int)$defender_id,
+                    'attacker_name'    => $attacker_name,
+                    'defender_name'    => $defender_name,
+                    'mission'          => $mission,
+                    'result'           => $result,
+                    'spies_lost'       => (int)$spies_lost,
+                    'sentries_killed'  => (int)$sentries_killed,
+                    'intel'            => $intel,
+                    'spy_time'         => $spy_time,
+                ];
+            }
+        }
         mysqli_stmt_close($stmt);
     }
 }
 
-$total_pages = max(1, (int)ceil(($total_rows ?: 1) / $items_per_page));
+$total_pages = max(1, (int)ceil(($total_rows ?: 0) / $items_per_page));
 if ($current_page > $total_pages) { $current_page = $total_pages; $offset = ($current_page - 1) * $items_per_page; }
 
 // Windowed page list (max 10 pages)

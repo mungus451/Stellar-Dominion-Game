@@ -20,6 +20,39 @@ require_once __DIR__ . '/../Lib/PHPMailer/src/Exception.php';
 use PHPMailer\PHPMailer\PHPMailer;
 use PHPMailer\PHPMailer\Exception;
 
+// --- Allowed values and avatar slugs (defense-in-depth) ---
+$ALLOWED_RACES   = ['Human', 'Cyborg', 'Mutant', 'The Shade'];
+$ALLOWED_CLASSES = ['Warrior', 'Guard', 'Thief', 'Cleric'];
+$RACE_SLUGS      = [
+    'Human'     => 'human',
+    'Cyborg'    => 'cyborg',
+    'Mutant'    => 'mutant',
+    'The Shade' => 'shade',
+];
+
+/**
+ * Trim + collapse whitespace for names.
+ */
+function sd_clean_name(string $name): string
+{
+    $name = preg_replace('/\s+/u', ' ', trim($name));
+    return $name;
+}
+
+// --- Multibyte-safe helpers that work even without mbstring ---
+if (!function_exists('sd_strtolower')) {
+    function sd_strtolower(string $s): string
+    {
+        return function_exists('mb_strtolower') ? mb_strtolower($s, 'UTF-8') : strtolower($s);
+    }
+}
+if (!function_exists('sd_strlen')) {
+    function sd_strlen(string $s): int
+    {
+        return function_exists('mb_strlen') ? mb_strlen($s, 'UTF-8') : strlen($s);
+    }
+}
+
 $action = $_POST['action'] ?? $_GET['action'] ?? '';
 
 // --- CSRF TOKEN VALIDATION ---
@@ -34,7 +67,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 }
 
 // Helper to send a recovery email via SMTP (PHPMailer)
-function send_password_email(string $toEmail, string $newPassword): bool {
+function send_password_email(string $toEmail, string $newPassword): bool
+{
     // Pull SMTP constants from config.php
     $host   = defined('SMTP_HOST') ? SMTP_HOST : '';
     $user   = defined('SMTP_USERNAME') ? SMTP_USERNAME : '';
@@ -46,13 +80,11 @@ function send_password_email(string $toEmail, string $newPassword): bool {
     $replyEmail = defined('MAIL_FROM_ADDRESS') ? MAIL_FROM_ADDRESS : $user;
 
     // Safer default for Gmail/hosted inboxes: use SMTP username as From
-    // to avoid "Not Authorized" rejections when the domain isn't verified.
     $fromEmail = $user ?: $replyEmail;
 
     $mail = new PHPMailer(true);
     try {
-        // Enable debug to error_log while you test; set to 0 after it works.
-        $mail->SMTPDebug  = 0; // Changed to 0 to prevent excessive logging in production
+        $mail->SMTPDebug   = 0;
         $mail->Debugoutput = function ($msg) { error_log('PHPMailer: ' . $msg); };
 
         $mail->isSMTP();
@@ -89,14 +121,19 @@ function send_password_email(string $toEmail, string $newPassword): bool {
     }
 }
 
-
 // --- ACTION ROUTER ---
 
 if ($action === 'login') {
-    $email = trim($_POST['email'] ?? '');
-    $password = trim($_POST['password'] ?? '');
+    $email    = sd_strtolower(trim($_POST['email'] ?? ''));
+    $password = (string)($_POST['password'] ?? '');
 
-    if (empty($email) || empty($password)) {
+    // Basic format/length gate (query still prepared)
+    if (
+        empty($email) || empty($password) ||
+        !filter_var($email, FILTER_VALIDATE_EMAIL) ||
+        sd_strlen($email) > 255 ||
+        sd_strlen($password) > 1024
+    ) {
         header("location: /?error=1");
         exit;
     }
@@ -106,12 +143,12 @@ if ($action === 'login') {
         mysqli_stmt_bind_param($stmt, "s", $email);
         if (mysqli_stmt_execute($stmt)) {
             mysqli_stmt_store_result($stmt);
-            if (mysqli_stmt_num_rows($stmt) == 1) {
+            if (mysqli_stmt_num_rows($stmt) === 1) {
                 mysqli_stmt_bind_result($stmt, $id, $character_name, $hashed_password);
                 if (mysqli_stmt_fetch($stmt)) {
                     if (password_verify($password, $hashed_password)) {
                         // --- IP Logger Update ---
-                        $user_ip = $_SERVER['REMOTE_ADDR'] ?? '';
+                        $user_ip    = $_SERVER['REMOTE_ADDR'] ?? '';
                         $update_sql = "UPDATE users SET previous_login_ip = last_login_ip, previous_login_at = last_login_at, last_login_ip = ?, last_login_at = NOW() WHERE id = ?";
                         if ($stmt_update = mysqli_prepare($link, $update_sql)) {
                             mysqli_stmt_bind_param($stmt_update, "si", $user_ip, $id);
@@ -120,8 +157,8 @@ if ($action === 'login') {
                         }
                         // --- End IP Logger Update ---
 
-                        $_SESSION["loggedin"] = true;
-                        $_SESSION["id"] = $id;
+                        $_SESSION["loggedin"]       = true;
+                        $_SESSION["id"]              = $id;
                         $_SESSION["character_name"] = $character_name;
                         session_write_close();
                         header("location: /dashboard.php");
@@ -138,15 +175,38 @@ if ($action === 'login') {
 
 } elseif ($action === 'register') {
     // --- INPUT GATHERING ---
-    $email = trim($_POST['email'] ?? '');
-    $character_name = trim($_POST['characterName'] ?? '');
-    $password = trim($_POST['password'] ?? '');
-    $race = trim($_POST['race'] ?? '');
-    $class = trim($_POST['characterClass'] ?? '');
+    $email          = sd_strtolower(trim($_POST['email'] ?? ''));
+    $character_name = sd_clean_name((string)($_POST['characterName'] ?? ''));
+    $password       = (string)($_POST['password'] ?? '');
+    $race           = trim((string)($_POST['race'] ?? ''));
+    $class          = trim((string)($_POST['characterClass'] ?? ''));
 
     // --- VALIDATION ---
-    if (empty($email) || empty($character_name) || empty($password) || empty($race) || empty($class)) {
+    // 1) Presence + email format
+    if (
+        empty($email) || empty($character_name) || empty($password) || empty($race) || empty($class) ||
+        !filter_var($email, FILTER_VALIDATE_EMAIL) || sd_strlen($email) > 255
+    ) {
         $_SESSION['register_error'] = "Please fill out all required fields.";
+        header("location: /?show=register");
+        exit;
+    }
+    // 2) Character name: 3–50, safe charset (letters, numbers, spaces, _ -)
+    if (sd_strlen($character_name) < 3 || sd_strlen($character_name) > 50 ||
+        !preg_match('/^[A-Za-z0-9 _\\-]+$/u', $character_name)) {
+        $_SESSION['register_error'] = "Character name must be 3–50 characters using letters, numbers, spaces, _ or -.";
+        header("location: /?show=register");
+        exit;
+    }
+    // 3) Password: minimum length
+    if (sd_strlen($password) < 10 || sd_strlen($password) > 1024) {
+        $_SESSION['register_error'] = "Password must be at least 10 characters.";
+        header("location: /?show=register");
+        exit;
+    }
+    // 4) Race/Class: strict allowlists from UI
+    if (!in_array($race, $ALLOWED_RACES, true) || !in_array($class, $ALLOWED_CLASSES, true)) {
+        $_SESSION['register_error'] = "Please select a valid race and class.";
         header("location: /?show=register");
         exit;
     }
@@ -167,22 +227,19 @@ if ($action === 'login') {
     }
 
     // --- USER CREATION ---
-    // BUG FIX: Handle 'The Shade' race name for avatar path
-    $race_filename = strtolower($race);
-    if ($race_filename === 'the shade') {
-        $race_filename = 'shade';
-    }
-    $avatar_path = 'assets/img/' . $race_filename . '.avif';
+    // Derive avatar path from whitelist mapping (no direct user string usage)
+    $avatar_slug  = $RACE_SLUGS[$race];
+    $avatar_path  = 'assets/img/' . $avatar_slug . '.avif';
     $password_hash = password_hash($password, PASSWORD_DEFAULT);
-    $current_time = gmdate('Y-m-d H:i:s');
+    $current_time  = gmdate('Y-m-d H:i:s');
 
     $sql = "INSERT INTO users (email, character_name, password_hash, race, class, avatar_path, last_updated) VALUES (?, ?, ?, ?, ?, ?, ?)";
     if ($stmt = mysqli_prepare($link, $sql)) {
         mysqli_stmt_bind_param($stmt, "sssssss", $email, $character_name, $password_hash, $race, $class, $avatar_path, $current_time);
         if (mysqli_stmt_execute($stmt)) {
             // Success, log the user in
-            $_SESSION["loggedin"] = true;
-            $_SESSION["id"] = mysqli_insert_id($link);
+            $_SESSION["loggedin"]       = true;
+            $_SESSION["id"]              = mysqli_insert_id($link);
             $_SESSION["character_name"] = $character_name;
             session_write_close();
             header("location: /tutorial.php");
@@ -208,14 +265,24 @@ if ($action === 'login') {
     if ($stmt = mysqli_prepare($link, $sql)) {
         mysqli_stmt_bind_param($stmt, "s", $email);
         mysqli_stmt_execute($stmt);
-        $result = mysqli_stmt_get_result($stmt);
-        $user = mysqli_fetch_assoc($result);
+
+        // Support environments without mysqlnd (no mysqli_stmt_get_result)
+        $user = null;
+        if (function_exists('mysqli_stmt_get_result')) {
+            $result = mysqli_stmt_get_result($stmt);
+            $user   = $result ? mysqli_fetch_assoc($result) : null;
+        } else {
+            mysqli_stmt_bind_result($stmt, $uid);
+            if (mysqli_stmt_fetch($stmt)) {
+                $user = ['id' => $uid];
+            }
+        }
         mysqli_stmt_close($stmt);
 
         if ($user) {
             // Generate a new temporary password
-            $temporary_password = bin2hex(random_bytes(8)); // 16 characters
-            $hashed_password = password_hash($temporary_password, PASSWORD_DEFAULT);
+            $temporary_password = bin2hex(random_bytes(8)); // 16 chars
+            $hashed_password    = password_hash($temporary_password, PASSWORD_DEFAULT);
 
             // Update the user's password in the database
             $sql_update = "UPDATE users SET password_hash = ? WHERE id = ?";
@@ -231,11 +298,11 @@ if ($action === 'login') {
                     $_SESSION['recovery_error'] = "Could not send recovery email. Please try again later.";
                 }
             } else {
-                 $_SESSION['recovery_error'] = "Could not process your request. Please try again.";
+                $_SESSION['recovery_error'] = "Could not process your request. Please try again.";
             }
         } else {
-             // To prevent user enumeration, show a generic success message even if the user is not found.
-             $_SESSION['recovery_message'] = "If an account with that email exists, recovery instructions have been sent.";
+            // Prevent user enumeration
+            $_SESSION['recovery_message'] = "If an account with that email exists, recovery instructions have been sent.";
         }
     }
 
