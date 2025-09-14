@@ -62,11 +62,6 @@ if (isset($_ENV['AWS_LAMBDA_FUNCTION_NAME'])) {
     ini_set('post_max_size', '10M');
     ini_set('memory_limit', '512M');
 }
-    // Ensure cookie domain is set so the browser sends the cookie to all subdomains
-    // Prefer an explicit environment override, fallback to the production domain.
-    if (!ini_get('session.cookie_domain')) {
-        ini_set('session.cookie_domain', $_ENV['SESSION_COOKIE_DOMAIN'] ?? '.starlightdominion.com');
-    }
 
 
 // Start the session if it's not already started. This is crucial for CSRF protection.
@@ -165,8 +160,6 @@ try {
     echo "<p><b>Error Details:</b> " . $e->getMessage() . "</p>";
     exit; // Stop the script from running further
 }
-
-define('APP_BASE_URL', 'https://starlightdominion.com');  // or http://starlightdominion.com if no cert yet
 
 // --- NEW: SMTP Email Configuration ---
 // Replace these with your actual email service provider's details.
