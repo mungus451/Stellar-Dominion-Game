@@ -199,17 +199,23 @@ $wins      = (int)($br['wins'] ?? 0);
 $loss_atk  = (int)($br['losses_as_attacker'] ?? 0);
 $loss_def  = (int)($br['losses_as_defender'] ?? 0);
 
-// Badges (optional — tolerate table absence)
+// Badges (with descriptions). Tolerate table absence gracefully.
 $badges = [];
-if ($res_b = @$link->query("
-    SELECT b.name, b.icon_path
-    FROM user_badges ub
-    JOIN badges b ON b.id = ub.badge_id
-    WHERE ub.user_id = $profile_id
-    ORDER BY ub.earned_at DESC
-    LIMIT 12")) {
-    while ($row = $res_b->fetch_assoc()) { $badges[] = $row; }
-    $res_b->free();
+if ($stmt_bdg = @mysqli_prepare(
+        $link,
+        "SELECT b.name, b.icon_path, b.description, ub.earned_at
+           FROM user_badges ub
+           JOIN badges b ON b.id = ub.badge_id
+          WHERE ub.user_id = ?
+          ORDER BY ub.earned_at DESC
+          LIMIT 12"
+    )) {
+    mysqli_stmt_bind_param($stmt_bdg, "i", $profile_id);
+    if (mysqli_stmt_execute($stmt_bdg) && ($res_b = mysqli_stmt_get_result($stmt_bdg))) {
+        while ($row = $res_b->fetch_assoc()) { $badges[] = $row; }
+        $res_b->free();
+    }
+    mysqli_stmt_close($stmt_bdg);
 }
 
 /** ── UNIVERSAL HEADER (opens container + grid) ─────────────────────────── */
@@ -388,11 +394,25 @@ include_once __DIR__ . '/../includes/header.php';
         </div>
         <div x-show="panels.badges" x-transition x-cloak>
             <?php if (!empty($badges)): ?>
-                <div class="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-3">
+                <div class="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-3">
                     <?php foreach ($badges as $b): ?>
-                        <div class="flex items-center gap-2 bg-gray-900/40 rounded-lg p-2 border border-gray-700">
-                            <img src="<?php echo htmlspecialchars($b['icon_path']); ?>" alt="" class="w-8 h-8 object-contain">
-                            <span class="text-sm text-white"><?php echo htmlspecialchars($b['name']); ?></span>
+                        <div class="flex items-start gap-3 bg-gray-900/40 rounded-lg p-3 border border-gray-700">
+                            <img src="<?php echo htmlspecialchars($b['icon_path']); ?>" alt="" class="w-9 h-9 object-contain shrink-0 rounded">
+                            <div class="min-w-0">
+                                <div class="text-sm text-white font-semibold leading-tight truncate">
+                                    <?php echo htmlspecialchars($b['name']); ?>
+                                </div>
+                                <?php if (!empty($b['description'])): ?>
+                                    <div class="text-xs text-gray-300 leading-snug mt-0.5">
+                                        <?php echo htmlspecialchars($b['description']); ?>
+                                    </div>
+                                <?php endif; ?>
+                                <?php if (!empty($b['earned_at'])): ?>
+                                    <div class="text-[10px] text-gray-500 mt-1">
+                                        Earned <?php echo htmlspecialchars(format_et_time($b['earned_at'], 'Y-m-d H:i')); ?> ET
+                                    </div>
+                                <?php endif; ?>
+                            </div>
                         </div>
                     <?php endforeach; ?>
                 </div>
