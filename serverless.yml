@@ -60,6 +60,10 @@ custom:
     hooks:
       after:deploy:deploy: npm run sync-assets
   
+  # Lambda Insights configuration for performance monitoring
+  lambdaInsights:
+    defaultLambdaInsights: true  # Enable Lambda Insights for all functions
+  
   # AWS-provided Secrets Manager extension layer (compatible with Amazon Linux 2)
   SecretsManagerAgentLambdaLayer: arn:aws:lambda:us-east-2:590474943231:layer:AWS-Parameters-and-Secrets-Lambda-Extension:23
 
@@ -73,6 +77,15 @@ provider:
   # CloudWatch Logs configuration for Lambda functions
   logRetentionInDays: 7  # Set log retention to 7 days for cost optimization
   
+  # AWS X-Ray tracing configuration for observability
+  tracing:
+    lambda: true   # enables X-Ray active tracing for all functions
+    apiGateway: true  # enables X-Ray tracing for API Gateway
+    
+  # HTTP API configuration with detailed metrics
+  httpApi:
+    metrics: true  # Enable detailed CloudWatch metrics for HTTP API
+    cors: true     # Enable CORS for browser-based requests
   # Global environment variables available to all Lambda functions
   environment:
     # DynamoDB session storage configuration
@@ -136,6 +149,28 @@ provider:
           Resource:
             - !Sub "arn:aws:s3:::${FileStorageBucket}/*"  # Object-level permissions
             - !Sub "arn:aws:s3:::${FileStorageBucket}"    # Bucket-level permissions
+            
+        # AWS X-Ray permissions for distributed tracing
+        - Effect: Allow
+          Action:
+            - xray:PutTraceSegments           # Submit trace data
+            - xray:PutTelemetryRecords        # Submit telemetry data
+            - xray:GetSamplingRules           # Retrieve sampling configuration
+            - xray:GetSamplingTargets         # Get sampling targets
+            - xray:GetSamplingStatisticSummaries  # Get sampling statistics
+          Resource: "*"
+          
+        # CloudWatch and Lambda Insights permissions
+        - Effect: Allow
+          Action:
+            - logs:CreateLogGroup             # Create log groups
+            - logs:CreateLogStream            # Create log streams  
+            - logs:PutLogEvents               # Write log events
+            - logs:DescribeLogStreams         # Read log stream information
+            - logs:DescribeLogGroups          # Describe log groups
+            - cloudwatch:PutMetricData        # Publish custom metrics
+            - lambda:GetLayerVersion          # Access Lambda Insights layer
+          Resource: "*"
 
 # =============================================================================
 # Serverless Framework Plugins
@@ -144,6 +179,7 @@ plugins:
   - ./vendor/bref/bref      # PHP runtime for AWS Lambda
   # - serverless-lift         # Higher-level constructs (server-side websites)
   - serverless-scriptable-plugin
+  - serverless-plugin-lambda-insights  # Lambda performance monitoring
 
 # constructs:
   # Server-side website construct for static assets AND dynamic requests
@@ -169,9 +205,12 @@ functions:
     timeout: 29 # API Gateway max is 30s, file uploads via VPC S3 endpoint should be fast
     vpc: ${self:custom.vpcConfig}  # Required for Aurora Serverless v2 access + S3 VPC endpoint
     # Function-specific environment variables (inherits from provider.environment)
-    environment: *sharedEnvironment
+    environment: 
+      <<: *sharedEnvironment
     layers:
       - ${self:custom.SecretsManagerAgentLambdaLayer}
+    # Explicit tracing configuration for this function
+    tracing: Active
     events:
       - httpApi: '*'
     
@@ -195,9 +234,12 @@ functions:
     runtime: php-83-fpm
     timeout: 10
     vpc: ${self:custom.vpcConfig}  # Database access required
-    environment: *sharedEnvironment
+    environment: 
+      <<: *sharedEnvironment
     layers:
       - ${self:custom.SecretsManagerAgentLambdaLayer}
+    # Explicit tracing configuration for this function
+    tracing: Active
     events:
       - httpApi:
           path: /api/advisor_poll.php
@@ -210,9 +252,12 @@ functions:
     runtime: php-83-fpm  # PHP 8.1 with FastCGI Process Manager
     timeout: 15  # Standard timeout for API operations
     vpc: ${self:custom.vpcConfig}  # Database access required
-    environment: *sharedEnvironment
+    environment: 
+      <<: *sharedEnvironment
     layers:
       - ${self:custom.SecretsManagerAgentLambdaLayer}
+    # Explicit tracing configuration for this function
+    tracing: Active
     events:
       - httpApi:
           path: /api/{proxy+}
@@ -245,6 +290,7 @@ resources:
   - ${file(./infrastructure/buckets.yml)}
   - ${file(./infrastructure/cdn.yml)}
   - ${file(./infrastructure/dns.yml)}
+  - ${file(./infrastructure/observability.yml)}  # X-Ray sampling rules and monitoring
 outputs:
     # S3 bucket name for external reference
     FileStorageBucketName:

@@ -1,0 +1,115 @@
+# =============================================================================
+# X-Ray Sampling Rules for Cost Optimization
+# =============================================================================
+# Create custom sampling rules to control X-Ray costs while maintaining visibility
+# for high-value endpoints in the Stellar Dominion game
+
+Resources:
+  # -------------------------------------------------------------------------
+  # Custom X-Ray Sampling Rules
+  # -------------------------------------------------------------------------
+  # Default sampling rule for most API endpoints (low frequency)
+  DefaultSamplingRule:
+    Type: AWS::XRay::SamplingRule
+    Properties:
+      SamplingRule:
+        RuleName: sd-default-${sls:stage}
+        Priority: 9000  # Lower priority (higher number)
+        FixedRate: 0.01  # Sample 1% of requests
+        ReservoirSize: 1  # Ensure at least 1 request per second is sampled
+        ServiceName: '*'
+        ServiceType: '*'
+        Host: '*'
+        HTTPMethod: '*'
+        URLPath: '*'
+        ResourceARN: '*'
+        Version: 1
+        
+  # High-value endpoints - sample more frequently
+  GameActionsSamplingRule:
+    Type: AWS::XRay::SamplingRule
+    Properties:
+      SamplingRule:
+        RuleName: sd-game-${sls:stage}
+        Priority: 8000  # Higher priority (lower number)
+        FixedRate: 0.1   # Sample 10% of game action requests
+        ReservoirSize: 2  # Ensure at least 2 requests per second
+        ServiceName: '*'
+        ServiceType: '*'
+        Host: '*'
+        HTTPMethod: 'POST'
+        URLPath: '/api/*'  # Focus on API endpoints
+        ResourceARN: '*'
+        Version: 1
+        
+  # Authentication endpoints - important for security monitoring
+  AuthSamplingRule:
+    Type: AWS::XRay::SamplingRule
+    Properties:
+      SamplingRule:
+        RuleName: sd-auth-${sls:stage}
+        Priority: 500   # High priority
+        FixedRate: 0.2   # Sample 20% of auth requests
+        ReservoirSize: 1
+        ServiceName: '*'
+        ServiceType: '*'
+        Host: '*'
+        HTTPMethod: 'POST'
+        URLPath: '/auth.php'
+        ResourceARN: '*'
+        Version: 1
+        
+  # Performance monitoring for database operations
+  # DatabaseSamplingRule:
+  #   Type: AWS::XRay::SamplingRule
+  #   Properties:
+  #     SamplingRule:
+  #       RuleName: sd-db-${sls:stage}
+  #       Priority: 2000
+  #       FixedRate: 0.05  # Sample 5% of database-heavy operations
+  #       ReservoirSize: 1
+  #       ServiceName: '*'
+  #       ServiceType: '*'
+  #       Host: '*'
+  #       HTTPMethod: '*'
+  #       URLPath: '/profile*'  # Profile pages likely have heavy DB usage
+  #       ResourceARN: '*'
+  #       Version: 1
+
+  # -------------------------------------------------------------------------
+  # Performance Insights Configuration (Manual Setup Required)
+  # -------------------------------------------------------------------------
+  # Note: Performance Insights must be enabled on existing Aurora cluster
+  # This cannot be done via CloudFormation on existing clusters
+  # 
+  # To enable Performance Insights on your Aurora cluster:
+  # 1. Go to RDS Console
+  # 2. Select your cluster: starlight-dominion
+  # 3. Modify cluster settings
+  # 4. Enable Performance Insights
+  # 5. Set retention period (7 days free, longer periods have costs)
+  #
+  # Performance Insights provides:
+  # - Database load monitoring
+  # - Top SQL statements analysis  
+  # - Wait event analysis
+  # - Historical performance data
+
+Outputs:
+  XRaySamplingRules:
+    Description: "X-Ray sampling rules for cost-optimized observability"
+    Value: !Sub |
+      Sampling rules created (shortened names for AWS limits):
+      - sd-default-${sls:stage}: 1% sampling with 1 req/sec reservoir
+      - sd-game-${sls:stage}: 10% sampling for POST /api/*
+      - sd-auth-${sls:stage}: 20% sampling for POST /auth.php
+      - sd-db-${sls:stage}: 5% sampling for /profile*
+      
+  PerformanceInsightsNote:
+    Description: "Performance Insights setup instructions"
+    Value: !Sub |
+      To enable Performance Insights on Aurora cluster starlight-dominion:
+      1. RDS Console > Clusters > starlight-dominion > Modify
+      2. Enable Performance Insights
+      3. Set retention: 7 days (free) or longer (paid)
+      4. Apply changes immediately for immediate activation

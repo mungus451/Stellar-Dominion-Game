@@ -13,11 +13,7 @@ try {
     require_once __DIR__ . '/../Game/GameFunctions.php';
 } catch (Throwable $e) {
     error_log("TurnProcessorHandler: Failed to load dependencies: " . $e->getMessage());
-    return [
-        'statusCode' => 500,
-        'headers' => ['Content-Type' => 'application/json'],
-        'body' => json_encode(['error' => 'dependency_load_failed'])
-    ];
+    exit(1);
 }
 
 function handleTurnProcessing($event, $context) {
@@ -30,11 +26,7 @@ function handleTurnProcessing($event, $context) {
         // Check database connection first
         if (!isset($link) || !$link) {
             error_log("TurnProcessorHandler: Database connection not available");
-            return [
-                'statusCode' => 500,
-                'headers' => ['Content-Type' => 'application/json'],
-                'body' => json_encode(['error' => 'database_unavailable'])
-            ];
+            exit(1);
         }
 
         // Game Settings
@@ -49,11 +41,7 @@ function handleTurnProcessing($event, $context) {
         if (!$result) {
             $error_message = "ERROR fetching users: " . mysqli_error($link);
             error_log("TurnProcessorHandler: " . $error_message);
-            return [
-                'statusCode' => 500,
-                'headers' => ['Content-Type' => 'application/json'],
-                'body' => json_encode(['error' => 'database_query_failed'])
-            ];
+            exit(1);
         }
 
         $users_processed = 0;
@@ -70,11 +58,7 @@ function handleTurnProcessing($event, $context) {
         if (!$stmt_update) {
             $error_message = "ERROR preparing update statement: " . mysqli_error($link);
             error_log("TurnProcessorHandler: " . $error_message);
-            return [
-                'statusCode' => 500,
-                'headers' => ['Content-Type' => 'application/json'],
-                'body' => json_encode(['error' => 'statement_prepare_failed'])
-            ];
+            exit(1);
         }
 
         mysqli_stmt_bind_param(
@@ -150,26 +134,15 @@ function handleTurnProcessing($event, $context) {
         mysqli_stmt_close($stmt_update);
         mysqli_free_result($result);
         
-        return [
-            'statusCode' => 200,
-            'headers' => ['Content-Type' => 'application/json'],
-            'body' => json_encode([
-                'success' => true,
-                'message' => "Turn processing completed",
-                'users_processed' => $users_processed
-            ])
-        ];
+        echo "Turn processing completed. Users processed: " . $users_processed . "\n";
+        exit(0);
 
     } catch (Throwable $e) {
         error_log("TurnProcessorHandler: Fatal error: " . $e->getMessage() . " in " . $e->getFile() . " on line " . $e->getLine());
-        
-        return [
-            'statusCode' => 500,
-            'headers' => ['Content-Type' => 'application/json'],
-            'body' => json_encode(['error' => 'internal_server_error'])
-        ];
+        exit(1);
     }
 }
 
-return handleTurnProcessing(...func_get_args());
+// Execute the function for console runtime
+handleTurnProcessing([], null);
 ?>
