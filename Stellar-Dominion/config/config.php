@@ -13,33 +13,12 @@ if (!defined('PROJECT_ROOT')) {
     define('PROJECT_ROOT', dirname(__DIR__));
 }
 
-// Initialize DynamoDB session handling if in serverless environment (AWS Lambda)
-// OR if DynamoDB session table is configured (for consistency across environments)
-// OR if we detect we're running on AWS (EC2, ECS, etc.)
-$shouldUseDynamoDB = isset($_ENV['AWS_LAMBDA_FUNCTION_NAME']) || 
-                     isset($_ENV['DYNAMODB_SESSION_TABLE']); // AWS EC2 indicator
-
-if ($shouldUseDynamoDB) {
-    // Set default DynamoDB session table if not specified
-    if (!isset($_ENV['DYNAMODB_SESSION_TABLE'])) {
-        $_ENV['DYNAMODB_SESSION_TABLE'] = 'starlight-dominion-api-sessions-prod';
-    }
-    if (!isset($_ENV['APP_AWS_REGION'])) {
-        $_ENV['APP_AWS_REGION'] = $_ENV['AWS_REGION'] ?? $_ENV['AWS_DEFAULT_REGION'] ?? 'us-east-2';
-    }
-    
-    require_once PROJECT_ROOT . '/src/Services/DynamoDBSessionHandler.php';
-    $isHttps = (!empty($_SERVER['HTTPS']) && $_SERVER['HTTPS'] !== 'off')
-        || (($_SERVER['HTTP_X_FORWARDED_PROTO'] ?? '') === 'https');
-    // Configure session settings BEFORE registering handler
-    ini_set('session.gc_maxlifetime', 3600); // 1 hour
-    ini_set('session.cookie_lifetime', 0); // Session cookie (expires when browser closes)
-    ini_set('session.cookie_secure', $isHttps ? '1' : '0');
-    ini_set('session.cookie_httponly', '1');
-    ini_set('session.cookie_samesite', 'Strict');
-    
-    StellarDominion\Services\DynamoDBSessionHandler::register();
+if (!file_exists(PROJECT_ROOT . '/src/Services/DynamoDBSessionHandler.php')) {
+    throw new Exception("DynamoDBSessionHandler.php not found; cannot use DynamoDB sessions");
 }
+require_once PROJECT_ROOT . '/src/Services/DynamoDBSessionHandler.php';
+
+StellarDominion\Services\DynamoDBSessionHandler::setup();
 
 
 // Enable full error reporting
@@ -160,6 +139,8 @@ try {
     echo "<p><b>Error Details:</b> " . $e->getMessage() . "</p>";
     exit; // Stop the script from running further
 }
+
+define('APP_BASE_URL', 'https://starlightdominion.com');  // or http://starlightdominion.com if no cert yet
 
 // --- NEW: SMTP Email Configuration ---
 // Replace these with your actual email service provider's details.

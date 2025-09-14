@@ -192,5 +192,3 @@ To run a local instance of Stellar Dominion, follow these steps:
 
 5.  **Run the Application:**
     -   Navigate to your local server's address in a web browser. You should see the Stellar Dominion landing page.
-
----

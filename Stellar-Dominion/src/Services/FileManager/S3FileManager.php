@@ -59,7 +59,7 @@ class S3FileManager implements FileManagerInterface
 
 		$this->s3Client = new S3Client($config);
 	}
-
+	
 	/**
 	 * Upload a file to S3 (bucket policy controls access)
 	 * 

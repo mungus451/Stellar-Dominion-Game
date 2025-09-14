@@ -10,6 +10,7 @@ namespace StellarDominion\Services\FileManager;
  */
 interface FileManagerInterface
 {
+
 	/**
 	 * Upload a file to the storage system
 	 * 

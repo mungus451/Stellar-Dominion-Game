@@ -36,23 +36,6 @@ try {
         session_start();
     }
 
-    // Force session read from DynamoDB (ensure latest data is decoded)
-    try {
-        $sessionId = session_id();
-        $handler = \StellarDominion\Services\DynamoDBSessionHandler::create();
-        if ($handler) {
-            $latest = $handler->read($sessionId);
-            if (!empty($latest)) {
-                session_decode($latest);
-                error_log("AdvisorPollHandler: Loaded session from DynamoDB for id: " . $sessionId);
-            } else {
-                error_log("AdvisorPollHandler: No session data found in DynamoDB for session id: " . $sessionId);
-            }
-        }
-    } catch (\Exception $e) {
-        error_log("AdvisorPollHandler: Error forcing session read: " . $e->getMessage());
-    }
-
     // Check authentication (support both legacy 'id' and modern 'user_id')
     $user_id = (int)($_SESSION['user_id'] ?? $_SESSION['id'] ?? 0);
     if ($user_id <= 0) {
