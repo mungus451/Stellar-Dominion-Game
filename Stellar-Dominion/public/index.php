@@ -78,6 +78,9 @@
 
 require_once __DIR__ . '/../config/config.php'; // config will start the session
 
+// Ensure helper for client IP resolution is available globally
+require_once __DIR__ . '/../src/Services/IpAddress.php';
+
 // If a "vacation_until" timestamp exists in the session and it's still in the
 // future, force a logout. This protects game state by ensuring players cannot
 // perform actions while "away". The comparison uses server time.

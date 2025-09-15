@@ -9,7 +9,7 @@ class CSRFLogger {
 
     public static function logViolation($details = []) {
         $timestamp = date('Y-m-d H:i:s');
-        $ip = $_SERVER['REMOTE_ADDR'] ?? 'unknown';
+        $ip = \StellarDominion\Services\IpAddress::getClientIp() ?? ($_SERVER['REMOTE_ADDR'] ?? 'unknown');
         $userAgent = $_SERVER['HTTP_USER_AGENT'] ?? 'unknown';
         $requestUri = $_SERVER['REQUEST_URI'] ?? 'unknown';
 

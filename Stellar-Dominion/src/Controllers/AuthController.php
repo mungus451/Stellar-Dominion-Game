@@ -11,6 +11,8 @@
 // --- INCORPORATE SMS GATEWAYS and Security Questions from config ---
 require_once __DIR__ . '/../../config/config.php';
 require_once __DIR__ . '/../Game/GameData.php';
+// Ensure sd_get_client_ip() helper is available
+require_once __DIR__ . '/../Services/IpAddress.php';
 
 // ---- Real PHPMailer (no Composer autoload) ----
 require_once __DIR__ . '/../Lib/PHPMailer/src/PHPMailer.php';
@@ -148,8 +150,8 @@ if ($action === 'login') {
                 mysqli_stmt_bind_result($stmt, $id, $character_name, $hashed_password);
                 if (mysqli_stmt_fetch($stmt)) {
                     if (password_verify($password, $hashed_password)) {
-                        // --- IP Logger Update ---
-                        $user_ip    = $_SERVER['REMOTE_ADDR'] ?? '';
+                        // --- IP Logger Update: prefer forwarded client IP when behind proxies/CloudFront ---
+                        $user_ip = \StellarDominion\Services\IpAddress::getClientIp() ?? ($_SERVER['REMOTE_ADDR'] ?? '');
                         $update_sql = "UPDATE users SET previous_login_ip = last_login_ip, previous_login_at = last_login_at, last_login_ip = ?, last_login_at = NOW() WHERE id = ?";
                         if ($stmt_update = mysqli_prepare($link, $update_sql)) {
                             mysqli_stmt_bind_param($stmt_update, "si", $user_ip, $id);
