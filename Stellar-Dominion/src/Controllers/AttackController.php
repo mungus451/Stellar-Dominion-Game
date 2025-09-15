@@ -232,7 +232,7 @@ const STRUCT_NOFOUND_WIN_MAX_PCT  = 15;
 const STRUCT_NOFOUND_LOSE_MIN_PCT = 1;   // 1..3% on defeat
 const STRUCT_NOFOUND_LOSE_MAX_PCT = 3;
 
-// Back-compat: some paths referenced older, verbose names. Define aliases so we never fatally error.
+// Back-compat constants
 if (!defined('STRUCTURE_DAMAGE_NO_FOUNDATION_WIN_MIN_PERCENT'))  define('STRUCTURE_DAMAGE_NO_FOUNDATION_WIN_MIN_PERCENT',  STRUCT_NOFOUND_WIN_MIN_PCT);
 if (!defined('STRUCTURE_DAMAGE_NO_FOUNDATION_WIN_MAX_PERCENT'))  define('STRUCTURE_DAMAGE_NO_FOUNDATION_WIN_MAX_PERCENT',  STRUCT_NOFOUND_WIN_MAX_PCT);
 if (!defined('STRUCTURE_DAMAGE_NO_FOUNDATION_LOSE_MIN_PERCENT')) define('STRUCTURE_DAMAGE_NO_FOUNDATION_LOSE_MIN_PERCENT', STRUCT_NOFOUND_LOSE_MIN_PCT);
@@ -309,7 +309,7 @@ if ($defender_id <= 0 || $attack_turns < 1 || $attack_turns > 10) {
     exit;
 }
 
-// Optional: hand tuning to StateService (so internals can consume knobs)
+// Optional: hand tuning to StateService (keeps controller as single source of truth)
 $state = new StateService($link, $attacker_id);
 if (method_exists($state, 'setCombatTuning')) {
     $state->setCombatTuning($COMBAT_TUNING);
@@ -377,7 +377,9 @@ try {
         mysqli_stmt_execute($stmt_hour);
         $hour_count = (int)mysqli_fetch_assoc(mysqli_stmt_get_result($stmt_hour))['c'];
         mysqli_stmt_close($stmt_hour);
-        $sql_day = "SELECT COUNT(id) AS c FROM battle_logs WHERE attacker_id = ? AND defender_id = ? AND battle_time > NOW() - INTERVAL 12 HOUR";
+
+        // Use a 24H window for the daily anti-farm threshold
+        $sql_day = "SELECT COUNT(id) AS c FROM battle_logs WHERE attacker_id = ? AND defender_id = ? AND battle_time > NOW() - INTERVAL 24 HOUR";
         $stmt_day = mysqli_prepare($link, $sql_day);
         mysqli_stmt_bind_param($stmt_day, "ii", $attacker_id, $defender_id);
         mysqli_stmt_execute($stmt_day);
@@ -458,24 +460,25 @@ try {
     $base_soldier_atk = max(0, (int)$attacker['soldiers']) * $AVG_UNIT_POWER;
     $base_guard_def   = max(0, (int)$defender['guards'])  * $AVG_UNIT_POWER;
 
-        $RawAttack  = (($base_soldier_atk * $strength_mult) + $armory_attack_bonus) * $offense_upgrade_mult;
-        // Scale attacker attack by Offense structure integrity (match dashboard)
-        $RawAttack *= $OFFENSE_STRUCT_MULT;
+    $RawAttack  = (($base_soldier_atk * $strength_mult) + $armory_attack_bonus) * $offense_upgrade_mult;
+    // Scale attacker attack by Offense structure integrity (match dashboard)
+    $RawAttack *= $OFFENSE_STRUCT_MULT;
 
-        $RawDefense = (($base_guard_def + $defender_armory_defense_bonus) * $constitution_mult) * $defense_upgrade_mult;
-        // Scale defender defense by Defense structure integrity (match dashboard)
-        $RawDefense *= $DEFENSE_STRUCT_MULT;
+    $RawDefense = (($base_guard_def + $defender_armory_defense_bonus) * $constitution_mult) * $defense_upgrade_mult;
+    // Scale defender defense by Defense structure integrity (match dashboard)
+    $RawDefense *= $DEFENSE_STRUCT_MULT;
+
     // ─────────────────────────────────────────────────────────────────────────────
     // Fortification health → multipliers (runs before final strengths / kills / plunder)
     // ─────────────────────────────────────────────────────────────────────────────
     {
         $fort_hp      = max(0, (int)($defender['fortification_hitpoints'] ?? 0));
-        $fort_full_hp = (int)STRUCT_FULL_HP_DEFAULT; // if you later store max HP in DB, replace here
-        $h = ($fort_full_hp > 0) ? max(0.0, min(1.0, $fort_hp / $fort_full_hp)) : 0.5; // neutral if unknown
+        $fort_full_hp = (int)STRUCT_FULL_HP_DEFAULT;
+        $h = ($fort_full_hp > 0) ? max(0.0, min(1.0, $fort_hp / $fort_full_hp)) : 0.5;
         // Map to t ∈ [-1, +1] where 0 = neutral at 50%
         $t = ($h - 0.5) * 2.0;
-        $low  = ($t < 0) ? pow(-$t, FORT_CURVE_EXP_LOW)  : 0.0; // 0.5→0 up to 1.0
-        $high = ($t > 0) ? pow( $t, FORT_CURVE_EXP_HIGH) : 0.0; // 0.5→1 up to 1.0
+        $low  = ($t < 0) ? pow(-$t, FORT_CURVE_EXP_LOW)  : 0.0;
+        $high = ($t > 0) ? pow( $t, FORT_CURVE_EXP_HIGH) : 0.0;
 
         // Guard kill multiplier ( >1 below 50%, <1 above 50% )
         $FORT_GUARD_KILL_MULT = (1.0 + FORT_LOW_GUARD_KILL_BOOST_MAX * $low)
@@ -593,9 +596,8 @@ try {
             ? mt_rand(STRUCT_NOFOUND_WIN_MIN_PCT,  STRUCT_NOFOUND_WIN_MAX_PCT)
             : mt_rand(STRUCT_NOFOUND_LOSE_MIN_PCT, STRUCT_NOFOUND_LOSE_MAX_PCT);
 
-        $structure_damage_distribution_details = [];
         if (function_exists('ss_distribute_structure_damage')) {
-            $structure_damage_distribution_details = ss_distribute_structure_damage(
+            ss_distribute_structure_damage(
                 $link,
                 (int)$defender_id,
                 (int)$total_structure_percent_damage
@@ -751,16 +753,13 @@ try {
     $battle_log_id = mysqli_insert_id($link);
     mysqli_stmt_close($stmt_log);
 
-    // --- Badges: seed and evaluate (non-fatal if any issue) ---
-    if (function_exists('mysqli_begin_transaction')) { /* keep tx semantics */}
-
+    // ── Badges: warmonger / plunderer / heist / nemesis / defense tiers (+XP checks)
     try {
         \StellarDominion\Services\BadgeService::seed($link);
         \StellarDominion\Services\BadgeService::evaluateAttack($link, (int)$attacker_id, (int)$defender_id, (string)$outcome);
     } catch (\Throwable $e) {
-        // swallow to avoid blocking battle flow
+        // non-fatal: do not block battle flow
     }
-
 
     // Commit + redirect to battle report
     mysqli_commit($link);
@@ -773,4 +772,3 @@ try {
     header("location: /attack.php");
     exit;
 }
-?>

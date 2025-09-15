@@ -27,14 +27,19 @@ $res = $link->query("SELECT id FROM users");
 while ($row = $res->fetch_assoc()) {
     $uid = (int)$row['id'];
 
-    // Attacks & plunder
-    \StellarDominion\Services\BadgeService::evaluateAttack($link, $uid, 0, 'victory');
+    // Attacks/plunder/defense (re-uses current logic)
+    \StellarDominion\Services\BadgeService::evaluateAttack($link, $uid, 0, 'victory'); // attacker side
+    \StellarDominion\Services\BadgeService::evaluateAttack($link, 0, $uid, 'defeat');  // defender side
 
-    // Defense milestones (force recompute with outcome='defeat')
-    \StellarDominion\Services\BadgeService::evaluateAttack($link, 0, $uid, 'defeat');
+    // Spy (recompute using any one spy log as a trigger; outcome doesn’t matter here)
+    // We just need to hit the evaluator; it queries totals itself.
+    \StellarDominion\Services\BadgeService::evaluateSpy($link, $uid, 0, 'success', 'any');
 
-    // Founder badge
-    \StellarDominion\Services\BadgeService::evaluateFounder($link, $uid);
+    // XP milestones
+    \StellarDominion\Services\BadgeService::evaluateXP($link, $uid);
+
+    // Alliance membership/founding snapshot
+    \StellarDominion\Services\BadgeService::evaluateAllianceSnapshot($link, $uid);
 }
 $res->free();
 

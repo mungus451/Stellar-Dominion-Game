@@ -9,11 +9,11 @@
  *  - Loadout destruction = 10–90% (crit adds +10, still max 90%).
  */
 
-if (session_status() == PHP_SESSION_NONE) {
+if (session_status() === PHP_SESSION_NONE) {
     session_start();
 }
-if (!isset($_SESSION["loggedin"]) || $_SESSION["loggedin"] !== true) {
-    header("location: index.html");
+if (!isset($_SESSION['loggedin']) || $_SESSION['loggedin'] !== true) {
+    header('location: index.html');
     exit;
 }
 
@@ -21,6 +21,7 @@ require_once __DIR__ . '/../../config/config.php';
 require_once __DIR__ . '/../Game/GameData.php';
 require_once __DIR__ . '/../Game/GameFunctions.php';
 require_once __DIR__ . '/../Services/StateService.php';
+require_once __DIR__ . '/../Services/BadgeService.php';
 
 // Upgrades tree (safe default if not found)
 $upgrades = $GLOBALS['UPGRADES'] ?? ($GLOBALS['upgrades'] ?? []);
@@ -75,8 +76,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     $token  = $_POST['csrf_token']  ?? '';
     $action = $_POST['csrf_action'] ?? 'default';
     if (!validate_csrf_token($token, $action)) {
-        $_SESSION['spy_error'] = "A security error occurred (Invalid Token). Please try again.";
-        header("location: /spy.php");
+        $_SESSION['spy_error'] = 'A security error occurred (Invalid Token). Please try again.';
+        header('location: /spy.php');
         exit;
     }
 }
@@ -113,23 +114,24 @@ if (!function_exists('clamp_float')) {
     function clamp_float($v, $min, $max){ return max($min, min($max, (float)$v)); }
 }
 if (!function_exists('turns_multiplier')) {
-    function turns_multiplier(int $t): float { $s = pow(max(1,$t), SPY_TURNS_SOFT_EXP); return min($s, SPY_TURNS_MAX_MULT); }
+    function turns_multiplier(int $t): float { $s = pow(max(1, $t), SPY_TURNS_SOFT_EXP); return min($s, SPY_TURNS_MAX_MULT); }
 }
 if (!function_exists('luck_scalar')) {
-    function luck_scalar(): float { $b = SPY_RANDOM_BAND; $d = (mt_rand(0,10000)/10000.0)*(2*$b)-$b; return 1.0+$d; }
+    function luck_scalar(): float { $b = SPY_RANDOM_BAND; $d = (mt_rand(0, 10000) / 10000.0) * (2 * $b) - $b; return 1.0 + $d; }
 }
 if (!function_exists('decide_success')) {
     function decide_success(float $a, float $d, int $t): array {
-        $r = ($d>0)?($a/$d):100.0;
-        $e = $r*turns_multiplier($t)*luck_scalar();
-        return [$e>=SPY_MIN_SUCCESS_RATIO,$r,$e];
+        $r = ($d > 0) ? ($a / $d) : 100.0;
+        $e = $r * turns_multiplier($t) * luck_scalar();
+        return [$e >= SPY_MIN_SUCCESS_RATIO, $r, $e];
     }
 }
 if (!function_exists('bounded_rand_pct')) {
     function bounded_rand_pct(float $min, float $max): float {
-        $min=clamp_float($min,0,1); $max=clamp_float($max,0,1);
-        if($max<$min)$max=$min; $r=mt_rand(0,10000)/10000.0;
-        return $min+($max-$min)*$r;
+        $min = clamp_float($min, 0, 1); $max = clamp_float($max, 0, 1);
+        if ($max < $min) $max = $min;
+        $r = mt_rand(0, 10000) / 10000.0;
+        return $min + ($max - $min) * $r;
     }
 }
 
@@ -223,20 +225,20 @@ if (!function_exists('sd_get_structure_output_mult')) {
 }
 
 /* -------------------------------- inputs ---------------------------------- */
-$attacker_id          = (int)$_SESSION["id"];
+$attacker_id          = (int)$_SESSION['id'];
 $defender_id          = isset($_POST['defender_id'])    ? (int)$_POST['defender_id'] : 0;
 $attack_turns         = isset($_POST['attack_turns'])   ? (int)$_POST['attack_turns'] : 0;
 $mission_type         = $_POST['mission_type']         ?? '';
 $assassination_target = $_POST['assassination_target'] ?? '';
 
 if ($defender_id <= 0 || $attack_turns < 1 || $attack_turns > 10 || $mission_type === '') {
-    $_SESSION['spy_error'] = "Invalid mission parameters.";
-    header("location: /spy.php");
+    $_SESSION['spy_error'] = 'Invalid mission parameters.';
+    header('location: /spy.php');
     exit;
 }
 if ($mission_type === 'assassination' && !in_array($assassination_target, ['workers','soldiers','guards'], true)) {
-    $_SESSION['spy_error'] = "Invalid assassination target.";
-    header("location: /spy.php");
+    $_SESSION['spy_error'] = 'Invalid assassination target.';
+    header('location: /spy.php');
     exit;
 }
 
@@ -253,9 +255,9 @@ try {
     mysqli_stmt_execute($stmtA);
     $attacker = mysqli_fetch_assoc(mysqli_stmt_get_result($stmtA));
     mysqli_stmt_close($stmtA);
-    if (!$attacker) throw new Exception("Attacker not found.");
-    if ((int)$attacker['attack_turns'] < $attack_turns) throw new Exception("Not enough attack turns.");
-    if ((int)$attacker['spies'] <= 0)                   throw new Exception("You need spies to conduct missions.");
+    if (!$attacker) throw new Exception('Attacker not found.');
+    if ((int)$attacker['attack_turns'] < $attack_turns) throw new Exception('Not enough attack turns.');
+    if ((int)$attacker['spies'] <= 0)                   throw new Exception('You need spies to conduct missions.');
 
     // Defender
     $sqlD = "SELECT * FROM users WHERE id = ? FOR UPDATE";
@@ -264,29 +266,24 @@ try {
     mysqli_stmt_execute($stmtD);
     $defender = mysqli_fetch_assoc(mysqli_stmt_get_result($stmtD));
     mysqli_stmt_close($stmtD);
-    if (!$defender) throw new Exception("Defender not found.");
+    if (!$defender) throw new Exception('Defender not found.');
 
     // Keep defender fresh
     process_offline_turns($link, $defender_id);
 
-    // ─────────────────────────────────────────────────────────────
-    // Guardrail 2: ±10 level bracket for all spy offenses
-    // Applies to intelligence, sabotage, assassination, total_sabotage
+    // Guardrail: ±10 level bracket for all spy offenses
     $level_diff_abs = abs(((int)$attacker['level']) - ((int)$defender['level']));
     if ($level_diff_abs > 10) {
-        throw new Exception("You can only perform spy actions against players within ±10 levels of you.");
+        throw new Exception('You can only perform spy actions against players within ±10 levels of you.');
     }
-    // ─────────────────────────────────────────────────────────────
 
     // === DASHBOARD-CONSISTENT ESPIONAGE POWER ===
     $spy_count    = (int)$attacker['spies'];
     $sentry_count = (int)$defender['sentries'];
 
-    // Owned items same as dashboard
     $owned_att = function_exists('sd_get_owned_items') ? sd_get_owned_items($link, (int)$attacker_id) : fetch_user_armory($link, (int)$attacker_id);
     $owned_def = function_exists('sd_get_owned_items') ? sd_get_owned_items($link, (int)$defender_id) : fetch_user_armory($link, (int)$defender_id);
 
-    // Armory bonuses (slot-capped per category)
     $attacker_armory_spy_bonus    = function_exists('sd_spy_armory_attack_bonus') ? sd_spy_armory_attack_bonus($owned_att, $spy_count) : 0;
     $defender_armory_sentry_bonus = function_exists('sd_sentry_armory_defense_bonus') ? sd_sentry_armory_defense_bonus($owned_def, $sentry_count) : 0;
 
@@ -312,7 +309,7 @@ try {
 
     /* ------------------------------- resolve -------------------------------- */
     // Decide success + ratios up front using corrected powers
-    list($success_generic, $raw_ratio, $effective_ratio) =
+    [$success_generic, $raw_ratio, $effective_ratio] =
         decide_success((float)$attacker_spy_power, (float)$defender_sentry_pow, (int)$attack_turns);
     $success = $success_generic;
 
@@ -439,7 +436,7 @@ try {
                     $structure_key = $map[$target_key_in] ?? null;
                     $VALID_STRUCTURES = ['offense','defense','economy','population','armory'];
                     if (!$structure_key || !in_array($structure_key, $VALID_STRUCTURES, true)) {
-                        throw new Exception("Choose a valid target category.");
+                        throw new Exception('Choose a valid target category.');
                     }
 
                 } elseif ($target_mode === 'loadout') {
@@ -447,19 +444,15 @@ try {
                     if ($tk === 'economy' || $tk === 'workers') $tk = 'worker';
                     $VALID_LOADOUT = ['offense','defense','spy','sentry','worker'];
                     if ($tk === '' || !in_array($tk, $VALID_LOADOUT, true)) {
-                        throw new Exception("Choose a valid target category.");
+                        throw new Exception('Choose a valid target category.');
                     }
                     $loadout_key = $tk;
 
                 } else {
-                    throw new Exception("Invalid target mode.");
+                    throw new Exception('Invalid target mode.');
                 }
 
-                // ─────────────────────────────────────────────────────────
-                // Guardrail 1 & 4: TS frequency limits (rolling 24h)
-                //  - Attacker: once per 24h
-                //  - Defender: max 5 receives per 24h
-                // Use spy_logs to enforce atomically inside this txn.
+                // Guardrail: TS frequency limits (rolling 24h)
                 $sql_att_once = "
                     SELECT COUNT(*) AS c
                       FROM spy_logs
@@ -472,7 +465,7 @@ try {
                     $rowA = mysqli_fetch_assoc(mysqli_stmt_get_result($stA));
                     mysqli_stmt_close($stA);
                     if ((int)($rowA['c'] ?? 0) >= 1) {
-                        throw new Exception("You can only use Total Sabotage once every 24 hours.");
+                        throw new Exception('You can only use Total Sabotage once every 24 hours.');
                     }
                 }
                 $sql_def_cap = "
@@ -487,19 +480,18 @@ try {
                     $rowD = mysqli_fetch_assoc(mysqli_stmt_get_result($stD));
                     mysqli_stmt_close($stD);
                     if ((int)($rowD['c'] ?? 0) >= 5) {
-                        throw new Exception("This player has already been Total Sabotaged 5 times in the last 24 hours.");
+                        throw new Exception('This player has already been Total Sabotaged 5 times in the last 24 hours.');
                     }
                 }
-                // ─────────────────────────────────────────────────────────
 
                 // progressive cost
                 if (!function_exists('ss_total_sabotage_cost') || !function_exists('ss_register_total_sabotage_use')) {
-                    throw new Exception("Missing sabotage helpers.");
+                    throw new Exception('Missing sabotage helpers.');
                 }
                 $cost_info = ss_total_sabotage_cost($link, (int)$attacker_id);
                 $cost      = (int)$cost_info['cost'];
                 if ((int)$attacker['credits'] < $cost) {
-                    throw new Exception("Insufficient credits for Total Sabotage. Required: " . number_format($cost));
+                    throw new Exception('Insufficient credits for Total Sabotage. Required: ' . number_format($cost));
                 }
 
                 // pay & register
@@ -525,7 +517,7 @@ try {
 
                 if ($target_mode === 'structure') {
                     if (!function_exists('ss_ensure_structure_rows') || !function_exists('ss_apply_structure_damage')) {
-                        throw new Exception("Missing structure helpers.");
+                        throw new Exception('Missing structure helpers.');
                     }
                     ss_ensure_structure_rows($link, (int)$defender_id);
 
@@ -616,7 +608,7 @@ try {
 
                     $units_killed = (int)$destroyed_total;
                 } else {
-                    throw new Exception("Invalid target mode.");
+                    throw new Exception('Invalid target mode.');
                 }
 
                 $intel_gathered_json = json_encode($detail);
@@ -645,11 +637,10 @@ try {
     check_and_process_levelup($attacker_id, $link);
     check_and_process_levelup($defender_id, $link);
 
-    // ---------- normalize all fields for logging (prevent NOT NULL violations) ----------
+    // ---------- normalize all fields for logging ----------
     $mission_type = in_array($mission_type, ['intelligence','sabotage','assassination','total_sabotage'], true)
         ? $mission_type : 'intelligence';
 
-    // ints: force non-null
     $attacker_spy_power  = (int)($attacker_spy_power ?? 0);
     $defender_sentry_pow = (int)($defender_sentry_pow ?? 0);
     $attacker_xp_gained  = (int)($attacker_xp_gained ?? 0);
@@ -657,12 +648,11 @@ try {
     $units_killed        = (int)($units_killed ?? 0);
     $structure_damage    = (int)($structure_damage ?? 0);
 
-    // intel JSON: allow NULL or a JSON string; coerce arrays/objects to JSON
     if ($intel_gathered_json !== null && !is_string($intel_gathered_json)) {
         $intel_gathered_json = json_encode($intel_gathered_json);
     }
 
-    // Finalize outcome right before logging (never NULL / invalid)
+    // Finalize outcome right before logging
     $outcome = ($success === true) ? 'success' : 'failure';
     if ($outcome !== 'success' && $outcome !== 'failure') { $outcome = 'failure'; }
 
@@ -695,12 +685,25 @@ try {
     mysqli_stmt_close($stmtL);
 
     mysqli_commit($link);
-    header("location: /spy_report.php?id=" . $log_id);
+
+    // === Badge awards: do this after the log is written so counts include this mission ===
+    try {
+        \StellarDominion\Services\BadgeService::seed($link);
+        \StellarDominion\Services\BadgeService::evaluateSpy(
+            $link,
+            (int)$attacker_id,
+            (int)$defender_id,
+            (string)$outcome,       // 'success' | 'failure' (attacker perspective)
+            (string)$mission_type
+        );
+    } catch (\Throwable $e) { /* non-fatal */ }
+
+    header('location: /spy_report.php?id=' . $log_id);
     exit;
 
 } catch (Exception $e) {
     mysqli_rollback($link);
-    $_SESSION['spy_error'] = "Mission failed: " . $e->getMessage();
-    header("location: /spy.php");
+    $_SESSION['spy_error'] = 'Mission failed: ' . $e->getMessage();
+    header('location: /spy.php');
     exit;
 }

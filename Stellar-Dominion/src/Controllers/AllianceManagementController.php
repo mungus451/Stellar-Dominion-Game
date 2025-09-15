@@ -6,6 +6,7 @@
  * columns in the database schema.
  */
 require_once __DIR__ . '/BaseAllianceController.php';
+require_once __DIR__ . '/../Services/BadgeService.php';
 
 class AllianceManagementController extends BaseAllianceController
 {
@@ -195,6 +196,9 @@ class AllianceManagementController extends BaseAllianceController
         $stmtDel->close();
 
         $_SESSION['alliance_message'] = "You have joined [" . ($inv['tag'] ?? '') . "] " . ($inv['name'] ?? 'Alliance') . "!";
+        // Badges: alliance membership
+        \StellarDominion\Services\BadgeService::seed($this->db);
+        \StellarDominion\Services\BadgeService::evaluateAllianceSnapshot($this->db, (int)$this->user_id);
     }
 
     /**
@@ -492,6 +496,9 @@ class AllianceManagementController extends BaseAllianceController
         $stmt_delete_app->close();
 
         $_SESSION['alliance_message'] = "Application approved. The commander has joined your alliance.";
+        // Badges: alliance membership for applicant
+        \StellarDominion\Services\BadgeService::seed($this->db);
+        \StellarDominion\Services\BadgeService::evaluateAllianceSnapshot($this->db, (int)$applicant_id);
     }
 
     private function denyApplication()
@@ -830,6 +837,9 @@ class AllianceManagementController extends BaseAllianceController
 
             $this->db->commit();
             $_SESSION['alliance_message'] = "Alliance created successfully!";
+            // Badges: founder + member
+            \StellarDominion\Services\BadgeService::seed($this->db);
+            \StellarDominion\Services\BadgeService::evaluateAllianceSnapshot($this->db, (int)$this->user_id);
             header("Location: /alliance.php");
             exit();
         } catch (Exception $e) {

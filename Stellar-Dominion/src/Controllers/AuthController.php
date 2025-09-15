@@ -161,6 +161,9 @@ if ($action === 'login') {
                         $_SESSION["loggedin"]       = true;
                         $_SESSION["id"]              = $id;
                         $_SESSION["character_name"] = $character_name;
+                        // Badges: first 50 founders snapshot
+                        \StellarDominion\Services\BadgeService::seed($link);
+                        \StellarDominion\Services\BadgeService::evaluateFounder($link, (int)$_SESSION["id"]);
                         session_write_close();
                         header("location: /dashboard.php");
                         exit;

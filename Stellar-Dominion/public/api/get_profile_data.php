@@ -32,6 +32,26 @@ if ($stmt = mysqli_prepare($link, $sql)) {
     if ($profile) {
         // Calculate derived stats
         $profile['army_size'] = $profile['soldiers'] + $profile['guards'] + $profile['sentries'] + $profile['spies'];
+        
+        // Optionally include earned badges (pass ?include_badges=1)
+        if (isset($_GET['include_badges']) && $_GET['include_badges'] === '1') {
+            $badges = [];
+            $sqlB = "SELECT b.name, b.description, b.icon_path, ub.earned_at
+                     FROM user_badges ub
+                     JOIN badges b ON b.id = ub.badge_id
+                     WHERE ub.user_id = ?
+                     ORDER BY ub.earned_at DESC
+                     LIMIT 24";
+            if ($stmtB = mysqli_prepare($link, $sqlB)) {
+                mysqli_stmt_bind_param($stmtB, "i", $profile_id);
+                mysqli_stmt_execute($stmtB);
+                $resB = mysqli_stmt_get_result($stmtB);
+                while ($rowB = $resB->fetch_assoc()) { $badges[] = $rowB; }
+                mysqli_stmt_close($stmtB);
+            }
+            $profile['badges'] = $badges;
+        }
+
         echo json_encode($profile);
     } else {
         http_response_code(404);
