@@ -281,6 +281,8 @@ package:
     - "!**.md"              # Markdown documentation
     - "!.github/**"          # GitHub configuration files
     - "!serverless.yml"      # Exclude self to avoid recursion
+    - "!docker/**"
+    - "!docker-compose.yml"
 
 # =============================================================================
 # CloudFormation Resources - AWS Infrastructure
