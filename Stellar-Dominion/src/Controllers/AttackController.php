@@ -174,6 +174,17 @@ const STRUCT_MAX_DMG_IF_WIN       = 0.25; // Lower max to prevent chunking.
 const BASE_PRESTIGE_GAIN          = 10; // Flat baseline per battle.
 
 // ─────────────────────────────────────────────────────────────────────────────
+// ALLIANCE BONUSES / TRIBUTE (TUNING KNOBS)
+// ─────────────────────────────────────────────────────────────────────────────
+// Flat combat bonus granted to a combatant's base strength if they are in ANY alliance.
+// Keep small; this multiplies into the main strength pipeline before noise/turns.
+const ALLIANCE_BASE_COMBAT_BONUS      = 0.10; // +10%
+// Portion of the victor's actual credits winnings that are paid to the loser's alliance bank.
+// Applied on attacker win with credits stolen; comes out of the victor's net.
+const LOSING_ALLIANCE_TRIBUTE_PCT     = 0.05; // 5%
+
+
+// ─────────────────────────────────────────────────────────────────────────────
 // EXPERIENCE (XP) TUNING
 // ─────────────────────────────────────────────────────────────────────────────
 // Global multiplier applied to both sides at the very end
@@ -468,6 +479,15 @@ try {
     // Scale defender defense by Defense structure integrity (match dashboard)
     $RawDefense *= $DEFENSE_STRUCT_MULT;
 
+    // Alliance base combat bonus (+10%) if the side is in any alliance.
+    // Applied before fort/turn/noise to keep tuning predictable.
+    if (!empty($attacker['alliance_id'])) {
+        $RawAttack *= (1.0 + ALLIANCE_BASE_COMBAT_BONUS);
+    }
+    if (!empty($defender['alliance_id'])) {
+        $RawDefense *= (1.0 + ALLIANCE_BASE_COMBAT_BONUS);
+    }
+
     // ─────────────────────────────────────────────────────────────────────────────
     // Fortification health → multipliers (runs before final strengths / kills / plunder)
     // ─────────────────────────────────────────────────────────────────────────────
@@ -681,8 +701,26 @@ try {
             }
         }
 
-        // Net to attacker after loan & tax
-        $attacker_net_gain = max(0, $actual_stolen - $alliance_tax - $loan_repayment);
+        // NEW: Losing alliance tribute (5% of victor's actual winnings), paid to LOSER's alliance bank.
+        $losing_alliance_tribute = 0;
+        if (!empty($defender['alliance_id'])) {
+            $losing_alliance_tribute = (int)floor($actual_stolen * LOSING_ALLIANCE_TRIBUTE_PCT);
+            if ($losing_alliance_tribute > 0) {
+                $stmt_trib = mysqli_prepare($link, "UPDATE alliances SET bank_credits = bank_credits + ? WHERE id = ?");
+                mysqli_stmt_bind_param($stmt_trib, "ii", $losing_alliance_tribute, $defender['alliance_id']);
+                mysqli_stmt_execute($stmt_trib);
+                mysqli_stmt_close($stmt_trib);
+
+                $log_desc_trib = "Tribute (5%) from {$attacker['character_name']}'s victory against {$defender['character_name']}";
+                $stmt_trib_log = mysqli_prepare($link, "INSERT INTO alliance_bank_logs (alliance_id, user_id, type, amount, description) VALUES (?, ?, 'tax', ?, ?)");
+                mysqli_stmt_bind_param($stmt_trib_log, "iiis", $defender['alliance_id'], $attacker_id, $losing_alliance_tribute, $log_desc_trib);
+                mysqli_stmt_execute($stmt_trib_log);
+                mysqli_stmt_close($stmt_trib_log);
+            }
+        }
+
+        // Net to attacker after loan, tax, and losing alliance tribute
+        $attacker_net_gain = max(0, $actual_stolen - $alliance_tax - $loan_repayment - $losing_alliance_tribute);
 
         // Apply deltas
         $stmt_att_update = mysqli_prepare($link, "UPDATE users SET credits = credits + ?, experience = experience + ?, soldiers = GREATEST(0, soldiers - ?) WHERE id = ?");
