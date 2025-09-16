@@ -13,35 +13,35 @@ $upgrades = [
         'db_column' => 'fortification_level',
         'levels' => [
             // Phase 1: 50k to 750m
-            1  => ['name' => 'Foundation Outpost',    'cost' => 50000,           'level_req' => 1,  'bonuses' => [], 'description' => 'Establishes a basic command structure on a remote world.', 'hitpoints' => 1000],
-            2  => ['name' => 'Planetary Base',        'cost' => 15000000,          'level_req' => 5,  'bonuses' => [], 'description' => 'A fortified base securing planetary control.', 'hitpoints' => 2500],
-            3  => ['name' => 'Orbital Station',       'cost' => 32000000,          'level_req' => 10,  'bonuses' => [], 'description' => 'Extends your influence into planetary orbit.', 'hitpoints' => 5000],
-            4  => ['name' => 'Star Fortress',         'cost' => 51000000,         'level_req' => 15,  'bonuses' => [], 'description' => 'A heavily armed bastion guarding your sector.', 'hitpoints' => 10000],
-            5  => ['name' => 'Galactic Citadel',      'cost' => 77000000,         'level_req' => 20,  'bonuses' => [], 'description' => 'The unshakable heart of your expanding empire.', 'hitpoints' => 20000],
+            1  => ['name' => 'Foundation Outpost',    'cost' => 50000,           'level_req' => 1,  'bonuses' => [], 'description' => 'Establishes a basic command structure on a remote world.', 'hitpoints' => 50000],
+            2  => ['name' => 'Planetary Base',        'cost' => 15000000,          'level_req' => 5,  'bonuses' => [], 'description' => 'A fortified base securing planetary control.', 'hitpoints' => 1500000],
+            3  => ['name' => 'Orbital Station',       'cost' => 32000000,          'level_req' => 10,  'bonuses' => [], 'description' => 'Extends your influence into planetary orbit.', 'hitpoints' => 3200000],
+            4  => ['name' => 'Star Fortress',         'cost' => 51000000,         'level_req' => 15,  'bonuses' => [], 'description' => 'A heavily armed bastion guarding your sector.', 'hitpoints' => 5100000],
+            5  => ['name' => 'Galactic Citadel',      'cost' => 77000000,         'level_req' => 20,  'bonuses' => [], 'description' => 'The unshakable heart of your expanding empire.', 'hitpoints' => 7700000],
 
             // Phase 2:
 
-            6  => ['name' => 'Nebula Bastion',        'cost' => 123000000,         'level_req' => 25,  'bonuses' => [], 'description' => 'Concealed within cosmic clouds, it controls hyperspace routes.', 'hitpoints' => 40000],
-            7  => ['name' => 'Quantum Keep',          'cost' => 180000000,        'level_req' => 30,  'bonuses' => [], 'description' => 'Utilizes quantum defenses to repel any known attack vector.', 'hitpoints' => 75000],
-            8  => ['name' => 'Singularity Spire',     'cost' => 360000000,        'level_req' => 35,  'bonuses' => [], 'description' => 'Powered by a contained singularity, bending space around it.', 'hitpoints' => 150000],
-            9  => ['name' => 'Dark Matter Bastille',  'cost' => 550000000,        'level_req' => 45,  'bonuses' => [], 'description' => 'Constructed with exotic matter, impervious to conventional detection.', 'hitpoints' => 250000],
-            10 => ['name' => 'Void Bastion',          'cost' => 750000000,       'level_req' => 50, 'bonuses' => [], 'description' => 'Anchored in the void between systems, it channels immense cosmic energy.', 'hitpoints' => 500000],
+            6  => ['name' => 'Nebula Bastion',        'cost' => 123000000,         'level_req' => 25,  'bonuses' => [], 'description' => 'Concealed within cosmic clouds, it controls hyperspace routes.', 'hitpoints' => 12300000],
+            7  => ['name' => 'Quantum Keep',          'cost' => 180000000,        'level_req' => 30,  'bonuses' => [], 'description' => 'Utilizes quantum defenses to repel any known attack vector.', 'hitpoints' => 18000000],
+            8  => ['name' => 'Singularity Spire',     'cost' => 360000000,        'level_req' => 35,  'bonuses' => [], 'description' => 'Powered by a contained singularity, bending space around it.', 'hitpoints' => 36000000],
+            9  => ['name' => 'Dark Matter Bastille',  'cost' => 550000000,        'level_req' => 45,  'bonuses' => [], 'description' => 'Constructed with exotic matter, impervious to conventional detection.', 'hitpoints' => 55000000],
+            10 => ['name' => 'Void Bastion',          'cost' => 750000000,       'level_req' => 50, 'bonuses' => [], 'description' => 'Anchored in the void between systems, it channels immense cosmic energy.', 'hitpoints' => 75000000],
             
             // Phase 3: 1b to 750b
 
-            11 => ['name' => 'Event Horizon Citadel', 'cost' => 1000000000,       'level_req' => 55, 'bonuses' => [], 'description' => 'Built near a black hole, siphoning its power for unmatched defense.', 'hitpoints' => 1000000],
-            12 => ['name' => 'Hypernova Keep',        'cost' => 30000000000,       'level_req' => 60, 'bonuses' => [], 'description' => 'Survives within a dying star, projecting devastating stellar weapons.', 'hitpoints' => 2000000],
-            13 => ['name' => 'Chrono Bastion',        'cost' => 110000000000,       'level_req' => 65, 'bonuses' => [], 'description' => 'Manipulates time to counter any assault before it begins.', 'hitpoints' => 3500000],
-            14 => ['name' => 'Eclipse Stronghold',    'cost' => 450000000000,       'level_req' => 70, 'bonuses' => [], 'description' => 'Blots out suns to shield fleets and blind your enemies.', 'hitpoints' => 6000000],
-            15 => ['name' => 'Celestial Bulwark',     'cost' => 750000000000,      'level_req' => 75, 'bonuses' => [], 'description' => 'A planetary ring of armor and weapons, shielding entire systems.', 'hitpoints' => 10000000],
+            11 => ['name' => 'Event Horizon Citadel', 'cost' => 1000000000,       'level_req' => 55, 'bonuses' => [], 'description' => 'Built near a black hole, siphoning its power for unmatched defense.', 'hitpoints' => 100000000],
+            12 => ['name' => 'Hypernova Keep',        'cost' => 30000000000,       'level_req' => 60, 'bonuses' => [], 'description' => 'Survives within a dying star, projecting devastating stellar weapons.', 'hitpoints' => 3000000000],
+            13 => ['name' => 'Chrono Bastion',        'cost' => 110000000000,       'level_req' => 65, 'bonuses' => [], 'description' => 'Manipulates time to counter any assault before it begins.', 'hitpoints' => 11000000000],
+            14 => ['name' => 'Eclipse Stronghold',    'cost' => 450000000000,       'level_req' => 70, 'bonuses' => [], 'description' => 'Blots out suns to shield fleets and blind your enemies.', 'hitpoints' => 45000000000],
+            15 => ['name' => 'Celestial Bulwark',     'cost' => 750000000000,      'level_req' => 75, 'bonuses' => [], 'description' => 'A planetary ring of armor and weapons, shielding entire systems.', 'hitpoints' => 75000000000],
             
             // Phase 4: 1t to 500t
 
-            16 => ['name' => 'Omega Bastion',         'cost' => 1000000000000,      'level_req' => 80, 'bonuses' => [], 'description' => 'The last line of defense, bristling with planet-cracking weaponry.', 'hitpoints' => 25000000],
-            17 => ['name' => 'Infinity Spire',        'cost' => 30000000000000,      'level_req' => 85, 'bonuses' => [], 'description' => 'Defies the laws of physics, existing in multiple dimensions at once.', 'hitpoints' => 50000000],
-            18 => ['name' => 'Ascendant Citadel',     'cost' => 110000000000000,     'level_req' => 90, 'bonuses' => [], 'description' => 'Harnesses the power of a newborn galaxy to fuel its defenses.', 'hitpoints' => 100000000],
-            19 => ['name' => 'Eternal Nexus',         'cost' => 330000000000000,     'level_req' => 95, 'bonuses' => [], 'description' => 'A fortress that merges with the fabric of spacetime itself.', 'hitpoints' => 200000000],
-            20 => ['name' => 'Dominion Throneworld',  'cost' => 500000000000000,    'level_req' => 100, 'bonuses' => [], 'description' => 'The supreme capital of your empire, from which all stars bow to your rule.', 'hitpoints' => 500000000],
+            16 => ['name' => 'Omega Bastion',         'cost' => 1000000000000,      'level_req' => 80, 'bonuses' => [], 'description' => 'The last line of defense, bristling with planet-cracking weaponry.', 'hitpoints' => 100000000000],
+            17 => ['name' => 'Infinity Spire',        'cost' => 30000000000000,      'level_req' => 85, 'bonuses' => [], 'description' => 'Defies the laws of physics, existing in multiple dimensions at once.', 'hitpoints' => 3000000000000],
+            18 => ['name' => 'Ascendant Citadel',     'cost' => 110000000000000,     'level_req' => 90, 'bonuses' => [], 'description' => 'Harnesses the power of a newborn galaxy to fuel its defenses.', 'hitpoints' => 11000000000000],
+            19 => ['name' => 'Eternal Nexus',         'cost' => 330000000000000,     'level_req' => 95, 'bonuses' => [], 'description' => 'A fortress that merges with the fabric of spacetime itself.', 'hitpoints' => 33000000000000],
+            20 => ['name' => 'Dominion Throneworld',  'cost' => 500000000000000,    'level_req' => 100, 'bonuses' => [], 'description' => 'The supreme capital of your empire, from which all stars bow to your rule.', 'hitpoints' => 50000000000000],
         ]
     ],
     'armory' => [
