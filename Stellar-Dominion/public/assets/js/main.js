@@ -567,65 +567,66 @@ if (armoryFormEl) {
         });
     });
     
-    // --- AJAX Repair Button (Dashboard) ---
-    const repairBtn = document.getElementById('repair-structure-btn');
-    if (repairBtn) {
-        repairBtn.addEventListener('click', async () => {
-            const token = document.querySelector('meta[name="csrf-token"]')?.content;
-            if (!token) {
-                alert('Security token not found. Please refresh the page.');
-                return;
-            }
+    // ---------- Fortification Repair (dashboard AJAX) ----------
+    (function(){
+      const box = document.getElementById('fort-repair-box');
+      if (!box) return;
 
-            repairBtn.disabled = true;
-            repairBtn.textContent = 'Repairing...';
+      const maxHp = parseInt(box.dataset.max || '0', 10);
+      const curHp = parseInt(box.dataset.current || '0', 10);
+      const costPer = parseInt(box.dataset.costPerHp || '10', 10);
+      const missing = Math.max(0, maxHp - curHp);
 
-            const formData = new FormData();
-            formData.append('csrf_token', token);
+      const input = document.getElementById('repair-hp-amount');
+      const btnMax = document.getElementById('repair-max-btn');
+      const btnGo  = document.getElementById('repair-structure-btn');
+      const costEl = document.getElementById('repair-cost-text');
 
-            try {
-                const response = await fetch('/api/repair_structure.php', {
-                    method: 'POST',
-                    body: formData
-                });
-                const result = await response.json();
-                
-                const msgEl = document.getElementById('dashboard-ajax-message');
-                msgEl.textContent = result.message;
-                msgEl.classList.remove('hidden', 'bg-red-900', 'border-red-500/50', 'text-red-300', 'bg-cyan-900', 'border-cyan-500/50', 'text-cyan-300');
+      const tokenEl  = box.querySelector('input[name="csrf_token"]');
+      const actionEl = box.querySelector('input[name="csrf_action"]');
 
-                if (result.success) {
-                    msgEl.classList.add('bg-cyan-900', 'border-cyan-500/50', 'text-cyan-300');
-                    
-                    // Update UI elements
-                    const creditsDisplay = document.getElementById('credits-on-hand-display');
-                    const sidebarCreditsDisplay = document.querySelector('.stats-container #stats-content li:first-child span:last-child');
-                    const hpText = document.getElementById('structure-hp-text');
-                    const hpBar = document.getElementById('structure-hp-bar');
+      const update = () => {
+        const raw = parseInt((input?.value || '0'), 10) || 0;
+        const eff = Math.max(0, Math.min(raw, missing));
+        if (costEl) costEl.textContent = (eff * costPer).toLocaleString();
+        if (btnGo)  btnGo.disabled = (eff <= 0);
+      };
 
-                    if (creditsDisplay) creditsDisplay.textContent = result.new_credits.toLocaleString();
-                    if (sidebarCreditsDisplay) sidebarCreditsDisplay.textContent = result.new_credits.toLocaleString();
-                    if (hpText) hpText.textContent = `${result.new_hp.toLocaleString()} / ${result.max_hp.toLocaleString()} (100%)`;
-                    if (hpBar) hpBar.style.width = '100%';
-                    
-                    repairBtn.textContent = 'Repaired';
-                    // The button is already disabled, so it will stay that way.
-                } else {
-                    msgEl.classList.add('bg-red-900', 'border-red-500/50', 'text-red-300');
-                    repairBtn.disabled = false;
-                    repairBtn.textContent = 'Repair';
-                }
+      btnMax?.addEventListener('click', () => {
+        if (!input) return;
+        input.value = String(missing);
+        update();
+      }, { passive: true });
 
-                setTimeout(() => msgEl.classList.add('hidden'), 5000);
+      input?.addEventListener('input', update, { passive: true });
+      update();
 
-            } catch (error) {
-                alert('An unexpected error occurred. Please check the console.');
-                console.error('Repair error:', error);
-                repairBtn.disabled = false;
-                repairBtn.textContent = 'Repair';
-            }
-        });
-    }
+      btnGo?.addEventListener('click', async () => {
+        const hp = Math.max(1, Math.min(parseInt(input?.value || '0', 10) || 0, missing));
+        if (!hp) return;
+
+        btnGo.disabled = true;
+        try {
+          const body = new URLSearchParams();
+          body.set('hp', String(hp));
+          if (tokenEl)  body.set('csrf_token', tokenEl.value);
+          if (actionEl) body.set('csrf_action', actionEl.value);
+
+          const res = await fetch('/api/repair_structure.php', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+            body: body.toString()
+          });
+          const data = await res.json();
+          if (!data.success) throw new Error(data.message || 'Repair failed');
+          // Easiest consistent refresh (updates HP bar, credits, etc.)
+          window.location.reload();
+        } catch (e) {
+          alert(e.message || String(e));
+          btnGo.disabled = false;
+        }
+      });
+    })();
 
 
     // Close modal if clicking on the background overlay

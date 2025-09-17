@@ -85,23 +85,34 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 date_default_timezone_set('UTC');
 
 /* -------------------------------- tuning ---------------------------------- */
-const SPY_TURNS_SOFT_EXP      = 0.50;
-const SPY_TURNS_MAX_MULT      = 1.35;
-const SPY_RANDOM_BAND         = 0.01;
-const SPY_MIN_SUCCESS_RATIO   = 1.02;
+const SPY_TURNS_SOFT_EXP      = 0.50; //Raise exp (e.g. 0.65) or raise max mult (e.g. 1.50) if you want multi-turn spy missions to matter more. Lower to compress differences between 1 vs multi-turn attempts.
+const SPY_TURNS_MAX_MULT      = 1.35; //Upper clamp for the above. If you want 3–10 turn missions to scale, bump this (careful with success creep).
+const SPY_RANDOM_BAND         = 0.01; //Luck scalar in [1−band, 1+band]. Default ±1%. Use 0.00 for deterministic tests or tight ladders. 0.03–0.05 adds spice but raises variance complaints.
+const SPY_MIN_SUCCESS_RATIO   = 1.02; //Needed effective_ratio to pass. Lower (toward 1.00) to make borderline attempts succeed more; raise to bias toward defenders.
 
-const SPY_ASSASSINATE_KILL_MIN = 0.02;
+//Kill percent of chosen unit group (workers/soldiers/guards), then queued as untrained for 30 minutes. Actual applied percent is also multiplied by min(1.5, max(0.75, effective_ratio)).
+//Raise for bloodier assassinations; lower if snowballing is too fast.
+
+const SPY_ASSASSINATE_KILL_MIN = 0.02; 
 const SPY_ASSASSINATE_KILL_MAX = 0.06;
 
+//Raise if structures feel immortal; lower to make forts more resilient. Consider the meta with offense/defense structure multipliers.
 const SPY_SABOTAGE_DMG_MIN    = 0.04;
-const SPY_SABOTAGE_DMG_MAX    = 0.10;
+const SPY_SABOTAGE_DMG_MAX    = 0.55;
 
+// XP
+//XP is randomly picked in range, then scaled by sqrt(turns) and by level delta (attackers gain more vs higher-level foes; defenders gain more when out-leveled).
+//Tuning: widen or narrow ranges; keep defender gains modest to avoid farmable stalemates.
 const SPY_XP_ATTACKER_MIN     = 100;
 const SPY_XP_ATTACKER_MAX     = 160;
+
 const SPY_XP_DEFENDER_MIN     = 40;
 const SPY_XP_DEFENDER_MAX     = 80;
 
+//Number of defender stats sampled from the intel pool (income, powers, unit counts, etc.). Increase to reveal more; keep ≤7 to preserve fog-of-war.
 const SPY_INTEL_DRAW_COUNT    = 5;
+
+//Policy knobs for per-target try limits inside a window. If you want them enforced at controller level, add a spy_logs count check (snippet below in “Hardening & Limits”).
 
 const SPY_ASSASSINATE_WINDOW_HRS = 2;
 const SPY_ASSASSINATE_MAX_TRIES  = 2;

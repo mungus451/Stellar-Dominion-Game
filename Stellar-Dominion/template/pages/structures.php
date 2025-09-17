@@ -265,7 +265,7 @@ include_once __DIR__ . '/../includes/header.php';
         $max_hp       = (int)($fort_details['hitpoints'] ?? 0);
         $current_hp   = (int)($user_stats['fortification_hitpoints'] ?? 0);
         $hp_to_repair = max(0, $max_hp - $current_hp);
-        $repair_cost  = $hp_to_repair * 10; // same rule you had
+        $repair_cost  = $hp_to_repair * 5; // same rule you had
         $hp_percentage = ($max_hp > 0) ? floor(($current_hp / $max_hp) * 100) : 0;
     ?>
     <div class="content-box rounded-lg p-6 bg-gray-800 border border-gray-700">
@@ -287,21 +287,59 @@ include_once __DIR__ . '/../includes/header.php';
                 Total Repair Cost:
                 <span class="font-bold text-yellow-300"><?php echo number_format($repair_cost); ?> Credits</span>
             </p>
-            <form action="/structures.php" method="POST">
-                <input type="hidden" name="csrf_token"  value="<?php echo htmlspecialchars($structure_action_token); ?>">
+            <form action="/structures.php" method="POST" class="flex items-center gap-3">
+                <?php echo csrf_token_field('structure_action'); ?>
                 <input type="hidden" name="csrf_action" value="structure_action">
-                <input type="hidden" name="action"      value="repair_structure">
-                <input type="hidden" name="mode"        value="foundation">
+                <input type="hidden" name="action" value="repair_structure">
+                <input type="hidden" name="mode" value="foundation">
+
+                <div class="flex-1">
+                    <label for="structure-repair-amount" class="text-xs block text-gray-400 mb-1">Repair HP</label>
+                    <input type="number" id="structure-repair-amount" name="repair_amount" min="1" step="1"
+                           class="w-full p-2 rounded bg-gray-800 border border-gray-700 text-white focus:outline-none focus:ring-2 focus:ring-cyan-500"
+                           placeholder="Enter HP to repair">
+                    <div class="flex justify-between text-sm mt-2">
+                        <button type="button" id="structure-repair-max-btn"
+                                class="px-2 py-1 rounded bg-gray-800 hover:bg-gray-700 text-cyan-400">
+                            Repair Max
+                        </button>
+                        <span>Estimated Cost:
+                            <span id="structure-repair-cost" class="font-semibold text-yellow-300">
+                                <?php echo number_format($repair_cost); ?>
+                            </span> credits
+                        </span>
+                    </div>
+                </div>
+
                 <button type="submit"
-                        class="bg-green-600 hover:bg-green-700 text-white font-bold py-2 px-6 rounded-lg disabled:bg-gray-600 disabled:cursor-not-allowed"
+                        class="bg-green-600 hover:bg-green-700 text-white font-bold px-4 py-2 rounded-lg disabled:opacity-50 disabled:cursor-not-allowed"
                         <?php if ($user_stats['credits'] < $repair_cost || $current_hp >= $max_hp) echo 'disabled'; ?>>
-                    <?php
-                        if ($current_hp >= $max_hp)               echo 'Fully Repaired';
-                        elseif ($user_stats['credits'] < $repair_cost) echo 'Insufficient Credits';
-                        else                                        echo 'Repair Now';
-                    ?>
+                    Repair
                 </button>
             </form>
+
+            <script>
+              (function(){
+                const box = document.currentScript.parentElement;
+                const maxHp = <?php echo (int)$max_hp; ?>;
+                const curHp = <?php echo (int)$current_hp; ?>;
+                const missing = Math.max(0, maxHp - curHp);
+                const per = 5;
+
+                const input = box.querySelector('#structure-repair-amount');
+                const btnMax = box.querySelector('#structure-repair-max-btn');
+                const costEl = box.querySelector('#structure-repair-cost');
+
+                const update = () => {
+                  const val = Math.max(0, parseInt(input.value || '0', 5));
+                  const eff = Math.max(0, Math.min(val, missing));
+                  costEl.textContent = (eff * per).toLocaleString();
+                };
+                if (btnMax) btnMax.addEventListener('click', () => { input.value = String(missing); update(); });
+                if (input) input.addEventListener('input', update, { passive: true });
+                update();
+              })();
+            </script>
         </div>
     </div>
     <?php endif; ?>

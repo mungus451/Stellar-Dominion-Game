@@ -7,20 +7,19 @@ $page_title = 'Dashboard';
 $active_page = 'dashboard.php';
 
 // --- SESSION AND DATABASE SETUP ---
-// session_start() and the login check are now handled by the main router (public/index.php)
-date_default_timezone_set('UTC'); // Canonicalizes all server-side time arithmetic to UTC to avoid DST drift.
+date_default_timezone_set('UTC');
 
 require_once __DIR__ . '/../../config/config.php';
-require_once __DIR__ . '/../../src/Game/GameData.php'; // Provides $upgrades and $armory_loadouts metadata structures (read-only)
-require_once __DIR__ . '/../../src/Services/StateService.php'; // centralized reads
+require_once __DIR__ . '/../../src/Game/GameData.php';         // $upgrades, $armory_loadouts
+require_once __DIR__ . '/../../src/Services/StateService.php';  // centralized reads
+require_once __DIR__ . '/../../src/Game/GameFunctions.php';     // alliance bonuses, armory helpers
 require_once __DIR__ . '/../includes/advisor_hydration.php';
 
-$csrf_token = generate_csrf_token('repair_structure');
+// IMPORTANT: use the same CSRF "action" as Structures so AJAX + form share it
+$csrf_token = generate_csrf_token('structure_action');
 $user_id = (int)($_SESSION['id'] ?? 0);
 
 // --- DATA FETCHING FOR DISPLAY (centralized) ---
-
-// Pull everything the dashboard needs in one call (and process offline turns).
 $needed_fields = [
     'id','alliance_id','credits','banked_credits','net_worth','workers',
     'soldiers','guards','sentries','spies','untrained_citizens',
@@ -39,7 +38,6 @@ $__default_health = [
     'offense'  => ['health_pct' => 100, 'locked' => 0],
     'defense'  => ['health_pct' => 100, 'locked' => 0],
     'economy'  => ['health_pct' => 100, 'locked' => 0],
-    // population/armory not needed here; leave at defaults elsewhere
 ];
 $structure_health = $__default_health;
 
@@ -61,10 +59,10 @@ $offense_integrity_mult = ($structure_health['offense']['locked']  ? 0.0 : ($str
 $defense_integrity_mult = ($structure_health['defense']['locked']  ? 0.0 : ($structure_health['defense']['health_pct']  / 100));
 $economy_integrity_mult = ($structure_health['economy']['locked']  ? 0.0 : ($structure_health['economy']['health_pct']  / 100));
 
-// --- FETCH ARMORY DATA (centralized) ---
+// --- FETCH ARMORY DATA ---
 $owned_items = ($user_id > 0) ? ss_get_armory_inventory($link, $user_id) : [];
 
-// --- FETCH ALLIANCE INFO (kept here; not part of StateService yet) ---
+// --- FETCH ALLIANCE INFO (display only) ---
 $alliance_info = null;
 if (!empty($user_stats['alliance_id'])) {
     $sql_alliance = "SELECT name, tag FROM alliances WHERE id = ?";
@@ -76,7 +74,7 @@ if (!empty($user_stats['alliance_id'])) {
     }
 }
 
-// --- COMBAT RECORD (unchanged: summarizes from logs) ---
+// --- COMBAT RECORD (summary) ---
 $wins = 0; $losses_as_attacker = 0; $losses_as_defender = 0;
 if ($user_id > 0) {
     $sql_battles = "
@@ -99,7 +97,7 @@ if ($user_id > 0) {
 }
 $total_losses = $losses_as_attacker + $losses_as_defender;
 
-// --- NET WORTH RECALC (unchanged) ---
+// --- NET WORTH RECALC ---
 $base_unit_costs = ['workers' => 100, 'soldiers' => 250, 'guards' => 250, 'sentries' => 500, 'spies' => 1000];
 $refund_rate = 0.75;
 $structure_depreciation_rate = 0.10;
@@ -113,7 +111,7 @@ $total_unit_value = (int)floor($total_unit_value);
 
 $total_upgrade_cost = 0;
 if (!empty($upgrades) && is_array($upgrades)) {
-    foreach ($upgrades as $category_key => $category) {
+    foreach ($upgrades as $category) {
         $db_column = $category['db_column'] ?? null;
         if (!$db_column) { continue; }
         $current_level = (int)($user_stats[$db_column] ?? 0);
@@ -141,7 +139,7 @@ if ($new_net_worth !== (int)$user_stats['net_worth']) {
     }
 }
 
-// --- UPGRADE MULTIPLIERS (for combat stats display) ---
+// --- UPGRADE MULTIPLIERS (display math) ---
 $total_offense_bonus_pct = 0;
 for ($i = 1, $n = (int)$user_stats['offense_upgrade_level']; $i <= $n; $i++) {
     $total_offense_bonus_pct += (float)($upgrades['offense']['levels'][$i]['bonuses']['offense'] ?? 0);
@@ -156,48 +154,51 @@ $defense_upgrade_multiplier = 1 + ($total_defense_bonus_pct / 100);
 
 // --- CANONICAL PER-TURN ECONOMY ---
 $summary = calculate_income_summary($link, $user_id, $user_stats);
-$credits_per_turn  = (int)$summary['income_per_turn'];     // already structure-scaled
-$citizens_per_turn = (int)$summary['citizens_per_turn'];   // already structure-scaled
+$credits_per_turn  = (int)$summary['income_per_turn'];
+$citizens_per_turn = (int)$summary['citizens_per_turn'];
 
-// --- DERIVED COMBAT STATS (armory + attributes + upgrade multipliers) ---
-$strength_bonus = 1 + ((float)$user_stats['strength_points'] * 0.01);
+// --- ALLIANCE BONUSES (Offense/Defense only) ---
+$alliance_bonuses   = sd_compute_alliance_bonuses($link, $user_stats);
+$alli_offense_mult  = 1.0 + ((float)($alliance_bonuses['offense'] ?? 0) / 100.0);
+$alli_defense_mult  = 1.0 + ((float)($alliance_bonuses['defense'] ?? 0) / 100.0);
+
+// --- DERIVED COMBAT STATS ---
+$strength_bonus     = 1 + ((float)$user_stats['strength_points']     * 0.01);
 $constitution_bonus = 1 + ((float)$user_stats['constitution_points'] * 0.01);
 
-$soldier_count = (int)$user_stats['soldiers'];
-$armory_attack_bonus = sd_soldier_armory_attack_bonus($owned_items, $soldier_count);
+$soldier_count         = (int)$user_stats['soldiers'];
+$armory_attack_bonus   = sd_soldier_armory_attack_bonus($owned_items, $soldier_count);
 
-$guard_count = (int)$user_stats['guards'];
-$armory_defense_bonus = sd_guard_armory_defense_bonus($owned_items, $guard_count);
+$guard_count           = (int)$user_stats['guards'];
+$armory_defense_bonus  = sd_guard_armory_defense_bonus($owned_items, $guard_count);
 
-$sentry_count = (int)$user_stats['sentries'];
-$armory_sentry_bonus = sd_sentry_armory_defense_bonus($owned_items, $sentry_count);
+$sentry_count          = (int)$user_stats['sentries'];
+$armory_sentry_bonus   = sd_sentry_armory_defense_bonus($owned_items, $sentry_count);
 
-$spy_count = (int)$user_stats['spies'];
-$armory_spy_bonus = sd_spy_armory_attack_bonus($owned_items, $spy_count);
+$spy_count             = (int)$user_stats['spies'];
+$armory_spy_bonus      = sd_spy_armory_attack_bonus($owned_items, $spy_count);
 
-// Base (pre-structure) values
+// Base (pre-structure)
 $offense_power_base   = (($soldier_count * 10) * $strength_bonus + $armory_attack_bonus) * $offense_upgrade_multiplier;
 $defense_rating_base  = ((($guard_count * 10) + $armory_defense_bonus) * $constitution_bonus) * $defense_upgrade_multiplier;
-$spy_offense_base     = ((($spy_count * 10) + $armory_spy_bonus) * $offense_upgrade_multiplier); // spies benefit from offense upgrades
+$spy_offense_base     = ((($spy_count * 10) + $armory_spy_bonus)   * $offense_upgrade_multiplier);
 $sentry_defense_base  = ((($sentry_count * 10) + $armory_sentry_bonus) * $defense_upgrade_multiplier);
 
-// APPLY STRUCTURE HEALTH (linear scaling; locked => 0)
-$offense_power  = (int)floor($offense_power_base  * $offense_integrity_mult);
-$defense_rating = (int)floor($defense_rating_base * $defense_integrity_mult);
+// Apply structure integrity; add alliance to Offense/Defense only
+$offense_power  = (int)floor($offense_power_base  * $offense_integrity_mult * $alli_offense_mult);
+$defense_rating = (int)floor($defense_rating_base * $defense_integrity_mult * $alli_defense_mult);
 $spy_offense    = (int)floor($spy_offense_base    * $offense_integrity_mult);
 $sentry_defense = (int)floor($sentry_defense_base * $defense_integrity_mult);
 
-// --- POPULATION COUNTS (turn timer comes from advisor_hydration) ---
-$non_military_units = (int)$user_stats['workers'] + (int)$user_stats['untrained_citizens'];
-$offensive_units = (int)$user_stats['soldiers'];
-$utility_units = (int)$user_stats['spies'];
-$total_military_units = $offensive_units + (int)$user_stats['guards'] + (int)$user_stats['sentries'] + $utility_units;
-$total_population = $non_military_units + $total_military_units;
+// --- POPULATION COUNTS ---
+$non_military_units    = (int)$user_stats['workers'] + (int)$user_stats['untrained_citizens'];
+$offensive_units       = (int)$user_stats['soldiers'];
+$utility_units         = (int)$user_stats['spies'];
+$total_military_units  = $offensive_units + (int)$user_stats['guards'] + (int)$user_stats['sentries'] + $utility_units;
+$total_population      = $non_military_units + $total_military_units;
 
-// Include the universal header AFTER data is ready (advisor needs some of it)
+// Include the universal header AFTER data is ready
 include_once __DIR__ . '/../includes/header.php';
-
-// (Optional) We keep the connection open; footer doesn’t require DB, but other includes might.
 ?>
                 <div class="lg:col-span-4">
                     <div class="rounded-xl border border-yellow-500/50 bg-yellow-900/60 p-3 md:p-4 shadow text-yellow-200 text-sm md:text-base text-center">
@@ -248,8 +249,24 @@ include_once __DIR__ . '/../includes/header.php';
                                 <button type="button" class="text-sm px-2 py-1 rounded bg-gray-800 hover:bg-gray-700" @click="panels.mil = !panels.mil" x-text="panels.mil ? 'Hide' : 'Show'"></button>
                             </div>
                             <div x-show="panels.mil" x-transition x-cloak>
-                                <div class="flex justify-between text-sm"><span>Offense Power:</span> <span class="text-white font-semibold"><?php echo number_format($offense_power); ?></span></div>
-                                <div class="flex justify-between text-sm"><span>Defense Rating:</span> <span class="text-white font-semibold"><?php echo number_format($defense_rating); ?></span></div>
+                                <div class="flex justify-between text-sm items-center">
+                                    <span class="text-gray-300">
+                                        Offense Power
+                                        <?php if (($alliance_bonuses['offense']??0) > 0): ?>
+                                            <span class="ml-2 text-[10px] px-1.5 py-0.5 rounded bg-cyan-900/40 text-cyan-300">+<?php echo (float)$alliance_bonuses['offense']; ?>% alliance</span>
+                                        <?php endif; ?>
+                                    </span>
+                                    <span class="text-white font-semibold"><?php echo number_format($offense_power); ?></span>
+                                </div>
+                                <div class="flex justify-between text-sm items-center">
+                                    <span class="text-gray-300">
+                                        Defense Rating
+                                        <?php if (($alliance_bonuses['defense']??0) > 0): ?>
+                                            <span class="ml-2 text-[10px] px-1.5 py-0.5 rounded bg-cyan-900/40 text-cyan-300">+<?php echo (float)$alliance_bonuses['defense']; ?>% alliance</span>
+                                        <?php endif; ?>
+                                    </span>
+                                    <span class="text-white font-semibold"><?php echo number_format($defense_rating); ?></span>
+                                </div>
                                 <div class="flex justify-between text-sm"><span>Attack Turns:</span> <span class="text-white font-semibold"><?php echo number_format($user_stats['attack_turns']); ?></span></div>
                                 <div class="flex justify-between text-sm"><span>Combat Record (W/L):</span> <span class="text-white font-semibold"><span class="text-green-400"><?php echo $wins; ?></span> / <span class="text-red-400"><?php echo $total_losses; ?></span></span></div>
                             </div>
@@ -275,7 +292,7 @@ include_once __DIR__ . '/../includes/header.php';
                             </div>
                             <div x-show="panels.fleet" x-transition x-cloak>
                                 <div class="flex justify-between text-sm"><span>Total Military:</span> <span class="text-white font-semibold"><?php echo number_format($total_military_units); ?></span></div>
-                                <div class="flex justify-between text-sm"><span>Offensive (Soldiers):</span> <span class="text-white font-semibold"><?php echo number_format($offensive_units); ?></span></div>
+                                <div class="flex justify-between text-sm"><span>Offensive (Soldiers):</span> <span class="text-white font-semibold"><?php echo number_format($user_stats['soldiers']); ?></span></div>
                                 <div class="flex justify-between text-sm"><span>Defensive (Guards):</span> <span class="text-white font-semibold"><?php echo number_format($user_stats['guards']); ?></span></div>
                                 <div class="flex justify-between text-sm"><span>Defensive (Sentries):</span> <span class="text-white font-semibold"><?php echo number_format($user_stats['sentries']); ?></span></div>
                                 <div class="flex justify-between text-sm"><span>Utility (Spies):</span> <span class="text-white font-semibold"><?php echo number_format($utility_units); ?></span></div>
@@ -315,9 +332,36 @@ include_once __DIR__ . '/../includes/header.php';
                                     <div class="w-full bg-gray-700 rounded-full h-2.5 mt-1 border border-gray-600">
                                         <div id="structure-hp-bar" class="bg-cyan-500 h-2.5 rounded-full" style="width: <?php echo $hp_percentage; ?>%"></div>
                                     </div>
-                                    <div class="flex justify-between items-center mt-2">
-                                        <span class="text-xs">Repair Cost: <span id="repair-cost-text" class="font-semibold text-yellow-300"><?php echo number_format($repair_cost); ?></span></span>
-                                        <button id="repair-structure-btn" type="button" class="text-xs bg-green-700 hover:bg-green-600 text-white font-bold py-1 px-2 rounded-md <?php if ($user_stats['credits'] < $repair_cost || $current_hp >= $max_hp) echo 'opacity-50 cursor-not-allowed'; ?>" <?php if ($user_stats['credits'] < $repair_cost || $current_hp >= $max_hp) echo 'disabled'; ?>>Repair</button>
+
+                                    <!-- Keep your compact box look but add HP + Max; namespace IDs to avoid legacy handlers -->
+                                    <div id="dash-fort-repair-box"
+                                         class="mt-3 p-3 rounded-lg bg-gray-900/50 border border-gray-700"
+                                         data-max="<?php echo (int)$max_hp; ?>"
+                                         data-current="<?php echo (int)$current_hp; ?>"
+                                         data-cost-per-hp="10">
+                                        <?php echo csrf_token_field('structure_action'); ?>
+                                        <label for="dash-repair-hp-amount" class="text-xs block text-gray-400 mb-1">Repair HP</label>
+                                        <input type="number" id="dash-repair-hp-amount" min="1" step="1"
+                                               class="w-full p-2 rounded bg-gray-800 border border-gray-700 text-white mb-2 focus:outline-none focus:ring-2 focus:ring-cyan-500"
+                                               placeholder="Enter HP to repair">
+                                        <div class="flex justify-between items-center text-sm mb-2">
+                                            <button type="button" id="dash-repair-max-btn"
+                                                    class="px-2 py-1 rounded bg-gray-800 hover:bg-gray-700 text-cyan-400">
+                                                Repair Max
+                                            </button>
+                                            <span>Estimated Cost:
+                                                <span id="dash-repair-cost-text" class="font-semibold text-yellow-300">
+                                                    <?php echo number_format($repair_cost); ?>
+                                                </span>
+                                                credits
+                                            </span>
+                                        </div>
+                                        <button type="button" id="dash-repair-structure-btn"
+                                                class="w-full bg-green-600 hover:bg-green-700 text-white font-bold py-2 rounded-lg disabled:opacity-50 disabled:cursor-not-allowed"
+                                                <?php if ($current_hp >= $max_hp) echo 'disabled'; ?>>
+                                            Repair
+                                        </button>
+                                        <p class="text-xs text-gray-400 mt-2">Cost is 10 credits per HP.</p>
                                     </div>
                                 <?php } else { ?>
                                     <p class="text-sm text-gray-400 italic">You have not built any foundations yet. Visit the <a href="/structures.php" class="text-cyan-400 hover:underline">Structures</a> page to begin.</p>
@@ -344,6 +388,68 @@ include_once __DIR__ . '/../includes/header.php';
                 </main>
 
                 <?php
-                    // Include the universal footer
                     include_once __DIR__ . '/../includes/footer.php';
                 ?>
+
+<!-- Minimal, namespaced JS for dashboard AJAX repair -->
+<script>
+(function(){
+  const box = document.getElementById('dash-fort-repair-box');
+  if (!box) return;
+
+  const maxHp   = parseInt(box.dataset.max || '0', 10);
+  const curHp   = parseInt(box.dataset.current || '0', 10);
+  const perHp   = parseInt(box.dataset.costPerHp || '10', 10);
+  const missing = Math.max(0, maxHp - curHp);
+
+  const input = document.getElementById('dash-repair-hp-amount');
+  const btnMax = document.getElementById('dash-repair-max-btn');
+  const btnGo  = document.getElementById('dash-repair-structure-btn');
+  const costEl = document.getElementById('dash-repair-cost-text');
+
+  const tokenEl  = box.querySelector('input[name="csrf_token"]');
+  const actionEl = box.querySelector('input[name="csrf_action"]');
+
+  const update = () => {
+    const raw = parseInt((input?.value || '0'), 10) || 0;
+    const eff = Math.max(0, Math.min(raw, missing));
+    if (costEl) costEl.textContent = (eff * perHp).toLocaleString();
+    if (btnGo)  btnGo.disabled = (eff <= 0);
+  };
+
+  btnMax?.addEventListener('click', () => {
+    if (!input) return;
+    input.value = String(missing);
+    update();
+  }, { passive: true });
+
+  input?.addEventListener('input', update, { passive: true });
+  update();
+
+  btnGo?.addEventListener('click', async () => {
+    const hp = Math.max(1, Math.min(parseInt(input?.value || '0', 10) || 0, missing));
+    if (!hp) return;
+
+    btnGo.disabled = true;
+    try {
+      const body = new URLSearchParams();
+      body.set('hp', String(hp));
+      if (tokenEl)  body.set('csrf_token', tokenEl.value);
+      // keep action aligned with the token you rendered
+      body.set('csrf_action', (actionEl?.value || 'structure_action'));
+
+      const res = await fetch('/api/repair_structure.php', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+        body: body.toString()
+      });
+      const data = await res.json();
+      if (!data.success) throw new Error(data.message || 'Repair failed');
+      window.location.reload();
+    } catch (e) {
+      alert(e.message || String(e));
+      btnGo.disabled = false;
+    }
+  });
+})();
+</script>
