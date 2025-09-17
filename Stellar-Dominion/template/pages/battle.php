@@ -37,7 +37,7 @@ $needed_fields = [
 $user_stats = ss_get_user_state($link, $user_id, $needed_fields);
 
 // --- GAME DATA & CALCULATIONS ---
-$unit_costs = ['workers' => 100, 'soldiers' => 250, 'guards' => 250, 'sentries' => 500, 'spies' => 1000];
+$unit_costs = ['workers' => 1000, 'soldiers' => 2500, 'guards' => 2500, 'sentries' => 5000, 'spies' => 10000];
 $unit_names = ['workers' => 'Worker', 'soldiers' => 'Soldier', 'guards' => 'Guard', 'sentries' => 'Sentry', 'spies' => 'Spy'];
 $unit_descriptions = ['workers' => '+50 Credits per turn', 'soldiers' => '+8-12 Offense Power', 'guards' => '+8-12 Defense Power', 'sentries' => '+10 Fortification', 'spies' => '+10 Infiltration'];
 
@@ -196,7 +196,7 @@ include_once __DIR__ . '/../includes/header.php';
                         <div class="flex-grow">
                             <p class="font-bold text-white"><?php echo $unit_names[$unit]; ?></p>
                             <p class="text-xs text-yellow-400 font-semibold"><?php echo $unit_descriptions[$unit]; ?></p>
-                            <p class="text-xs">Refund: <?php echo number_format($cost * 0.75); ?> Credits</p>
+                            <p class="text-xs">Refund: There are no refunds for disbanding troops</p>
                             <p class="text-xs">Owned: <?php echo number_format($user_stats[$unit]); ?></p>
                         </div>
                         <div class="flex items-center space-x-2">
