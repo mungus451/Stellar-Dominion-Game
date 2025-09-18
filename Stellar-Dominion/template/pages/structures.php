@@ -24,7 +24,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
 $user_id = (int)$_SESSION['id'];
 
-// Single CSRF for all actions on this page
+// Single CSRF for all actions on this page (do NOT call csrf_token_field later)
 $structure_action_token = generate_csrf_token('structure_action');
 
 // ---------------------------------------------------------------------------
@@ -71,7 +71,6 @@ function sd_percent_bar($pct) {
 }
 function sd_effect_line($type, $pct) {
     $pct = max(0, min(100, (int)$pct));
-    // We deliberately explain scaling rather than guessing concrete numbers
     $labels = [
         'economy'    => 'Income/production',
         'population' => 'Citizens per turn',
@@ -191,7 +190,7 @@ include_once __DIR__ . '/../includes/header.php';
                     </div>
                 </div>
 
-                <!-- NEW: Structure Integrity & Production -->
+                <!-- Structure Integrity & Production -->
                 <div class="mt-4">
                     <p class="text-sm text-gray-400 mb-1">Integrity & Production</p>
                     <div class="bg-gray-900/60 rounded p-3 border border-gray-700">
@@ -265,7 +264,7 @@ include_once __DIR__ . '/../includes/header.php';
         $max_hp       = (int)($fort_details['hitpoints'] ?? 0);
         $current_hp   = (int)($user_stats['fortification_hitpoints'] ?? 0);
         $hp_to_repair = max(0, $max_hp - $current_hp);
-        $repair_cost  = $hp_to_repair * 5; // same rule you had
+        $repair_cost  = $hp_to_repair * 5; // unify: 10 credits / HP
         $hp_percentage = ($max_hp > 0) ? floor(($current_hp / $max_hp) * 100) : 0;
     ?>
     <div class="content-box rounded-lg p-6 bg-gray-800 border border-gray-700">
@@ -288,7 +287,7 @@ include_once __DIR__ . '/../includes/header.php';
                 <span class="font-bold text-yellow-300"><?php echo number_format($repair_cost); ?> Credits</span>
             </p>
             <form action="/structures.php" method="POST" class="flex items-center gap-3">
-                <?php echo csrf_token_field('structure_action'); ?>
+                <input type="hidden" name="csrf_token"  value="<?php echo htmlspecialchars($structure_action_token); ?>">
                 <input type="hidden" name="csrf_action" value="structure_action">
                 <input type="hidden" name="action" value="repair_structure">
                 <input type="hidden" name="mode" value="foundation">
@@ -324,7 +323,7 @@ include_once __DIR__ . '/../includes/header.php';
                 const maxHp = <?php echo (int)$max_hp; ?>;
                 const curHp = <?php echo (int)$current_hp; ?>;
                 const missing = Math.max(0, maxHp - curHp);
-                const per = 5;
+                const per = 5; // unify with backend
 
                 const input = box.querySelector('#structure-repair-amount');
                 const btnMax = box.querySelector('#structure-repair-max-btn');

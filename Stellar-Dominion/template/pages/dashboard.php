@@ -326,7 +326,7 @@ include_once __DIR__ . '/../includes/header.php';
                                     $current_hp = (int)$user_stats['fortification_hitpoints'];
                                     $hp_percentage = ($max_hp > 0) ? floor(($current_hp / $max_hp) * 100) : 0;
                                     $hp_to_repair = max(0, $max_hp - $current_hp);
-                                    $repair_cost = $hp_to_repair * 10;
+                                    $repair_cost = $hp_to_repair * 5;
                                 ?>
                                     <div class="text-sm"><span>Foundation Health:</span> <span id="structure-hp-text" class="font-semibold <?php echo ($hp_percentage < 50) ? 'text-red-400' : 'text-green-400'; ?>"><?php echo number_format($current_hp) . ' / ' . number_format($max_hp); ?> (<?php echo $hp_percentage; ?>%)</span></div>
                                     <div class="w-full bg-gray-700 rounded-full h-2.5 mt-1 border border-gray-600">
@@ -338,7 +338,7 @@ include_once __DIR__ . '/../includes/header.php';
                                          class="mt-3 p-3 rounded-lg bg-gray-900/50 border border-gray-700"
                                          data-max="<?php echo (int)$max_hp; ?>"
                                          data-current="<?php echo (int)$current_hp; ?>"
-                                         data-cost-per-hp="10">
+                                         data-cost-per-hp="5">
                                         <?php echo csrf_token_field('structure_action'); ?>
                                         <label for="dash-repair-hp-amount" class="text-xs block text-gray-400 mb-1">Repair HP</label>
                                         <input type="number" id="dash-repair-hp-amount" min="1" step="1"
@@ -361,7 +361,7 @@ include_once __DIR__ . '/../includes/header.php';
                                                 <?php if ($current_hp >= $max_hp) echo 'disabled'; ?>>
                                             Repair
                                         </button>
-                                        <p class="text-xs text-gray-400 mt-2">Cost is 10 credits per HP.</p>
+                                        <p class="text-xs text-gray-400 mt-2">Cost is 5 credits per HP.</p>
                                     </div>
                                 <?php } else { ?>
                                     <p class="text-sm text-gray-400 italic">You have not built any foundations yet. Visit the <a href="/structures.php" class="text-cyan-400 hover:underline">Structures</a> page to begin.</p>

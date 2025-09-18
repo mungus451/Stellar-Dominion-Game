@@ -15,18 +15,28 @@ require_once __DIR__ . '/../Game/GameData.php';
 require_once __DIR__ . '/../Game/GameFunctions.php';
 require_once __DIR__ . '/../Services/StateService.php'; // ss_ensure_structure_rows()
 
+/**
+ * CSRF validator that tolerates multiple action names used across older forms.
+ * We try the posted action first (if any), then fall back to common legacy names.
+ */
+function sd_validate_csrf_compat(string $token, ?string $postedAction): bool {
+    $candidates = array_unique(array_filter([
+        $postedAction,           // whatever the form sent
+        'structure_action',      // current standard
+        'repair_structure',      // earlier API/action name
+        'default',               // legacy default in some forms
+    ]));
+    foreach ($candidates as $act) {
+        if (validate_csrf_token($token, $act)) return true;
+    }
+    return false;
+}
+
 // --- CSRF VALIDATION ---
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     $token  = $_POST['csrf_token']  ?? '';
-    // Standardize on 'structure_action', but accept legacy 'repair_structure'
-    $action = $_POST['csrf_action'] ?? 'structure_action';
-
-    $valid = validate_csrf_token($token, $action);
-    if (!$valid && $action !== 'repair_structure') {
-        // Legacy fallback
-        $valid = validate_csrf_token($token, 'repair_structure');
-    }
-    if (!$valid) {
+    $action = $_POST['csrf_action'] ?? null;
+    if (!sd_validate_csrf_compat($token, $action)) {
         $_SESSION['build_error'] = "A security error occurred (Invalid Token). Please try again.";
         header("location: /structures.php");
         exit;
