@@ -340,40 +340,32 @@ if ($user_id>0 && ($st=mysqli_prepare($link,"
     foreach($days as $idx=>$d){ if(isset($map[$d])){ $outcome_series['att_win'][$idx]=$map[$d]['aw']; $outcome_series['def_win'][$idx]=$map[$d]['dw']; } }
 }
 
-/* Attack frequency */
-$attack_freq = array_fill(0,7,0);
-if ($user_id>0 && ($st=mysqli_prepare($link,"
-    SELECT DATE(battle_time) d, COUNT(*) c
-    FROM battle_logs
-    WHERE battle_time >= DATE_SUB(UTC_TIMESTAMP(), INTERVAL 7 DAY)
-      AND attacker_id=?
-    GROUP BY DATE(battle_time)
-    ORDER BY d ASC
-"))){
-    mysqli_stmt_bind_param($st,"i",$user_id);
-    mysqli_stmt_execute($st);
-    $rs=mysqli_stmt_get_result($st);
-    $map=[]; while($r=mysqli_fetch_assoc($rs)){ $map[$r['d']] = (int)$r['c']; }
-    mysqli_stmt_close($st);
-    foreach($days as $idx=>$d){ if(isset($map[$d])) $attack_freq[$idx]=$map[$d]; }
-}
-
-/* Defense frequency */
+/* Attack + Defense frequency (combined) */
+$attack_freq  = array_fill(0,7,0);
 $defense_freq = array_fill(0,7,0);
 if ($user_id>0 && ($st=mysqli_prepare($link,"
-    SELECT DATE(battle_time) d, COUNT(*) c
+    SELECT DATE(battle_time) d,
+           SUM(CASE WHEN attacker_id=? THEN 1 ELSE 0 END) AS a,
+           SUM(CASE WHEN defender_id=? THEN 1 ELSE 0 END) AS df
     FROM battle_logs
     WHERE battle_time >= DATE_SUB(UTC_TIMESTAMP(), INTERVAL 7 DAY)
-      AND defender_id=?
+      AND (attacker_id=? OR defender_id=?)
     GROUP BY DATE(battle_time)
     ORDER BY d ASC
 "))){
-    mysqli_stmt_bind_param($st,"i",$user_id);
+    mysqli_stmt_bind_param($st,"iiii",$user_id,$user_id,$user_id,$user_id);
     mysqli_stmt_execute($st);
     $rs=mysqli_stmt_get_result($st);
-    $map=[]; while($r=mysqli_fetch_assoc($rs)){ $map[$r['d']] = (int)$r['c']; }
+    $map=[]; while($r=mysqli_fetch_assoc($rs)){
+        $map[$r['d']] = ['a'=>(int)$r['a'], 'df'=>(int)$r['df']];
+    }
     mysqli_stmt_close($st);
-    foreach($days as $idx=>$d){ if(isset($map[$d])) $defense_freq[$idx]=$map[$d]; }
+    foreach($days as $idx=>$d){
+        if(isset($map[$d])){
+            $attack_freq[$idx]  = $map[$d]['a'];
+            $defense_freq[$idx] = $map[$d]['df'];
+        }
+    }
 }
 
 /* Outcome rates (wins ÷ total per day) */
