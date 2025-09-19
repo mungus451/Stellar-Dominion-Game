@@ -242,8 +242,12 @@ $sentry_defense = (int)floor($sentry_defense_base * $defense_integrity_mult);
 function sd_fmt_pct(float $v):string{ $s=rtrim(rtrim(number_format($v,1),'0'),'.'); return ($v>=0?'+':'').$s.'%'; }
 function sd_render_chips(array $chips):string{
     if(empty($chips)) return '';
-    $html='<span class="ml-2 inline-flex flex-wrap gap-1 align-middle">';
-    foreach($chips as $c){ $html.='<span class="text-[10px] px-1.5 py-0.5 rounded bg-cyan-900/40 text-cyan-300 border border-cyan-800/60">'.htmlspecialchars($c['label']).'</span>'; }
+    /* Mobile: chips go to next line; Desktop: inline like before */
+    $html='<span class="ml-0 md:ml-2 block md:inline-flex flex-wrap gap-1 align-middle mt-1 md:mt-0">';
+    foreach($chips as $c){
+        $html.='<span class="text-[10px] px-1.5 py-0.5 rounded bg-cyan-900/40 text-cyan-300 border border-cyan-800/60">'.
+               htmlspecialchars($c['label']).'</span>';
+    }
     return $html.'</span>';
 }
 $chips=['income'=>[],'population'=>[],'offense'=>[],'defense'=>[]];
@@ -480,7 +484,8 @@ include_once __DIR__ . '/../includes/header.php';
     <!-- PROFILE / POPULATION CARD (full width) -->
     <div class="lg:col-span-4">
         <div class="content-box rounded-lg p-5 md:p-6">
-            <div class="flex flex-col md:flex-row items-center gap-5">
+            <!-- Mobile: align to start so content doesn't feel squished -->
+            <div class="flex flex-col md:flex-row items-start md:items-center gap-5">
                 <button id="avatar-open" class="block focus:outline-none">
                     <img src="<?php echo htmlspecialchars($user_stats['avatar_path'] ?? 'https://via.placeholder.com/150'); ?>"
                          alt="Avatar"
@@ -495,9 +500,15 @@ include_once __DIR__ . '/../includes/header.php';
                                 <p class="text-sm">Alliance: <span class="font-bold">[<?php echo htmlspecialchars($alliance_info['tag']); ?>] <?php echo htmlspecialchars($alliance_info['name']); ?></span></p>
                             <?php endif; ?>
                         </div>
-                        <div class="grid grid-cols-2 md:grid-cols-4 gap-3 text-sm bg-gray-900/40 p-3 rounded-lg border border-gray-700">
+                        <!-- Mobile = 1 col, small gap; sm+ = 2 cols; md+ = 4 cols -->
+                        <div class="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-2 md:gap-3 text-sm bg-gray-900/40 p-3 rounded-lg border border-gray-700">
                             <div><div class="text-gray-400">Total Pop</div><div class="text-white font-semibold"><?php echo number_format($total_population); ?></div></div>
-                            <div><div class="text-gray-400">Citizens/Turn<?php echo sd_render_chips($chips['population']); ?></div><div class="text-green-400 font-semibold">+<?php echo number_format($citizens_per_turn); ?></div></div>
+                            <div>
+                                <div class="text-gray-400">
+                                    Citizens/Turn<?php echo sd_render_chips($chips['population']); ?>
+                                </div>
+                                <div class="text-green-400 font-semibold">+<?php echo number_format($citizens_per_turn); ?></div>
+                            </div>
                             <div><div class="text-gray-400">Untrained</div><div class="text-white font-semibold"><?php echo number_format($user_stats['untrained_citizens']); ?></div></div>
                             <div><div class="text-gray-400">Workers</div><div class="text-white font-semibold"><?php echo number_format($user_stats['workers']); ?></div></div>
                         </div>
