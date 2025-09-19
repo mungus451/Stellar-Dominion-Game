@@ -94,3 +94,8 @@ if (!function_exists('sd_charisma_discount_multiplier')) {
         return 1.0 - ($discountPct / 100.0);
     }
 }
+
+// config/balance.php
+if (!defined('ALLIANCE_BASE_COMBAT_BONUS')) {
+    define('ALLIANCE_BASE_COMBAT_BONUS', 0.10); // 10%
+}

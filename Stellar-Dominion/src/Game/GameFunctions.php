@@ -260,6 +260,11 @@ function calculate_income_summary(mysqli $link, int $user_id, array $user_stats)
         'base_income_per_turn'      => (int)$BASE_INCOME_PER_TURN,
         'worker_income'             => (int)$worker_income,
         'worker_armory_bonus'       => (int)$worker_armory_bonus,
+        'base_income_subtotal'      => (int)$base_income,            // base + workers (pre-mult)
+        'workers'                   => (int)$workers,
+        'credits_per_worker'        => (int)$CREDITS_PER_WORKER,
+        'economy_mult_upgrades'     => $economy_mult_upgrades,
+        'economy_struct_mult'       => $economy_struct_mult,
         'mult' => [
             'wealth'             => $wealth_mult,
             'economy'            => $economy_mult,
