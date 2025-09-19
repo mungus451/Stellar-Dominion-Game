@@ -689,8 +689,8 @@ include_once __DIR__ . '/../includes/header.php';
                         <path d="<?php echo htmlspecialchars(sparkline_path($outcome_series['def_win'])); ?>" stroke="currentColor" stroke-width="1.8" fill="none" stroke-linecap="round" stroke-linejoin="round" class="text-purple-400"/>
                     </svg>
                     <div class="flex gap-4 text-[11px] text-gray-400 mt-1">
-                        <span class="inline-flex items-center"><span class="w-2 h-2 rounded-full bg-green-400 mr-1"></span>Attack wins</span>
-                        <span class="inline-flex items-center"><span class="w-2 h-2 rounded-full bg-purple-400 mr-1"></span>Defense wins</span>
+                        <span class="inline-flex items-center"><span class="w-2 h-2 rounded-full bg-green-400 mr-1"></span># of Attack Wins </span>
+                        <span class="inline-flex items-center"><span class="w-2 h-2 rounded-full bg-purple-400 mr-1"></span># of Defense Wins</span>
                     </div>
                 </div>
 
