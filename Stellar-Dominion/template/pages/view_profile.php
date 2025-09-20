@@ -1,200 +1,254 @@
 <?php
-/**
- * template/pages/view_profile.php
- * Redesign v3: roomier layout, Actions first tab,
- * Overview shows battle history + badges previews.
- * CHANGE: remove unit sub-counts in Overview.
- * CHANGE: badge preview shows highest tier per badge line only.
- */
-
+// --- PAGE CONFIGURATION ---
 $page_title  = 'Commander Profile';
-$active_page = 'attack.php';
+$active_page = 'view_profile.php';
 
-require_once __DIR__ . '/../../src/Services/StateService.php';
+date_default_timezone_set('UTC');
+require_once __DIR__ . '/../../config/config.php';
 require_once __DIR__ . '/../includes/advisor_hydration.php';
 
-$viewer = $user_stats;
+// Router already started session + auth
+$user_id = isset($_SESSION['id']) ? (int)$_SESSION['id'] : 0;
+if ($user_id <= 0) { header('Location: /index.php'); exit; }
 
-/** Session/Inputs */
-$is_logged_in = !empty($_SESSION['loggedin']);
-$viewer_id    = (int)($_SESSION['id'] ?? 0);
-
-$profile_id = isset($_GET['id']) ? (int)$_GET['id'] : 0;
-if ($profile_id <= 0) { header('Location: /attack.php'); exit; }
-
-/** CSRF */
-$csrf_token = function_exists('generate_csrf_token')
-    ? generate_csrf_token()
-    : ($_SESSION['csrf_token'] ?? bin2hex(random_bytes(16)));
-
-/** Target profile */
-$sql_profile = "
-    SELECT u.*,
-           a.name AS alliance_name,
-           a.tag  AS alliance_tag
-      FROM users u
- LEFT JOIN alliances a ON a.id = u.alliance_id
-     WHERE u.id = ? LIMIT 1";
-$stmt = mysqli_prepare($link, $sql_profile);
-mysqli_stmt_bind_param($stmt, "i", $profile_id);
-mysqli_stmt_execute($stmt);
-$profile = mysqli_fetch_assoc(mysqli_stmt_get_result($stmt));
-mysqli_stmt_close($stmt);
-
-if (!$profile) { header('Location: /attack.php'); exit; }
-
-/** Time helpers (ET) */
-if (!function_exists('format_et_time')) {
-    function format_et_time(string $utcTs, string $fmt = 'H:i'): string {
-        try {
-            $dt = new DateTime($utcTs, new DateTimeZone('UTC'));
-            $dt->setTimezone(new DateTimeZone('America/New_York'));
-            return $dt->format($fmt);
-        } catch (Throwable $e) { return $utcTs; }
+// =====================================================
+// Handle POST: ATTACK handled locally (attack.php is list-only)
+// =====================================================
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
+    if ((string)$_POST['action'] === 'attack') {
+        require_once __DIR__ . '/../../src/Controllers/AttackController.php';
+        exit;
     }
+    // other actions (invite, etc.) follow your existing routing
 }
 
-/** H2H: today (ET) & last hour */
-$h2h_today = ['count' => 0, 'rows' => []];
-$h2h_hour  = ['count' => 0, 'rows' => []];
-if ($is_logged_in && $viewer_id && $viewer_id !== $profile_id) {
-    $tzET    = new DateTimeZone('America/New_York');
-    $nowET   = new DateTime('now', $tzET);
-    $startET = (clone $nowET); $startET->setTime(0, 0, 0);
-    $endET   = (clone $startET); $endET->modify('+1 day');
-
-    $startUtcDay = (clone $startET)->setTimezone(new DateTimeZone('UTC'))->format('Y-m-d H:i:s');
-    $endUtcDay   = (clone $endET)->setTimezone(new DateTimeZone('UTC'))->format('Y-m-d H:i:s');
-
-    $nowUtc      = new DateTime('now', new DateTimeZone('UTC'));
-    $oneHourAgo  = (clone $nowUtc)->modify('-1 hour');
-    $oneHourAgoS = $oneHourAgo->format('Y-m-d H:i:s');
-    $nowUtcS     = $nowUtc->format('Y-m-d H:i:s');
-
-    $sql_union = "
-        SELECT 'out' AS dir, battle_time
-          FROM battle_logs
-         WHERE attacker_id = ? AND defender_id = ?
-           AND battle_time >= ? AND battle_time < ?
-        UNION ALL
-        SELECT 'in'  AS dir, battle_time
-          FROM battle_logs
-         WHERE attacker_id = ? AND defender_id = ?
-           AND battle_time >= ? AND battle_time < ?
-        ORDER BY battle_time DESC";
-
-    if ($stmt_h2d = mysqli_prepare($link, $sql_union)) {
-        mysqli_stmt_bind_param(
-            $stmt_h2d,
-            "iissiiss",
-            $viewer_id, $profile_id, $startUtcDay, $endUtcDay,
-            $profile_id, $viewer_id, $startUtcDay, $endUtcDay
-        );
-        mysqli_stmt_execute($stmt_h2d);
-        if ($res = mysqli_stmt_get_result($stmt_h2d)) {
-            while ($row = $res->fetch_assoc()) {
-                $h2h_today['rows'][] = ['dir' => ($row['dir'] === 'out' ? 'out' : 'in'), 'ts' => $row['battle_time']];
-            }
-            $res->free();
-        }
-        mysqli_stmt_close($stmt_h2d);
-        $h2h_today['count'] = count($h2h_today['rows']);
-    }
-
-    if ($stmt_h1h = mysqli_prepare($link, $sql_union)) {
-        mysqli_stmt_bind_param(
-            $stmt_h1h,
-            "iissiiss",
-            $viewer_id, $profile_id, $oneHourAgoS, $nowUtcS,
-            $profile_id, $viewer_id, $oneHourAgoS, $nowUtcS
-        );
-        mysqli_stmt_execute($stmt_h1h);
-        if ($res = mysqli_stmt_get_result($stmt_h1h)) {
-            while ($row = $res->fetch_assoc()) {
-                $h2h_hour['rows'][] = ['dir' => ($row['dir'] === 'out' ? 'out' : 'in'), 'ts' => $row['battle_time']];
-            }
-            $res->free();
-        }
-        mysqli_stmt_close($stmt_h1h);
-        $h2h_hour['count'] = count($h2h_hour['rows']);
-    }
+// =====================================================
+// Resolve target id
+// =====================================================
+$target_id = 0;
+if (isset($_GET['id']))   $target_id = (int)$_GET['id'];
+if (isset($_GET['user'])) $target_id = (int)$_GET['user'];
+if ($target_id <= 0) {
+    $_SESSION['attack_error'] = 'No profile selected.';
+    header('Location: /attack.php');
+    exit;
 }
 
-/** Permissions/flags */
-$viewer_permissions = ['can_invite_members' => 0];
-if ($viewer) {
-    $role_id = (int)($viewer['alliance_role_id'] ?? 0);
-    if ($role_id) {
-        $stmt_r = mysqli_prepare($link, "SELECT can_invite_members FROM alliance_roles WHERE id = ? LIMIT 1");
-        mysqli_stmt_bind_param($stmt_r, "i", $role_id);
-        mysqli_stmt_execute($stmt_r);
-        $perm = mysqli_fetch_assoc(mysqli_stmt_get_result($stmt_r)) ?: [];
-        mysqli_stmt_close($stmt_r);
-        $viewer_permissions['can_invite_members'] = (int)($perm['can_invite_members'] ?? 0);
-    }
+// =====================================================
+// Helpers
+// =====================================================
+function sd_ago_label(DateTime $dt, DateTime $now): string {
+    $diff = $now->getTimestamp() - $dt->getTimestamp();
+    if ($diff < 60) return 'just now';
+    if ($diff < 3600) return floor($diff/60) . 'm ago';
+    if ($diff < 86400) return floor($diff/3600) . 'h ago';
+    return floor($diff/86400) . 'd ago';
+}
+function sd_pct($val, $max) {
+    $max = max(1, (int)$max);
+    $pct = (int)round(($val / $max) * 100);
+    return max(2, min(100, $pct));
 }
 
-$is_same_alliance  = ($viewer && !empty($viewer['alliance_id']) && !empty($profile['alliance_id']) && (int)$viewer['alliance_id'] === (int)$profile['alliance_id']);
-$can_attack_or_spy = $is_logged_in && $viewer_id !== $profile_id && !$is_same_alliance;
-$can_invite        = $is_logged_in && !empty($viewer['alliance_id']) && empty($profile['alliance_id']) && !empty($viewer_permissions['can_invite_members']);
+// =====================================================
+// Fetch viewer (for alliance/permissions)
+// =====================================================
+$me = ['alliance_id' => null, 'alliance_role_id' => null];
+if ($stmt = mysqli_prepare($link, "SELECT alliance_id, alliance_role_id FROM users WHERE id = ? LIMIT 1")) {
+    mysqli_stmt_bind_param($stmt, "i", $user_id);
+    mysqli_stmt_execute($stmt);
+    $me = mysqli_fetch_assoc(mysqli_stmt_get_result($stmt)) ?: $me;
+    mysqli_stmt_close($stmt);
+}
+$my_alliance_id = (int)($me['alliance_id'] ?? 0);
+$my_role_id     = (int)($me['alliance_role_id'] ?? 0);
 
-$is_rival = false;
-if ($viewer && !empty($viewer['alliance_id']) && !empty($profile['alliance_id']) && (int)$viewer['alliance_id'] !== (int)$profile['alliance_id']) {
-    $a1 = (int)$viewer['alliance_id']; $a2 = (int)$profile['alliance_id'];
-    $qry = "SELECT heat_level FROM rivalries
-            WHERE (alliance1_id = $a1 AND alliance2_id = $a2) OR (alliance1_id = $a2 AND alliance2_id = $a1)
-            LIMIT 1";
-    if ($res = $link->query($qry)) {
-        if ($rv = $res->fetch_assoc()) { $is_rival = ((int)$rv['heat_level'] >= 10); }
-        $res->free();
-    }
+// Can invite?
+$can_invite = false;
+if ($my_role_id > 0 && ($perm = mysqli_prepare($link, "SELECT can_invite_members FROM alliance_roles WHERE id = ? LIMIT 1"))) {
+    mysqli_stmt_bind_param($perm, "i", $my_role_id);
+    mysqli_stmt_execute($perm);
+    $prow = mysqli_fetch_assoc(mysqli_stmt_get_result($perm)) ?: [];
+    mysqli_stmt_close($perm);
+    $can_invite = (bool)($prow['can_invite_members'] ?? 0);
 }
 
-/** Derived stats */
-$army_size = (int)$profile['soldiers'] + (int)$profile['guards'] + (int)$profile['sentries'] + (int)$profile['spies'];
-$is_online = (time() - (int)strtotime($profile['last_updated'])) < 900;
+// =====================================================
+// Fetch profile + alliance info
+// =====================================================
+$profile = [];
+$sql = "
+SELECT u.id, u.character_name, u.avatar_path, u.race, u.class, u.level, u.biography,
+       u.credits, u.last_updated, u.alliance_id,
+       a.tag AS alliance_tag, a.name AS alliance_name
+FROM users u
+LEFT JOIN alliances a ON a.id = u.alliance_id
+WHERE u.id = ?
+LIMIT 1";
+if ($stmt = mysqli_prepare($link, $sql)) {
+    mysqli_stmt_bind_param($stmt, "i", $target_id);
+    mysqli_stmt_execute($stmt);
+    $profile = mysqli_fetch_assoc(mysqli_stmt_get_result($stmt)) ?: [];
+    mysqli_stmt_close($stmt);
+}
+if (!$profile) {
+    $_SESSION['attack_error'] = 'Profile not found.';
+    header('Location: /attack.php');
+    exit;
+}
 
+// =====================================================
+// Derived flags + online status + rivalry
+// =====================================================
+$is_self            = ($user_id === (int)$profile['id']);
+$target_alliance_id = (int)($profile['alliance_id'] ?? 0);
+$is_same_alliance   = (!$is_self && $my_alliance_id > 0 && $my_alliance_id === $target_alliance_id);
+$can_attack_or_spy  = !$is_self && !$is_same_alliance;
+
+$is_online = false;
 $last_online_label = '';
-if (!empty($profile['last_login_at'])) {
-    try {
-        $lastLoginUtc   = new DateTime($profile['last_login_at'], new DateTimeZone('UTC'));
-        $last_login_ts  = $lastLoginUtc->getTimestamp();
-        if ((time() - $last_login_ts) <= (7 * 24 * 3600)) {
-            $last_online_label = format_et_time($profile['last_login_at'], 'Y-m-d H:i') . ' ET';
-        }
-    } catch (Throwable $e) {}
+if (!empty($profile['last_updated'])) {
+    $lu  = new DateTime($profile['last_updated']);
+    $now = new DateTime('now', new DateTimeZone('UTC'));
+    $is_online = ($now->getTimestamp() - $lu->getTimestamp()) <= (5*60);
+    $last_online_label = sd_ago_label($lu, $now);
 }
 
-/** Rank by net worth */
+// Rival status (alliances)
+$is_rival = false;
+if ($my_alliance_id && $target_alliance_id && $my_alliance_id !== $target_alliance_id) {
+    $sqlR = "SELECT 1 FROM rivalries WHERE (a_min = LEAST(?,?)) AND (a_max = GREATEST(?,?)) LIMIT 1";
+    if ($stmt = mysqli_prepare($link, $sqlR)) {
+        mysqli_stmt_bind_param($stmt, "iiii", $my_alliance_id, $target_alliance_id, $my_alliance_id, $target_alliance_id);
+        mysqli_stmt_execute($stmt);
+        mysqli_stmt_store_result($stmt);
+        $is_rival = (mysqli_stmt_num_rows($stmt) > 0);
+        mysqli_stmt_close($stmt);
+    }
+}
+
+// =====================================================
+// Rank under ORDER BY level DESC, credits DESC
+// =====================================================
 $player_rank = null;
-if (isset($profile['net_worth'])) {
-    $nw = (int)$profile['net_worth'];
-    $stmt_rank = mysqli_prepare($link, "SELECT COUNT(*) + 1 AS rank FROM users WHERE net_worth > ?");
-    mysqli_stmt_bind_param($stmt_rank, "i", $nw);
-    mysqli_stmt_execute($stmt_rank);
-    $row_rank = mysqli_fetch_assoc(mysqli_stmt_get_result($stmt_rank)) ?: [];
-    mysqli_stmt_close($stmt_rank);
-    $player_rank = (int)($row_rank['rank'] ?? 0);
+if ($stmt = mysqli_prepare($link, "SELECT level, credits FROM users WHERE id = ? LIMIT 1")) {
+    mysqli_stmt_bind_param($stmt, "i", $target_id);
+    mysqli_stmt_execute($stmt);
+    $meRow = mysqli_fetch_assoc(mysqli_stmt_get_result($stmt));
+    mysqli_stmt_close($stmt);
+    if ($meRow) {
+        $lvl = (int)$meRow['level'];
+        $cr  = (int)$meRow['credits'];
+        $stmt2 = mysqli_prepare($link, "
+            SELECT COUNT(*) AS better
+            FROM users
+            WHERE (level > ?) OR (level = ? AND credits > ?)
+        ");
+        mysqli_stmt_bind_param($stmt2, "iii", $lvl, $lvl, $cr);
+        mysqli_stmt_execute($stmt2);
+        $row = mysqli_fetch_assoc(mysqli_stmt_get_result($stmt2));
+        mysqli_stmt_close($stmt2);
+        $player_rank = (int)($row['better'] ?? 0) + 1;
+    }
 }
 
-/** War history summary */
-$wins=0; $loss_atk=0; $loss_def=0;
-$stmt_b = mysqli_prepare($link, "
-    SELECT
-      SUM(CASE WHEN attacker_id = ? AND outcome='victory' THEN 1 ELSE 0 END) AS wins,
-      SUM(CASE WHEN attacker_id = ? AND outcome='defeat'  THEN 1 ELSE 0 END) AS losses_as_attacker,
-      SUM(CASE WHEN defender_id = ? AND outcome='victory' THEN 1 ELSE 0 END) AS losses_as_defender
-    FROM battle_logs
-    WHERE attacker_id = ? OR defender_id = ?");
-mysqli_stmt_bind_param($stmt_b, "iiiii", $profile_id, $profile_id, $profile_id, $profile_id, $profile_id);
-mysqli_stmt_execute($stmt_b);
-$br = mysqli_fetch_assoc(mysqli_stmt_get_result($stmt_b)) ?: [];
-mysqli_stmt_close($stmt_b);
-$wins      = (int)($br['wins'] ?? 0);
-$loss_atk  = (int)($br['losses_as_attacker'] ?? 0);
-$loss_def  = (int)($br['losses_as_defender'] ?? 0);
+// =====================================================
+// Combat stats + H2H (between viewer and target)
+// =====================================================
+$wins = $loss_atk = $loss_def = 0;
+if ($stmt = mysqli_prepare($link, "SELECT 
+    SUM(outcome='victory' AND attacker_id=?) AS w,
+    SUM(outcome='defeat'  AND attacker_id=?) AS la
+    FROM battle_logs")) {
+    mysqli_stmt_bind_param($stmt, "ii", $target_id, $target_id);
+    mysqli_stmt_execute($stmt);
+    $row = mysqli_fetch_assoc(mysqli_stmt_get_result($stmt)) ?: [];
+    mysqli_stmt_close($stmt);
+    $wins     = (int)($row['w']  ?? 0);
+    $loss_atk = (int)($row['la'] ?? 0);
+}
+if ($stmt = mysqli_prepare($link, "SELECT COUNT(*) AS ld FROM battle_logs WHERE defender_id=? AND outcome='victory'")) {
+    mysqli_stmt_bind_param($stmt, "i", $target_id);
+    mysqli_stmt_execute($stmt);
+    $row = mysqli_fetch_assoc(mysqli_stmt_get_result($stmt)) ?: [];
+    mysqli_stmt_close($stmt);
+    $loss_def = (int)($row['ld'] ?? 0);
+}
 
-/** Badges earned (tolerate table absence) */
+$h2h_today = ['count' => 0];
+$h2h_hour  = ['count' => 0];
+$you_wins_vs_them = $them_wins_vs_you = 0;
+if ($user_id && $user_id !== $target_id) {
+    // Today (UTC day)
+    $stmt = mysqli_prepare($link, "
+        SELECT COUNT(*) AS c FROM battle_logs
+        WHERE ((attacker_id=? AND defender_id=?) OR (attacker_id=? AND defender_id=?))
+          AND battle_time >= UTC_DATE()
+    ");
+    mysqli_stmt_bind_param($stmt, "iiii", $user_id, $target_id, $target_id, $user_id);
+    mysqli_stmt_execute($stmt);
+    $row = mysqli_fetch_assoc(mysqli_stmt_get_result($stmt)) ?: [];
+    mysqli_stmt_close($stmt);
+    $h2h_today['count'] = (int)($row['c'] ?? 0);
+
+    // Last hour
+    $stmt = mysqli_prepare($link, "
+        SELECT COUNT(*) AS c FROM battle_logs
+        WHERE ((attacker_id=? AND defender_id=?) OR (attacker_id=? AND defender_id=?))
+          AND battle_time >= (UTC_TIMESTAMP() - INTERVAL 1 HOUR)
+    ");
+    mysqli_stmt_bind_param($stmt, "iiii", $user_id, $target_id, $target_id, $user_id);
+    mysqli_stmt_execute($stmt);
+    $row = mysqli_fetch_assoc(mysqli_stmt_get_result($stmt)) ?: [];
+    mysqli_stmt_close($stmt);
+    $h2h_hour['count'] = (int)($row['c'] ?? 0);
+
+    // Wins vs each other
+    if ($stmt = mysqli_prepare($link, "SELECT COUNT(*) c FROM battle_logs WHERE attacker_id=? AND defender_id=? AND outcome='victory'")) {
+        mysqli_stmt_bind_param($stmt, "ii", $user_id, $target_id);
+        mysqli_stmt_execute($stmt);
+        $row = mysqli_fetch_assoc(mysqli_stmt_get_result($stmt)) ?: [];
+        mysqli_stmt_close($stmt);
+        $you_wins_vs_them = (int)($row['c'] ?? 0);
+    }
+    if ($stmt = mysqli_prepare($link, "SELECT COUNT(*) c FROM battle_logs WHERE attacker_id=? AND defender_id=? AND outcome='victory'")) {
+        mysqli_stmt_bind_param($stmt, "ii", $target_id, $user_id);
+        mysqli_stmt_execute($stmt);
+        $row = mysqli_fetch_assoc(mysqli_stmt_get_result($stmt)) ?: [];
+        mysqli_stmt_close($stmt);
+        $them_wins_vs_you = (int)($row['c'] ?? 0);
+    }
+}
+
+// Last 7 days activity between you and them (both directions)
+$series_days = [];
+if ($user_id && $user_id !== $target_id) {
+    if ($stmt = mysqli_prepare($link, "
+        SELECT DATE(battle_time) d, COUNT(*) c
+          FROM battle_logs
+         WHERE ((attacker_id=? AND defender_id=?) OR (attacker_id=? AND defender_id=?))
+           AND battle_time >= (UTC_DATE() - INTERVAL 6 DAY)
+         GROUP BY DATE(battle_time)
+         ORDER BY d ASC
+    ")) {
+        mysqli_stmt_bind_param($stmt, "iiii", $user_id, $target_id, $target_id, $user_id);
+        mysqli_stmt_execute($stmt);
+        $res = mysqli_stmt_get_result($stmt);
+        $map = [];
+        while ($r = $res->fetch_assoc()) { $map[$r['d']] = (int)$r['c']; }
+        mysqli_stmt_close($stmt);
+        $today = new DateTime('now', new DateTimeZone('UTC'));
+        for ($i = 6; $i >= 0; $i--) {
+            $d = clone $today; $d->modify("-$i day");
+            $key = $d->format('Y-m-d');
+            $series_days[] = ['label' => $d->format('M j'), 'count' => (int)($map[$key] ?? 0)];
+        }
+    }
+}
+
+// =====================================================
+// Badges (user_badges → badges) → single list, founders first
+// =====================================================
 $badges = [];
 if ($stmt_bdg = @mysqli_prepare(
         $link,
@@ -202,489 +256,566 @@ if ($stmt_bdg = @mysqli_prepare(
            FROM user_badges ub
            JOIN badges b ON b.id = ub.badge_id
           WHERE ub.user_id = ?
-          ORDER BY ub.earned_at DESC
-          LIMIT 64"
+          ORDER BY ub.earned_at DESC"
     )) {
-    mysqli_stmt_bind_param($stmt_bdg, "i", $profile_id);
+    mysqli_stmt_bind_param($stmt_bdg, "i", $target_id);
     if (mysqli_stmt_execute($stmt_bdg) && ($res_b = mysqli_stmt_get_result($stmt_bdg))) {
-        while ($row = $res_b->fetch_assoc()) { $badges[] = $row; }
+        while ($r = $res_b->fetch_assoc()) { $badges[] = $r; }
         $res_b->free();
     }
     mysqli_stmt_close($stmt_bdg);
 }
-
-/** Preview helpers */
-// returns [$base, $tierInt]
-if (!function_exists('sd_parse_badge')) {
-    function sd_parse_badge(string $name): array {
-        $romanMap = [
-            'I'=>1,'II'=>2,'III'=>3,'IV'=>4,'V'=>5,'VI'=>6,'VII'=>7,'VIII'=>8,'IX'=>9,'X'=>10,
-            'XI'=>11,'XII'=>12,'XIII'=>13,'XIV'=>14,'XV'=>15,'XVI'=>16,'XVII'=>17,'XVIII'=>18,'XIX'=>19,'XX'=>20
-        ];
-        if (preg_match('/^(.*?)(?:\s+(I|II|III|IV|V|VI|VII|VIII|IX|X|XI|XII|XIII|XIV|XV|XVI|XVII|XVIII|XIX|XX))\b/i', $name, $m)) {
-            $base = trim($m[1]);
-            $tier = strtoupper($m[2]);
-            return [$base, (int)($romanMap[$tier] ?? 0)];
-        }
-        return [trim($name), 0];
-    }
-}
-
-// Lowercase helper that works even if mbstring is not installed
-if (!function_exists('sd_lower')) {
-    function sd_lower(string $s): string {
-        if (function_exists('mb_strtolower')) {
-            return mb_strtolower($s, 'UTF-8');
-        }
-        return strtolower($s);
-    }
-}
-
-/** Build H2H + badges previews (badges collapsed to highest tier per base) */
-$h2h_preview_rows = $h2h_today['rows'];
-if (empty($h2h_preview_rows)) { $h2h_preview_rows = $h2h_hour['rows']; }
-$h2h_preview_rows = array_slice($h2h_preview_rows, 0, 6);
-
-$by_base = [];
+$pinned_order = ['founder', 'founded an alliance']; // order matters
+$front = []; $tail = [];
 foreach ($badges as $b) {
-    [$base, $tier] = sd_parse_badge($b['name'] ?? '');
-    $key = sd_lower($base);
-    if (!isset($by_base[$key])) {
-        $by_base[$key] = $b + ['__tier' => $tier];
-    } else {
-        // prefer higher tier; if tie, prefer most recent earned_at
-        $currTier = (int)$by_base[$key]['__tier'];
-        if ($tier > $currTier) {
-            $by_base[$key] = $b + ['__tier' => $tier];
-        } elseif ($tier === $currTier) {
-            if (strtotime($b['earned_at'] ?? '1970-01-01') > strtotime($by_base[$key]['earned_at'] ?? '1970-01-01')) {
-                $by_base[$key] = $b + ['__tier' => $tier];
-            }
-        }
+    $nm = strtolower(trim($b['name'] ?? ''));
+    $idx = array_search($nm, $pinned_order, true);
+    if ($idx !== false) {
+        if (!isset($front[$idx])) $front[$idx] = $b;
+    } else { $tail[] = $b; }
+}
+ksort($front);
+$ordered_badges = array_merge(array_values($front), $tail);
+
+// =====================================================
+// Rivalry aggregates (credits & xp in both directions)
+// =====================================================
+$you_to_them_credits = $them_to_you_credits = 0;
+$you_from_them_xp    = $them_from_you_xp    = 0;
+
+if ($user_id && $user_id !== $target_id) {
+    // credits stolen on victories
+    if ($stmt = mysqli_prepare($link, "
+        SELECT COALESCE(SUM(credits_stolen),0) c
+          FROM battle_logs
+         WHERE attacker_id=? AND defender_id=? AND outcome='victory'
+    ")) {
+        mysqli_stmt_bind_param($stmt, "ii", $user_id, $target_id);
+        mysqli_stmt_execute($stmt);
+        $row = mysqli_fetch_assoc(mysqli_stmt_get_result($stmt)) ?: [];
+        mysqli_stmt_close($stmt);
+        $you_to_them_credits = (int)($row['c'] ?? 0);
+    }
+    if ($stmt = mysqli_prepare($link, "
+        SELECT COALESCE(SUM(credits_stolen),0) c
+          FROM battle_logs
+         WHERE attacker_id=? AND defender_id=? AND outcome='victory'
+    ")) {
+        mysqli_stmt_bind_param($stmt, "ii", $target_id, $user_id);
+        mysqli_stmt_execute($stmt);
+        $row = mysqli_fetch_assoc(mysqli_stmt_get_result($stmt)) ?: [];
+        mysqli_stmt_close($stmt);
+        $them_to_you_credits = (int)($row['c'] ?? 0);
+    }
+
+    // xp gained (all outcomes)
+    if ($stmt = mysqli_prepare($link, "
+        SELECT COALESCE(SUM(attacker_xp_gained),0) x
+          FROM battle_logs
+         WHERE attacker_id=? AND defender_id=?
+    ")) {
+        mysqli_stmt_bind_param($stmt, "ii", $user_id, $target_id);
+        mysqli_stmt_execute($stmt);
+        $row = mysqli_fetch_assoc(mysqli_stmt_get_result($stmt)) ?: [];
+        mysqli_stmt_close($stmt);
+        $you_from_them_xp = (int)($row['x'] ?? 0);
+    }
+    if ($stmt = mysqli_prepare($link, "
+        SELECT COALESCE(SUM(attacker_xp_gained),0) x
+          FROM battle_logs
+         WHERE attacker_id=? AND defender_id=?
+    ")) {
+        mysqli_stmt_bind_param($stmt, "ii", $target_id, $user_id);
+        mysqli_stmt_execute($stmt);
+        $row = mysqli_fetch_assoc(mysqli_stmt_get_result($stmt)) ?: [];
+        mysqli_stmt_close($stmt);
+        $them_from_you_xp = (int)($row['x'] ?? 0);
     }
 }
-// sort selected highest-tier badges by earned_at desc, then take 6
-$badges_preview = array_values($by_base);
-usort($badges_preview, function($a,$b){
-    return strtotime($b['earned_at'] ?? '1970-01-01') <=> strtotime($a['earned_at'] ?? '1970-01-01');
-});
-$badges_preview = array_slice($badges_preview, 0, 6);
 
-/** Header */
+// Alliance vs Alliance aggregates (if both in alliances)
+$ally_metrics = [
+    'a1_to_a2_credits' => 0,
+    'a2_to_a1_credits' => 0,
+    'a1_from_a2_xp'    => 0,
+    'a2_from_a1_xp'    => 0,
+    'a1_wins'          => 0,
+    'a2_wins'          => 0,
+];
+$ally_has = ($my_alliance_id && $target_alliance_id && $my_alliance_id !== $target_alliance_id);
+if ($ally_has) {
+    // Credits
+    $q = "
+    SELECT
+      COALESCE(SUM(CASE WHEN ua.alliance_id=? AND ud.alliance_id=? AND bl.outcome='victory' THEN bl.credits_stolen END),0) a1_to_a2,
+      COALESCE(SUM(CASE WHEN ua.alliance_id=? AND ud.alliance_id=? AND bl.outcome='victory' THEN bl.credits_stolen END),0) a2_to_a1
+    FROM battle_logs bl
+    JOIN users ua ON ua.id = bl.attacker_id
+    JOIN users ud ON ud.id = bl.defender_id";
+    if ($stmt = mysqli_prepare($link, $q)) {
+        mysqli_stmt_bind_param($stmt, "iiii", $my_alliance_id, $target_alliance_id, $target_alliance_id, $my_alliance_id);
+        mysqli_stmt_execute($stmt);
+        $r = mysqli_fetch_assoc(mysqli_stmt_get_result($stmt)) ?: [];
+        mysqli_stmt_close($stmt);
+        $ally_metrics['a1_to_a2_credits'] = (int)($r['a1_to_a2'] ?? 0);
+        $ally_metrics['a2_to_a1_credits'] = (int)($r['a2_to_a1'] ?? 0);
+    }
+    // XP
+    $q = "
+    SELECT
+      COALESCE(SUM(CASE WHEN ua.alliance_id=? AND ud.alliance_id=? THEN bl.attacker_xp_gained END),0) a1_from_a2_xp,
+      COALESCE(SUM(CASE WHEN ua.alliance_id=? AND ud.alliance_id=? THEN bl.attacker_xp_gained END),0) a2_from_a1_xp
+    FROM battle_logs bl
+    JOIN users ua ON ua.id = bl.attacker_id
+    JOIN users ud ON ud.id = bl.defender_id";
+    if ($stmt = mysqli_prepare($link, $q)) {
+        mysqli_stmt_bind_param($stmt, "iiii", $my_alliance_id, $target_alliance_id, $target_alliance_id, $my_alliance_id);
+        mysqli_stmt_execute($stmt);
+        $r = mysqli_fetch_assoc(mysqli_stmt_get_result($stmt)) ?: [];
+        mysqli_stmt_close($stmt);
+        $ally_metrics['a1_from_a2_xp'] = (int)($r['a1_from_a2_xp'] ?? 0);
+        $ally_metrics['a2_from_a1_xp'] = (int)($r['a2_from_a1_xp'] ?? 0);
+    }
+    // Wins
+    $q = "
+    SELECT
+      COALESCE(SUM(CASE WHEN ua.alliance_id=? AND ud.alliance_id=? AND bl.outcome='victory' THEN 1 END),0) a1_wins,
+      COALESCE(SUM(CASE WHEN ua.alliance_id=? AND ud.alliance_id=? AND bl.outcome='victory' THEN 1 END),0) a2_wins
+    FROM battle_logs bl
+    JOIN users ua ON ua.id = bl.attacker_id
+    JOIN users ud ON ud.id = bl.defender_id";
+    if ($stmt = mysqli_prepare($link, $q)) {
+        mysqli_stmt_bind_param($stmt, "iiii", $my_alliance_id, $target_alliance_id, $target_alliance_id, $my_alliance_id);
+        mysqli_stmt_execute($stmt);
+        $r = mysqli_fetch_assoc(mysqli_stmt_get_result($stmt)) ?: [];
+        mysqli_stmt_close($stmt);
+        $ally_metrics['a1_wins'] = (int)($r['a1_wins'] ?? 0);
+        $ally_metrics['a2_wins'] = (int)($r['a2_wins'] ?? 0);
+    }
+}
+
+// =====================================================
+// Display prep
+// =====================================================
+$attack_csrf = generate_csrf_token('attack');
+$invite_csrf = generate_csrf_token('invite');
+
+// Spy tokens per mission (to match SpyController.php expectations)
+$csrf_intel = generate_csrf_token('spy_intel');
+$csrf_sabo  = generate_csrf_token('spy_sabotage');
+$csrf_assa  = generate_csrf_token('spy_assassination');
+
+$avatar_path   = $profile['avatar_path']    ?: '/assets/img/default_avatar.webp';
+$name          = $profile['character_name'] ?? 'Unknown';
+$race          = $profile['race']           ?? '—';
+$class         = $profile['class']          ?? '—';
+$level         = (int)($profile['level']    ?? 0);
+$alliance_tag  = $profile['alliance_tag']   ?? null;
+$alliance_name = $profile['alliance_name']  ?? null;
+$alliance_id   = $profile['alliance_id']    ?? null;
+
+// Optional: if you compute army size elsewhere, set it before render
+$army_size = (int)($army_size ?? 0);
+
 include_once __DIR__ . '/../includes/header.php';
 ?>
 
-<aside class="lg:col-span-1 space-y-4">
-    <?php include_once __DIR__ . '/../includes/advisor.php'; ?>
-</aside>
-
-<main class="lg:col-span-3 space-y-8"
-      x-data="{ tab:'actions', spyTab:'intelligence', showAvatar:false, showH2H:false }">
-
-    <!-- Hero -->
-    <div class="content-box rounded-xl p-8">
-        <div class="flex flex-col xl:flex-row xl:items-center gap-8">
-            <button type="button" @click="showAvatar=true" class="relative group shrink-0">
-                <img src="<?php echo htmlspecialchars($profile['avatar_path'] ?? '/assets/img/default_alliance.avif'); ?>"
-                     alt="Avatar"
-                     class="w-40 h-40 md:w-48 md:h-48 rounded-full border-2 border-gray-600 object-cover shadow-lg">
-                <span class="absolute bottom-1 right-1 text-[10px] bg-gray-800/80 px-1.5 py-0.5 rounded opacity-0 group-hover:opacity-100 transition">Zoom</span>
-            </button>
-
-            <div class="flex-1 min-w-0">
-                <div class="flex flex-wrap items-center gap-3">
-                    <h2 class="font-title text-3xl md:text-4xl text-white truncate">
-                        <?php echo htmlspecialchars($profile['character_name']); ?>
-                    </h2>
-                    <?php if ($is_rival): ?>
-                        <span class="text-xs font-semibold bg-red-800 text-red-300 border border-red-500 px-2 py-1 rounded-full">RIVAL</span>
-                    <?php endif; ?>
-                </div>
-
-                <p class="text-cyan-300 mt-1">
-                    <?php echo htmlspecialchars(ucfirst($profile['race']) . ' ' . ucfirst($profile['class'])); ?>
-                    • Level <?php echo (int)$profile['level']; ?>
-                    • ID <span class="font-mono"><?php echo (int)$profile['id']; ?></span>
-                </p>
-
-                <?php if (!empty($profile['alliance_name'])): ?>
-                    <p class="text-sm mt-2">
-                        Alliance:
-                        <span class="font-bold">
-                            [<?php echo htmlspecialchars($profile['alliance_tag']); ?>]
-                            <?php echo htmlspecialchars($profile['alliance_name']); ?>
-                        </span>
-                    </p>
-                <?php endif; ?>
-
-                <div class="text-sm mt-3 flex flex-wrap items-center gap-6">
-                    <span>Status:
-                        <span class="<?php echo $is_online ? 'text-green-400' : 'text-red-400'; ?>">
-                            <?php echo $is_online ? 'Online' : 'Offline'; ?>
-                        </span>
-                    </span>
-                    <?php if ($last_online_label): ?>
-                        <span class="text-gray-300">Last Online:
-                            <span class="text-white"><?php echo htmlspecialchars($last_online_label); ?></span>
-                        </span>
-                    <?php endif; ?>
-                </div>
-            </div>
-
-            <div class="w-full xl:w-auto flex flex-wrap gap-3">
-                <?php if ($can_attack_or_spy): ?>
-                    <button @click="tab='actions'; $nextTick(()=>document.getElementById('attackForm')?.scrollIntoView({behavior:'smooth'}));"
-                            class="flex-1 xl:flex-none bg-red-600 hover:bg-red-700 text-white font-bold py-3 px-6 rounded-xl">Attack</button>
-                    <button @click="tab='actions'; spyTab='intelligence'; $nextTick(()=>document.getElementById('spyForm')?.scrollIntoView({behavior:'smooth'}));"
-                            class="flex-1 xl:flex-none bg-purple-600 hover:bg-purple-700 text-white font-bold py-3 px-6 rounded-xl">Spy</button>
-                <?php endif; ?>
-                <?php if ($can_invite): ?>
-                    <button @click="tab='actions'; $nextTick(()=>document.getElementById('recruitBlock')?.scrollIntoView({behavior:'smooth'}));"
-                            class="flex-1 xl:flex-none bg-blue-600 hover:bg-blue-700 text-white font-bold py-3 px-6 rounded-xl">Invite</button>
-                <?php endif; ?>
-            </div>
-        </div>
-
-        <div class="mt-8 grid grid-cols-2 md:grid-cols-4 gap-4">
-            <div class="bg-gray-900/40 border border-gray-700 rounded-xl p-4 text-center">
-                <p class="text-xs uppercase text-gray-300">Army Size</p>
-                <p class="text-2xl font-bold text-white"><?php echo number_format($army_size); ?></p>
-            </div>
-            <div class="bg-gray-900/40 border border-gray-700 rounded-xl p-4 text-center">
-                <p class="text-xs uppercase text-gray-300">Rank</p>
-                <p class="text-2xl font-bold text-white"><?php echo $player_rank ? '#'.number_format($player_rank) : '—'; ?></p>
-            </div>
-            <div class="bg-gray-900/40 border border-gray-700 rounded-xl p-4 text-center">
-                <p class="text-xs uppercase text-gray-300">Wins</p>
-                <p class="text-2xl font-bold text-green-400"><?php echo number_format($wins); ?></p>
-            </div>
-            <div class="bg-gray-900/40 border border-gray-700 rounded-xl p-4 text-center">
-                <p class="text-xs uppercase text-gray-300">Today vs You</p>
-                <p class="text-2xl font-bold text-cyan-300"><?php echo (int)$h2h_today['count']; ?></p>
-            </div>
-        </div>
-    </div>
-
-    <div class="content-box rounded-xl p-0 overflow-hidden">
-        <nav class="border-b border-gray-700 bg-gray-900/40">
-            <ul class="flex flex-wrap">
-                <li><button @click="tab='actions'"
-                            :class="tab==='actions' ? 'text-white border-b-2 border-cyan-400' : 'text-gray-400 hover:text-white border-b-2 border-transparent'"
-                            class="py-4 px-5 text-sm md:text-base font-medium">Actions</button></li>
-                <li><button @click="tab='overview'"
-                            :class="tab==='overview' ? 'text-white border-b-2 border-cyan-400' : 'text-gray-400 hover:text-white border-b-2 border-transparent'"
-                            class="py-4 px-5 text-sm md:text-base font-medium">Overview</button></li>
-                <li><button @click="tab='combat'"
-                            :class="tab==='combat' ? 'text-white border-b-2 border-cyan-400' : 'text-gray-400 hover:text-white border-b-2 border-transparent'"
-                            class="py-4 px-5 text-sm md:text-base font-medium">Combat</button></li>
-                <li><button @click="tab='achievements'"
-                            :class="tab==='achievements' ? 'text-white border-b-2 border-cyan-400' : 'text-gray-400 hover:text-white border-b-2 border-transparent'"
-                            class="py-4 px-5 text-sm md:text-base font-medium">Achievements</button></li>
-            </ul>
-        </nav>
-
-        <!-- ACTIONS -->
-        <section x-show="tab==='actions'" x-transition x-cloak class="p-8 space-y-8">
-            <?php if ($can_invite): ?>
-            <div id="recruitBlock" class="rounded-xl border border-gray-700 bg-gray-900/40 p-6">
-                <h3 class="font-title text-cyan-400 mb-2">Recruitment</h3>
-                <form action="/alliance" method="POST" class="mt-2 flex flex-col md:flex-row md:items-center md:justify-between gap-4">
-                    <input type="hidden" name="action" value="invite_to_alliance">
-                    <input type="hidden" name="invitee_id" value="<?php echo (int)$profile['id']; ?>">
-                    <input type="hidden" name="csrf_token" value="<?php echo htmlspecialchars($csrf_token); ?>">
-                    <p class="text-sm">Invite this commander to your alliance.</p>
-                    <button type="submit" class="bg-blue-600 hover:bg-blue-700 text-white font-bold py-2.5 px-7 rounded-lg">Send Invite</button>
-                </form>
-            </div>
-            <?php endif; ?>
-
-            <?php if ($can_attack_or_spy): ?>
-            <div id="attackForm" class="rounded-xl border border-gray-700 bg-gray-900/40 p-6">
-                <h3 class="font-title text-red-400 mb-2">Engage Target</h3>
-                <form action="/attack.php" method="POST" class="mt-2 flex flex-col md:flex-row md:items-center md:justify-between gap-4">
-                    <input type="hidden" name="defender_id" value="<?php echo (int)$profile['id']; ?>">
-                    <input type="hidden" name="csrf_token" value="<?php echo htmlspecialchars($csrf_token); ?>">
-                    <label class="text-sm font-semibold text-white">
-                        Attack Turns (1–10):
-                        <input type="number" name="attack_turns" min="1" max="10" value="1"
-                               class="bg-gray-900 border border-gray-600 rounded-md w-24 text-center p-2 ml-2">
-                    </label>
-                    <button type="submit" class="bg-red-600 hover:bg-red-700 text-white font-bold py-2.5 px-7 rounded-lg">Launch Attack</button>
-                </form>
-            </div>
-
-            <div id="spyForm" class="rounded-xl border border-gray-700 bg-gray-900/40 p-6">
-                <div class="flex items-center justify-between mb-3">
-                    <h3 class="font-title text-purple-400">Espionage Operations</h3>
-                </div>
-
-                <div class="border-b border-gray-600 mb-4">
-                    <nav class="-mb-px flex flex-wrap gap-2" aria-label="Spy Tabs">
-                        <a href="#"
-                           @click.prevent="spyTab='intelligence'"
-                           :class="spyTab==='intelligence' ? 'border-purple-400 text-white' : 'border-transparent text-gray-400 hover:text-white'"
-                           class="py-2.5 px-4 border-b-2 font-medium text-sm">Intelligence</a>
-                        <a href="#"
-                           @click.prevent="spyTab='assassination'"
-                           :class="spyTab==='assassination' ? 'border-purple-400 text-white' : 'border-transparent text-gray-400 hover:text-white'"
-                           class="py-2.5 px-4 border-b-2 font-medium text-sm">Assassination</a>
-                        <a href="#"
-                           @click.prevent="spyTab='sabotage'"
-                           :class="spyTab==='sabotage' ? 'border-purple-400 text-white' : 'border-transparent text-gray-400 hover:text-white'"
-                           class="py-2.5 px-4 border-b-2 font-medium text-sm">Sabotage</a>
-                    </nav>
-                </div>
-
-                <form action="/spy.php" method="POST" class="space-y-4">
-                    <input type="hidden" name="defender_id" value="<?php echo (int)$profile['id']; ?>">
-                    <input type="hidden" name="csrf_token" value="<?php echo htmlspecialchars($csrf_token); ?>">
-                    <input type="hidden" name="mission_type" :value="spyTab">
-
-                    <div x-show="spyTab==='intelligence'">
-                        <p class="text-sm">Gather intel on the target’s empire. Success reveals 5 random data points.</p>
-                    </div>
-
-                    <div x-show="spyTab==='assassination'">
-                        <p class="text-sm">Attempt to assassinate a portion of the target’s units.</p>
-                        <label class="block text-xs font-medium text-gray-300 mt-2">
-                            Target Unit Type
-                            <select name="assassination_target" class="mt-1 w-full bg-gray-900 border border-gray-600 rounded-md py-2 px-3 text-sm">
-                                <option value="workers">Workers</option>
-                                <option value="soldiers">Soldiers</option>
-                                <option value="guards">Guards</option>
-                            </select>
-                        </label>
-                    </div>
-
-                    <div x-show="spyTab==='sabotage'">
-                        <p class="text-sm">Sabotage the target’s foundation, causing structural damage.</p>
-                    </div>
-
-                    <div class="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
-                        <label class="text-sm font-semibold text-white">
-                            Spy Turns (1–10):
-                            <input type="number" name="attack_turns" min="1" max="10" value="1"
-                                   class="bg-gray-900 border border-gray-600 rounded-md w-24 text-center p-2 ml-2">
-                        </label>
-                        <button type="submit" class="bg-purple-600 hover:bg-purple-700 text-white font-bold py-2.5 px-7 rounded-lg">Launch Mission</button>
-                    </div>
-                </form>
-            </div>
-            <?php endif; ?>
+<main class="lg:col-span-4 space-y-6">
+    <!-- ROW 1: Advisor (left) + Commander Header (right) with Operations embedded -->
+    <div class="grid md:grid-cols-2 gap-4">
+        <section class="content-box rounded-xl p-4">
+            <?php include __DIR__ . '/../includes/advisor.php'; ?>
         </section>
 
-        <!-- OVERVIEW (with PREVIEWS; units detail removed) -->
-        <section x-show="tab==='overview'" x-transition x-cloak class="p-8 space-y-8">
-            <div class="grid grid-cols-1 lg:grid-cols-2 gap-8">
-                <div class="rounded-xl border border-gray-700 bg-gray-900/40 p-6">
-                    <h3 class="font-title text-cyan-400 mb-3">Fleet Composition</h3>
-                    <ul class="space-y-2 text-sm">
-                        <li class="flex justify-between">
-                            <span>Total Army Size</span>
-                            <span class="text-white font-semibold"><?php echo number_format($army_size); ?></span>
-                        </li>
-                        <!-- Removed per-unit counts per request -->
-                    </ul>
-                </div>
+        <section class="content-box rounded-xl p-5">
+            <div class="flex items-start justify-between gap-4">
+                <div class="flex items-start gap-4">
+                    <img src="<?php echo htmlspecialchars($avatar_path); ?>" alt="Avatar"
+                         class="w-20 h-20 md:w-24 md:h-24 rounded-xl object-cover ring-2 ring-cyan-700/40">
+                    <div>
+                        <div class="flex items-center gap-2 flex-wrap">
+                            <h1 class="font-title text-2xl text-white"><?php echo htmlspecialchars($name); ?></h1>
+                            <?php if ($is_rival): ?><span class="px-2 py-0.5 text-xs rounded bg-red-700/30 text-red-300 border border-red-600/50">RIVAL</span><?php endif; ?>
+                            <?php if ($is_self): ?><span class="px-2 py-0.5 text-xs rounded bg-cyan-700/30 text-cyan-300 border border-cyan-600/50">You</span><?php endif; ?>
+                            <?php if ($is_same_alliance): ?><span class="px-2 py-0.5 text-xs rounded bg-indigo-700/30 text-indigo-300 border border-indigo-600/50">Same Alliance</span><?php endif; ?>
+                        </div>
 
-                <div class="rounded-xl border border-gray-700 bg-gray-900/40 p-6">
-                    <h3 class="font-title text-cyan-400 mb-3">Commander's Biography</h3>
-                    <div class="text-gray-300 italic p-4 bg-gray-900/60 rounded-lg h-48 overflow-y-auto">
-                        <?php echo !empty($profile['biography']) ? nl2br(htmlspecialchars($profile['biography'])) : 'No biography provided.'; ?>
+                        <div class="mt-1 text-gray-300 text-sm flex flex-wrap items-center gap-2">
+                            <span><?php echo htmlspecialchars($race); ?></span>
+                            <span>•</span>
+                            <span><?php echo htmlspecialchars($class); ?></span>
+                            <span>•</span>
+                            <span>Level <?php echo number_format($level); ?></span>
+                            <?php if ($alliance_tag && $alliance_id): ?>
+                                <span>•</span>
+                                <a class="text-cyan-400 hover:underline" href="/view_alliance.php?id=<?php echo (int)$alliance_id; ?>">
+                                    [<?php echo htmlspecialchars($alliance_tag); ?>] <?php echo htmlspecialchars($alliance_name ?? ''); ?>
+                                </a>
+                            <?php elseif ($alliance_tag): ?>
+                                <span>•</span><span>[<?php echo htmlspecialchars($alliance_tag); ?>]</span>
+                            <?php endif; ?>
+                        </div>
+
+                        <div class="mt-1 text-sm">
+                            <?php if ($is_online): ?>
+                                <span class="text-emerald-300">Online</span>
+                            <?php else: ?>
+                                <span class="text-gray-400">Offline</span>
+                                <?php if (!empty($last_online_label)): ?><span class="text-gray-500"> • <?php echo htmlspecialchars($last_online_label); ?></span><?php endif; ?>
+                            <?php endif; ?>
+                        </div>
                     </div>
                 </div>
+
+                <!-- Invite (compact, only when allowed and target has no alliance) -->
+                <?php if ($can_invite && !$is_self && !$target_alliance_id): ?>
+                    <form method="POST" action="/view_profile.php" class="shrink-0">
+                        <input type="hidden" name="csrf_token"  value="<?php echo htmlspecialchars($invite_csrf, ENT_QUOTES, 'UTF-8'); ?>">
+                        <input type="hidden" name="csrf_action" value="invite">
+                        <input type="hidden" name="action"      value="alliance_invite">
+                        <input type="hidden" name="invitee_id"  value="<?php echo (int)$profile['id']; ?>">
+                        <button type="submit" class="bg-indigo-700 hover:bg-indigo-600 text-white text-xs font-semibold py-2 px-3 rounded-md">
+                            Invite to Alliance
+                        </button>
+                    </form>
+                <?php endif; ?>
             </div>
 
-            <!-- Battle history preview -->
-            <div class="rounded-xl border border-gray-700 bg-gray-900/40 p-6">
-                <div class="flex items-center justify-between">
-                    <h3 class="font-title text-cyan-400">Battle History (Preview)</h3>
-                    <button @click="tab='combat'; $nextTick(()=>window.scrollTo({top:0, behavior:'smooth'}));"
-                            class="text-xs px-2 py-1 rounded bg-gray-800 hover:bg-gray-700">View full</button>
+            <!-- Quick Stats -->
+            <div class="mt-4 grid grid-cols-2 sm:grid-cols-4 gap-3">
+                <div class="bg-gray-900/60 border border-gray-700 rounded-lg p-3 text-center">
+                    <div class="text-gray-400 text-xs">Army Size</div>
+                    <div class="text-white text-lg font-semibold"><?php echo number_format((int)$army_size); ?></div>
                 </div>
-                <div class="mt-3">
-                    <?php if (!empty($h2h_preview_rows)): ?>
-                        <div class="text-xs text-gray-300 flex flex-wrap gap-2">
-                            <?php foreach ($h2h_preview_rows as $r): ?>
-                                <span class="px-2 py-1 bg-gray-800 rounded-full">
-                                    <?php if ($r['dir'] === 'out'): ?>
-                                        You → <?php echo htmlspecialchars($profile['character_name']); ?>
-                                    <?php else: ?>
-                                        <?php echo htmlspecialchars($profile['character_name']); ?> → You
-                                    <?php endif; ?>
-                                    • <?php echo format_et_time($r['ts'], 'H:i'); ?> ET
-                                </span>
-                            <?php endforeach; ?>
-                        </div>
-                    <?php else: ?>
-                        <p class="text-sm text-gray-400">No recent encounters today or last hour.</p>
-                    <?php endif; ?>
+                <div class="bg-gray-900/60 border border-gray-700 rounded-lg p-3 text-center">
+                    <div class="text-gray-400 text-xs">Rank</div>
+                    <div class="text-white text-lg font-semibold"><?php echo $player_rank !== null ? number_format((int)$player_rank) : '—'; ?></div>
+                </div>
+                <div class="bg-gray-900/60 border border-gray-700 rounded-lg p-3 text-center">
+                    <div class="text-gray-400 text-xs">Wins</div>
+                    <div class="text-white text-lg font-semibold"><?php echo number_format((int)$wins); ?></div>
+                </div>
+                <div class="bg-gray-900/60 border border-gray-700 rounded-lg p-3 text-center">
+                    <div class="text-gray-400 text-xs">Today vs You</div>
+                    <div class="text-white text-lg font-semibold"><?php echo number_format((int)$h2h_today['count']); ?></div>
                 </div>
             </div>
 
-            <!-- Badges preview (highest tier per badge line) -->
-            <div class="rounded-xl border border-gray-700 bg-gray-900/40 p-6">
-                <div class="flex items-center justify-between">
-                    <h3 class="font-title text-cyan-400">Badges (Preview)</h3>
-                    <button @click="tab='achievements'; $nextTick(()=>window.scrollTo({top:0, behavior:'smooth'}));"
-                            class="text-xs px-2 py-1 rounded bg-gray-800 hover:bg-gray-700">View all</button>
-                </div>
-                <?php if (!empty($badges_preview)): ?>
-                    <div class="mt-3 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
-                        <?php foreach ($badges_preview as $b): ?>
-                            <div class="flex items-start gap-3 bg-gray-900/50 rounded-lg p-3 border border-gray-700">
-                                <img src="<?php echo htmlspecialchars($b['icon_path']); ?>" alt="" class="w-9 h-9 object-contain shrink-0 rounded">
-                                <div class="min-w-0">
-                                    <div class="text-sm text-white font-semibold leading-tight truncate">
-                                        <?php echo htmlspecialchars($b['name']); ?>
-                                    </div>
-                                    <?php if (!empty($b['description'])): ?>
-                                        <div class="text-xs text-gray-300 leading-snug mt-0.5">
-                                            <?php echo htmlspecialchars($b['description']); ?>
-                                        </div>
+            <!-- OPERATIONS (Attack + Espionage) -->
+            <div class="mt-6 border-t border-gray-700/60 pt-4">
+                <h2 class="font-title text-cyan-400 text-lg mb-3">Operations</h2>
+                <div class="grid md:grid-cols-2 gap-6">
+                    <!-- Attack -->
+                    <div>
+                        <h3 class="text-sm text-gray-300 mb-2">Direct Assault</h3>
+                        <form method="POST" action="/view_profile.php"
+                              onsubmit="return !this.querySelector('[name=attack_turns]').disabled;">
+                            <input type="hidden" name="csrf_token" value="<?php echo htmlspecialchars($attack_csrf, ENT_QUOTES, 'UTF-8'); ?>">
+                            <input type="hidden" name="csrf_action" value="attack">
+                            <input type="hidden" name="action"      value="attack">
+                            <input type="hidden" name="defender_id" value="<?php echo (int)$profile['id']; ?>">
+
+                            <div class="flex flex-wrap items-center justify-between gap-3">
+                                <div class="text-sm text-gray-300 flex items-center gap-2">
+                                    <span class="font-semibold text-white">Engage Target</span>
+                                    <?php if (!$can_attack_or_spy): ?>
+                                        <span class="text-xs text-gray-400">(disabled — <?php echo $is_self ? 'this is you' : 'same alliance'; ?>)</span>
                                     <?php endif; ?>
+                                </div>
+
+                                <div class="flex items-center gap-2">
+                                    <input type="number" name="attack_turns" min="1" max="10" value="1"
+                                           class="w-20 bg-gray-900 border border-gray-700 rounded text-center p-1 text-sm <?php echo !$can_attack_or_spy ? 'opacity-50 cursor-not-allowed' : ''; ?>"
+                                           <?php echo !$can_attack_or_spy ? 'disabled' : ''; ?>>
+                                    <button type="submit"
+                                            class="bg-red-700 hover:bg-red-600 text-white text-sm font-semibold py-1.5 px-3 rounded-md <?php echo !$can_attack_or_spy ? 'opacity-50 cursor-not-allowed' : ''; ?>"
+                                            <?php echo !$can_attack_or_spy ? 'disabled' : ''; ?>>
+                                        Attack
+                                    </button>
                                 </div>
                             </div>
-                        <?php endforeach; ?>
+                        </form>
                     </div>
-                <?php else: ?>
-                    <p class="text-sm text-gray-400 mt-2">No badges earned yet.</p>
-                <?php endif; ?>
+
+                    <!-- Espionage -->
+                    <div>
+                        <h3 class="text-sm text-gray-300 mb-2">Espionage Operations</h3>
+                        <form method="POST" action="/spy.php" id="spy-form">
+                            <input type="hidden" name="csrf_token"  id="spy_csrf" value="<?php echo htmlspecialchars($csrf_intel, ENT_QUOTES, 'UTF-8'); ?>">
+                            <input type="hidden" name="csrf_action" id="spy_action" value="spy_intel">
+                            <input type="hidden" name="mission_type" id="spy_mission" value="intelligence">
+                            <input type="hidden" name="defender_id" value="<?php echo (int)$profile['id']; ?>">
+
+                            <div class="flex flex-wrap gap-4 text-sm text-gray-200">
+                                <label class="inline-flex items-center gap-2">
+                                    <input type="radio" name="spy_type" value="intelligence" class="accent-cyan-600" checked> Intelligence
+                                </label>
+                                <label class="inline-flex items-center gap-2">
+                                    <input type="radio" name="spy_type" value="assassination" class="accent-cyan-600"> Assassination
+                                </label>
+                                <label class="inline-flex items-center gap-2">
+                                    <input type="radio" name="spy_type" value="sabotage" class="accent-cyan-600"> Sabotage
+                                </label>
+                            </div>
+
+                            <!-- Common input the controller expects -->
+                            <div class="mt-3 flex items-center gap-2">
+                                <label class="text-sm text-gray-300" for="spy_turns">Attack Turns</label>
+                                <input id="spy_turns" type="number" name="attack_turns" min="1" max="10" value="1"
+                                       class="w-24 bg-gray-900 border border-gray-700 rounded p-1 text-sm">
+                            </div>
+
+                            <!-- Assassination extras -->
+                            <div id="spy-assassination" class="mt-3 space-y-3 hidden">
+                                <div class="text-xs text-gray-400">Select a unit type to target.</div>
+                                <div class="flex flex-wrap items-center gap-2">
+                                    <label class="text-sm text-gray-300" for="assassination_target">Target</label>
+                                    <select id="assassination_target" name="assassination_target"
+                                            class="bg-gray-900 border border-gray-700 rounded p-1 text-sm">
+                                        <option value="workers">Workers</option>
+                                        <option value="soldiers">Soldiers</option>
+                                        <option value="guards">Guards</option>
+                                    </select>
+                                </div>
+                            </div>
+
+                            <div class="pt-3">
+                                <button type="submit" class="bg-amber-700 hover:bg-amber-600 text-white text-sm font-semibold py-1.5 px-3 rounded-md">
+                                    Execute Mission
+                                </button>
+                            </div>
+                        </form>
+                    </div>
+                </div>
             </div>
         </section>
+    </div>
 
-        <!-- COMBAT (unchanged full) -->
-        <section x-show="tab==='combat'" x-transition x-cloak class="p-8 space-y-8">
-            <?php if ($is_logged_in && $viewer_id !== $profile_id): ?>
-                <div class="rounded-xl border border-gray-700 bg-gray-900/40 p-6">
-                    <div class="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
-                        <div class="font-title text-cyan-300">
-                            Head-to-Head vs <span class="font-bold"><?php echo htmlspecialchars($profile['character_name']); ?></span>
+    <!-- ROW 2: Rivalry split into two cards -->
+    <div class="grid md:grid-cols-2 gap-4">
+        <!-- Player vs Player -->
+        <section class="content-box rounded-xl p-5">
+            <h2 class="font-title text-cyan-400 text-lg mb-3">Rivalry — Player vs Player</h2>
+            <?php if ($user_id && $user_id !== $target_id): ?>
+                <?php
+                    $max_cred = max(1, $you_to_them_credits, $them_to_you_credits);
+                    $max_xp   = max(1, $you_from_them_xp, $them_from_you_xp);
+                    $max_wins = max(1, $you_wins_vs_them, $them_wins_vs_you);
+                    $you_tag  = 'You';
+                    $them_tag = htmlspecialchars($name);
+                ?>
+                <div class="space-y-5">
+                    <div>
+                        <div class="text-sm text-gray-300 mb-1">Credits Plundered</div>
+                        <div class="text-xs text-gray-400 mb-1"><?php echo $you_tag; ?> → <?php echo $them_tag; ?>:
+                            <span class="text-white font-semibold"><?php echo number_format($you_to_them_credits); ?></span>
                         </div>
-                        <div class="flex items-center gap-6 text-sm">
-                            <div>Today (ET): <span class="font-bold"><?php echo (int)$h2h_today['count']; ?></span></div>
-                            <div>Last hour: <span class="font-bold"><?php echo (int)$h2h_hour['count']; ?></span></div>
-                            <button @click="showH2H=!showH2H" class="px-2 py-1 rounded bg-gray-800 hover:bg-gray-700 text-xs"
-                                    x-text="showH2H ? 'Hide timeline' : 'Show timeline'"></button>
+                        <div class="h-3 bg-cyan-900/50 rounded">
+                            <div class="h-3 rounded bg-cyan-500" style="width:<?php echo sd_pct($you_to_them_credits,$max_cred); ?>%"></div>
+                        </div>
+                        <div class="mt-2 text-xs text-gray-400 mb-1"><?php echo $them_tag; ?> → <?php echo $you_tag; ?>:
+                            <span class="text-white font-semibold"><?php echo number_format($them_to_you_credits); ?></span>
+                        </div>
+                        <div class="h-3 bg-cyan-900/50 rounded">
+                            <div class="h-3 rounded bg-cyan-500" style="width:<?php echo sd_pct($them_to_you_credits,$max_cred); ?>%"></div>
                         </div>
                     </div>
 
-                    <div x-show="showH2H" x-transition x-cloak class="mt-4 space-y-4">
+                    <div>
+                        <div class="text-sm text-gray-300 mb-1">XP Gained</div>
+                        <div class="text-xs text-gray-400 mb-1"><?php echo $you_tag; ?> from <?php echo $them_tag; ?>:
+                            <span class="text-white font-semibold"><?php echo number_format($you_from_them_xp); ?></span>
+                        </div>
+                        <div class="h-3 bg-amber-900/40 rounded">
+                            <div class="h-3 rounded bg-amber-500" style="width:<?php echo sd_pct($you_from_them_xp,$max_xp); ?>%"></div>
+                        </div>
+                        <div class="mt-2 text-xs text-gray-400 mb-1"><?php echo $them_tag; ?> from <?php echo $you_tag; ?>:
+                            <span class="text-white font-semibold"><?php echo number_format($them_from_you_xp); ?></span>
+                        </div>
+                        <div class="h-3 bg-amber-900/40 rounded">
+                            <div class="h-3 rounded bg-amber-500" style="width:<?php echo sd_pct($them_from_you_xp,$max_xp); ?>%"></div>
+                        </div>
+                    </div>
+
+                    <div>
+                        <div class="text-sm text-gray-300 mb-1">Head-to-Head Wins</div>
+                        <div class="text-xs text-gray-400 mb-1"><?php echo $you_tag; ?> wins:
+                            <span class="text-white font-semibold"><?php echo number_format($you_wins_vs_them); ?></span>
+                        </div>
+                        <div class="h-3 bg-green-900/40 rounded">
+                            <div class="h-3 rounded bg-green-500" style="width:<?php echo sd_pct($you_wins_vs_them,$max_wins); ?>%"></div>
+                        </div>
+                        <div class="mt-2 text-xs text-gray-400 mb-1"><?php echo $them_tag; ?> wins:
+                            <span class="text-white font-semibold"><?php echo number_format($them_wins_vs_you); ?></span>
+                        </div>
+                        <div class="h-3 bg-green-900/40 rounded">
+                            <div class="h-3 rounded bg-green-500" style="width:<?php echo sd_pct($them_wins_vs_you,$max_wins); ?>%"></div>
+                        </div>
+                    </div>
+
+                    <?php if (!empty($series_days)): ?>
+                        <?php $max_day = 1; foreach ($series_days as $d) { if ($d['count'] > $max_day) $max_day = $d['count']; } ?>
                         <div>
-                            <div class="text-xs text-gray-400 mb-2">Today (ET)</div>
-                            <?php if ($h2h_today['count'] > 0): ?>
-                                <div class="text-xs text-gray-300 flex flex-wrap gap-2">
-                                    <?php foreach ($h2h_today['rows'] as $r): ?>
-                                        <span class="px-2 py-1 bg-gray-800 rounded-full">
-                                            <?php if ($r['dir'] === 'out'): ?>
-                                                You → <?php echo htmlspecialchars($profile['character_name']); ?>
-                                            <?php else: ?>
-                                                <?php echo htmlspecialchars($profile['character_name']); ?> → You
-                                            <?php endif; ?>
-                                            • <?php echo format_et_time($r['ts'], 'H:i'); ?> ET
-                                        </span>
-                                    <?php endforeach; ?>
-                                </div>
-                            <?php else: ?>
-                                <div class="text-xs text-gray-400">No attacks between you today.</div>
-                            <?php endif; ?>
+                            <div class="text-sm text-gray-300 mb-2">Engagements (Last 7 Days)</div>
+                            <div class="grid grid-cols-7 gap-2">
+                                <?php foreach ($series_days as $d): ?>
+                                    <div class="flex flex-col items-center gap-1">
+                                        <div class="w-6 bg-purple-900/40 rounded" style="height:48px; position:relative;">
+                                            <div class="absolute bottom-0 left-0 right-0 bg-purple-500 rounded"
+                                                 style="height:<?php echo sd_pct($d['count'],$max_day); ?>%"></div>
+                                        </div>
+                                        <div class="text-[10px] text-gray-400"><?php echo htmlspecialchars($d['label']); ?></div>
+                                    </div>
+                                <?php endforeach; ?>
+                            </div>
                         </div>
+                    <?php endif; ?>
+                </div>
+            <?php else: ?>
+                <div class="text-gray-400 text-sm">No rivalry data for your own profile.</div>
+            <?php endif; ?>
+        </section>
 
-                        <div class="pt-2 border-t border-gray-700">
-                            <div class="text-xs text-gray-400 mb-2">Last hour</div>
-                            <?php if ($h2h_hour['count'] > 0): ?>
-                                <div class="text-xs text-gray-300 flex flex-wrap gap-2">
-                                    <?php foreach ($h2h_hour['rows'] as $r): ?>
-                                        <span class="px-2 py-1 bg-gray-800 rounded-full">
-                                            <?php if ($r['dir'] === 'out'): ?>
-                                                You → <?php echo htmlspecialchars($profile['character_name']); ?>
-                                            <?php else: ?>
-                                                <?php echo htmlspecialchars($profile['character_name']); ?> → You
-                                            <?php endif; ?>
-                                            • <?php echo format_et_time($r['ts'], 'H:i'); ?> ET
-                                        </span>
-                                    <?php endforeach; ?>
+        <!-- Alliance vs Alliance -->
+        <section class="content-box rounded-xl p-5">
+            <h2 class="font-title text-cyan-400 text-lg mb-3">Rivalry — Alliance vs Alliance</h2>
+            <?php if ($ally_has): ?>
+                <?php
+                    $amax_c = max(1, $ally_metrics['a1_to_a2_credits'], $ally_metrics['a2_to_a1_credits']);
+                    $amax_x = max(1, $ally_metrics['a1_from_a2_xp'],    $ally_metrics['a2_from_a1_xp']);
+                    $amax_w = max(1, $ally_metrics['a1_wins'],          $ally_metrics['a2_wins']);
+                ?>
+                <div class="space-y-5">
+                    <div>
+                        <div class="text-sm text-gray-300 mb-1">Credits Plundered (Alliances)</div>
+                        <div class="text-xs text-gray-400 mb-1">Yours → Theirs:
+                            <span class="text-white font-semibold"><?php echo number_format($ally_metrics['a1_to_a2_credits']); ?></span>
+                        </div>
+                        <div class="h-3 bg-cyan-900/50 rounded">
+                            <div class="h-3 rounded bg-cyan-500" style="width:<?php echo sd_pct($ally_metrics['a1_to_a2_credits'],$amax_c); ?>%"></div>
+                        </div>
+                        <div class="mt-2 text-xs text-gray-400 mb-1">Theirs → Yours:
+                            <span class="text-white font-semibold"><?php echo number_format($ally_metrics['a2_to_a1_credits']); ?></span>
+                        </div>
+                        <div class="h-3 bg-cyan-900/50 rounded">
+                            <div class="h-3 rounded bg-cyan-500" style="width:<?php echo sd_pct($ally_metrics['a2_to_a1_credits'],$amax_c); ?>%"></div>
+                        </div>
+                    </div>
+
+                    <div>
+                        <div class="text-sm text-gray-300 mb-1">XP Gained (Alliances)</div>
+                        <div class="text-xs text-gray-400 mb-1">Your Alliance:
+                            <span class="text-white font-semibold"><?php echo number_format($ally_metrics['a1_from_a2_xp']); ?></span>
+                        </div>
+                        <div class="h-3 bg-amber-900/40 rounded">
+                            <div class="h-3 rounded bg-amber-500" style="width:<?php echo sd_pct($ally_metrics['a1_from_a2_xp'],$amax_x); ?>%"></div>
+                        </div>
+                        <div class="mt-2 text-xs text-gray-400 mb-1">Their Alliance:
+                            <span class="text-white font-semibold"><?php echo number_format($ally_metrics['a2_from_a1_xp']); ?></span>
+                        </div>
+                        <div class="h-3 bg-amber-900/40 rounded">
+                            <div class="h-3 rounded bg-amber-500" style="width:<?php echo sd_pct($ally_metrics['a2_from_a1_xp'],$amax_x); ?>%"></div>
+                        </div>
+                    </div>
+
+                    <div>
+                        <div class="text-sm text-gray-300 mb-1">Alliance Wins (Attacks Won)</div>
+                        <div class="grid grid-cols-2 gap-3">
+                            <div>
+                                <div class="text-[11px] text-gray-400 mb-0.5">Yours: <span class="text-white font-semibold"><?php echo number_format($ally_metrics['a1_wins']); ?></span></div>
+                                <div class="h-3 bg-green-900/40 rounded">
+                                    <div class="h-3 rounded bg-green-500" style="width:<?php echo sd_pct($ally_metrics['a1_wins'],$amax_w); ?>%"></div>
                                 </div>
-                            <?php else: ?>
-                                <div class="text-xs text-gray-400">No attacks in the past hour.</div>
-                            <?php endif; ?>
+                            </div>
+                            <div>
+                                <div class="text-[11px] text-gray-400 mb-0.5">Theirs: <span class="text-white font-semibold"><?php echo number_format($ally_metrics['a2_wins']); ?></span></div>
+                                <div class="h-3 bg-green-900/40 rounded">
+                                    <div class="h-3 rounded bg-green-500" style="width:<?php echo sd_pct($ally_metrics['a2_wins'],$amax_w); ?>%"></div>
+                                </div>
+                            </div>
                         </div>
                     </div>
                 </div>
+            <?php else: ?>
+                <div class="text-gray-400 text-sm">Alliance metrics unavailable (both players must be in different alliances).</div>
             <?php endif; ?>
-
-            <div class="grid grid-cols-1 md:grid-cols-3 gap-6">
-                <div class="rounded-xl border border-gray-700 bg-gray-900/40 p-6 text-center">
-                    <p class="text-xs uppercase text-gray-300">Wins</p>
-                    <p class="text-3xl font-bold text-green-400"><?php echo number_format($wins); ?></p>
-                </div>
-                <div class="rounded-xl border border-gray-700 bg-gray-900/40 p-6 text-center">
-                    <p class="text-xs uppercase text-gray-300">Losses (Atk)</p>
-                    <p class="text-3xl font-bold text-red-400"><?php echo number_format($loss_atk); ?></p>
-                </div>
-                <div class="rounded-xl border border-gray-700 bg-gray-900/40 p-6 text-center">
-                    <p class="text-xs uppercase text-gray-300">Losses (Def)</p>
-                    <p class="text-3xl font-bold text-red-400"><?php echo number_format($loss_def); ?></p>
-                </div>
-            </div>
-
-            <div class="rounded-xl border border-gray-700 bg-gray-900/40 p-6">
-                <h3 class="font-title text-cyan-400 mb-3">Player Rank</h3>
-                <div class="grid grid-cols-1 md:grid-cols-3 gap-6 text-center">
-                    <div><p class="text-xs uppercase">Rank (by Net Worth)</p><p class="text-xl font-bold text-white"><?php echo $player_rank ? '#'.number_format($player_rank) : '—'; ?></p></div>
-                    <div><p class="text-xs uppercase">Net Worth</p><p class="text-xl font-bold text-yellow-300"><?php echo number_format((int)$profile['net_worth']); ?></p></div>
-                    <div><p class="text-xs uppercase">Level</p><p class="text-xl font-bold text-white"><?php echo number_format((int)$profile['level']); ?></p></div>
-                </div>
-            </div>
         </section>
+    </div>
 
-        <!-- ACHIEVEMENTS (full list stays unchanged) -->
-        <section x-show="tab==='achievements'" x-transition x-cloak class="p-8">
-            <h3 class="font-title text-cyan-400 mb-4">Badges</h3>
-            <?php if (!empty($badges)): ?>
-                <div class="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-4">
-                    <?php foreach ($badges as $b): ?>
-                        <div class="flex items-start gap-3 bg-gray-900/40 rounded-lg p-4 border border-gray-700">
-                            <img src="<?php echo htmlspecialchars($b['icon_path']); ?>" alt="" class="w-10 h-10 object-contain shrink-0 rounded">
-                            <div class="min-w-0">
-                                <div class="text-sm text-white font-semibold leading-tight truncate">
-                                    <?php echo htmlspecialchars($b['name']); ?>
-                                </div>
-                                <?php if (!empty($b['description'])): ?>
-                                    <div class="text-xs text-gray-300 leading-snug mt-0.5">
-                                        <?php echo htmlspecialchars($b['description']); ?>
-                                    </div>
-                                <?php endif; ?>
-                                <?php if (!empty($b['earned_at'])): ?>
-                                    <div class="text-[10px] text-gray-500 mt-1">
-                                        Earned <?php echo htmlspecialchars(format_et_time($b['earned_at'], 'Y-m-d H:i')); ?> ET
-                                    </div>
-                                <?php endif; ?>
+    <!-- ROW 3: Badges gallery (all on desktop, scroll on mobile) -->
+    <section class="content-box rounded-xl p-5">
+        <h2 class="font-title text-cyan-400 text-lg mb-3">Hall of Achievements</h2>
+        <div class="max-h-96 overflow-y-auto pr-1 custom-scroll md:max-h-none md:overflow-visible">
+            <?php if (!empty($ordered_badges)): ?>
+                <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                    <?php foreach ($ordered_badges as $badge): ?>
+                        <?php
+                            $icon  = $badge['icon_path']   ?? '/assets/img/badges/default.webp';
+                            $nameB = $badge['name']        ?? 'Unknown';
+                            $desc  = $badge['description'] ?? '';
+                            $when  = $badge['earned_at']   ?? null;
+                        ?>
+                        <div class="bg-gray-900/60 border border-gray-700 rounded-lg p-3 flex items-start gap-3">
+                            <img src="<?php echo htmlspecialchars($icon); ?>" alt="" class="w-10 h-10 rounded-md object-cover">
+                            <div class="flex-1">
+                                <div class="text-white font-semibold text-sm"><?php echo htmlspecialchars($nameB); ?></div>
+                                <div class="text-xs text-gray-300"><?php echo htmlspecialchars($desc); ?></div>
+                                <?php if (!empty($when)): ?><div class="text-[11px] text-gray-500 mt-1"><?php echo htmlspecialchars($when); ?></div><?php endif; ?>
                             </div>
                         </div>
                     <?php endforeach; ?>
                 </div>
             <?php else: ?>
-                <p class="text-sm text-gray-400">No badges earned yet.</p>
+                <div class="text-gray-400 text-sm">No achievements yet.</div>
             <?php endif; ?>
-        </section>
-    </div>
-
-    <!-- Avatar Modal -->
-    <div x-show="showAvatar" x-cloak
-         class="fixed inset-0 z-50 flex items-center justify-center bg-black/80 p-4"
-         @click.self="showAvatar=false"
-         @keydown.escape.window="showAvatar=false">
-        <div class="max-w-4xl w-full">
-            <img src="<?php echo htmlspecialchars($profile['avatar_path'] ?? '/assets/img/default_alliance.avif'); ?>"
-                 alt="Avatar Large"
-                 class="w-full h-auto object-contain rounded-xl border border-gray-700 shadow-xl">
-            <div class="text-right mt-3">
-                <button class="px-3 py-1 bg-gray-800 hover:bg-gray-700 rounded"
-                        @click="showAvatar=false">Close</button>
-            </div>
         </div>
-    </div>
+    </section>
 </main>
 
-<?php include_once __DIR__ . '/../includes/footer.php';
+<script>
+(function() {
+  // Spy mission radio toggle & token swap
+  const radios = document.querySelectorAll('input[name="spy_type"]');
+  const assa   = document.getElementById('spy-assassination');
+  const mission = document.getElementById('spy_mission');
+  const action  = document.getElementById('spy_action');
+  const csrf    = document.getElementById('spy_csrf');
+
+  const TOKENS = {
+    spy_intel: '<?php echo htmlspecialchars($csrf_intel, ENT_QUOTES, 'UTF-8'); ?>',
+    spy_sabotage: '<?php echo htmlspecialchars($csrf_sabo, ENT_QUOTES, 'UTF-8'); ?>',
+    spy_assassination: '<?php echo htmlspecialchars($csrf_assa, ENT_QUOTES, 'UTF-8'); ?>'
+  };
+
+  function sync() {
+    const v = document.querySelector('input[name="spy_type"]:checked')?.value;
+    if (v === 'assassination') {
+      assa.classList.remove('hidden');
+      mission.value = 'assassination';
+      action.value = 'spy_assassination';
+      csrf.value = TOKENS.spy_assassination;
+    } else if (v === 'sabotage') {
+      assa.classList.add('hidden');
+      mission.value = 'sabotage';
+      action.value = 'spy_sabotage';
+      csrf.value = TOKENS.spy_sabotage;
+    } else {
+      assa.classList.add('hidden');
+      mission.value = 'intelligence';
+      action.value = 'spy_intel';
+      csrf.value = TOKENS.spy_intel;
+    }
+  }
+  radios.forEach(r => r.addEventListener('change', sync));
+  sync();
+})();
+</script>
+
+<style>
+/* subtle scrollbar for badges list on mobile */
+.custom-scroll::-webkit-scrollbar { width: 8px; }
+.custom-scroll::-webkit-scrollbar-thumb { background: rgba(59,130,246,.4); border-radius: 6px; }
+.custom-scroll::-webkit-scrollbar-track { background: rgba(31,41,55,.6); }
+</style>
+
+<?php include_once __DIR__ . '/../includes/footer.php'; ?>
