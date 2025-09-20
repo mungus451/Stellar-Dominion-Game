@@ -28,9 +28,11 @@ $sub_nav_links = [
     'BATTLE' => [
         'Attack' => '/attack.php',
         'Training' => '/battle.php',
+        'Spy' => '/spy.php',
         'Armory' => '/armory.php',
         'Auto Recruiter' => '/auto_recruit.php',
-        'War History' => '/war_history.php'
+        'War History' => '/war_history.php',
+        'Spy History' => '/spy_history.php'
     ],
     'ALLIANCE' => [
         'Alliance Hub' => '/alliance.php',
@@ -69,7 +71,7 @@ $active_main_category = 'HOME'; // default
 $active_page_path = '/' . $active_page;
 
 // Decide the active main category
-if (in_array($active_page, ['battle.php', 'attack.php', 'war_history.php', 'armory.php', 'auto_recruit.php'])) {
+if (in_array($active_page, ['battle.php', 'attack.php', 'war_history.php', 'spy_history.php', 'armory.php', 'auto_recruit.php', 'spy.php'])) {
     $active_main_category = 'BATTLE';
 } elseif (in_array($active_page, [
     'alliance.php', 'create_alliance.php', 'edit_alliance.php', 'alliance_roles.php',
@@ -92,6 +94,7 @@ if (in_array($active_page, ['war_declaration.php', 'view_alliances.php', 'view_a
 
 ?>
 <header class="text-center mb-4">
+    <script src="https://cdn.jsdelivr.net/npm/alpinejs@3.x.x/dist/cdn.min.js" defer></script>
     <h1 class="text-5xl font-title text-cyan-400" style="text-shadow: 0 0 8px rgba(6, 182, 212, 0.7);">STARLIGHT DOMINION</h1>
 </header>
 

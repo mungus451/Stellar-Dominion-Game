@@ -1,247 +1,431 @@
 <?php
-/**
- * attack.php
- *
- * This file now handles both displaying the attack page (GET request)
- * and processing the attack form submission (POST request).
- * The redundant setup code has been removed, as the main index.php
- * router now handles all configuration and session management.
- */
-
-// --- FORM SUBMISSION HANDLING ---
-if ($_SERVER['REQUEST_METHOD'] === 'POST') {
-    require_once __DIR__ . '/../../src/Controllers/AttackController.php';
-    exit;
-}
-
-// --- PAGE DISPLAY LOGIC (GET REQUEST) ---
-date_default_timezone_set('UTC');
-$csrf_token = generate_csrf_token();
-$user_id = $_SESSION['id'];
-
-// --- CATCH-UP MECHANISM ---
-require_once __DIR__ . '/../../src/Game/GameFunctions.php';
-process_offline_turns($link, $user_id);
-
-// --- OPTIMIZED DATA FETCHING ---
-// Added alliance tag to the query
-$sql_targets = "
-    SELECT
-        u.id, u.character_name, u.race, u.class, u.avatar_path, u.credits,
-        u.level, u.last_updated, u.workers, u.wealth_points, u.soldiers,
-        u.guards, u.sentries, u.spies, u.experience, u.fortification_level,
-        u.alliance_id, a.tag as alliance_tag, u.attack_turns, u.untrained_citizens,
-        bl.wins, bl.losses
-    FROM users u
-    LEFT JOIN alliances a ON u.alliance_id = a.id
-    LEFT JOIN (
-        SELECT
-            attacker_id,
-            SUM(CASE WHEN outcome = 'victory' THEN 1 ELSE 0 END) as wins,
-            SUM(CASE WHEN outcome = 'defeat' THEN 1 ELSE 0 END) as losses
-        FROM battle_logs
-        GROUP BY attacker_id
-    ) bl ON u.id = bl.attacker_id
-";
-$targets_result = mysqli_query($link, $sql_targets);
-
-$ranked_targets = [];
-$user_stats = null;
-
-while ($target = mysqli_fetch_assoc($targets_result)) {
-    if ($target['id'] == $user_id) {
-        $user_stats = $target;
-    }
-    // Rank calculation remains the same
-    $wins = $target['wins'] ?? 0;
-    $losses = $target['losses'] ?? 0;
-    $win_loss_ratio = ($losses > 0) ? ($wins / $losses) : $wins;
-    $army_size = $target['soldiers'] + $target['guards'] + $target['sentries'] + $target['spies'];
-    $worker_income = $target['workers'] * 50;
-    $total_base_income = 5000 + $worker_income;
-    $wealth_bonus = 1 + ($target['wealth_points'] * 0.01);
-    $income_per_turn = floor($total_base_income * $wealth_bonus);
-    $rank_score = ($target['experience'] * 0.1) + ($army_size * 2) + ($win_loss_ratio * 1000) + ($target['workers'] * 5) + ($income_per_turn * 0.05) + ($target['fortification_level'] * 500);
-    $target['rank_score'] = $rank_score;
-    $target['army_size'] = $army_size;
-    $ranked_targets[] = $target;
-}
-
-$viewer_alliance_id = $user_stats['alliance_id'];
-
-usort($ranked_targets, function($a, $b) {
-    return $b['rank_score'] <=> $a['rank_score'];
-});
-
-$rank = 1;
-$current_user_rank = 'N/A';
-foreach ($ranked_targets as &$target) {
-    $target['rank'] = $rank++;
-    if ($target['id'] == $user_id) {
-        $current_user_rank = $target['rank'];
-    }
-}
-unset($target);
-
-// --- TIMER & PAGE ID ---
-$turn_interval_minutes = 10;
-$last_updated = new DateTime($user_stats['last_updated'], new DateTimeZone('UTC'));
-$now = new DateTime('now', new DateTimeZone('UTC'));
-$time_since_last_update = $now->getTimestamp() - $last_updated->getTimestamp();
-$seconds_into_current_turn = $time_since_last_update % ($turn_interval_minutes * 60);
-$seconds_until_next_turn = ($turn_interval_minutes * 60) - $seconds_into_current_turn;
-if ($seconds_until_next_turn < 0) { $seconds_until_next_turn = 0; }
-$minutes_until_next_turn = floor($seconds_until_next_turn / 60);
-$seconds_remainder = $seconds_until_next_turn % 60;
+// --- PAGE CONFIGURATION ---
+$page_title  = 'Battle – Targets';
 $active_page = 'attack.php';
+
+// --- BOOTSTRAP (router already started session + auth) ---
+date_default_timezone_set('UTC');
+require_once __DIR__ . '/../../config/config.php';
+require_once __DIR__ . '/../../src/Services/StateService.php'; // Centralized state
+require_once __DIR__ . '/../includes/advisor_hydration.php';
+
+// Always define $user_id before any usage
+$user_id = isset($_SESSION['id']) ? (int)$_SESSION['id'] : 0;
+if ($user_id <= 0) { header('Location: /index.php'); exit; }
+
+// Username search (sidebar). Exact match first, then partial LIKE → redirect to profile on success.
+if (isset($_GET['search_user'])) {
+    $needle = trim((string)$_GET['search_user']);
+    if ($needle !== '') {
+        // Exact match
+        if ($stmt = mysqli_prepare($link, "SELECT id FROM users WHERE character_name = ? LIMIT 1")) {
+            mysqli_stmt_bind_param($stmt, "s", $needle);
+            mysqli_stmt_execute($stmt);
+            $row = mysqli_fetch_assoc(mysqli_stmt_get_result($stmt));
+            mysqli_stmt_close($stmt);
+            if (!empty($row['id'])) { header("Location: /view_profile.php?id=".(int)$row['id']); exit; }
+        }
+        // Partial match (first hit)
+        $like = '%'.$needle.'%';
+        if ($stmt2 = mysqli_prepare($link, "SELECT id FROM users WHERE character_name LIKE ? ORDER BY level DESC, id ASC LIMIT 1")) {
+            mysqli_stmt_bind_param($stmt2, "s", $like);
+            mysqli_stmt_execute($stmt2);
+            $row2 = mysqli_fetch_assoc(mysqli_stmt_get_result($stmt2));
+            mysqli_stmt_close($stmt2);
+            if (!empty($row2['id'])) { header("Location: /view_profile.php?id=".(int)$row2['id']); exit; }
+        }
+        $_SESSION['attack_error'] = "No player found for '".htmlspecialchars($needle, ENT_QUOTES, 'UTF-8')."'.";
+        // fall through to render page with error banner
+    }
+}
+
+// --- PAGINATION ---
+$allowed_per_page = [10, 20, 50];
+$items_per_page = isset($_GET['show']) ? (int)$_GET['show'] : 20;
+if (!in_array($items_per_page, $allowed_per_page, true)) { $items_per_page = 20; }
+
+// --- SORTING ---
+$allowed_sort = ['rank', 'army', 'level']; // "rank" == ORDER BY level DESC, credits DESC
+$sort         = isset($_GET['sort']) ? strtolower((string)$_GET['sort']) : 'rank';
+$dir          = isset($_GET['dir'])  ? strtolower((string)$_GET['dir'])  : 'asc';
+if (!in_array($sort, $allowed_sort, true)) { $sort = 'rank'; }
+if (!in_array($dir, ['asc','desc'], true)) { $dir = 'asc'; }
+
+// Total players (include self on this page by excluding id 0)
+$total_players = function_exists('ss_count_targets') ? ss_count_targets($link, 0) : 0;
+$total_pages   = max(1, (int)ceil(($total_players ?: 1) / $items_per_page));
+
+/**
+ * Compute the current user's rank position under the same ordering as ss_get_targets:
+ * ORDER BY level DESC, credits DESC. Rank 1 = highest (best).
+ */
+function sd_get_user_rank_by_targets_order(mysqli $link, int $user_id): ?int {
+    // Fetch user's level and credits
+    $sqlMe = "SELECT level, credits FROM users WHERE id = ? LIMIT 1";
+    if (!$stmt = mysqli_prepare($link, $sqlMe)) return null;
+    mysqli_stmt_bind_param($stmt, "i", $user_id);
+    mysqli_stmt_execute($stmt);
+    $me = mysqli_fetch_assoc(mysqli_stmt_get_result($stmt));
+    mysqli_stmt_close($stmt);
+    if (!$me) return null;
+
+    $lvl = (int)$me['level'];
+    $cr  = (int)$me['credits'];
+
+    // Count users who are "ahead" in ordering (higher level OR same level with higher credits)
+    $sqlRank = "
+        SELECT COUNT(*) AS better
+        FROM users
+        WHERE (level > ?) OR (level = ? AND credits > ?)
+    ";
+    if (!$stmt2 = mysqli_prepare($link, $sqlRank)) return null;
+    mysqli_stmt_bind_param($stmt2, "iii", $lvl, $lvl, $cr);
+    mysqli_stmt_execute($stmt2);
+    $row = mysqli_fetch_assoc(mysqli_stmt_get_result($stmt2));
+    mysqli_stmt_close($stmt2);
+
+    $better = (int)($row['better'] ?? 0);
+    return $better + 1; // rank position (1-based)
+}
+
+// Determine current page. If not provided, default to the page containing the player under rank order.
+if (isset($_GET['page'])) {
+    $current_page = max(1, min((int)$_GET['page'], $total_pages));
+} else {
+    if ($sort === 'rank') {
+        $my_rank = sd_get_user_rank_by_targets_order($link, $user_id);
+        if ($my_rank !== null && $my_rank > 0) {
+            $asc_page = (int)ceil($my_rank / $items_per_page);
+            if ($dir === 'desc') {
+                // Mirror to descending pagination (desc page 1 is the last asc page)
+                $current_page = max(1, min($total_pages, $total_pages - $asc_page + 1));
+            } else {
+                $current_page = max(1, min($total_pages, $asc_page));
+            }
+        } else {
+            $current_page = 1; // fallback
+        }
+    } else {
+        // For client-side sorts (army/level), we cannot globally locate the row efficiently → default page 1.
+        $current_page = 1;
+    }
+}
+
+// Now we can compute slice bookkeeping
+$offset = ($current_page - 1) * $items_per_page;
+$from   = $total_players > 0 ? ($offset + 1) : 0;
+$to     = min($offset + $items_per_page, $total_players);
+
+// Target list via StateService. Pass 0 so the WHERE u.id <> ? does not exclude anyone.
+// Special handling: rank DESC must fetch the mirrored page slice from the end, then reverse.
+if ($sort === 'rank' && $dir === 'desc') {
+    $asc_page_for_desc = ($total_pages - $current_page + 1);
+    $offset_for_desc   = ($asc_page_for_desc - 1) * $items_per_page;
+    $targets = ss_get_targets($link, 0, $items_per_page, $offset_for_desc);
+    $targets = array_reverse($targets);
+    // Adjust the visual "from/to" range for descending view (high → low numbers)
+    $from = max(1, $total_players - $offset_for_desc);
+    $to   = max(1, $from - max(0, count($targets) - 1));
+} else {
+    $targets = ss_get_targets($link, 0, $items_per_page, $offset);
+}
+// NOTE: ss_get_targets already computes army_size
+
+// Apply client-side sorting on the current page slice for army/level.
+// (If a server-side sort becomes available in StateService, wire it here.)
+if (!empty($targets) && $sort !== 'rank') {
+    usort($targets, function($a, $b) use ($sort, $dir) {
+        $av = 0; $bv = 0;
+        if ($sort === 'army')  { $av = (int)($a['army_size'] ?? 0); $bv = (int)($b['army_size'] ?? 0); }
+        if ($sort === 'level') { $av = (int)($a['level'] ?? 0);     $bv = (int)($b['level'] ?? 0); }
+        if ($av === $bv) return 0;
+        $cmp = ($av < $bv) ? -1 : 1;
+        return ($dir === 'asc') ? $cmp : -$cmp;
+    });
+}
+
+// --- HEADER ---
+include_once __DIR__ . '/../includes/header.php';
+
+// Helper to build links while preserving params
+function qlink(array $override = []) {
+    $params = [
+        'show' => isset($_GET['show']) ? (int)$_GET['show'] : 20,
+        'page' => isset($_GET['page']) ? (int)$_GET['page'] : 1,
+        'sort' => isset($_GET['sort']) ? $_GET['sort'] : 'rank',
+        'dir'  => isset($_GET['dir'])  ? $_GET['dir']  : 'asc',
+    ];
+    foreach ($override as $k => $v) { $params[$k] = $v; }
+    return '/attack.php?' . http_build_query($params);
+}
+
+// Compute next dir for a given column
+function next_dir($col, $current_sort, $current_dir) {
+    if ($col !== $current_sort) return 'asc';
+    return ($current_dir === 'asc') ? 'desc' : 'asc';
+}
+
+// Arrow indicator
+function arrow($col, $current_sort, $current_dir) {
+    if ($col !== $current_sort) return '';
+    return $current_dir === 'asc' ? '↑' : '↓';
+}
+
 ?>
-<!DOCTYPE html>
-<html lang="en">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Stellar Dominion - Attack</title>
-    <script src="https://cdn.tailwindcss.com"></script>
-    <script src="https://unpkg.com/lucide@latest"></script>
-    <link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@700&family=Roboto:wght@400;500;700&display=swap" rel="stylesheet">
-    <link rel="stylesheet" href="assets/css/style.css">
-</head>
-<body class="text-gray-400 antialiased">
-    <div class="min-h-screen bg-cover bg-center bg-fixed" style="background-image: url('/assets/img/backgroundAlt.avif');">
-        <div class="container mx-auto p-4 md:p-8">
+<aside class="lg:col-span-1 space-y-4">
+    <!-- Player quick search -->
+    <div class="content-box rounded-lg p-3">
+        <form method="GET" action="/attack.php" class="space-y-2">
+            <label for="search_user" class="block text-xs text-gray-300">Find Player by Username</label>
+            <div class="flex items-center gap-2">
+                <input id="search_user" name="search_user" type="text" placeholder="Enter username"
+                       class="flex-1 bg-gray-900 border border-gray-600 rounded-md px-2 py-1 text-sm text-white"
+                       maxlength="64" autocomplete="off">
+                <button type="submit"
+                        class="bg-cyan-700 hover:bg-cyan-600 text-white text-xs font-semibold py-1 px-2 rounded-md">
+                    Search
+                </button>
+            </div>
+            <p class="text-[11px] text-gray-400">Exact username works best. Partial is OK.</p>
+        </form>
+    </div>
 
-            <?php include_once __DIR__ .  '/../includes/navigation.php'; ?>
+    <?php include_once __DIR__ . '/../includes/advisor.php'; ?>
+</aside>
 
-            <div class="grid grid-cols-1 lg:grid-cols-4 gap-4 p-4">
-                <aside class="lg:col-span-1 space-y-4">
-                    <?php
-                        $user_xp = $user_stats['experience'];
-                        $user_level = $user_stats['level'];
-                        include_once __DIR__ . '/../includes/advisor.php';
-                    ?>
-                </aside>
+<main class="lg:col-span-3 space-y-4">
+    <?php if(isset($_SESSION['attack_message'])): ?>
+        <div class="bg-cyan-900 border border-cyan-500/50 text-cyan-300 p-3 rounded-md text-center">
+            <?php echo htmlspecialchars($_SESSION['attack_message']); unset($_SESSION['attack_message']); ?>
+        </div>
+    <?php endif; ?>
+    <?php if(isset($_SESSION['attack_error'])): ?>
+        <div class="bg-red-900 border border-red-500/50 text-red-300 p-3 rounded-md text-center">
+            <?php echo htmlspecialchars($_SESSION['attack_error']); unset($_SESSION['attack_error']); ?>
+        </div>
+    <?php endif; ?>
 
-                <main class="lg:col-span-3">
-                    <?php if(isset($_SESSION['attack_error'])): ?>
-                        <div class="bg-red-900 border border-red-500/50 text-red-300 p-3 rounded-md text-center mb-4">
-                            <?php echo htmlspecialchars($_SESSION['attack_error']); unset($_SESSION['attack_error']); ?>
-                        </div>
-                    <?php endif; ?>
-                    <div class="content-box rounded-lg p-4">
-                        <h3 class="font-title text-cyan-400 border-b border-gray-600 pb-2 mb-3">Target List</h3>
-
-                        <div class="overflow-x-auto">
-                            <table class="w-full text-sm text-left">
-                                <thead class="bg-gray-800">
-                                    <tr>
-                                        <th class="p-2">Rank</th>
-                                        <th class="p-2">Username</th>
-                                        <th class="p-2">Credits</th>
-                                        <th class="p-2">Army Size</th>
-                                        <th class="p-2">Level</th>
-                                        <th class="p-2 text-right">Action</th>
-                                    </tr>
-                                </thead>
-                                <tbody>
-                                    <?php foreach ($ranked_targets as $target): ?>
-                                    <?php
-                                        // TARGET CREDIT ESTIMATION (remains the same)
-                                        $target_last_updated = new DateTime($target['last_updated']);
-                                        $now_for_target = new DateTime();
-                                        $minutes_since_target_update = ($now_for_target->getTimestamp() - $target_last_updated->getTimestamp()) / 60;
-                                        $target_turns_to_process = floor($minutes_since_target_update / 10);
-                                        $target_current_credits = $target['credits'];
-                                        if ($target_turns_to_process > 0) {
-                                            $worker_income = $target['workers'] * 50;
-                                            $total_base_income = 5000 + $worker_income;
-                                            $wealth_bonus = 1 + ($target['wealth_points'] * 0.01);
-                                            $income_per_turn = floor($total_base_income * $wealth_bonus);
-                                            $gained_credits = $income_per_turn * $target_turns_to_process;
-                                            $target_current_credits += $gained_credits;
-                                        }
-
-                                        // NEW: Rivalry Check
-                                        $is_rival = false;
-                                        if ($viewer_alliance_id && $target['alliance_id'] && $viewer_alliance_id != $target['alliance_id']) {
-                                            $a1 = (int)$viewer_alliance_id;
-                                            $a2 = (int)$target['alliance_id'];
-                                            $sql_rival = "SELECT heat_level FROM rivalries WHERE (alliance1_id = $a1 AND alliance2_id = $a2) OR (alliance1_id = $a2 AND alliance2_id = $a1)";
-                                            $rival_result = $link->query($sql_rival);
-                                            if ($rival_result && $rival_data = $rival_result->fetch_assoc()) {
-                                                if ($rival_data['heat_level'] >= 10) {
-                                                    $is_rival = true;
-                                                }
-                                            }
-                                        }
-                                    ?>
-                                    <tr class="border-t border-gray-700 hover:bg-gray-700/50 <?php if ($target['id'] == $user_id) echo 'bg-cyan-900/30'; ?>">
-                                        <td class="p-2 font-bold text-cyan-400"><?php echo $target['rank']; ?></td>
-                                        <td class="p-2">
-                                            <div class="flex items-center">
-                                                <div class="relative mr-3">
-                                                    <button type="button" class="profile-modal-trigger" data-profile-id="<?php echo $target['id']; ?>">
-                                                        <img src="<?php echo htmlspecialchars($target['avatar_path'] ? $target['avatar_path'] : 'https://via.placeholder.com/40'); ?>" alt="Avatar" class="w-10 h-10 rounded-md">
-                                                    </button>
-                                                    <?php
-                                                        $now_ts = time();
-                                                        $last_seen_ts = strtotime($target['last_updated']);
-                                                        $is_online = ($now_ts - $last_seen_ts) < 900;
-                                                    ?>
-                                                    <span class="absolute -bottom-1 -right-1 block h-3 w-3 rounded-full <?php echo $is_online ? 'bg-green-500' : 'bg-red-500'; ?> border-2 border-gray-800" title="<?php echo $is_online ? 'Online' : 'Offline'; ?>"></span>
-                                                </div>
-                                                <div>
-                                                    <p class="font-bold text-white">
-                                                        <?php echo htmlspecialchars($target['character_name']); ?>
-                                                        <?php if($target['alliance_tag']): ?>
-                                                            <span class="text-cyan-400">[<?php echo htmlspecialchars($target['alliance_tag']); ?>]</span>
-                                                        <?php endif; ?>
-                                                        <?php if($is_rival): ?>
-                                                            <span class="text-xs align-middle font-semibold bg-red-800 text-red-300 border border-red-500 px-2 py-1 rounded-full ml-1">RIVAL</span>
-                                                        <?php endif; ?>
-                                                    </p>
-                                                    <p class="text-xs text-gray-500"><?php echo htmlspecialchars(strtoupper($target['race'] . ' ' . $target['class'])); ?></p>
-                                                </div>
-                                            </div>
-                                        </td>
-                                        <td class="p-2"><?php echo number_format($target_current_credits); ?></td>
-                                        <td class="p-2"><?php echo number_format($target['army_size']); ?></td>
-                                        <td class="p-2"><?php echo $target['level']; ?></td>
-                                        <td class="p-2 text-right">
-                                             <?php
-                                                $is_ally = ($viewer_alliance_id !== null && $viewer_alliance_id == $target['alliance_id']);
-                                                if ($target['id'] == $user_id) {
-                                                    echo '<span class="text-gray-500 text-xs italic">This is you</span>';
-                                                } elseif ($is_ally) {
-                                                    echo '<a href="/alliance_transfer.php" class="bg-green-600 hover:bg-green-700 text-white font-bold py-1 px-3 rounded-md text-xs">Transfer</a>';
-                                                } else {
-                                             ?>
-                                                <form action="/attack" method="POST" class="flex items-center justify-end space-x-2">
-                                                    <input type="hidden" name="csrf_token" value="<?php echo htmlspecialchars($csrf_token, ENT_QUOTES, 'UTF-8'); ?>">
-                                                    <input type="hidden" name="defender_id" value="<?php echo $target['id']; ?>">
-                                                    <input type="number" name="attack_turns" value="1" min="1" max="<?php echo min(10, $user_stats['attack_turns']); ?>" class="bg-gray-900 border border-gray-600 rounded-md w-16 text-center text-xs p-1" title="Turns to use">
-                                                    <button type="submit" class="bg-red-600 hover:bg-red-700 text-white font-bold py-1 px-3 rounded-md text-xs">Attack</button>
-                                                </form>
-                                             <?php
-                                                }
-                                             ?>
-                                        </td>
-                                    </tr>
-                                    <?php endforeach; ?>
-                                </tbody>
-                            </table>
-                        </div>
-                    </div>
-                </main>
+    <!-- Target List (Desktop) -->
+    <div class="content-box rounded-lg p-4 hidden md:block">
+        <div class="flex items-center justify-between mb-3">
+            <h3 class="font-title text-cyan-400">Target List</h3>
+            <div class="flex items-center gap-3 text-xs text-gray-300">
+                <form method="GET" action="/attack.php" class="flex items-center gap-2">
+                    <input type="hidden" name="sort" value="<?php echo htmlspecialchars($sort); ?>">
+                    <input type="hidden" name="dir"  value="<?php echo htmlspecialchars($dir); ?>">
+                    <label for="show" class="text-gray-400">Per page</label>
+                    <select id="show" name="show" class="bg-gray-900 border border-gray-600 rounded-md px-2 py-1 text-xs"
+                            onchange="this.form.submit()">
+                        <?php foreach ([10,20,50] as $opt): ?>
+                            <option value="<?php echo $opt; ?>" <?php if ($items_per_page === $opt) echo 'selected'; ?>><?php echo $opt; ?></option>
+                        <?php endforeach; ?>
+                    </select>
+                    <input type="hidden" name="page" value="<?php echo (int)$current_page; ?>">
+                </form>
+                <div class="text-xs text-gray-400">
+                    Showing <?php echo number_format($from); ?>–<?php echo number_format($to); ?>
+                    of <?php echo number_format($total_players); ?> •
+                    Page <?php echo $current_page; ?>/<?php echo $total_pages; ?>
+                </div>
             </div>
         </div>
-    </div>
-    
-    <div id="profile-modal" class="hidden fixed inset-0 bg-black bg-opacity-70 z-50 flex items-center justify-center p-4">
-        <div id="profile-modal-content" class="bg-dark-translucent backdrop-blur-md rounded-lg shadow-2xl w-full max-w-lg mx-auto border border-cyan-400/30 relative">
-            <div class="text-center p-8">Loading profile...</div>
+
+        <div class="overflow-x-auto">
+            <table class="min-w-full text-sm">
+                <thead class="bg-gray-800/60 text-gray-300">
+                    <tr>
+                        <th class="px-3 py-2 text-left">
+                            <a class="hover:underline" href="<?php echo qlink(['sort'=>'rank','dir'=>next_dir('rank',$sort,$dir),'page'=>1]); ?>">
+                                Rank <?php echo arrow('rank',$sort,$dir); ?>
+                            </a>
+                        </th>
+                        <th class="px-3 py-2 text-left">Username</th>
+                        <th class="px-3 py-2 text-right">Credits</th>
+                        <th class="px-3 py-2 text-right">
+                            <a class="hover:underline" href="<?php echo qlink(['sort'=>'army','dir'=>next_dir('army',$sort,$dir),'page'=>1]); ?>">
+                                Army Size <?php echo arrow('army',$sort,$dir); ?>
+                            </a>
+                        </th>
+                        <th class="px-3 py-2 text-right">
+                            <a class="hover:underline" href="<?php echo qlink(['sort'=>'level','dir'=>next_dir('level',$sort,$dir),'page'=>1]); ?>">
+                                Level <?php echo arrow('level',$sort,$dir); ?>
+                            </a>
+                        </th>
+                    </tr>
+                </thead>
+                <tbody class="divide-y divide-gray-700">
+                    <?php
+                    // Rank counter depends on direction
+                    if ($sort === 'rank' && $dir === 'desc') {
+                        $rank = (int)$from;     // highest number shown on this page
+                        $rank_step = -1;
+                    } else {
+                        $rank = $offset + 1;    // lowest number shown on this page
+                        $rank_step = 1;
+                    }
+                    foreach ($targets as $t):
+                        $avatar = $t['avatar_path'] ?: '/assets/img/default_avatar.webp';
+
+                        // Clickable alliance tag → /view_alliance.php?id={alliance_id}
+                        if (!empty($t['alliance_id']) && !empty($t['alliance_tag'])) {
+                            $tag = '<a href="/view_alliance.php?id='.(int)$t['alliance_id'].'" class="text-cyan-400 hover:underline">'
+                                 . '<span class="alliance-tag">[' . htmlspecialchars($t['alliance_tag']) . ']</span>'
+                                 . '</a> ';
+                        } else {
+                            $tag = !empty($t['alliance_tag'])
+                                ? '<span class="alliance-tag">[' . htmlspecialchars($t['alliance_tag']) . ']</span> '
+                                : '';
+                        }
+                    ?>
+                    <tr>
+                        <td class="px-3 py-3"><?php echo $rank; $rank += $rank_step; ?></td>
+                        <td class="px-3 py-3">
+                            <div class="flex items-center gap-3">
+                                <img src="<?php echo htmlspecialchars($avatar); ?>" alt="Avatar" class="w-8 h-8 rounded-md object-cover">
+                                <div class="leading-tight">
+                                    <div class="text-white font-semibold">
+                                        <?php
+                                            echo $tag .
+                                                 '<a href="/view_profile.php?id='.(int)$t['id'].'" class="hover:underline">'
+                                                 . htmlspecialchars($t['character_name'])
+                                                 . '</a>';
+                                        ?>
+                                    </div>
+                                    <div class="text-[11px] text-gray-400">ID #<?php echo (int)$t['id']; ?></div>
+                                </div>
+                            </div>
+                        </td>
+                        <td class="px-3 py-3 text-right text-white"><?php echo number_format((int)$t['credits']); ?></td>
+                        <td class="px-3 py-3 text-right text-white"><?php echo number_format((int)$t['army_size']); ?></td>
+                        <td class="px-3 py-3 text-right text-white"><?php echo (int)$t['level']; ?></td>
+                    </tr>
+                    <?php endforeach; if (empty($targets)): ?>
+                    <tr><td colspan="5" class="px-3 py-6 text-center text-gray-400">No targets found.</td></tr>
+                    <?php endif; ?>
+                </tbody>
+            </table>
         </div>
+
+        <?php if ($total_pages > 1): ?>
+        <div class="mt-4 flex flex-wrap justify-center items-center gap-2 text-sm">
+            <a href="<?php echo qlink(['page'=>1]); ?>"
+               class="px-3 py-1 bg-gray-700 rounded-md hover:bg-cyan-600 <?php if ($current_page == 1) echo 'hidden'; ?>">&laquo; First</a>
+            <a href="<?php echo qlink(['page'=>max(1, $current_page-1)]); ?>"
+               class="px-3 py-1 bg-gray-700 rounded-md hover:bg-cyan-600">&laquo;</a>
+            <?php
+                $page_window = 10;
+                $start_page  = max(1, $current_page - (int)floor($page_window / 2));
+                $end_page    = min($total_pages, $start_page + $page_window - 1);
+                $start_page  = max(1, $end_page - $page_window + 1);
+                for ($i = $start_page; $i <= $end_page; $i++):
+            ?>
+                <a href="<?php echo qlink(['page'=>$i]); ?>"
+                   class="px-3 py-1 <?php echo $i == $current_page ? 'bg-cyan-600 font-bold' : 'bg-gray-700'; ?> rounded-md hover:bg-cyan-600"><?php echo $i; ?></a>
+            <?php endfor; ?>
+            <a href="<?php echo qlink(['page'=>min($total_pages, $current_page+1)]); ?>"
+               class="px-3 py-1 bg-gray-700 rounded-md hover:bg-cyan-600">&raquo;</a>
+            <a href="<?php echo qlink(['page'=>$total_pages]); ?>"
+               class="px-3 py-1 bg-gray-700 rounded-md hover:bg-cyan-600 <?php if ($current_page == $total_pages) echo 'hidden'; ?>">Last &raquo;</a>
+
+            <form method="GET" action="/attack.php" class="inline-flex items-center gap-1">
+                <input type="hidden" name="show" value="<?php echo $items_per_page; ?>">
+                <input type="hidden" name="sort" value="<?php echo htmlspecialchars($sort); ?>">
+                <input type="hidden" name="dir"  value="<?php echo htmlspecialchars($dir); ?>">
+                <input type="number" name="page" min="1" max="<?php echo $total_pages; ?>" value="<?php echo $current_page; ?>"
+                       class="bg-gray-900 border border-gray-600 rounded-md w-16 text-center p-1 text-xs">
+                <button type="submit" class="px-3 py-1 bg-gray-700 rounded-md hover:bg-cyan-600 text-xs">Go</button>
+            </form>
+        </div>
+        <?php endif; ?>
     </div>
 
-    <script src="assets/js/main.js" defer></script>
-</body>
-</html>
+    <!-- Target List (Mobile) -->
+    <div class="content-box rounded-lg p-4 md:hidden">
+        <div class="flex items-center justify-between mb-3">
+            <h3 class="font-title text-cyan-400">Targets</h3>
+            <div class="text-xs text-gray-400">
+                Showing <?php echo number_format($from); ?>–<?php echo number_format($to); ?>
+                of <?php echo number_format($total_players); ?>
+            </div>
+        </div>
+
+        <div class="space-y-3">
+            <?php
+            if ($sort === 'rank' && $dir === 'desc') {
+                $rank = (int)$from;
+                $rank_step = -1;
+            } else {
+                $rank = $offset + 1;
+                $rank_step = 1;
+            }
+            foreach ($targets as $t):
+                $avatar = $t['avatar_path'] ?: '/assets/img/default_avatar.webp';
+                if (!empty($t['alliance_id']) && !empty($t['alliance_tag'])) {
+                    $tag = '<a href="/view_alliance.php?id='.(int)$t['alliance_id'].'" class="text-cyan-400 hover:underline">'
+                         . '<span class="alliance-tag">[' . htmlspecialchars($t['alliance_tag']) . ']</span>'
+                         . '</a> ';
+                } else {
+                    $tag = !empty($t['alliance_tag'])
+                        ? '<span class="alliance-tag">[' . htmlspecialchars($t['alliance_tag']) . ']</span> '
+                        : '';
+                }
+            ?>
+            <div class="bg-gray-900/60 border border-gray-700 rounded-lg p-3">
+                <div class="flex items-center justify-between">
+                    <div class="flex items-center gap-3">
+                        <img src="<?php echo htmlspecialchars($avatar); ?>" alt="Avatar" class="w-10 h-10 rounded-md object-cover">
+                        <div>
+                            <div class="text-white font-semibold">
+                                <?php
+                                    echo $tag .
+                                         '<a href="/view_profile.php?id='.(int)$t['id'].'" class="hover:underline">'
+                                         . htmlspecialchars($t['character_name'])
+                                         . '</a>';
+                                ?>
+                            </div>
+                            <div class="text-[11px] text-gray-400">
+                                Rank <?php echo $rank; ?> • Lvl <?php echo (int)$t['level']; ?>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="text-right text-xs text-gray-300">
+                        <div><span class="text-gray-400">Credits:</span> <span class="text-white font-semibold"><?php echo number_format((int)$t['credits']); ?></span></div>
+                        <div><span class="text-gray-400">Army:</span> <span class="text-white font-semibold"><?php echo number_format((int)$t['army_size']); ?></span></div>
+                    </div>
+                </div>
+            </div>
+            <?php
+            $rank += $rank_step;
+            endforeach;
+            if (empty($targets)):
+            ?>
+            <div class="text-center text-gray-400 py-6">No targets found.</div>
+            <?php endif; ?>
+        </div>
+
+        <?php if ($total_pages > 1): ?>
+        <div class="mt-4 flex flex-wrap justify-center items-center gap-2 text-sm">
+            <a href="<?php echo qlink(['page'=>1]); ?>"
+               class="px-3 py-1 bg-gray-700 rounded-md hover:bg-cyan-600 <?php if ($current_page == 1) echo 'hidden'; ?>">&laquo; First</a>
+            <a href="<?php echo qlink(['page'=>max(1,$current_page-1)]); ?>"
+               class="px-3 py-1 bg-gray-700 rounded-md hover:bg-cyan-600">&laquo;</a>
+            <?php
+                $page_window = 10;
+                $start_page  = max(1, $current_page - (int)floor($page_window / 2));
+                $end_page    = min($total_pages, $start_page + $page_window - 1);
+                $start_page  = max(1, $end_page - $page_window + 1);
+                for ($i = $start_page; $i <= $end_page; $i++):
+            ?>
+                <a href="<?php echo qlink(['page'=>$i]); ?>"
+                   class="px-3 py-1 <?php echo $i == $current_page ? 'bg-cyan-600 font-bold' : 'bg-gray-700'; ?> rounded-md hover:bg-cyan-600"><?php echo $i; ?></a>
+            <?php endfor; ?>
+            <a href="<?php echo qlink(['page'=>min($total_pages,$current_page+1)]); ?>"
+               class="px-3 py-1 bg-gray-700 rounded-md hover:bg-cyan-600">&raquo;</a>
+            <a href="<?php echo qlink(['page'=>$total_pages]); ?>"
+               class="px-3 py-1 bg-gray-700 rounded-md hover:bg-cyan-600 <?php if ($current_page == $total_pages) echo 'hidden'; ?>">Last &raquo;</a>
+        </div>
+        <?php endif; ?>
+    </div>
+</main>
+
+<?php include_once __DIR__ . '/../includes/footer.php'; ?>

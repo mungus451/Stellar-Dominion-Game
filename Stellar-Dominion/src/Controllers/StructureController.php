@@ -13,131 +13,205 @@ if (!isset($_SESSION["loggedin"]) || $_SESSION["loggedin"] !== true) { header("l
 require_once __DIR__ . '/../../config/config.php';
 require_once __DIR__ . '/../Game/GameData.php';
 require_once __DIR__ . '/../Game/GameFunctions.php';
+require_once __DIR__ . '/../Services/StateService.php'; // ss_ensure_structure_rows()
 
-// --- CSRF TOKEN VALIDATION ---
+/**
+ * CSRF validator that tolerates multiple action names used across older forms.
+ * We try the posted action first (if any), then fall back to common legacy names.
+ */
+function sd_validate_csrf_compat(string $token, ?string $postedAction): bool {
+    $candidates = array_unique(array_filter([
+        $postedAction,           // whatever the form sent
+        'structure_action',      // current standard
+        'repair_structure',      // earlier API/action name
+        'default',               // legacy default in some forms
+    ]));
+    foreach ($candidates as $act) {
+        if (validate_csrf_token($token, $act)) return true;
+    }
+    return false;
+}
+
+// --- CSRF VALIDATION ---
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
-    if (!isset($_POST['csrf_token']) || !validate_csrf_token($_POST['csrf_token'])) {
-        $_SESSION['build_message'] = "A security error occurred (Invalid Token). Please try again.";
+    $token  = $_POST['csrf_token']  ?? '';
+    $action = $_POST['csrf_action'] ?? null;
+    if (!sd_validate_csrf_compat($token, $action)) {
+        $_SESSION['build_error'] = "A security error occurred (Invalid Token). Please try again.";
         header("location: /structures.php");
         exit;
     }
 }
 // --- END CSRF VALIDATION ---
 
-// --- INPUT VALIDATION ---
-$action = isset($_POST['action']) ? $_POST['action'] : '';
-$upgrade_type = isset($_POST['upgrade_type']) ? $_POST['upgrade_type'] : '';
-$target_level = isset($_POST['target_level']) ? (int)$_POST['target_level'] : 0;
+$user_id = (int)$_SESSION['id'];
+$post_action = $_POST['action'] ?? ''; // distinct from csrf_action
 
-// For repair action, we don't need upgrade_type or target_level from the form.
-if ($action !== 'repair_structure') {
-    if (!isset($upgrades[$upgrade_type]) || !isset($upgrades[$upgrade_type]['levels'][$target_level])) {
-        $_SESSION['build_message'] = "Invalid upgrade specified.";
-        header("location: /structures.php");
-        exit;
-    }
-    $upgrade_category = $upgrades[$upgrade_type];
-    $upgrade_details = $upgrade_category['levels'][$target_level];
-    $db_column = $upgrade_category['db_column'];
+/**
+ * Calculate repair cost for non-foundation structures.
+ * Full repair (0% → 100%) costs ~25% of the *next* upgrade cost.
+ * Tweak $SHARE to rebalance.
+ */
+function sd_calc_structure_repair_cost(array $user_stats, array $upgrades, string $key, int $health_pct): int {
+    $key = strtolower($key);
+    if (!isset($upgrades[$key]['levels'])) return 0;
+    $cat = $upgrades[$key];
+    $col = $cat['db_column'] ?? null;
+    if (!$col || !array_key_exists($col, $user_stats)) return 0;
+
+    $lvl       = (int)$user_stats[$col];
+    $next_row  = $cat['levels'][$lvl + 1] ?? ($cat['levels'][$lvl] ?? null);
+    $next_cost = (int)($next_row['cost'] ?? 0);
+
+    $missing = max(0, 100 - (int)$health_pct);
+    if ($missing <= 0) return 0;
+
+    $SHARE = 0.25; // 25% of next upgrade cost for a 100% repair
+    $cost  = (int)floor($next_cost * $SHARE * ($missing / 100));
+    return max(0, $cost);
 }
 
-
-// --- TRANSACTIONAL DATABASE UPDATE ---
 mysqli_begin_transaction($link);
 try {
-    // Get all necessary user data, locking the row for the transaction.
-    $sql_get_user = "SELECT experience, level, credits, charisma_points, fortification_level, fortification_hitpoints, offense_upgrade_level, defense_upgrade_level, spy_upgrade_level, economy_upgrade_level, population_level, armory_level FROM users WHERE id = ? FOR UPDATE";
-    $stmt = mysqli_prepare($link, $sql_get_user);
-    mysqli_stmt_bind_param($stmt, "i", $_SESSION["id"]);
-    mysqli_stmt_execute($stmt);
-    $user = mysqli_fetch_assoc(mysqli_stmt_get_result($stmt));
-    mysqli_stmt_close($stmt);
+    // Lock user row for the duration
+    $stmt_get_user = mysqli_prepare($link, "SELECT * FROM users WHERE id = ? FOR UPDATE");
+    mysqli_stmt_bind_param($stmt_get_user, "i", $user_id);
+    mysqli_stmt_execute($stmt_get_user);
+    $user_stats = mysqli_fetch_assoc(mysqli_stmt_get_result($stmt_get_user));
+    mysqli_stmt_close($stmt_get_user);
 
-    if ($action === 'purchase_structure') {
-        $current_upgrade_level = $user[$db_column];
-        $charisma_discount = 1 - ($user['charisma_points'] * 0.01);
-        $final_cost = floor($upgrade_details['cost'] * $charisma_discount);
+    if (!$user_stats) throw new Exception("User data could not be loaded.");
 
-        if ($current_upgrade_level != $target_level - 1) { throw new Exception("Sequence error. You must build preceding upgrades first."); }
-        if (isset($upgrade_details['level_req']) && $user['level'] < $upgrade_details['level_req']) { throw new Exception("You do not meet the character level requirement."); }
-        if (isset($upgrade_details['fort_req'])) {
-            $required_fort_level = $details['fort_req'];
-            $fort_details = $upgrades['fortifications']['levels'][$required_fort_level];
-            if ($user['fortification_level'] < $required_fort_level || $user['fortification_hitpoints'] < $fort_details['hitpoints']) {
-                throw new Exception("Your empire foundation is not advanced enough or is damaged.");
+    if ($post_action === 'purchase_structure') {
+        $upgrade_type = $_POST['upgrade_type'] ?? '';
+        $target_level = (int)($_POST['target_level'] ?? 0);
+
+        if (!isset($upgrades[$upgrade_type])) throw new Exception("Invalid upgrade type.");
+
+        $category      = $upgrades[$upgrade_type];
+        $db_col        = $category['db_column'] ?? null;
+        if (!$db_col || !array_key_exists($db_col, $user_stats)) throw new Exception("Invalid upgrade column.");
+        $current_level = (int)$user_stats[$db_col];
+        if ($target_level !== $current_level + 1) throw new Exception("Sequence error. You can only build the next available upgrade.");
+
+        $next_details = $category['levels'][$target_level] ?? null;
+        if (!$next_details) throw new Exception("Upgrade level does not exist.");
+
+        // Charisma discount (safe if missing)
+        $charisma_points   = (float)($user_stats['charisma_points'] ?? 0);
+        $charisma_discount = max(0.0, 1 - ($charisma_points * 0.01));
+        $final_cost = (int)floor(((int)$next_details['cost']) * $charisma_discount);
+        if ((int)$user_stats['credits'] < $final_cost) throw new Exception("Not enough credits.");
+
+        // Fortification prereq (if any)
+        if (isset($next_details['fort_req'])) {
+            $required_fort_level = (int)$next_details['fort_req'];
+            $req_fort = $upgrades['fortifications']['levels'][$required_fort_level] ?? null;
+            if (!$req_fort) throw new Exception("Missing fortification definition.");
+            if ((int)$user_stats['fortification_level'] < $required_fort_level
+             || (int)$user_stats['fortification_hitpoints'] < (int)$req_fort['hitpoints']) {
+                throw new Exception("Fortification requirement not met.");
             }
         }
-        if ($user['credits'] < $final_cost) { throw new Exception("Not enough credits. Cost: " . number_format($final_cost));}
 
-        // --- EXECUTE UPDATE ---
-        $hitpoints_update_sql = "";
-        if ($upgrade_type === 'fortifications') {
-            $new_max_hp = $upgrade_details['hitpoints'];
-            $hitpoints_update_sql = ", fortification_hitpoints = " . $new_max_hp;
+        // Level req
+        if (isset($next_details['level_req']) && (int)$user_stats['level'] < (int)$next_details['level_req']) {
+            throw new Exception("Minimum level requirement not met.");
         }
 
-        $sql_update = "UPDATE users SET credits = credits - ?, `$db_column` = ? $hitpoints_update_sql WHERE id = ?";
-        $stmt = mysqli_prepare($link, $sql_update);
-        mysqli_stmt_bind_param($stmt, "iii", $final_cost, $target_level, $_SESSION["id"]);
-        mysqli_stmt_execute($stmt);
-        mysqli_stmt_close($stmt);
-        
-        $_SESSION['build_message'] = "Upgrade successful: " . $upgrade_details['name'] . " built!";
+        // Spend + apply level
+        $stmt_up = mysqli_prepare($link, "UPDATE users SET credits = credits - ?, {$db_col} = ? WHERE id = ?");
+        mysqli_stmt_bind_param($stmt_up, "iii", $final_cost, $target_level, $user_id);
+        mysqli_stmt_execute($stmt_up);
+        mysqli_stmt_close($stmt_up);
 
-    } elseif ($action === 'sell_structure') {
-        $current_upgrade_level = $user[$db_column];
-        if ($current_upgrade_level != $target_level) { throw new Exception("You can only sell the most recently built structure."); }
-        
-        $refund_amount = floor($upgrade_details['cost'] * 0.50);
-        $new_level = $target_level - 1;
+        $_SESSION['build_message'] = "Upgrade successful: " . $next_details['name'] . " built!";
 
-        $hitpoints_update_sql = "";
-        if ($upgrade_type === 'fortifications') {
-            // Set HP to the max of the *new* lower level, or 0 if selling the last one.
-            $new_max_hp = ($new_level > 0) ? $upgrades['fortifications']['levels'][$new_level]['hitpoints'] : 0;
-            $hitpoints_update_sql = ", fortification_hitpoints = " . $new_max_hp;
+    } elseif ($post_action === 'repair_structure') {
+        $mode = strtolower(trim($_POST['mode'] ?? 'foundation'));
+
+        if ($mode === 'structure') {
+            $structure_key = strtolower(trim($_POST['structure_key'] ?? ''));
+            $allowed = ['economy','offense','defense','population','armory'];
+            if (!in_array($structure_key, $allowed, true)) throw new Exception("Invalid structure key.");
+
+            // Ensure a row exists, then lock/read it
+            if (function_exists('ss_ensure_structure_rows')) {
+                ss_ensure_structure_rows($link, $user_id);
+            }
+            $st = mysqli_prepare($link, "SELECT health_pct, locked FROM user_structure_health WHERE user_id = ? AND structure_key = ? FOR UPDATE");
+            mysqli_stmt_bind_param($st, "is", $user_id, $structure_key);
+            mysqli_stmt_execute($st);
+            $row = mysqli_fetch_assoc(mysqli_stmt_get_result($st));
+            mysqli_stmt_close($st);
+
+            $health = (int)($row['health_pct'] ?? 100);
+            $locked = (int)($row['locked'] ?? 0);
+
+            if ($health >= 100 && !$locked) {
+                throw new Exception(ucfirst($structure_key) . " is already at full integrity.");
+            }
+
+            $cost = sd_calc_structure_repair_cost($user_stats, $upgrades, $structure_key, $health);
+            if ((int)$user_stats['credits'] < $cost) throw new Exception("Not enough credits to repair.");
+
+            // Spend and repair (to 100% + unlock)
+            $stmt_user = mysqli_prepare($link, "UPDATE users SET credits = credits - ? WHERE id = ?");
+            mysqli_stmt_bind_param($stmt_user, "ii", $cost, $user_id);
+            mysqli_stmt_execute($stmt_user);
+            mysqli_stmt_close($stmt_user);
+
+            $stmt_fix = mysqli_prepare($link, "INSERT INTO user_structure_health (user_id, structure_key, health_pct, locked)
+                                               VALUES (?, ?, 100, 0)
+                                               ON DUPLICATE KEY UPDATE health_pct = VALUES(health_pct), locked = VALUES(locked)");
+            mysqli_stmt_bind_param($stmt_fix, "is", $user_id, $structure_key);
+            mysqli_stmt_execute($stmt_fix);
+            mysqli_stmt_close($stmt_fix);
+
+            $_SESSION['build_message'] = ucfirst($structure_key) . " repaired" . ($cost > 0 ? (" for " . number_format($cost) . " credits.") : "!");
+
+        } else {
+            // ----- Foundation (partial) repair -----
+            $current_fort_level = (int)$user_stats['fortification_level'];
+            if ($current_fort_level <= 0) throw new Exception("No foundation to repair.");
+
+            $max_hp     = (int)($upgrades['fortifications']['levels'][$current_fort_level]['hitpoints'] ?? 0);
+            $current_hp = (int)$user_stats['fortification_hitpoints'];
+            $missing_hp = max(0, $max_hp - $current_hp);
+            if ($missing_hp <= 0) throw new Exception("Foundation is already at full health.");
+
+            // Accept optional partial amount from form
+            $requested   = $_POST['repair_amount'] ?? '';
+            $desired_hp  = is_numeric($requested) ? (int)$requested : $missing_hp; // default: max
+            $desired_hp  = max(1, min($desired_hp, $missing_hp));
+
+            $COST_PER_HP = 5;
+            $repair_cost = $desired_hp * $COST_PER_HP;
+
+            if ((int)$user_stats['credits'] < $repair_cost) {
+                throw new Exception("Not enough credits to repair {$desired_hp} HP.");
+            }
+
+            $new_hp = $current_hp + $desired_hp;
+
+            $stmt_repair = mysqli_prepare($link, "UPDATE users SET credits = credits - ?, fortification_hitpoints = ? WHERE id = ?");
+            mysqli_stmt_bind_param($stmt_repair, "iii", $repair_cost, $new_hp, $user_id);
+            mysqli_stmt_execute($stmt_repair);
+            mysqli_stmt_close($stmt_repair);
+
+            $_SESSION['build_message'] = "Repaired {$desired_hp} HP for " . number_format($repair_cost) . " credits.";
         }
-
-        $sql_update = "UPDATE users SET credits = credits + ?, `$db_column` = ? $hitpoints_update_sql WHERE id = ?";
-        $stmt = mysqli_prepare($link, $sql_update);
-        mysqli_stmt_bind_param($stmt, "iii", $refund_amount, $new_level, $_SESSION["id"]);
-        mysqli_stmt_execute($stmt);
-        mysqli_stmt_close($stmt);
-        
-        $_SESSION['build_message'] = "Structure sold. You have been refunded " . number_format($refund_amount) . " credits.";
-
-    } elseif ($action === 'repair_structure') {
-        $current_fort_level = $user['fortification_level'];
-        if ($current_fort_level <= 0) { throw new Exception("No foundation to repair."); }
-
-        $max_hp = $upgrades['fortifications']['levels'][$current_fort_level]['hitpoints'];
-        $hp_to_repair = max(0, $max_hp - $user['fortification_hitpoints']);
-        $repair_cost = $hp_to_repair * 10; // Recalculate cost on server-side for security
-        
-        if ($user['credits'] < $repair_cost) { throw new Exception("Not enough credits to repair."); }
-        if ($hp_to_repair <= 0) { throw new Exception("Foundation is already at full health."); }
-
-        $sql_repair = "UPDATE users SET credits = credits - ?, fortification_hitpoints = ? WHERE id = ?";
-        $stmt_repair = mysqli_prepare($link, $sql_repair);
-        mysqli_stmt_bind_param($stmt_repair, "iii", $repair_cost, $max_hp, $_SESSION["id"]);
-        mysqli_stmt_execute($stmt_repair);
-        mysqli_stmt_close($stmt_repair);
-        
-        $_SESSION['build_message'] = "Foundation repaired successfully for " . number_format($repair_cost) . " credits!";
 
     } else {
-        throw new Exception("Invalid action specified.");
+        throw new Exception("Invalid structure action.");
     }
 
     mysqli_commit($link);
 
 } catch (Exception $e) {
     mysqli_rollback($link);
-    $_SESSION['build_message'] = "Error: " . $e->getMessage();
+    $_SESSION['build_error'] = "Error: " . $e->getMessage();
 }
 
-// Redirect back to the structures page, ensuring the correct tab is shown.
-$redirect_tab = ($action === 'repair_structure') ? 'repair' : $upgrade_type;
-header("location: /structures.php?tab=" . urlencode($redirect_tab));
+header("location: /structures.php");
 exit;
-?>

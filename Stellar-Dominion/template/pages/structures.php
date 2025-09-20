@@ -1,11 +1,20 @@
 <?php
-/**
- * structures.php
- *
- * This page allows players to build and upgrade permanent structures that provide
- * passive bonuses to their empire, such as increased income or defensive capabilities.
- * It has been updated to work with the central routing system.
- */
+// --- PAGE CONFIGURATION ---
+$page_title = 'Structures';
+$active_page = 'structures.php';
+
+// --- SESSION AND DATABASE SETUP ---
+if (session_status() == PHP_SESSION_NONE) {
+    session_start();
+}
+if (!isset($_SESSION["loggedin"]) || $_SESSION["loggedin"] !== true) {
+    header("location: /index.php");
+    exit;
+}
+require_once __DIR__ . '/../../config/config.php';
+require_once __DIR__ . '/../../src/Game/GameData.php';
+require_once __DIR__ . '/../../src/Services/StateService.php'; // Centralized reads
+require_once __DIR__ . '/../includes/advisor_hydration.php';
 
 // --- FORM SUBMISSION HANDLING ---
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
@@ -13,271 +22,326 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     exit;
 }
 
-// --- PAGE DISPLAY LOGIC (GET REQUEST) ---
-// The main router (index.php) handles all initial setup.
+$user_id = (int)$_SESSION['id'];
 
-require_once __DIR__ . '/../../src/Game/GameData.php';
-date_default_timezone_set('UTC');
+// Single CSRF for all actions on this page (do NOT call csrf_token_field later)
+$structure_action_token = generate_csrf_token('structure_action');
 
-// Generate a CSRF token to be used in all forms on this page.
-$_SESSION['csrf_token'] = generate_csrf_token();
-
-$user_id = $_SESSION['id'];
-
-// --- DATA FETCHING ---
-// Fetch all required columns, including the new fortification_hitpoints.
-$sql = "SELECT experience, level, credits, untrained_citizens, attack_turns, last_updated, fortification_level, fortification_hitpoints, offense_upgrade_level, defense_upgrade_level, spy_upgrade_level, economy_upgrade_level, population_level, armory_level FROM users WHERE id = ?";
-if($stmt = mysqli_prepare($link, $sql)){
-    mysqli_stmt_bind_param($stmt, "i", $user_id);
-    mysqli_stmt_execute($stmt);
-    $user_stats = mysqli_fetch_assoc(mysqli_stmt_get_result($stmt));
-    mysqli_stmt_close($stmt);
+// ---------------------------------------------------------------------------
+// Data Fetching (via StateService; advisor_hydration already ran regen/timers)
+// ---------------------------------------------------------------------------
+$upgrade_level_columns = [];
+foreach ($upgrades as $cat) {
+    if (!empty($cat['db_column'])) { $upgrade_level_columns[] = $cat['db_column']; }
 }
-// The database connection is managed by the router and should not be closed here.
+$needed_fields = array_values(array_unique(array_merge(
+    $upgrade_level_columns,
+    ['credits','level','charisma_points','fortification_hitpoints','fortification_level']
+)));
+$user_stats = ss_get_user_state($link, $user_id, $needed_fields);
 
-// --- TIMER CALCULATIONS ---
-$turn_interval_minutes = 10;
-$last_updated = new DateTime($user_stats['last_updated'], new DateTimeZone('UTC'));
-$now = new DateTime('now', new DateTimeZone('UTC'));
-$seconds_until_next_turn = ($turn_interval_minutes * 60) - (($now->getTimestamp() - $last_updated->getTimestamp()) % ($turn_interval_minutes * 60));
-if ($seconds_until_next_turn < 0) { $seconds_until_next_turn = 0; }
-$minutes_until_next_turn = floor($seconds_until_next_turn / 60);
-$seconds_remainder = $seconds_until_next_turn % 60;
+// --- Pull per-structure health (economy, offense, defense, population, armory) ---
+// Falls back to 100%/unlocked if missing.
+$structure_health = [
+    'economy'    => ['health_pct' => 100, 'locked' => 0],
+    'offense'    => ['health_pct' => 100, 'locked' => 0],
+    'defense'    => ['health_pct' => 100, 'locked' => 0],
+    'population' => ['health_pct' => 100, 'locked' => 0],
+    'armory'     => ['health_pct' => 100, 'locked' => 0],
+];
+if ($stmt = $link->prepare("SELECT structure_key, health_pct, locked FROM user_structure_health WHERE user_id = ?")) {
+    $stmt->bind_param("i", $user_id);
+    if ($stmt->execute() && ($res = $stmt->get_result())) {
+        while ($row = $res->fetch_assoc()) {
+            $k = $row['structure_key'];
+            if (isset($structure_health[$k])) {
+                $structure_health[$k]['health_pct'] = max(0, min(100, (int)$row['health_pct']));
+                $structure_health[$k]['locked']     = (int)$row['locked'];
+            }
+        }
+    }
+    $stmt->close();
+}
 
-// --- PAGE IDENTIFICATION & TAB LOGIC ---
-$active_page = 'structures.php';
-// Add 'repair' as a valid tab option
-$current_tab = isset($_GET['tab']) && (isset($upgrades[$_GET['tab']]) || $_GET['tab'] === 'repair') ? $_GET['tab'] : 'fortifications';
+// Small helpers
+function sd_percent_bar($pct) {
+    $pct = max(0, min(100, (int)$pct));
+    $bar = '<div class="w-full bg-gray-700 rounded-full h-2 border border-gray-600"><div class="bg-cyan-500 h-full rounded-full" style="width: ' . $pct . '%"></div></div>';
+    return $bar;
+}
+function sd_effect_line($type, $pct) {
+    $pct = max(0, min(100, (int)$pct));
+    $labels = [
+        'economy'    => 'Income/production',
+        'population' => 'Citizens per turn',
+        'offense'    => 'Offense bonuses',
+        'defense'    => 'Defense bonuses',
+        'armory'     => 'Armory level effects',
+        'fortifications' => 'Foundation benefits',
+    ];
+    $label = $labels[$type] ?? 'Effects';
+    if ($type === 'armory') {
+        return '<span class="text-xs text-gray-300">At <span class="font-semibold text-yellow-300">'.$pct.'%</span> integrity, your armory level functions normally unless locked.</span>';
+    }
+    return '<span class="text-xs text-gray-300">At <span class="font-semibold text-yellow-300">'.$pct.'%</span> integrity, you receive about <span class="font-semibold">'.$pct.'%</span> of '.$label.'.</span>';
+}
 
-// --- PAGINATION SETUP ---
-$per_page_options = [5, 10, 'All'];
-$items_per_page = isset($_GET['per_page']) && in_array($_GET['per_page'], $per_page_options) ? $_GET['per_page'] : 10;
-$current_page = isset($_GET['page']) ? (int)$_GET['page'] : 1;
+// --- CSRF & HEADER ---
+include_once __DIR__ . '/../includes/header.php';
 ?>
-<!DOCTYPE html>
-<html lang="en">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Starlight Dominion - Structures</title>
-    <script src="https://cdn.tailwindcss.com"></script>
-    <script src="https://unpkg.com/lucide@latest"></script>
-    <link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@700&family=Roboto:wght@400;500;700&display=swap" rel="stylesheet">
-    <link rel="stylesheet" href="/assets/css/style.css">
-</head>
-<body class="text-gray-400 antialiased">
-    <div class="min-h-screen bg-cover bg-center bg-fixed" style="background-image: url('/assets/img/backgroundAlt.avif');">
-        <div class="container mx-auto p-4 md:p-8">
 
-            <?php include_once __DIR__ . '/../includes/navigation.php'; ?>
-            
-            <div class="grid grid-cols-1 lg:grid-cols-4 gap-4 p-4">
-                <aside class="lg:col-span-1 space-y-4">
-                        <?php 
-                            $user_xp = $user_stats['experience'];
-                            $user_level = $user_stats['level'];
-                            include_once __DIR__ . '/../includes/advisor.php'; 
-                        ?>
-                    <div class="content-box rounded-lg p-4">
-                        <h3 class="font-title text-cyan-400 border-b border-gray-600 pb-2 mb-3">Stats</h3>
-                        <ul class="space-y-2 text-sm">
-                            <li class="flex justify-between"><span>Credits:</span> <span class="text-white font-semibold"><?php echo number_format($user_stats['credits']); ?></span></li>
-                            <li class="flex justify-between"><span>Untrained Citizens:</span> <span class="text-white font-semibold"><?php echo number_format($user_stats['untrained_citizens']); ?></span></li>
-                            <li class="flex justify-between"><span>Level:</span> <span class="text-white font-semibold"><?php echo $user_stats['level']; ?></span></li>
-                            <li class="flex justify-between"><span>Attack Turns:</span> <span class="text-white font-semibold"><?php echo $user_stats['attack_turns']; ?></span></li>
-                            <li class="flex justify-between border-t border-gray-600 pt-2 mt-2">
-                                <span>Next Turn In:</span>
-                                <span id="next-turn-timer" class="text-cyan-300 font-bold" data-seconds-until-next-turn="<?php echo $seconds_until_next_turn; ?>"><?php echo sprintf('%02d:%02d', $minutes_until_next_turn, $seconds_remainder); ?></span>
-                            </li>
-                            <li class="flex justify-between">
-                                <span>Dominion Time:</span>
-                                <span id="dominion-time" class="text-white font-semibold" data-hours="<?php echo $now->format('H'); ?>" data-minutes="<?php echo $now->format('i'); ?>" data-seconds="<?php echo $now->format('s'); ?>"><?php echo $now->format('H:i:s'); ?></span>
-                            </li>
-                        </ul>
-                    </div>
-                </aside>
-                
-                <main class="lg:col-span-3">
-                    <div class="content-box rounded-lg p-4">
-                        <h3 class="font-title text-cyan-400 border-b border-gray-600 pb-2 mb-3">Technological Advancements</h3>
-                        
-                        <?php if(isset($_SESSION['build_message'])): ?>
-                            <div class="bg-cyan-900 border border-cyan-500/50 text-cyan-300 p-3 rounded-md text-center mb-4">
-                                <?php echo htmlspecialchars($_SESSION['build_message']); unset($_SESSION['build_message']); ?>
-                            </div>
-                        <?php endif; ?>
+<aside class="lg:col-span-1 space-y-4">
+    <?php include_once __DIR__ . '/../includes/advisor.php'; ?>
+</aside>
 
-                        <div class="border-b border-gray-600 mb-4">
-                            <nav class="-mb-px flex flex-wrap gap-x-4 gap-y-2" aria-label="Tabs">
-                                <a href="?tab=repair" class="<?php echo ($current_tab == 'repair') ? 'border-cyan-400 text-white' : 'border-transparent text-gray-400 hover:text-gray-200 hover:border-gray-500'; ?> whitespace-nowrap py-2 px-1 border-b-2 font-medium text-sm">
-                                    Repair Foundations
-                                </a>
-                                <?php foreach ($upgrades as $type => $category): ?>
-                                    <a href="?tab=<?php echo $type; ?>" class="<?php echo ($current_tab == $type) ? 'border-cyan-400 text-white' : 'border-transparent text-gray-400 hover:text-gray-200 hover:border-gray-500'; ?> whitespace-nowrap py-2 px-1 border-b-2 font-medium text-sm">
-                                        <?php echo htmlspecialchars($category['title']); ?>
-                                    </a>
-                                <?php endforeach; ?>
-                            </nav>
+<main class="lg:col-span-3 space-y-4">
+    <?php if(isset($_SESSION['build_message'])): ?>
+        <div class="bg-cyan-900 border border-cyan-500/50 text-cyan-300 p-3 rounded-md text-center mb-4">
+            <?php echo htmlspecialchars($_SESSION['build_message']); unset($_SESSION['build_message']); ?>
+        </div>
+    <?php endif; ?>
+    <?php if(isset($_SESSION['build_error'])): ?>
+        <div class="bg-red-900 border border-red-500/50 text-red-300 p-3 rounded-md text-center mb-4">
+            <?php echo htmlspecialchars($_SESSION['build_error']); unset($_SESSION['build_error']); ?>
+        </div>
+    <?php endif; ?>
+
+    <div class="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
+        <?php foreach ($upgrades as $type => $category):
+            $current_level   = (int)$user_stats[$category['db_column']];
+            $max_level       = count($category['levels']);
+            $is_maxed        = ($current_level >= $max_level);
+            $current_details = $current_level > 0    ? $category['levels'][$current_level]     : null;
+            $next_details    = !$is_maxed            ? $category['levels'][$current_level + 1] : null;
+
+            // Integrity: foundations are tracked by HP; others by user_structure_health
+            if ($type === 'fortifications') {
+                $fort_level   = max(1, (int)($user_stats['fortification_level'] ?? 1));
+                $fort_def     = $upgrades['fortifications']['levels'][$fort_level] ?? ['hitpoints' => 1];
+                $max_hp       = (int)($fort_def['hitpoints'] ?? 1);
+                $cur_hp       = (int)($user_stats['fortification_hitpoints'] ?? $max_hp);
+                $health_pct   = $max_hp > 0 ? (int)floor(($cur_hp / $max_hp) * 100) : 100;
+                $locked       = 0; // foundations lock is handled by HP requirement
+            } else {
+                $health_pct = (int)$structure_health[$type]['health_pct'];
+                $locked     = (int)$structure_health[$type]['locked'];
+            }
+
+            // Next upgrade purchase math (unchanged)
+            $charisma_discount = 1 - ($user_stats['charisma_points'] * 0.01);
+            $final_cost = (!$is_maxed && isset($next_details['cost'])) ? floor($next_details['cost'] * $charisma_discount) : 0;
+
+            $reqs_met = true;
+            $req_text_parts = [];
+            if (!$is_maxed && isset($next_details['level_req']) && $user_stats['level'] < $next_details['level_req']) {
+                $reqs_met = false; $req_text_parts[] = "Req Level: {$next_details['level_req']}";
+            }
+            if (!$is_maxed && isset($next_details['fort_req'])) {
+                $required_fort_level = $next_details['fort_req'];
+                $req_fort_details = $upgrades['fortifications']['levels'][$required_fort_level];
+                if (($user_stats['fortification_level'] ?? 0) < $required_fort_level
+                    || ($user_stats['fortification_hitpoints'] ?? 0) < ($req_fort_details['hitpoints'] ?? 0)) {
+                    $reqs_met = false; $req_text_parts[] = "Req: {$req_fort_details['name']}";
+                }
+            }
+            $can_afford = $user_stats['credits'] >= $final_cost;
+            $can_build  = !$is_maxed && $reqs_met && $can_afford && !$locked; // prevent build only if locked
+        ?>
+        <div class="content-box bg-gray-800 rounded-lg p-4 border border-gray-700 flex flex-col justify-between">
+            <div>
+                <div class="flex items-center justify-between">
+                    <h3 class="font-title text-white text-xl"><?php echo htmlspecialchars($category['title']); ?></h3>
+                    <span class="text-xs px-2 py-1 rounded bg-gray-900 border border-gray-700">
+                        Level <?php echo (int)$current_level; ?>/<?php echo (int)$max_level; ?>
+                    </span>
+                </div>
+
+                <?php if ($current_details): ?>
+                    <div class="mt-3">
+                        <p class="text-sm text-gray-400 mb-1">Current:</p>
+                        <div class="bg-gray-900/60 rounded p-3 border border-gray-700">
+                            <span class="font-semibold text-white"><?php echo htmlspecialchars($current_details['name']); ?></span>
+                            <p class="text-xs text-cyan-300 mt-1"><?php echo htmlspecialchars($current_details['description']); ?></p>
                         </div>
-                        
-                        <?php if ($current_tab === 'repair'): 
-                            $current_fort_level = $user_stats['fortification_level'];
-                            if ($current_fort_level > 0) {
-                                $fort_details = $upgrades['fortifications']['levels'][$current_fort_level];
-                                $max_hp = $fort_details['hitpoints'];
-                                $current_hp = $user_stats['fortification_hitpoints'];
-                                $hp_to_repair = max(0, $max_hp - $current_hp);
-                                $repair_cost = $hp_to_repair * 10; // 10 credits per HP
-                                $hp_percentage = ($max_hp > 0) ? floor(($current_hp / $max_hp) * 100) : 0;
-                        ?>
-                            <div class="p-2">
-                                <h3 class="font-title text-2xl text-yellow-400 mb-4">Foundation Repair</h3>
-                                <p class="mb-2">Your <strong><?php echo htmlspecialchars($fort_details['name']); ?></strong> has sustained damage. It must be at 100% health before you can upgrade to the next level.</p>
-                                
-                                <div class="my-4 p-4 bg-gray-800 rounded-lg">
-                                    <p class="text-lg">Current Hitpoints: <span class="font-bold <?php echo ($hp_percentage < 50) ? 'text-red-400' : 'text-green-400'; ?>"><?php echo number_format($current_hp) . ' / ' . number_format($max_hp); ?> (<?php echo $hp_percentage; ?>%)</span></p>
-                                    <div class="w-full bg-gray-900 rounded-full h-4 mt-2 border border-gray-700">
-                                        <div class="bg-cyan-500 h-full rounded-full" style="width: <?php echo $hp_percentage; ?>%"></div>
-                                    </div>
-                                </div>
-                                
-                                <p class="mb-4 text-lg">Total Repair Cost: <span class="font-bold text-yellow-300"><?php echo number_format($repair_cost); ?> Credits</span></p>
-                                
-                                <form action="/structures" method="POST">
-                                    <input type="hidden" name="action" value="repair_structure">
-                                    <input type="hidden" name="csrf_token" value="<?php echo htmlspecialchars($_SESSION['csrf_token']); ?>">
-                                    <button type="submit" class="bg-green-600 hover:bg-green-700 text-white font-bold py-3 px-8 rounded-lg disabled:bg-gray-600 disabled:cursor-not-allowed" <?php if ($user_stats['credits'] < $repair_cost || $current_hp >= $max_hp) echo 'disabled'; ?>>
-                                        <?php 
-                                            if ($current_hp >= $max_hp) echo 'Fully Repaired';
-                                            elseif ($user_stats['credits'] < $repair_cost) echo 'Insufficient Credits';
-                                            else echo 'Repair Now';
-                                        ?>
-                                    </button>
-                                </form>
-                            </div>
-                        <?php } else { ?>
-                             <div class="content-box rounded-lg p-6 text-center">
-                                 <p>You do not have any foundations built yet. Visit the 'Empire Foundations' tab to begin.</p>
-                             </div>
-                        <?php } ?>
-                        <?php else: 
-                            $category = $upgrades[$current_tab];
-                            $user_upgrade_level = $user_stats[$category['db_column']];
-                            $total_levels = count($category['levels']);
-                            
-                            if ($items_per_page === 'All') {
-                                $total_pages = 1;
-                                $paginated_levels = $category['levels'];
-                            } else {
-                                $total_pages = ceil($total_levels / $items_per_page);
-                                $offset = ($current_page - 1) * $items_per_page;
-                                $paginated_levels = array_slice($category['levels'], $offset, $items_per_page, true);
-                            }
-                        ?>
-                            <div class="overflow-x-auto">
-                                <table class="w-full text-sm text-left">
-                                    <thead class="bg-gray-800">
-                                        <tr>
-                                            <th class="p-2">Upgrade Name</th>
-                                            <th class="p-2">Requirements</th>
-                                            <th class="p-2">Description</th>
-                                            <th class="p-2">Cost</th>
-                                            <th class="p-2">Action</th>
-                                        </tr>
-                                    </thead>
-                                    <tbody>
-                                        <?php foreach($paginated_levels as $level => $details): ?>
-                                        <tr class="border-t border-gray-700">
-                                            <td class="p-2 font-bold text-white"><?php echo htmlspecialchars($details['name']); ?></td>
-                                            <td class="p-2">
-                                                <?php
-                                                    $reqs = [];
-                                                    if(isset($details['level_req'])) $reqs[] = "Lvl " . $details['level_req'];
-                                                    if(isset($details['fort_req'])) $reqs[] = $upgrades['fortifications']['levels'][$details['fort_req']]['name'];
-                                                    echo implode('<br>', $reqs);
-                                                ?>
-                                            </td>
-                                            <td class="p-2 text-cyan-300"><?php echo htmlspecialchars($details['description']); ?></td>
-                                            <td class="p-2"><?php echo number_format($details['cost']); ?></td>
-                                            <td class="p-2">
-                                                <?php
-                                                if ($user_upgrade_level >= $level) {
-                                                    echo '<span class="font-bold text-green-400">Owned</span>';
-                                                    if ($user_upgrade_level == $level) {
-                                                        echo '<form action="/structures" method="POST" class="inline ml-2" onsubmit="return confirm(\'Are you sure you want to sell this structure for a partial refund?\');">';
-                                                        echo '<input type="hidden" name="action" value="sell_structure">';
-                                                        echo '<input type="hidden" name="csrf_token" value="' . htmlspecialchars($_SESSION['csrf_token']) . '">';
-                                                        echo '<input type="hidden" name="upgrade_type" value="' . $current_tab . '">';
-                                                        echo '<input type="hidden" name="target_level" value="' . $level . '">';
-                                                        echo '<button type="submit" class="bg-red-800 hover:bg-red-700 text-white font-bold py-1 px-3 rounded-md text-xs">Sell</button>';
-                                                        echo '</form>';
-                                                    }
-                                                } elseif ($user_upgrade_level == $level - 1) {
-                                                    $can_build = true;
-                                                    if (isset($details['level_req']) && $user_stats['level'] < $details['level_req']) $can_build = false;
-                                                    if (isset($details['fort_req'])) {
-                                                        $required_fort_level = $details['fort_req'];
-                                                        $fort_details = $upgrades['fortifications']['levels'][$required_fort_level];
-                                                        if ($user_stats['fortification_level'] < $required_fort_level || $user_stats['fortification_hitpoints'] < $fort_details['hitpoints']) {
-                                                            $can_build = false;
-                                                        }
-                                                    }
-                                                    if ($user_stats['credits'] < $details['cost']) $can_build = false;
-                                                    
-                                                    if ($can_build) {
-                                                        echo '<form action="/structures" method="POST">';
-                                                        echo '<input type="hidden" name="action" value="purchase_structure">';
-                                                        echo '<input type="hidden" name="csrf_token" value="' . htmlspecialchars($_SESSION['csrf_token']) . '">';
-                                                        echo '<input type="hidden" name="upgrade_type" value="' . $current_tab . '">';
-                                                        echo '<input type="hidden" name="target_level" value="' . $level . '">';
-                                                        echo '<button type="submit" class="bg-cyan-600 hover:bg-cyan-700 text-white font-bold py-1 px-3 rounded-md text-xs">Build</button>';
-                                                        echo '</form>';
-                                                    } else {
-                                                        echo '<button class="bg-gray-600 text-gray-400 font-bold py-1 px-3 rounded-md text-xs cursor-not-allowed">Unavailable</button>';
-                                                    }
-                                                } else {
-                                                    echo '<span class="text-gray-500">Locked</span>';
-                                                }
-                                                ?>
-                                            </td>
-                                        </tr>
-                                        <?php endforeach; ?>
-                                    </tbody>
-                                </table>
-                            </div>
-                            <div class="mt-4 flex flex-col md:flex-row justify-between items-center space-y-2 md:space-y-0">
-                                <div class="flex items-center space-x-2 text-sm">
-                                    <span>Show:</span>
-                                    <?php foreach ($per_page_options as $option): ?>
-                                        <a href="?tab=<?php echo $current_tab; ?>&per_page=<?php echo $option; ?>" 
-                                           class="px-3 py-1 <?php echo $items_per_page == $option ? 'bg-cyan-600 font-bold' : 'bg-gray-700'; ?> rounded-md hover:bg-cyan-600">
-                                            <?php echo $option; ?>
-                                        </a>
-                                    <?php endforeach; ?>
-                                </div>
+                    </div>
+                <?php endif; ?>
 
-                                <?php if ($total_pages > 1): ?>
-                                <nav class="flex justify-center items-center space-x-2 text-sm">
-                                    <?php if ($current_page > 1): ?>
-                                        <a href="?tab=<?php echo $current_tab; ?>&per_page=<?php echo $items_per_page; ?>&page=<?php echo $current_page - 1; ?>" class="px-3 py-1 bg-gray-700 rounded-md hover:bg-cyan-600">&laquo; Prev</a>
-                                    <?php endif; ?>
-
-                                    <?php for ($i = 1; $i <= $total_pages; $i++): ?>
-                                        <a href="?tab=<?php echo $current_tab; ?>&per_page=<?php echo $items_per_page; ?>&page=<?php echo $i; ?>" class="px-3 py-1 <?php echo $i == $current_page ? 'bg-cyan-600 font-bold' : 'bg-gray-700'; ?> rounded-md hover:bg-cyan-600"><?php echo $i; ?></a>
-                                    <?php endfor; ?>
-
-                                    <?php if ($current_page < $total_pages): ?>
-                                        <a href="?tab=<?php echo $current_tab; ?>&per_page=<?php echo $items_per_page; ?>&page=<?php echo $current_page + 1; ?>" class="px-3 py-1 bg-gray-700 rounded-md hover:bg-cyan-600">Next &raquo;</a>
-                                    <?php endif; ?>
-                                </nav>
-                                <?php endif; ?>
-                            </div>
+                <div class="mt-4">
+                    <p class="text-sm text-gray-400 mb-1"><?php echo $is_maxed ? 'Status:' : 'Next Upgrade:'; ?></p>
+                    <div class="bg-gray-900/60 rounded p-3 border border-gray-700 min-h-[8rem]">
+                        <?php if ($is_maxed): ?>
+                            <p class="font-semibold text-yellow-300">Maximum Level Reached</p>
+                        <?php else: ?>
+                            <span class="font-semibold text-white"><?php echo htmlspecialchars($next_details['name']); ?></span>
+                            <p class="text-xs text-cyan-300 mt-1"><?php echo htmlspecialchars($next_details['description']); ?></p>
+                            <p class="text-xs mt-2">
+                                Cost:
+                                <span class="font-bold <?php echo !$can_afford ? 'text-red-400' : 'text-yellow-300'; ?>">
+                                    <?php echo number_format($final_cost); ?>
+                                </span>
+                            </p>
+                            <?php if (!$reqs_met): ?>
+                                <p class="text-xs text-red-400 mt-1"><?php echo implode(', ', $req_text_parts); ?></p>
+                            <?php endif; ?>
+                            <?php if ($locked): ?>
+                                <p class="text-xs text-red-400 mt-1">This structure is <strong>locked</strong> due to critical damage. Repair to resume upgrades.</p>
+                            <?php endif; ?>
                         <?php endif; ?>
                     </div>
-                </main>
+                </div>
+
+                <!-- Structure Integrity & Production -->
+                <div class="mt-4">
+                    <p class="text-sm text-gray-400 mb-1">Integrity & Production</p>
+                    <div class="bg-gray-900/60 rounded p-3 border border-gray-700">
+                        <div class="flex items-center justify-between">
+                            <span class="text-sm">
+                                Integrity:
+                                <span class="font-semibold <?php echo ($health_pct < 50) ? 'text-red-400' : 'text-green-400'; ?>">
+                                    <?php echo (int)$health_pct; ?>%
+                                </span>
+                                <?php if ($locked): ?>
+                                    <span class="ml-2 text-xs px-2 py-0.5 rounded bg-red-900/60 border border-red-700 text-red-200">Locked</span>
+                                <?php endif; ?>
+                            </span>
+                            <span class="text-xs text-gray-400">Effects scale with integrity</span>
+                        </div>
+                        <div class="mt-2"><?php echo sd_percent_bar($health_pct); ?></div>
+                        <div class="mt-2"><?php echo sd_effect_line($type, $health_pct); ?></div>
+
+                        <?php if ($type !== 'fortifications'): ?>
+                        <!-- Repair button (per-structure) -->
+                        <form action="/structures.php" method="POST" class="mt-3">
+                            <input type="hidden" name="csrf_token"  value="<?php echo htmlspecialchars($structure_action_token); ?>">
+                            <input type="hidden" name="csrf_action" value="structure_action">
+                            <input type="hidden" name="action"       value="repair_structure">
+                            <input type="hidden" name="mode"         value="structure">
+                            <input type="hidden" name="structure_key" value="<?php echo htmlspecialchars($type); ?>">
+                            <button
+                                type="submit"
+                                class="w-full bg-green-600 hover:bg-green-700 text-white font-bold py-2 rounded-lg disabled:bg-gray-600 disabled:cursor-not-allowed"
+                                <?php echo ($health_pct >= 100) ? 'disabled' : ''; ?>>
+                                <?php echo ($health_pct >= 100) ? 'Fully Repaired' : 'Repair'; ?>
+                            </button>
+                        </form>
+                        <?php endif; ?>
+                    </div>
+                </div>
+                <!-- /Integrity & Production -->
+            </div>
+
+            <div class="mt-4">
+                <?php if (!$is_maxed): ?>
+                    <form action="/structures.php" method="POST" class="flex gap-2">
+                        <input type="hidden" name="csrf_token"  value="<?php echo htmlspecialchars($structure_action_token); ?>">
+                        <input type="hidden" name="csrf_action" value="structure_action">
+                        <input type="hidden" name="upgrade_type" value="<?php echo htmlspecialchars($type); ?>">
+                        <input type="hidden" name="target_level" value="<?php echo (int)($current_level + 1); ?>">
+                        <button type="submit" name="action" value="purchase_structure"
+                                class="w-full bg-cyan-600 hover:bg-cyan-700 text-white font-bold py-2 rounded-lg disabled:bg-gray-600 disabled:cursor-not-allowed"
+                                <?php if (!$can_build) echo 'disabled'; ?>>
+                            <?php
+                                if ($locked)            echo 'Repair Required';
+                                elseif (!$reqs_met)     echo 'Requirements Not Met';
+                                elseif (!$can_afford)   echo 'Insufficient Credits';
+                                else                    echo 'Build';
+                            ?>
+                        </button>
+                    </form>
+                <?php else: ?>
+                    <button class="w-full bg-gray-700 text-gray-400 font-bold py-2 rounded-lg cursor-not-allowed" disabled>Max Level</button>
+                <?php endif; ?>
             </div>
         </div>
+        <?php endforeach; ?>
     </div>
-    <script src="/assets/js/main.js" defer></script>
-</body>
-</html>
+
+    <?php
+    // FOUNDATION INTEGRITY (unchanged visual, computed above for accurate %)
+    $current_fort_level = (int)($user_stats['fortification_level'] ?? 0);
+    if ($current_fort_level > 0):
+        $fort_details = $upgrades['fortifications']['levels'][$current_fort_level] ?? ['hitpoints'=>0];
+        $max_hp       = (int)($fort_details['hitpoints'] ?? 0);
+        $current_hp   = (int)($user_stats['fortification_hitpoints'] ?? 0);
+        $hp_to_repair = max(0, $max_hp - $current_hp);
+        $repair_cost  = $hp_to_repair * 5; // unify: 10 credits / HP
+        $hp_percentage = ($max_hp > 0) ? floor(($current_hp / $max_hp) * 100) : 0;
+    ?>
+    <div class="content-box rounded-lg p-6 bg-gray-800 border border-gray-700">
+        <h3 class="font-title text-2xl text-yellow-400 mb-2">Foundation Integrity</h3>
+        <p class="text-sm mb-4">Your Empire Foundations must be at 100% health before you can upgrade them further.</p>
+        <div class="my-4 p-4 bg-gray-900/50 rounded-lg">
+            <p class="text-lg">
+                Current Hitpoints:
+                <span class="font-bold <?php echo ($hp_percentage < 50) ? 'text-red-400' : 'text-green-400'; ?>">
+                    <?php echo number_format($current_hp) . ' / ' . number_format($max_hp); ?> (<?php echo (int)$hp_percentage; ?>%)
+                </span>
+            </p>
+            <div class="w-full bg-gray-700 rounded-full h-4 mt-2 border border-gray-600">
+                <div class="bg-cyan-500 h-full rounded-full" style="width: <?php echo (int)$hp_percentage; ?>%"></div>
+            </div>
+        </div>
+        <div class="flex justify-between items-center">
+            <p class="text-lg">
+                Total Repair Cost:
+                <span class="font-bold text-yellow-300"><?php echo number_format($repair_cost); ?> Credits</span>
+            </p>
+            <form action="/structures.php" method="POST" class="flex items-center gap-3">
+                <input type="hidden" name="csrf_token"  value="<?php echo htmlspecialchars($structure_action_token); ?>">
+                <input type="hidden" name="csrf_action" value="structure_action">
+                <input type="hidden" name="action" value="repair_structure">
+                <input type="hidden" name="mode" value="foundation">
+
+                <div class="flex-1">
+                    <label for="structure-repair-amount" class="text-xs block text-gray-400 mb-1">Repair HP</label>
+                    <input type="number" id="structure-repair-amount" name="repair_amount" min="1" step="1"
+                           class="w-full p-2 rounded bg-gray-800 border border-gray-700 text-white focus:outline-none focus:ring-2 focus:ring-cyan-500"
+                           placeholder="Enter HP to repair">
+                    <div class="flex justify-between text-sm mt-2">
+                        <button type="button" id="structure-repair-max-btn"
+                                class="px-2 py-1 rounded bg-gray-800 hover:bg-gray-700 text-cyan-400">
+                            Repair Max
+                        </button>
+                        <span>Estimated Cost:
+                            <span id="structure-repair-cost" class="font-semibold text-yellow-300">
+                                <?php echo number_format($repair_cost); ?>
+                            </span> credits
+                        </span>
+                    </div>
+                </div>
+
+                <button type="submit"
+                        class="bg-green-600 hover:bg-green-700 text-white font-bold px-4 py-2 rounded-lg disabled:opacity-50 disabled:cursor-not-allowed"
+                        <?php if ($user_stats['credits'] < $repair_cost || $current_hp >= $max_hp) echo 'disabled'; ?>>
+                    Repair
+                </button>
+            </form>
+
+            <script>
+              (function(){
+                const box = document.currentScript.parentElement;
+                const maxHp = <?php echo (int)$max_hp; ?>;
+                const curHp = <?php echo (int)$current_hp; ?>;
+                const missing = Math.max(0, maxHp - curHp);
+                const per = 5; // unify with backend
+
+                const input = box.querySelector('#structure-repair-amount');
+                const btnMax = box.querySelector('#structure-repair-max-btn');
+                const costEl = box.querySelector('#structure-repair-cost');
+
+                const update = () => {
+                  const val = Math.max(0, parseInt(input.value || '0', 5));
+                  const eff = Math.max(0, Math.min(val, missing));
+                  costEl.textContent = (eff * per).toLocaleString();
+                };
+                if (btnMax) btnMax.addEventListener('click', () => { input.value = String(missing); update(); });
+                if (input) input.addEventListener('input', update, { passive: true });
+                update();
+              })();
+            </script>
+        </div>
+    </div>
+    <?php endif; ?>
+</main>
+
+<?php include_once __DIR__ . '/../includes/footer.php'; ?>

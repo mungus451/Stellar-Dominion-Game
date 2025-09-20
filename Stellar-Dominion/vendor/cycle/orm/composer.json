@@ -1,0 +1,81 @@
+{
+    "name": "cycle/orm",
+    "type": "library",
+    "license": "MIT",
+    "description": "PHP DataMapper ORM and Data Modelling Engine",
+    "minimum-stability": "dev",
+    "prefer-stable": true,
+    "homepage": "https://cycle-orm.dev",
+    "support": {
+        "issues": "https://github.com/cycle/orm/issues",
+        "source": "https://github.com/cycle/orm",
+        "docs": "https://cycle-orm.dev/docs",
+        "chat": "https://discord.gg/spiralphp"
+    },
+    "keywords": ["mysql", "mssql", "sqlite", "postgresql", "orm", "sql", "query-builder", "data-mapper"],
+    "authors": [
+        {
+            "name": "Anton Titov (wolfy-j)",
+            "email": "wolfy-j@spiralscout.com"
+        },
+        {
+            "name": "Aleksei Gagarin (roxblnfk)",
+            "email": "alexey.gagarin@spiralscout.com"
+        },
+        {
+            "name": "Pavel Butchnev (butschster)",
+            "email": "pavel.buchnev@spiralscout.com"
+        },
+        {
+            "name": "Maksim Smakouz (msmakouz)",
+            "email": "maksim.smakouz@spiralscout.com"
+        }
+    ],
+    "funding": [
+        {
+            "type": "github",
+            "url": "https://github.com/sponsors/cycle"
+        }
+    ],
+    "require": {
+        "php": ">=8.0",
+        "ext-pdo": "*",
+        "cycle/database": "^2.8.1",
+        "doctrine/instantiator": "^1.3.1 || ^2.0",
+        "spiral/core": "^2.8 || ^3.0"
+    },
+    "require-dev": {
+        "doctrine/collections": "^1.6 || ^2.0",
+        "illuminate/collections": "9 - 11",
+        "loophp/collection": "^6.0 || ^7.0",
+        "mockery/mockery": "^1.1",
+        "phpunit/phpunit": "^9.5",
+        "ramsey/uuid": "^4.0",
+        "spiral/code-style": "~2.2.0",
+        "spiral/tokenizer": "^2.8 || ^3.0",
+        "symfony/var-dumper": "^5.2 || ^6.0 || ^7.0",
+        "vimeo/psalm": "5.21 || ^6.8"
+    },
+    "autoload": {
+        "psr-4": {
+            "Cycle\\ORM\\": "src/"
+        }
+    },
+    "autoload-dev": {
+        "psr-4": {
+            "Cycle\\ORM\\Tests\\": "tests/ORM/"
+        }
+    },
+    "config": {
+        "sort-packages": true
+    },
+    "scripts": {
+        "cs:diff": "php-cs-fixer fix --dry-run -v --diff",
+        "cs:fix": "php-cs-fixer fix -v",
+        "psalm": "psalm",
+        "psalm:baseline": "psalm --set-baseline=psalm-baseline.xml",
+        "test": "phpunit --color=always",
+        "test:unit": "phpunit --exclude-group driver --colors=always",
+        "test:sqlite": "phpunit --group driver-sqlite --colors=always"
+    }
+}

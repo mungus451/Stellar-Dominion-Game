@@ -1,367 +1,770 @@
 <?php
 /**
- * template/pages/alliance.php
- *
- * Main hub for all alliance activities. Reverted to work with mysqli.
- * Now includes the Rivalry display section for members.
- *
- * 
+ * template/pages/alliance.php — Alliance Hub (+Scout Alliances tab)
+ * Uses header/footer, renders in main column, themed with /assets/css/style.css.
  */
 
-// The main router (index.php) includes config.php, making $link available.
-require_once __DIR__ . '/../../src/Controllers/BaseAllianceController.php';
-require_once __DIR__ . '/../../src/Controllers/AllianceManagementController.php';
-require_once __DIR__ . '/../../src/Game/GameData.php';
-require_once __DIR__ . '/../../src/Game/GameFunctions.php';
+if (session_status() === PHP_SESSION_NONE) session_start();
+if (!isset($_SESSION['loggedin']) || $_SESSION['loggedin'] !== true) { header('Location: /index.html'); exit; }
 
-// Instantiate the controller with the $link object from config.php
-$allianceController = new AllianceManagementController($link);
+$ROOT = dirname(__DIR__, 2);
+require_once $ROOT . '/config/config.php';      // $link (mysqli)
+require_once $ROOT . '/src/Game/GameData.php';
+require_once $ROOT . '/src/Game/GameFunctions.php';
 
-// --- FORM SUBMISSION HANDLING (POST REQUEST) ---
-if ($_SERVER['REQUEST_METHOD'] === 'POST') {
-    // CSRF: a single missing/invalid token aborts early (cheap) and avoids DB work.
-    if (!isset($_POST['csrf_token']) || !validate_csrf_token($_POST['csrf_token'])) {
-        $_SESSION['alliance_error'] = 'Invalid session token. Please try again.';
-        header('Location: /alliance');
-        exit;
+/* POST dispatcher -> AllianceManagementController */
+require_once $ROOT . '/src/Controllers/BaseAllianceController.php';
+require_once $ROOT . '/src/Controllers/AllianceManagementController.php';
+
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
+    $csrf_action = isset($_POST['csrf_action']) ? (string)$_POST['csrf_action'] : 'alliance_hub';
+    if (!isset($_POST['csrf_token']) || !validate_csrf_token($_POST['csrf_token'], $csrf_action)) {
+        $_SESSION['alliance_error'] = 'Invalid session token.';
+        header('Location: /alliance.php'); exit;
     }
-    // Maintain reference: delegate action to controller dispatcher (same API).
-    if (isset($_POST['action'])) {
-        $allianceController->dispatch($_POST['action']);
+
+    $map = [
+        'apply'   => 'apply_to_alliance',
+        'cancel'  => 'cancel_application',
+        'approve' => 'accept_application',
+        'reject'  => 'deny_application',
+        'kick'    => 'kick',
+        // invitations flow posts with actions: accept_invite / decline_invite (no map needed)
+    ];
+    $dispatchAction = $map[$_POST['action']] ?? $_POST['action'];
+
+    try {
+        $controller = new AllianceManagementController($link);
+        $controller->dispatch($dispatchAction); // controller handles redirect+exit
+    } catch (Throwable $e) {
+        $_SESSION['alliance_error'] = 'Action failed: ' . $e->getMessage();
+        header('Location: /alliance.php'); exit;
     }
-    exit;
 }
 
-// --- PAGE DISPLAY LOGIC (GET REQUEST) ---
-$user_id = (int)($_SESSION['id'] ?? 0); // harden type in hot path
-$active_page = 'alliance.php';
-$csrf_token = generate_csrf_token(); // used by forms below; idempotent/replay-safe per site policy
+date_default_timezone_set('UTC');
+if (function_exists('process_offline_turns') && isset($_SESSION['id'])) {
+    process_offline_turns($link, (int)$_SESSION['id']);
+}
 
-// Controller call returns all alliance-scoped aggregates for the user.
-$allianceData = $allianceController->getAllianceDataForUser($user_id);
-
-// Keep original references used in the template section
-$alliance         = $allianceData;
-$members          = $allianceData['members'] ?? [];
-$roles            = $allianceData['roles'] ?? [];
-$applications     = $allianceData['applications'] ?? [];
-$user_permissions = $allianceData['permissions'] ?? [];
+/* helpers */
+function column_exists(mysqli $link, string $table, string $column): bool {
+    $table  = preg_replace('/[^a-z0-9_]/i', '', $table);
+    $column = preg_replace('/[^a-z0-9_]/i', '', $column);
+    $res = mysqli_query($link, "SHOW COLUMNS FROM `$table` LIKE '$column'");
+    if (!$res) return false;
+    $ok = mysqli_num_rows($res) > 0; mysqli_free_result($res); return $ok;
+}
+function table_exists(mysqli $link, string $table): bool {
+    $table = preg_replace('/[^a-z0-9_]/i', '', $table);
+    $res = mysqli_query($link, "SHOW TABLES LIKE '$table'");
+    if (!$res) return false;
+    $ok = mysqli_num_rows($res) > 0; mysqli_free_result($res); return $ok;
+}
+function e($v): string { return htmlspecialchars((string)($v ?? ''), ENT_QUOTES, 'UTF-8'); }
+function normalize_avatar(string $candidate, string $default, string $root): string {
+    if ($candidate === '') return $default;
+    $url = preg_match('#^(https?://|/)#i', $candidate) ? $candidate : ('/' . ltrim($candidate, '/'));
+    $path = parse_url($url, PHP_URL_PATH);
+    $fs   = $root . '/public' . $path;
+    return (is_string($path) && is_file($fs)) ? $url : $default;
+}
+/* Prefer an existing avatar column on users (dynamic, no guessing at runtime) */
+function users_avatar_column(mysqli $link): ?string {
+    foreach (['avatar_path','avatar','profile_image','profile_pic','picture','image_path','portrait'] as $c) {
+        if (column_exists($link, 'users', $c)) return $c;
+    }
+    return null;
+}
+/* Initial letter for placeholder avatar */
+function initial_letter(string $name): string {
+    $name = trim($name);
+    $ch = function_exists('mb_substr') ? mb_substr($name, 0, 1, 'UTF-8') : substr($name, 0, 1);
+    return strtoupper($ch ?: '?');
+}
 
 /**
- * RBAC check utility
- * WHY: local helper avoids repeated isset chains and keeps template terse.
- * NOTE: keep signature and global use to avoid breaking includes that expect it.
+ * Render Join/Cancel button(s) for a public alliance row (not Scout tab).
+ * Returns HTML (or empty if applications table missing).
  */
-function can($permission_key) {
-    global $user_permissions;
-    return isset($user_permissions[$permission_key]) && $user_permissions[$permission_key] === true;
+function render_join_action_button(array $row, ?int $viewer_alliance_id, bool $has_app_table, ?int $pending_app_id, ?int $pending_alliance_id, string $csrf_token): string {
+    if (!$has_app_table) return '';
+    $aid = (int)($row['id'] ?? 0);
+    ob_start();
+    if ($viewer_alliance_id !== null) { ?>
+        <button class="text-white font-bold py-1 px-3 rounded-md text-xs opacity-50 cursor-not-allowed"
+                title="Leave your current alliance before you can join another"
+                style="background:#4b5563">Join alliance</button>
+    <?php } elseif ($pending_app_id !== null && $pending_alliance_id === $aid) { ?>
+        <form action="/alliance.php" method="post" class="inline-block">
+            <input type="hidden" name="csrf_token" value="<?= e($csrf_token) ?>">
+            <input type="hidden" name="csrf_action" value="alliance_hub">
+            <input type="hidden" name="application_id" value="<?= (int)$pending_app_id ?>">
+            <input type="hidden" name="action" value="cancel">
+            <button class="text-white font-bold py-1 px-3 rounded-md text-xs" style="background:#991b1b">Cancel application</button>
+        </form>
+    <?php } elseif ($pending_app_id !== null) { ?>
+        <button class="text-white font-bold py-1 px-3 rounded-md text-xs opacity-50 cursor-not-allowed"
+                title="You already have a pending application"
+                style="background:#4b5563">Join alliance</button>
+    <?php } else { ?>
+        <form action="/alliance.php" method="post" class="inline-block">
+            <input type="hidden" name="csrf_token" value="<?= e($csrf_token) ?>">
+            <input type="hidden" name="csrf_action" value="alliance_hub">
+            <input type="hidden" name="action" value="apply">
+            <input type="hidden" name="alliance_id" value="<?= $aid ?>">
+            <input type="hidden" name="reason" value="">
+            <button class="text-white font-bold py-1 px-3 rounded-md text-xs" style="background:#0ea5e9">Join alliance</button>
+        </form>
+    <?php }
+    return trim(ob_get_clean());
 }
 
-// Tab normalization (balance: unknown => default "roster" so UI never hides both panes)
-$tab_in = isset($_GET['tab']) ? (string)$_GET['tab'] : 'roster';
-$current_tab = ($tab_in === 'applications') ? 'applications' : 'roster';
+/* viewer + alliance */
+$user_id = (int)($_SESSION['id'] ?? 0);
+$viewer_alliance_id = null;
 
-// Alliance browsing state
-$alliances_list = [];
-$pending_application = null; // Variable to hold application info
+if ($st = $link->prepare("SELECT alliance_id FROM users WHERE id = ? LIMIT 1")) {
+    $st->bind_param('i', $user_id);
+    $st->execute(); $st->bind_result($aid_tmp);
+    if ($st->fetch()) $viewer_alliance_id = $aid_tmp !== null ? (int)$aid_tmp : null;
+    $st->close();
+}
 
-if (!$alliance) { // User is not in an alliance
-    // Pending application (fast path): prevents redundant search call below.
-    $stmt_app = $link->prepare("
-        SELECT aa.alliance_id, a.name, a.tag
-        FROM alliance_applications aa
-        JOIN alliances a ON aa.alliance_id = a.id
-        WHERE aa.user_id = ? AND aa.status = 'pending'
-    ");
-    if ($stmt_app) {
-        $stmt_app->bind_param("i", $user_id);
-        $stmt_app->execute();
-        $result_app = $stmt_app->get_result();
-        $pending_application = $result_app ? $result_app->fetch_assoc() : null;
-        $stmt_app->close();
-    } else {
-        // Prepare failure shouldn’t break UX; show a friendly message in the UI region.
-        $_SESSION['alliance_error'] = 'Could not load application status. Please refresh.';
+$userNameCol = column_exists($link, 'users', 'username')
+    ? 'username'
+    : (column_exists($link, 'users', 'character_name') ? 'character_name' : 'email');
+
+$alliance = null;
+$alliance_avatar = '/assets/img/alliance-badge.webp';
+
+if ($viewer_alliance_id !== null) {
+    $cols = "id, name, tag, description, created_at, leader_id";
+    if (column_exists($link, 'alliances', 'avatar_path')) $cols .= ", avatar_path";
+
+    if ($st = $link->prepare("SELECT $cols FROM alliances WHERE id = ? LIMIT 1")) {
+        $st->bind_param('i', $viewer_alliance_id);
+        $st->execute(); $res = $st->get_result();
+        $alliance = $res ? $res->fetch_assoc() : null;
+        $st->close();
     }
 
-    // Only enumerate alliances if no pending application exists
-    if (!$pending_application) {
-        // INPUT NORMALIZATION (perf guard): trim and length-bound to keep LIKE predictable.
-        // Keep behavior: empty search => list top alliances by member_count (LIMIT 50).
-        $search_raw  = isset($_GET['search']) ? (string)$_GET['search'] : '';
-        $search_term = trim($search_raw);
-        if (function_exists('mb_substr')) {
-            $search_term = mb_substr($search_term, 0, 64, 'UTF-8'); // tame pathological inputs
-        } else {
-            $search_term = substr($search_term, 0, 64);
+    if ($alliance && !empty($alliance['leader_id'])) {
+        if ($st = $link->prepare("SELECT $userNameCol FROM users WHERE id = ? LIMIT 1")) {
+            $x = (int)$alliance['leader_id'];
+            $st->bind_param('i', $x);
+            $st->execute(); $st->bind_result($leader_name);
+            if ($st->fetch()) $alliance['leader_name'] = $leader_name;
+            $st->close();
         }
-        $search_query = "%" . $search_term . "%";
+    }
 
-        $stmt_search = $link->prepare("
-            SELECT a.id, a.name, a.tag,
-                   (SELECT COUNT(*) FROM users WHERE alliance_id = a.id) AS member_count
-            FROM alliances a
-            WHERE a.name LIKE ? OR a.tag LIKE ?
-            ORDER BY member_count DESC
-            LIMIT 50
-        ");
-        if ($stmt_search) {
-            $stmt_search->bind_param("ss", $search_query, $search_query);
-            $stmt_search->execute();
-            $result_search = $stmt_search->get_result();
-            $alliances_list = $result_search ? $result_search->fetch_all(MYSQLI_ASSOC) : [];
-            $stmt_search->close();
-        } else {
-            $_SESSION['alliance_error'] = 'Could not load alliance directory. Please try again.';
+    if (!empty($alliance['avatar_path'])) {
+        $alliance_avatar = normalize_avatar((string)$alliance['avatar_path'], $alliance_avatar, $ROOT);
+    }
+
+    // optional credits
+    $alliance['bank_credits'] = 0;
+    if (column_exists($link, 'alliances', 'bank_credits')) {
+        if ($st = $link->prepare("SELECT bank_credits FROM alliances WHERE id = ? LIMIT 1")) {
+            $x = (int)$alliance['id'];
+            $st->bind_param('i', $x);
+            $st->execute(); $st->bind_result($credits);
+            if ($st->fetch()) $alliance['bank_credits'] = (int)$credits;
+            $st->close();
         }
     }
 }
+
+/* viewer permissions (for Approve/Kick buttons) */
+$viewer_perms = ['can_approve_membership'=>false,'can_kick_members'=>false];
+if ($viewer_alliance_id !== null) {
+    $sql = "SELECT ar.can_approve_membership, ar.can_kick_members
+            FROM users u
+            LEFT JOIN alliance_roles ar
+              ON ar.id = u.alliance_role_id AND ar.alliance_id = u.alliance_id
+            WHERE u.id = ? LIMIT 1";
+    if ($st = $link->prepare($sql)) {
+        $st->bind_param('i', $user_id);
+        $st->execute(); $st->bind_result($p1, $p2);
+        if ($st->fetch()) $viewer_perms = [
+            'can_approve_membership' => (bool)$p1,
+            'can_kick_members'       => (bool)$p2
+        ];
+        $st->close();
+    }
+}
+
+/* charter (optional) */
+$alliance_charter = '';
+if ($alliance) {
+    $alliance_charter = (string)($alliance['description'] ?? '');
+
+    if (trim($alliance_charter) === '') {
+        $alliance_charter = 'No charter has been set yet.';
+    }
+}
+
+/* rivalries (for RIVAL badge) */
+$rivalries = []; $rivalIds = [];
+if ($alliance && table_exists($link, 'alliance_rivalries')) {
+    $sql = "SELECT ar.opponent_alliance_id, ar.status, ar.created_at, a.name, a.tag
+            FROM alliance_rivalries ar
+            JOIN alliances a ON a.id = ar.opponent_alliance_id
+            WHERE ar.alliance_id = ?
+            ORDER BY ar.created_at DESC LIMIT 20";
+    if ($st = $link->prepare($sql)) {
+        $x = (int)$alliance['id'];
+        $st->bind_param('i', $x);
+        $st->execute(); $res = $st->get_result();
+        while ($row = $res->fetch_assoc()) { $rivalries[] = $row; $rivalIds[(int)$row['opponent_alliance_id']] = true; }
+        $st->close();
+    }
+} elseif ($alliance && table_exists($link, 'rivalries')) {
+    $sql = "SELECT
+                CASE WHEN r.alliance1_id = ? THEN r.alliance2_id ELSE r.alliance1_id END AS opponent_alliance_id,
+                r.heat_level, r.created_at, a.name, a.tag
+            FROM rivalries r
+            JOIN alliances a
+              ON a.id = CASE WHEN r.alliance1_id = ? THEN r.alliance2_id ELSE r.alliance1_id END
+            WHERE r.alliance1_id = ? OR r.alliance2_id = ?
+            ORDER BY r.created_at DESC LIMIT 20";
+    if ($st = $link->prepare($sql)) {
+        $aid = (int)$alliance['id'];
+        $st->bind_param('iiii', $aid, $aid, $aid, $aid);
+        $st->execute(); $res = $st->get_result();
+        while ($row = $res->fetch_assoc()) { $rivalries[] = $row; $rivalIds[(int)$row['opponent_alliance_id']] = true; }
+        $st->close();
+    }
+}
+
+/* roster — include role and avatar */
+$members = [];
+if ($alliance) {
+    $cols = "u.id, u.$userNameCol AS username";
+    $hasLevel = column_exists($link, 'users', 'level');
+    $hasNet   = column_exists($link, 'users', 'net_worth');
+    if ($hasLevel) $cols .= ", u.level";
+    if ($hasNet)   $cols .= ", u.net_worth";
+
+    $avatarCol = users_avatar_column($link);
+    if ($avatarCol) $cols .= ", u.$avatarCol AS avatar_path";
+
+    $sql = "SELECT $cols, COALESCE(r.name,'Member') AS role_name, u.alliance_role_id
+            FROM users u
+            LEFT JOIN alliance_roles r
+              ON r.id = u.alliance_role_id AND r.alliance_id = ?
+            WHERE u.alliance_id = ?
+            ORDER BY " . ($hasLevel ? "u.level DESC" : "u.id ASC");
+
+    if ($st = $link->prepare($sql)) {
+        $aid = (int)$alliance['id'];
+        $st->bind_param('ii', $aid, $aid);
+        $st->execute(); $res = $st->get_result();
+        while ($row = $res->fetch_assoc()) {
+            // Avatar URL if present; else empty string for placeholder
+            $row['avatar_url'] = isset($row['avatar_path']) && $row['avatar_path'] !== ''
+                ? normalize_avatar((string)$row['avatar_path'], '', $ROOT)
+                : '';
+            $members[] = $row;
+        }
+        $st->close();
+    }
+}
+
+/* applications (optional, for leaders to review) */
+$applications = [];
+if ($alliance && table_exists($link, 'alliance_applications')) {
+    $appCols = "aa.id, aa.user_id, aa.status, u.$userNameCol AS username";
+    if (column_exists($link, 'users', 'level')) $appCols .= ", u.level";
+    if (column_exists($link, 'alliance_applications', 'reason')) $appCols .= ", aa.reason";
+    $sql = "SELECT $appCols
+            FROM alliance_applications aa
+            JOIN users u ON u.id = aa.user_id
+            WHERE aa.alliance_id = ? AND aa.status = 'pending'
+            ORDER BY aa.id DESC LIMIT 100";
+    if ($st = $link->prepare($sql)) {
+        $x = (int)$alliance['id'];
+        $st->bind_param('i', $x);
+        $st->execute(); $res = $st->get_result();
+        while ($row = $res->fetch_assoc()) $applications[] = $row;
+        $st->close();
+    }
+}
+
+/* player-side apply/cancel state (when NOT in an alliance) */
+$csrf_token = generate_csrf_token('alliance_hub');
+$has_app_table = table_exists($link, 'alliance_applications');
+$pending_app_id = null; $pending_alliance_id = null;
+if ($has_app_table && $viewer_alliance_id === null) {
+    if ($st = $link->prepare("SELECT id, alliance_id FROM alliance_applications WHERE user_id = ? AND status = 'pending' ORDER BY id DESC LIMIT 1")) {
+        $st->bind_param('i', $user_id);
+        $st->execute(); $st->bind_result($aid, $alid);
+        if ($st->fetch()) { $pending_app_id = (int)$aid; $pending_alliance_id = (int)$alid; }
+        $st->close();
+    }
+}
+
+/* pending invitations for the viewer (when NOT in an alliance) */
+$invitations = [];
+$has_invite_table = table_exists($link, 'alliance_invitations');
+if ($viewer_alliance_id === null && $has_invite_table) {
+    $invCols = "ai.id, ai.alliance_id, ai.inviter_id, ai.created_at, a.name AS alliance_name, a.tag AS alliance_tag";
+    $invCols .= ", u.$userNameCol AS inviter_name";
+    $sql = "SELECT $invCols
+            FROM alliance_invitations ai
+            JOIN alliances a ON a.id = ai.alliance_id
+            LEFT JOIN users u ON u.id = ai.inviter_id
+            WHERE ai.invitee_id = ? AND ai.status = 'pending'
+            ORDER BY ai.id DESC
+            LIMIT 50";
+    if ($st = $link->prepare($sql)) {
+        $st->bind_param('i', $user_id);
+        $st->execute(); $res = $st->get_result();
+        while ($row = $res->fetch_assoc()) { $invitations[] = $row; }
+        $st->close();
+    }
+}
+
+/* ---------------- Scout list (always available) ---------------- */
+$opp_page   = isset($_GET['opp_page']) ? max(1, (int)$_GET['opp_page']) : 1;
+$opp_limit  = 20;
+$opp_offset = ($opp_page - 1) * $opp_limit;
+$term_raw   = isset($_GET['opp_search']) ? (string)$_GET['opp_search'] : '';
+$opp_term   = trim($term_raw);
+$opp_term   = function_exists('mb_substr') ? mb_substr($opp_term, 0, 64, 'UTF-8') : substr($opp_term, 0, 64);
+$opp_like   = '%' . $opp_term . '%';
+
+$opp_list = []; $opp_total = 0;
+$aid_for_exclude = $viewer_alliance_id ?? 0;
+
+$oppCols = "a.id, a.name, a.tag";
+if (column_exists($link, 'alliances', 'avatar_path')) $oppCols .= ", a.avatar_path";
+
+$sql = "SELECT $oppCols,
+               (SELECT COUNT(*) FROM users u WHERE u.alliance_id = a.id) AS member_count
+        FROM alliances a
+        WHERE a.id <> ? AND (? = '' OR a.name LIKE ? OR a.tag LIKE ?)
+        ORDER BY member_count DESC, a.id ASC
+        LIMIT ? OFFSET ?";
+if ($st = $link->prepare($sql)) {
+    $st->bind_param('isssii', $aid_for_exclude, $opp_term, $opp_like, $opp_like, $opp_limit, $opp_offset);
+    $st->execute(); $res = $st->get_result();
+    while ($row = $res->fetch_assoc()) {
+        $row['avatar_url'] = normalize_avatar((string)($row['avatar_path'] ?? ''), '/assets/img/alliance-badge.webp', $ROOT);
+        $opp_list[] = $row;
+    }
+    $st->close();
+}
+$sql = "SELECT COUNT(*) FROM alliances a WHERE a.id <> ? AND (? = '' OR a.name LIKE ? OR a.tag LIKE ?)";
+if ($st = $link->prepare($sql)) {
+    $st->bind_param('isss', $aid_for_exclude, $opp_term, $opp_like, $opp_like);
+    $st->execute(); $st->bind_result($cnt);
+    if ($st->fetch()) $opp_total = (int)$cnt;
+    $st->close();
+}
+$opp_pages = max(1, (int)ceil($opp_total / $opp_limit));
+$base_scout = '/alliance.php?tab=scout';
+if ($opp_term !== '') $base_scout .= '&opp_search=' . rawurlencode($opp_term);
+$base_public = '/alliance.php';
+if ($opp_term !== '') $base_public .= '?opp_search=' . rawurlencode($opp_term);
+
+/* page chrome */
+$active_page = 'alliance.php';
+$page_title  = 'Starlight Dominion - Alliance Hub';
+include $ROOT . '/template/includes/header.php';
 ?>
-<!DOCTYPE html>
-<html lang="en">
-<head>
-    <meta charset="UTF-8">
-    <title>Stellar Dominion - Alliance</title>
-    <link rel="stylesheet" href="/assets/css/style.css">
-    <script src="https://cdn.tailwindcss.com"></script>
-    <script src="https://unpkg.com/lucide@latest"></script>
-    <link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@700&family=Roboto:wght@400;500;700&display=swap" rel="stylesheet">
-</head>
-<body class="text-gray-400 antialiased">
-<div class="min-h-screen bg-cover bg-center bg-fixed" style="background-image: url('/assets/img/backgroundAlt.avif');">
-    <div class="container mx-auto p-4 md:p-8">
-            <?php include_once __DIR__ . '/../includes/navigation.php'; ?>
-        <main class="space-y-4">
-            <?php if(isset($_SESSION['alliance_error'])): ?>
-                <div class="bg-red-900 border border-red-500/50 text-red-300 p-3 rounded-md text-center">
-                    <?php echo htmlspecialchars($_SESSION['alliance_error'], ENT_QUOTES, 'UTF-8'); unset($_SESSION['alliance_error']); ?>
-                </div>
-            <?php endif; ?>
-            <?php if(isset($_SESSION['alliance_message'])): ?>
-                <div class="bg-cyan-900 border border-cyan-500/50 text-cyan-300 p-3 rounded-md text-center">
-                    <?php echo htmlspecialchars($_SESSION['alliance_message'], ENT_QUOTES, 'UTF-8'); unset($_SESSION['alliance_message']); ?>
-                </div>
-            <?php endif; ?>
 
-            <?php if ($alliance): // START: USER IS IN AN ALLIANCE ?>
-                
-                <div class="content-box rounded-lg p-6">
-                    <div class="flex flex-col md:flex-row md:items-start md:justify-between">
-                        <div class="flex items-center space-x-4">
-                            <img src="<?php echo htmlspecialchars($alliance['avatar_path'] ?? '/assets/img/default_alliance.avif', ENT_QUOTES, 'UTF-8'); ?>" alt="Alliance Avatar" class="w-20 h-20 rounded-lg border-2 border-gray-600 object-cover">
-                            <div>
-                                <h2 class="font-title text-3xl text-white">[<?php echo htmlspecialchars($alliance['tag'], ENT_QUOTES, 'UTF-8'); ?>] <?php echo htmlspecialchars($alliance['name'], ENT_QUOTES, 'UTF-8'); ?></h2>
-                                 <p class="text-sm">Led by <?php echo htmlspecialchars($alliance['leader_name'] ?? 'N/A', ENT_QUOTES, 'UTF-8'); ?></p>
-                            </div>
-                        </div>
-                        <div class="text-center md:text-right mt-4 md:mt-0">
-                            <p class="text-sm uppercase text-gray-400">Alliance Bank</p>
-                            <p class="font-bold text-2xl text-yellow-300"><?php echo number_format((int)($alliance['bank_credits'] ?? 0)); ?> Credits</p>
-                        </div>
+</aside><section id="main" class="col-span-9 lg:col-span-10">
+
+    <?php if (isset($_SESSION['alliance_error'])): ?>
+        <div class="content-box text-red-200 border-red-600/60 p-3 rounded-md text-center mb-4" style="border-color:rgba(220,38,38,.6)">
+            <?= e($_SESSION['alliance_error']); unset($_SESSION['alliance_error']); ?>
+        </div>
+    <?php endif; ?>
+    <?php if (isset($_SESSION['alliance_message'])): ?>
+        <div class="content-box text-emerald-200 border-emerald-600/60 p-3 rounded-md text-center mb-4" style="border-color:rgba(5,150,105,.6)">
+            <?= e($_SESSION['alliance_message']); unset($_SESSION['alliance_message']); ?>
+        </div>
+    <?php endif; ?>
+
+    <?php if ($alliance): ?>
+        <!-- Header Card -->
+        <div class="content-box rounded-lg p-5 mb-4">
+            <div class="flex flex-col md:flex-row md:items-start md:justify-between">
+                <div class="flex items-center gap-4">
+                    <img src="<?= e($alliance_avatar) ?>" class="w-20 h-20 rounded-lg border object-cover" alt="Alliance" style="border-color:#374151">
+                    <div>
+                        <h2 class="font-title text-3xl text-white font-bold">
+                            <span style="color:#06b6d4">[<?= e($alliance['tag'] ?? '') ?>]</span> <?= e($alliance['name'] ?? 'Alliance') ?>!
+                        </h2>
+                        <p class="text-xs text-gray-400">Led by <?= e($alliance['leader_name'] ?? 'Unknown') ?></p>
                     </div>
-                     <div class="mt-4 pt-4 border-t border-gray-700 flex flex-wrap gap-2">
-                         <?php if ((int)$alliance['leader_id'] === $user_id): ?>
-                             <a href="/edit_alliance" class="bg-blue-600 hover:bg-blue-700 text-white font-bold py-2 px-4 rounded-lg text-sm">Edit Alliance</a>
-                         <?php endif; ?>
-                         <?php if ((int)$alliance['leader_id'] !== $user_id): ?>
-                         <form action="/alliance" method="POST" onsubmit="return confirm('Are you sure you want to leave this alliance?');">
-                             <input type="hidden" name="csrf_token" value="<?php echo htmlspecialchars($csrf_token, ENT_QUOTES, 'UTF-8'); ?>">
-                             <input type="hidden" name="action" value="leave">
-                             <button type="submit" class="bg-red-600 hover:bg-red-700 text-white font-bold py-2 px-4 rounded-lg text-sm">Leave Alliance</button>
-                         </form>
-                         <?php endif; ?>
-                     </div>
                 </div>
-
-                <div class="content-box rounded-lg p-6">
-                    <h3 class="font-title text-cyan-400">Alliance Charter</h3>
-                    <div class="mt-2 text-sm italic prose max-w-none prose-invert text-gray-300"><?php echo nl2br(htmlspecialchars($alliance['description'], ENT_QUOTES, 'UTF-8')); ?></div>
-                </div>
-
-                <div class="content-box rounded-lg p-6 mt-4">
-                    <h3 class="font-title text-yellow-400">Active Rivalries</h3>
-                    <?php
-                        // Rivalries: the “other side” is fetched via OR-join; results capped at 5 by heat.
-                        $rivalries_sql = "
-                            SELECT r.heat_level, a.id, a.name, a.tag
-                            FROM rivalries r
-                            JOIN alliances a ON (a.id = r.alliance1_id OR a.id = r.alliance2_id)
-                            WHERE (r.alliance1_id = ? OR r.alliance2_id = ?)
-                              AND a.id != ?
-                            ORDER BY r.heat_level DESC
-                            LIMIT 5";
-
-                        $stmt_rivalries = $link->prepare($rivalries_sql);
-                        if ($stmt_rivalries) {
-                            $alliance_id_for_query = (int)$alliance['id'];
-                            $stmt_rivalries->bind_param("iii", $alliance_id_for_query, $alliance_id_for_query, $alliance_id_for_query);
-                            $stmt_rivalries->execute();
-                            $rivalries_result = $stmt_rivalries->get_result();
-
-                            if ($rivalries_result && $rivalries_result->num_rows > 0):
-                    ?>
-                    <div class="space-y-3 mt-2">
-                        <?php while($rival = $rivalries_result->fetch_assoc()): ?>
-                        <div class="bg-gray-800 p-2 rounded-md">
-                             <div class="flex justify-between items-center text-sm font-bold">
-                                <span class="text-white">[<?= htmlspecialchars($rival['tag'], ENT_QUOTES, 'UTF-8') ?>] <?= htmlspecialchars($rival['name'], ENT_QUOTES, 'UTF-8') ?></span>
-                                <span class="text-red-400">Heat: <?= (int)$rival['heat_level'] ?></span>
-                            </div>
-                        </div>
-                        <?php endwhile; ?>
-                    </div>
-                    <?php else: ?>
-                    <p class="text-sm text-gray-400 mt-2 italic">This alliance currently has no active rivalries.</p>
-                    <?php
-                            endif;
-                            $stmt_rivalries->close(); // Free server resources early
-                        } else {
-                            echo '<p class="text-sm text-red-400 mt-2 italic">Error loading rivalry data.</p>';
-                        }
-                    ?>
-                </div>
-
-                <div class="border-b border-gray-600">
-                    <nav class="flex space-x-4">
-                        <a href="?tab=roster" class="py-2 px-4 <?php echo $current_tab === 'roster' ? 'text-white border-b-2 border-cyan-400' : 'text-gray-400 hover:text-white'; ?>">Member Roster</a>
-                        <?php if (can('can_approve_membership')): ?>
-                            <a href="?tab=applications" class="py-2 px-4 <?php echo $current_tab === 'applications' ? 'text-white border-b-2 border-cyan-400' : 'text-gray-400 hover:text-white'; ?>">Applications <span class="bg-cyan-500 text-white text-xs font-bold rounded-full px-2 py-1"><?php echo count($applications); ?></span></a>
+                <div class="text-right mt-4 md:mt-0">
+                    <p class="text-xs text-gray-400 uppercase">Alliance Bank</p>
+                    <p class="text-2xl font-extrabold" style="color:#facc15">
+                        <?= number_format((int)($alliance['bank_credits'] ?? 0)) ?> Credits
+                    </p>
+                        <?php $user_is_leader = ($alliance && (int)$alliance['leader_id'] === $user_id); ?>
+                    <div class="mt-3 space-x-2">
+                        <?php if ($user_is_leader): ?>
+                            <a href="/edit_alliance" class="inline-block text-white font-semibold text-sm px-4 py-2 rounded-md" style="background:#075985">Edit Alliance</a>
+                        <?php else: ?>
+                            <form action="/alliance.php" method="post" class="inline-block" onsubmit="return confirm('Are you sure you want to leave this alliance?');">
+                                <input type="hidden" name="csrf_token" value="<?= e($csrf_token) ?>">
+                                <input type="hidden" name="csrf_action" value="alliance_hub">
+                                <input type="hidden" name="action" value="leave">
+                                <button class="text-white font-semibold text-sm px-4 py-2 rounded-md" style="background:#991b1b">Leave Alliance</button>
+                            </form>
                         <?php endif; ?>
-                    </nav>
+                    </div>
                 </div>
-                
-                <div id="roster-content" class="<?php if ($current_tab !== 'roster') echo 'hidden'; ?>">
-                    <div class="content-box rounded-lg p-4 overflow-x-auto">
-                        <table class="w-full text-sm text-left">
-                            <thead class="bg-gray-800">
-                                <tr>
-                                    <th class="p-2">Name</th><th class="p-2">Level</th><th class="p-2">Role</th><th class="p-2">Net Worth</th><th class="p-2">Status</th>
-                                    <?php if (can('can_kick_members')): ?><th class="p-2 text-right">Manage</th><?php endif; ?>
-                                </tr>
-                            </thead>
-                            <tbody>
-                                <?php foreach ($members as $member): ?>
-                                <tr class="border-t border-gray-700">
-                                    <td class="p-2 text-white font-bold"><a href="/view_profile?id=<?php echo (int)$member['user_id']; ?>" class="hover:underline"><?php echo htmlspecialchars($member['character_name'], ENT_QUOTES, 'UTF-8'); ?></a></td>
-                                    <td class="p-2"><?php echo (int)($member['level'] ?? 0); ?></td>
-                                    <td class="p-2"><?php echo htmlspecialchars($member['role_name'], ENT_QUOTES, 'UTF-8'); ?></td>
-                                    <td class="p-2"><?php echo number_format((int)$member['net_worth']); ?></td>
+            </div>
+        </div>
+
+        <!-- Charter -->
+        <div class="content-box rounded-lg p-4 mb-4">
+            <h3 class="text-lg font-semibold text-white mb-2">Alliance Charter</h3>
+            <div class="text-sm text-gray-300"><?= nl2br(e($alliance_charter !== '' ? $alliance_charter : 'No charter has been set yet.')) ?></div>
+        </div>
+
+        <!-- Rivalries -->
+        <?php if (!empty($rivalries)): ?>
+            <div class="content-box rounded-lg p-4 mb-4">
+                <h3 class="text-lg font-semibold text-white mb-2">Active Rivalries</h3>
+                <ul class="list-disc list-inside text-gray-300">
+                    <?php foreach ($rivalries as $rv): ?>
+                        <li class="flex items-center justify-between">
+                            <span><span style="color:#06b6d4">[<?= e($rv['tag'] ?? '') ?>]</span> <?= e($rv['name'] ?? 'Unknown') ?></span>
+                            <span class="text-xs text-gray-400">
+                                <?php
+                                if (isset($rv['status'])) echo e($rv['status']);
+                                elseif (isset($rv['heat_level'])) echo 'Heat ' . (int)$rv['heat_level'];
+                                else echo 'Active';
+                                ?>
+                            </span>
+                        </li>
+                    <?php endforeach; ?>
+                </ul>
+            </div>
+        <?php endif; ?>
+
+        <!-- Tabs -->
+        <?php
+        // DEFAULT TAB now "roster"
+        $tab_in = isset($_GET['tab']) ? (string)$_GET['tab'] : 'roster';
+        $current_tab = in_array($tab_in, ['roster','applications','scout'], true) ? $tab_in : 'roster';
+        ?>
+        <div class="content-box rounded-lg px-4 pt-3 mb-3">
+            <nav class="flex gap-6 text-sm">
+                <a href="?tab=roster" class="nav-link <?= $current_tab==='roster' ? 'active text-white' : '' ?>">Member Roster</a>
+                <a href="?tab=scout" class="nav-link <?= $current_tab==='scout' ? 'active text-white' : '' ?>">Scout Alliances</a>
+                <a href="?tab=applications" class="nav-link <?= $current_tab==='applications' ? 'active text-white' : '' ?>">
+                    Applications
+                    <?php if (!empty($applications)): ?>
+                        <span class="ml-2 inline-block rounded-full px-2 py-0.5 text-xs font-bold" style="background:#0e7490;color:#fff"><?= count($applications) ?></span>
+                    <?php endif; ?>
+                </a>
+            </nav>
+        </div>
+
+        <!-- Roster -->
+        <section id="tab-roster" class="<?= $current_tab === 'roster' ? '' : 'hidden' ?>">
+            <div class="content-box rounded-lg p-4 overflow-x-auto">
+                <table class="w-full text-left text-sm">
+                    <thead style="background:#111827;color:#9ca3af">
+                        <tr>
+                            <th class="p-2">Name</th>
+                            <th class="p-2">Level</th>
+                            <th class="p-2">Role</th>
+                            <th class="p-2">Net Worth</th>
+                            <th class="p-2">Status</th>
+                            <th class="p-2 text-right">Manage</th>
+                        </tr>
+                    </thead>
+                    <tbody class="text-gray-300">
+                        <?php if (empty($members)): ?>
+                            <tr><td colspan="6" class="p-4 text-center text-gray-400">No members found.</td></tr>
+                        <?php else: foreach ($members as $m): ?>
+                            <tr class="border-t" style="border-color:#374151">
+                                <td class="p-2">
+                                    <div class="flex items-center gap-2">
+                                        <?php if (!empty($m['avatar_url'])): ?>
+                                            <img src="<?= e($m['avatar_url']) ?>" alt="" class="w-7 h-7 rounded border object-cover" style="border-color:#374151">
+                                        <?php else: ?>
+                                            <div class="w-7 h-7 rounded border flex items-center justify-center text-xs font-bold" style="border-color:#374151;background:#1f2937">
+                                                <?= e(initial_letter($m['username'] ?? '?')) ?>
+                                            </div>
+                                        <?php endif; ?>
+                                        <span><?= e($m['username'] ?? 'Unknown') ?></span>
+                                    </div>
+                                </td>
+                                <td class="p-2"><?= isset($m['level']) ? (int)$m['level'] : 0 ?></td>
+                                <td class="p-2"><?= e($m['role_name'] ?? 'Member') ?></td>
+                                <td class="p-2"><?= isset($m['net_worth']) ? number_format((int)$m['net_worth']) : '—' ?></td>
+                                <td class="p-2">Offline</td>
+                                <td class="p-2 text-right">
+                                    <?php
+                                    $canKick = !empty($viewer_perms['can_kick_members']);
+                                    $isSelf  = (int)$m['id'] === $user_id;
+                                    $isLeader= isset($alliance['leader_id']) && (int)$m['id'] === (int)$alliance['leader_id'];
+                                    if ($canKick && !$isSelf && !$isLeader): ?>
+                                        <form action="/alliance.php" method="post" class="inline-block">
+                                            <input type="hidden" name="csrf_token" value="<?= e($csrf_token) ?>">
+                                            <input type="hidden" name="csrf_action" value="alliance_hub">
+                                            <input type="hidden" name="action" value="kick">
+                                            <input type="hidden" name="member_id" value="<?= (int)$m['id'] ?>">
+                                            <button class="text-white text-xs px-3 py-1 rounded-md" style="background:#7f1d1d">Kick</button>
+                                        </form>
+                                    <?php else: ?>
+                                        <span class="text-xs text-gray-500">—</span>
+                                    <?php endif; ?>
+                                </td>
+                            </tr>
+                        <?php endforeach; endif; ?>
+                    </tbody>
+                </table>
+            </div>
+        </section>
+
+        <!-- Applications -->
+        <section id="tab-applications" class="<?= $current_tab === 'applications' ? '' : 'hidden' ?>">
+            <div class="content-box rounded-lg p-4 overflow-x-auto">
+                <?php if (empty($applications)): ?>
+                    <p class="text-gray-300">There are no pending applications.</p>
+                <?php else: ?>
+                <table class="w-full text-left text-sm">
+                    <thead style="background:#111827;color:#9ca3af">
+                        <tr><th class="p-2">Name</th><th class="p-2">Level</th><th class="p-2">Reason</th><th class="p-2 text-right">Action</th></tr>
+                    </thead>
+                    <tbody class="text-gray-300">
+                        <?php foreach ($applications as $app): ?>
+                            <tr class="border-t" style="border-color:#374151">
+                                <td class="p-2"><?= e($app['username'] ?? 'Unknown') ?></td>
+                                <td class="p-2"><?= (int)($app['level'] ?? 0) ?></td>
+                                <td class="p-2"><?= e($app['reason'] ?? '-') ?></td>
+                                <td class="p-2 text-right">
+                                    <?php if (!empty($viewer_perms['can_approve_membership'])): ?>
+                                        <form action="/alliance.php" method="post" class="inline-block">
+                                            <input type="hidden" name="csrf_token" value="<?= e($csrf_token) ?>">
+                                            <input type="hidden" name="csrf_action" value="alliance_hub">
+                                            <input type="hidden" name="user_id" value="<?= (int)$app['user_id'] ?>">
+                                            <input type="hidden" name="action" value="approve">
+                                            <button class="text-white text-xs px-3 py-1 rounded-md" style="background:#065f46">Approve</button>
+                                        </form>
+                                        <form action="/alliance.php" method="post" class="inline-block ml-2">
+                                            <input type="hidden" name="csrf_token" value="<?= e($csrf_token) ?>">
+                                            <input type="hidden" name="csrf_action" value="alliance_hub">
+                                            <input type="hidden" name="user_id" value="<?= (int)$app['user_id'] ?>">
+                                            <input type="hidden" name="action" value="reject">
+                                            <button class="text-white text-xs px-3 py-1 rounded-md" style="background:#991b1b">Reject</button>
+                                        </form>
+                                    <?php else: ?>
+                                        <span class="text-xs text-gray-500">Leader/Officer only</span>
+                                    <?php endif; ?>
+                                </td>
+                            </tr>
+                        <?php endforeach; ?>
+                    </tbody>
+                </table>
+                <?php endif; ?>
+            </div>
+        </section>
+
+        <!-- Scout Alliances (when in an alliance) -->
+        <section id="tab-scout" class="<?= $current_tab === 'scout' ? '' : 'hidden' ?>">
+            <div class="content-box rounded-lg p-4 overflow-x-auto">
+                <h3 class="text-lg font-semibold text-white mb-3">Scout Opposing Alliances</h3>
+                <form method="get" action="/alliance.php" class="mb-3">
+                    <input type="hidden" name="tab" value="scout">
+                    <div class="flex w-full">
+                        <input type="text" name="opp_search" value="<?= e($opp_term) ?>"
+                               placeholder="Search name or tag"
+                               class="flex-1 bg-gray-900 border text-white px-3 py-2 rounded-l-md focus:outline-none" style="border-color:#374151">
+                        <button type="submit" class="text-white font-bold py-2 px-4 rounded-r-md" style="background:#0891b2">Search</button>
+                    </div>
+                </form>
+
+                <table class="w-full text-left text-sm">
+                    <thead style="background:#111827;color:#9ca3af">
+                        <tr><th class="p-2">Alliance</th><th class="p-2">Members</th><th class="p-2 text-right">Action</th></tr>
+                    </thead>
+                    <tbody class="text-gray-300">
+                        <?php if (empty($opp_list)): ?>
+                            <tr><td colspan="3" class="p-4 text-center text-gray-400">No alliances found.</td></tr>
+                        <?php else: foreach ($opp_list as $row): ?>
+                            <tr class="border-t" style="border-color:#374151">
+                                <td class="p-2">
+                                    <div class="flex items-center gap-3">
+                                        <img src="<?= e($row['avatar_url']) ?>" alt="" class="w-7 h-7 rounded border" style="border-color:#374151;object-fit:cover">
+                                        <div>
+                                            <span class="text-white">
+                                                <span style="color:#06b6d4">[<?= e($row['tag'] ?? '') ?>]</span>
+                                                <?= e($row['name']) ?>
+                                            </span>
+                                            <?php if (!empty($rivalIds[(int)$row['id']])): ?>
+                                                <span class="ml-2 align-middle text-xs px-2 py-0.5 rounded"
+                                                      style="background:#7f1d1d;color:#fecaca;border:1px solid #ef4444">RIVAL</span>
+                                            <?php endif; ?>
+                                        </div>
+                                    </div>
+                                </td>
+                                <td class="p-2"><?= (int)($row['member_count'] ?? 0) ?></td>
+                                <td class="p-2 text-right">
+                                    <a href="/view_alliance.php?id=<?= (int)$row['id'] ?>"
+                                       class="text-white font-bold py-1 px-3 rounded-md text-xs" style="background:#374151">View</a>
+                                    <!-- No Join button on Scout tab -->
+                                </td>
+                            </tr>
+                        <?php endforeach; endif; ?>
+                    </tbody>
+                </table>
+
+                <?php if ($opp_pages > 1): ?>
+                <div class="mt-3 flex items-center justify-between">
+                    <div class="text-xs text-gray-400"><?= number_format($opp_total) ?> alliances</div>
+                    <div class="flex items-center gap-2">
+                        <?php $prev = $opp_page > 1 ? $opp_page - 1 : 1; $next = $opp_page < $opp_pages ? $opp_page + 1 : $opp_pages; ?>
+                        <a class="px-3 py-1 rounded text-xs" style="border:1px solid #374151" href="<?= $base_scout . '&opp_page=' . $prev ?>">Prev</a>
+                        <a class="px-3 py-1 rounded text-xs" style="border:1px solid #374151" href="<?= $base_scout . '&opp_page=' . $next ?>">Next</a>
+                    </div>
+                </div>
+                <?php endif; ?>
+            </div>
+        </section>
+
+    <?php else: ?>
+        <!-- Not in alliance: pending invitations (Accept / Decline) -->
+        <?php if (!empty($invitations)): ?>
+            <div class="content-box rounded-lg p-4 mb-4">
+                <h3 class="text-lg font-semibold text-white mb-2">Alliance Invitations</h3>
+                <p class="text-xs text-gray-400 mb-3">
+                    You’ve been invited to join the alliances below. Accepting an invite will place you into that alliance immediately.
+                    <?php if ($pending_app_id !== null): ?>
+                        <br><span class="text-amber-300">Note:</span> You currently have a pending application — cancel it before accepting an invite.
+                    <?php endif; ?>
+                </p>
+                <div class="overflow-x-auto">
+                    <table class="w-full text-left text-sm">
+                        <thead style="background:#111827;color:#9ca3af">
+                            <tr>
+                                <th class="p-2">Alliance</th>
+                                <th class="p-2">Invited By</th>
+                                <th class="p-2">When</th>
+                                <th class="p-2 text-right">Action</th>
+                            </tr>
+                        </thead>
+                        <tbody class="text-gray-300">
+                            <?php foreach ($invitations as $inv): ?>
+                                <tr class="border-t" style="border-color:#374151">
+                                    <td class="p-2">
+                                        <span class="text-white">
+                                            <span style="color:#06b6d4">[<?= e($inv['alliance_tag'] ?? '') ?>]</span>
+                                            <?= e($inv['alliance_name'] ?? 'Alliance') ?>
+                                        </span>
+                                    </td>
+                                    <td class="p-2"><?= e($inv['inviter_name'] ?? 'Unknown') ?></td>
                                     <td class="p-2">
                                         <?php
-                                            $is_online = (isset($member['last_updated']) && (time() - strtotime($member['last_updated'])) < 900);
-                                            echo $is_online ? '<span class="text-green-400">Online</span>' : '<span class="text-gray-500">Offline</span>';
+                                        $ts = isset($inv['created_at']) ? strtotime((string)$inv['created_at']) : false;
+                                        echo $ts ? date('Y-m-d H:i', $ts) . ' UTC' : '—';
                                         ?>
                                     </td>
-                                    <?php if (can('can_kick_members') && (int)$member['user_id'] !== $user_id && (int)$alliance['leader_id'] !== (int)$member['user_id']): ?>
-                                        <td class="p-2 text-right">
-                                            <form action="/alliance" method="POST" class="inline-block" onsubmit="return confirm('Are you sure you want to kick this member?');">
-                                                <input type="hidden" name="csrf_token" value="<?php echo htmlspecialchars($csrf_token, ENT_QUOTES, 'UTF-8'); ?>">
-                                                <input type="hidden" name="member_id" value="<?php echo (int)$member['user_id']; ?>">
-                                                <input type="hidden" name="action" value="kick">
-                                                <button type="submit" class="text-red-400 hover:text-red-300 text-xs font-bold">Kick</button>
+                                    <td class="p-2 text-right">
+                                        <?php if ($pending_app_id === null): ?>
+                                            <form action="/alliance.php" method="post" class="inline-block">
+                                                <input type="hidden" name="csrf_token" value="<?= e($csrf_token) ?>">
+                                                <input type="hidden" name="csrf_action" value="alliance_hub">
+                                                <input type="hidden" name="action" value="accept_invite">
+                                                <input type="hidden" name="invitation_id" value="<?= (int)$inv['id'] ?>">
+                                                <input type="hidden" name="alliance_id"   value="<?= (int)$inv['alliance_id'] ?>">
+                                                <button class="text-white text-xs px-3 py-1 rounded-md" style="background:#065f46">Accept</button>
                                             </form>
-                                        </td>
-                                    <?php else: ?>
-                                        <td class="p-2"></td>
-                                    <?php endif; ?>
+                                        <?php else: ?>
+                                            <button class="text-white text-xs px-3 py-1 rounded-md opacity-50 cursor-not-allowed"
+                                                    title="Cancel your application before accepting an invite"
+                                                    style="background:#065f46">Accept</button>
+                                        <?php endif; ?>
+
+                                        <form action="/alliance.php" method="post" class="inline-block ml-2">
+                                            <input type="hidden" name="csrf_token" value="<?= e($csrf_token) ?>">
+                                            <input type="hidden" name="csrf_action" value="alliance_hub">
+                                            <input type="hidden" name="action" value="decline_invite">
+                                            <input type="hidden" name="invitation_id" value="<?= (int)$inv['id'] ?>">
+                                            <button class="text-white text-xs px-3 py-1 rounded-md" style="background:#991b1b">Decline</button>
+                                        </form>
+                                    </td>
                                 </tr>
-                                <?php endforeach; ?>
-                            </tbody>
-                        </table>
-                    </div>
+                            <?php endforeach; ?>
+                        </tbody>
+                    </table>
                 </div>
-                
-                <div id="applications-content" class="<?php if ($current_tab !== 'applications' || !can('can_approve_membership')) echo 'hidden'; ?>">
-                    <div class="content-box rounded-lg p-4">
-                        <h3 class="font-title text-cyan-400 border-b border-gray-600 pb-2 mb-3">Pending Applications</h3>
-                        <?php if (empty($applications)): ?>
-                            <p>There are no pending applications.</p>
-                        <?php else: ?>
-                            <table class="w-full text-sm text-left">
-                                <thead class="bg-gray-800"><tr><th class="p-2">Name</th><th class="p-2">Level</th><th class="p-2">Net Worth</th><th class="p-2 text-right">Action</th></tr></thead>
-                                <tbody>
-                                <?php foreach($applications as $app): ?>
-                                    <tr class="border-t border-gray-700">
-                                        <td class="p-2 text-white font-bold"><a href="/view_profile?id=<?php echo (int)$app['user_id']; ?>" class="hover:underline"><?php echo htmlspecialchars($app['character_name'], ENT_QUOTES, 'UTF-8'); ?></a></td>
-                                        <td class="p-2"><?php echo (int)($app['level'] ?? 0); ?></td>
-                                        <td class="p-2"><?php echo number_format((int)($app['net_worth'] ?? 0)); ?></td>
-                                        <td class="p-2 text-right">
-                                            <form action="/alliance" method="POST" class="inline-block">
-                                                <input type="hidden" name="csrf_token" value="<?php echo htmlspecialchars($csrf_token, ENT_QUOTES, 'UTF-8'); ?>">
-                                                <input type="hidden" name="user_id" value="<?php echo (int)$app['user_id']; ?>">
-                                                <button type="submit" name="action" value="accept_application" class="text-green-400 hover:text-green-300 text-xs font-bold">Approve</button>
-                                            </form>
-                                            <span class="text-gray-600 mx-1">|</span>
-                                            <form action="/alliance" method="POST" class="inline-block">
-                                                <input type="hidden" name="csrf_token" value="<?php echo htmlspecialchars($csrf_token, ENT_QUOTES, 'UTF-8'); ?>">
-                                                <input type="hidden" name="user_id" value="<?php echo (int)$app['user_id']; ?>">
-                                                <button type="submit" name="action" value="deny_application" class="text-red-400 hover:text-red-300 text-xs font-bold">Deny</button>
-                                            </form>
-                                        </td>
-                                    </tr>
-                                <?php endforeach; ?>
-                                </tbody>
-                            </table>
-                        <?php endif; ?>
-                    </div>
+            </div>
+        <?php endif; ?>
+
+        <!-- Not in alliance: public list WITH Join/Cancel -->
+        <div class="content-box rounded-lg p-4 overflow-x-auto">
+            <h3 class="text-lg font-semibold text-white mb-3">Browse Alliances</h3>
+            <div class="mb-3 text-right">
+                <a href="/create_alliance" class="inline-block text-white font-bold py-2 px-4 rounded-md" style="background:#065f46">Create Alliance</a>
+            </div>
+            <form method="get" action="/alliance.php" class="mb-3">
+                <div class="flex w-full">
+                    <input type="text" name="opp_search" value="<?= e($opp_term) ?>"
+                           placeholder="Search name or tag"
+                           class="flex-1 bg-gray-900 border text-white px-3 py-2 rounded-l-md focus:outline-none" style="border-color:#374151">
+                    <button type="submit" class="text-white font-bold py-2 px-4 rounded-r-md" style="background:#0891b2">Search</button>
                 </div>
+            </form>
 
-            <?php else: // START: USER IS NOT IN AN ALLIANCE ?>
-                <?php if ($pending_application): ?>
-                    <div class="content-box rounded-lg p-6 text-center">
-                        <h1 class="font-title text-3xl text-white">Application Pending</h1>
-                        <p class="mt-2">You have a pending application to join <strong class="text-cyan-400">[<?php echo htmlspecialchars($pending_application['tag'], ENT_QUOTES, 'UTF-8'); ?>] <?php echo htmlspecialchars($pending_application['name'], ENT_QUOTES, 'UTF-8'); ?></strong>.</p>
-                        <p class="text-sm text-gray-400">You must cancel this application before you can apply to another alliance.</p>
-                        <form action="/alliance" method="POST" class="mt-4">
-                            <input type="hidden" name="csrf_token" value="<?php echo htmlspecialchars($csrf_token, ENT_QUOTES, 'UTF-8'); ?>">
-                            <input type="hidden" name="action" value="cancel_application">
-                            <button type="submit" class="bg-red-600 hover:bg-red-700 text-white font-bold py-3 px-8 rounded-lg">Cancel Application</button>
-                        </form>
-                    </div>
-                <?php else: ?>
-                    <div class="content-box rounded-lg p-6 text-center">
-                        <h1 class="font-title text-3xl text-white">Forge Your Allegiance</h1>
-                        <p class="mt-2">You are currently unaligned. Apply to an existing alliance or spend 1,000,000 Credits to forge your own.</p>
-                        <a href="/create_alliance" class="mt-4 inline-block bg-green-600 hover:bg-green-700 text-white font-bold py-3 px-8 rounded-lg">Create Alliance</a>
-                    </div>
+            <table class="w-full text-left text-sm">
+                <thead style="background:#111827;color:#9ca3af">
+                    <tr><th class="p-2">Alliance</th><th class="p-2">Members</th><th class="p-2 text-right">Action</th></tr>
+                </thead>
+                <tbody class="text-gray-300">
+                    <?php if (empty($opp_list)): ?>
+                        <tr><td colspan="3" class="p-4 text-center text-gray-400">No alliances found.</td></tr>
+                    <?php else: foreach ($opp_list as $row): ?>
+                        <tr class="border-t" style="border-color:#374151">
+                            <td class="p-2">
+                                <div class="flex items-center gap-3">
+                                    <img src="<?= e($row['avatar_url']) ?>" alt="" class="w-7 h-7 rounded border" style="border-color:#374151;object-fit:cover">
+                                    <span class="text-white">
+                                        <span style="color:#06b6d4">[<?= e($row['tag'] ?? '') ?>]</span>
+                                        <?= e($row['name']) ?>
+                                    </span>
+                                </div>
+                            </td>
+                            <td class="p-2"><?= (int)($row['member_count'] ?? 0) ?></td>
+                            <td class="p-2 text-right">
+                                <a href="/view_alliance.php?id=<?= (int)$row['id'] ?>"
+                                   class="text-white font-bold py-1 px-3 rounded-md text-xs mr-2" style="background:#374151">View</a>
 
-                    <div class="content-box rounded-lg p-4 overflow-x-auto">
-                        <h3 class="font-title text-cyan-400 border-b border-gray-600 pb-2 mb-3">Join an Alliance</h3>
-                        <form action="/alliance" method="GET" class="mb-4">
-                            <div class="flex">
-                                <input type="text" name="search" placeholder="Search by name or tag..." value="<?php echo htmlspecialchars($_GET['search'] ?? '', ENT_QUOTES, 'UTF-8'); ?>" class="w-full bg-gray-900 border border-gray-600 rounded-l-md p-2" maxlength="64">
-                                <button type="submit" class="bg-cyan-600 hover:bg-cyan-700 text-white font-bold py-2 px-4 rounded-r-md">Search</button>
-                            </div>
-                        </form>
-                        <table class="w-full text-sm text-left">
-                            <thead class="bg-gray-800"><tr><th class="p-2">Name</th><th class="p-2">Members</th><th class="p-2 text-right">Action</th></tr></thead>
-                            <tbody>
-                                <?php if (!empty($alliances_list)): ?>
-                                    <?php foreach($alliances_list as $row): ?>
-                                    <tr class="border-t border-gray-700">
-                                        <td class="p-2 text-white font-bold">[<?php echo htmlspecialchars($row['tag'], ENT_QUOTES, 'UTF-8'); ?>] <?php echo htmlspecialchars($row['name'], ENT_QUOTES, 'UTF-8'); ?></td>
-                                        <td class="p-2"><?php echo (int)$row['member_count']; ?> / 50</td>
-                                        <td class="p-2 text-right">
-                                            <form action="/alliance" method="POST">
-                                                <input type="hidden" name="csrf_token" value="<?php echo htmlspecialchars($csrf_token, ENT_QUOTES, 'UTF-8'); ?>">
-                                                <input type="hidden" name="action" value="apply_to_alliance">
-                                                <input type="hidden" name="alliance_id" value="<?php echo (int)$row['id']; ?>">
-                                                <button type="submit" class="bg-cyan-600 hover:bg-cyan-700 text-white font-bold py-1 px-3 rounded-md text-xs">Apply</button>
-                                            </form>
-                                        </td>
-                                    </tr>
-                                    <?php endforeach; ?>
-                                <?php else: ?>
-                                    <tr><td colspan="3" class="p-4 text-center">No alliances found.</td></tr>
+                                <?php if ($has_app_table): ?>
+                                    <?php
+                                        echo render_join_action_button($row, $viewer_alliance_id, $has_app_table, $pending_app_id, $pending_alliance_id, $csrf_token);
+                                    ?>
                                 <?php endif; ?>
-                            </tbody>
-                        </table>
-                    </div>
-                <?php endif; ?>
-            <?php endif; // END: IF/ELSE FOR ALLIANCE MEMBERSHIP ?>
-        </main>
-    </div>
-</div>
-<script>lucide.createIcons();</script>
-</body>
-</html>
+                            </td>
+                        </tr>
+                    <?php endforeach; endif; ?>
+                </tbody>
+            </table>
+
+            <?php if ($opp_pages > 1): ?>
+            <div class="mt-3 flex items-center justify-between">
+                <div class="text-xs text-gray-400"><?= number_format($opp_total) ?> alliances</div>
+                <div class="flex items-center gap-2">
+                    <?php $prev = $opp_page > 1 ? $opp_page - 1 : 1; $next = $opp_page < $opp_pages ? $opp_page + 1 : $opp_pages; ?>
+                    <a class="px-3 py-1 rounded text-xs" style="border:1px solid #374151" href="<?= $base_public . ($opp_term !== '' ? '&' : '?') . 'opp_page=' . $prev ?>">Prev</a>
+                    <a class="px-3 py-1 rounded text-xs" style="border:1px solid #374151" href="<?= $base_public . ($opp_term !== '' ? '&' : '?') . 'opp_page=' . $next ?>">Next</a>
+                </div>
+            </div>
+            <?php endif; ?>
+        </div>
+    <?php endif; ?>
+
+</section> <!-- /#main -->
+
+<?php include $ROOT . '/template/includes/footer.php';

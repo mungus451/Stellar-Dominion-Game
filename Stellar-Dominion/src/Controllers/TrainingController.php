@@ -1,34 +1,37 @@
 <?php
 /**
- * src/Controllers/TrainingController.php
- *
- * This script handles the server-side logic for both training and disbanding units. 
- * It receives form data from 'battle.php', validates the request, calculates costs or refunds, 
- * checks for sufficient resources, and updates the player's data in the database.
- *
- * It uses a MySQL transaction to ensure that all database operations succeed or fail together, 
- * preventing data corruption.
+ * src/Controllers/SpyController.php
  */
 
-// --- SESSION AND DATABASE SETUP ---
 if (session_status() == PHP_SESSION_NONE) {
     session_start();
 }
-if(!isset($_SESSION["loggedin"]) || $_SESSION["loggedin"] !== true){ header("location: /index.html"); exit; }
+if (!isset($_SESSION["loggedin"]) || $_SESSION["loggedin"] !== true) {
+    header("location: index.html");
+    exit;
+}
 
-// Correct path from src/Controllers/ to the root config/ folder
 require_once __DIR__ . '/../../config/config.php';
-require_once __DIR__ . '/../../src/Game/GameFunctions.php';
+require_once __DIR__ . '/../Game/GameData.php';
+require_once __DIR__ . '/../Game/GameFunctions.php';
+require_once __DIR__ . '/../../config/balance.php';
 
-// --- CSRF TOKEN VALIDATION ---
+// --- CSRF TOKEN VALIDATION (CORRECTED) ---
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
-    if (!isset($_POST['csrf_token']) || !validate_csrf_token($_POST['csrf_token'])) {
-        $_SESSION['training_error'] = "A security error occurred (Invalid Token). Please try again.";
-        header("location: /battle.php");
+    // Get the token and the action from the submitted form
+    $token = $_POST['csrf_token'] ?? '';
+    $action = $_POST['csrf_action'] ?? 'default';
+
+    // Validate the token against the specific action
+    if (!validate_csrf_token($token, $action)) {
+        $_SESSION['spy_error'] = "A security error occurred (Invalid Token). Please try again.";
+        header("location: /spy.php");
         exit;
     }
 }
 // --- END CSRF VALIDATION ---
+
+date_default_timezone_set('UTC');
 
 // --- SHARED DEFINITIONS ---
 $base_unit_costs = [
@@ -59,7 +62,9 @@ try {
         mysqli_stmt_close($stmt);
 
         $initial_xp = $user['experience'];
-        $charisma_discount = 1 - ($user['charisma_points'] * 0.01);
+        // Cap charisma discount at SD_CHARISMA_DISCOUNT_CAP_PCT
+        $discount_pct = min((int)$user['charisma_points'], (int)SD_CHARISMA_DISCOUNT_CAP_PCT);
+        $charisma_discount = 1 - ($discount_pct / 100.0);
         $total_credits_needed = 0;
         foreach ($units_to_train as $unit => $amount) {
             if ($amount > 0) {
@@ -98,7 +103,7 @@ try {
 
     } elseif ($action === 'disband') {
         // --- DISBANDING LOGIC ---
-        $refund_rate = 0.75;
+        $refund_rate = 0.0;
         $units_to_disband = [];
         $total_citizens_to_return = 0;
         foreach (array_keys($base_unit_costs) as $unit) {
@@ -133,17 +138,15 @@ try {
         $disband_spies = $units_to_disband['spies'] ?? 0;
 
         $sql_update = "UPDATE users SET 
-                            untrained_citizens = untrained_citizens + ?, credits = credits + ?,
+                            untrained_citizens = untrained_citizens + ?,
                             workers = workers - ?, soldiers = soldiers - ?, guards = guards - ?,
                             sentries = sentries - ?, spies = spies - ?
-                           WHERE id = ?";
+                       WHERE id = ?";
         $stmt_update = mysqli_prepare($link, $sql_update);
-        mysqli_stmt_bind_param($stmt_update, "iiiiiiii", 
-            $total_citizens_to_return, $total_refund,
-            $disband_workers, $disband_soldiers,
-            $disband_guards, $disband_sentries,
-            $disband_spies,
-            $_SESSION["id"]
+        mysqli_stmt_bind_param($stmt_update, "iiiiiii", 
+            $total_citizens_to_return,
+            $disband_workers, $disband_soldiers, $disband_guards,
+            $disband_sentries, $disband_spies, $_SESSION["id"]
         );
         mysqli_stmt_execute($stmt_update);
         mysqli_stmt_close($stmt_update);

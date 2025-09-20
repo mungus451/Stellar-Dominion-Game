@@ -93,7 +93,7 @@ if (!$log) {
                             </div>
                             <div class="w-1/3">
                                 <p class="font-title text-3xl <?php echo $header_color; ?>"><?php echo $header_text; ?></p>
-                                <p class="text-xs">Battle ID: <?php echo $log['id']; ?></p>
+                                <p class="text-xs">Battle ID: <?php echo (int)$log['id']; ?></p>
                             </div>
                             <div class="w-1/3">
                                 <h3 class="font-bold text-xl text-white"><?php echo htmlspecialchars($opponent_name); ?></h3>
@@ -111,25 +111,27 @@ if (!$log) {
                                 <div class="bg-gray-800/50 p-3 rounded-lg">
                                     <h5 class="font-bold border-b border-gray-600 pb-1 mb-2"><?php echo $is_attacker ? 'Your Attack' : 'Opponent\'s Attack'; ?></h5>
                                     <ul class="space-y-1">
-                                        <li class="flex justify-between"><span>Attack Strength:</span> <span class="font-semibold text-white"><?php echo number_format($log['attacker_damage']); ?></span></li>
-                                        <li class="flex justify-between"><span>XP Gained:</span> <span class="font-semibold text-yellow-400">+<?php echo number_format($log['attacker_xp_gained']); ?></span></li>
-                                        <li class="flex justify-between"><span>Soldiers Lost:</span> <span class="font-semibold text-white">0</span></li>
-                                        <?php if ($log['outcome'] == 'victory'): ?>
-                                        <li class="flex justify-between"><span>Credits Plundered:</span> <span class="font-semibold text-green-400">+<?php echo number_format($log['credits_stolen']); ?></span></li>
+                                        <li class="flex justify-between"><span>Attack Strength:</span> <span class="font-semibold text-white"><?php echo number_format((int)$log['attacker_damage']); ?></span></li>
+                                        <li class="flex justify-between"><span>XP Gained:</span> <span class="font-semibold text-yellow-400">+<?php echo number_format((int)$log['attacker_xp_gained']); ?></span></li>
+                                        <?php if (isset($log['attacker_soldiers_lost'])): ?>
+                                        <li class="flex justify-between"><span>Soldiers Lost (Fatigue):</span> <span class="font-semibold text-red-400">-<?php echo number_format((int)$log['attacker_soldiers_lost']); ?></span></li>
+                                        <?php endif; ?>
+                                        <?php if ($is_attacker && $log['outcome'] == 'victory'): ?>
+                                        <li class="flex justify-between"><span>Credits Plundered:</span> <span class="font-semibold text-green-400">+<?php echo number_format((int)$log['credits_stolen']); ?></span></li>
                                         <?php endif; ?>
                                     </ul>
                                 </div>
                                 <div class="bg-gray-800/50 p-3 rounded-lg">
                                      <h5 class="font-bold border-b border-gray-600 pb-1 mb-2"><?php echo !$is_attacker ? 'Your Defense' : 'Opponent\'s Defense'; ?></h5>
                                      <ul class="space-y-1">
-                                        <li class="flex justify-between"><span>Defense Strength:</span> <span class="font-semibold text-white"><?php echo number_format($log['defender_damage']); ?></span></li>
-                                        <li class="flex justify-between"><span>XP Gained:</span> <span class="font-semibold text-yellow-400">+<?php echo number_format($log['defender_xp_gained']); ?></span></li>
-                                        <li class="flex justify-between"><span>Defensive Units Lost:</span> <span class="font-semibold text-red-400">-<?php echo number_format($log['guards_lost']); ?></span></li>
-                                        <?php if ($log['credits_stolen'] > 0): ?>
-                                            <li class="flex justify-between"><span>Credits Lost:</span> <span class="font-semibold text-red-400">-<?php echo number_format($log['credits_stolen']); ?></span></li>
+                                        <li class="flex justify-between"><span>Defense Strength:</span> <span class="font-semibold text-white"><?php echo number_format((int)$log['defender_damage']); ?></span></li>
+                                        <li class="flex justify-between"><span>XP Gained:</span> <span class="font-semibold text-yellow-400">+<?php echo number_format((int)$log['defender_xp_gained']); ?></span></li>
+                                        <li class="flex justify-between"><span>Defensive Units Lost:</span> <span class="font-semibold text-red-400">-<?php echo number_format((int)$log['guards_lost']); ?></span></li>
+                                        <?php if ((int)$log['credits_stolen'] > 0 && !$is_attacker): ?>
+                                            <li class="flex justify-between"><span>Credits Lost:</span> <span class="font-semibold text-red-400">-<?php echo number_format((int)$log['credits_stolen']); ?></span></li>
                                         <?php endif; ?>
-                                        <?php if ($log['structure_damage'] > 0): ?>
-                                            <li class="flex justify-between"><span>Foundation Damage:</span> <span class="font-semibold text-red-400">-<?php echo number_format($log['structure_damage']); ?> HP</span></li>
+                                        <?php if ((int)$log['structure_damage'] > 0): ?>
+                                            <li class="flex justify-between"><span>Foundation Damage:</span> <span class="font-semibold text-red-400">-<?php echo number_format((int)$log['structure_damage']); ?> HP</span></li>
                                         <?php endif; ?>
                                      </ul>
                                 </div>
@@ -139,7 +141,7 @@ if (!$log) {
 
                     <div class="text-center mt-6 flex justify-center items-center space-x-4">
                         <a href="/war_history.php" class="bg-gray-600 hover:bg-gray-700 text-white font-bold py-2 px-6 rounded-lg">War History</a>
-                        <a href="/view_profile.php?id=<?php echo $is_attacker ? $log['defender_id'] : $log['attacker_id']; ?>" class="bg-red-600 hover:bg-red-700 text-white font-bold py-2 px-6 rounded-lg">Engage Again</a>
+                        <a href="/view_profile.php?id=<?php echo $is_attacker ? (int)$log['defender_id'] : (int)$log['attacker_id']; ?>" class="bg-red-600 hover:bg-red-700 text-white font-bold py-2 px-6 rounded-lg">Engage Again</a>
                         <a href="/attack.php" class="bg-cyan-600 hover:bg-cyan-700 text-white font-bold py-2 px-6 rounded-lg">Find New Target</a>
                     </div>
                 <?php endif; ?>

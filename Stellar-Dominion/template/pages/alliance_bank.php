@@ -67,7 +67,6 @@ mysqli_stmt_close($stmt_alliance);
 $per_page_options = [10, 20];
 $items_per_page = isset($_GET['show']) && in_array($_GET['show'], $per_page_options) ? (int)$_GET['show'] : 10;
 $current_page = isset($_GET['page']) ? (int)$_GET['page'] : 1;
-$offset = ($current_page - 1) * $items_per_page;
 
 // Fetch total logs for pagination
 $sql_count = "SELECT COUNT(id) as total FROM alliance_bank_logs WHERE alliance_id = ?";
@@ -77,6 +76,15 @@ mysqli_stmt_execute($stmt_count);
 $total_logs = mysqli_fetch_assoc(mysqli_stmt_get_result($stmt_count))['total'];
 $total_pages = ceil($total_logs / $items_per_page);
 mysqli_stmt_close($stmt_count);
+
+if ($current_page > $total_pages) {
+    $current_page = $total_pages;
+}
+if ($current_page < 1) {
+    $current_page = 1;
+}
+$offset = ($current_page - 1) * $items_per_page;
+
 
 // Fetch paginated logs
 $sql_logs = "SELECT * FROM alliance_bank_logs WHERE alliance_id = ? ORDER BY timestamp DESC LIMIT ? OFFSET ?";
@@ -293,7 +301,11 @@ $max_loan = $credit_rating_map[$user_data['credit_rating']] ?? 0;
                                     <tr class="border-t border-gray-700">
                                         <td class="p-2"><?php echo $log['timestamp']; ?></td>
                                         <td class="p-2 font-bold <?php echo ($log['type'] == 'deposit' || $log['type'] == 'tax' || $log['type'] == 'loan_repaid') ? 'text-green-400' : 'text-red-400'; ?>"><?php echo ucfirst(str_replace('_', ' ', $log['type'])); ?></td>
-                                        <td class="p-2"><?php echo htmlspecialchars($log['description']); ?><br><em class="text-xs text-gray-500"><?php echo htmlspecialchars($log['comment']); ?></em></td>
+                                        
+                                        <td class="p-2">
+                                            <?php echo htmlspecialchars($log['description'] ?? ''); ?><br>
+                                            <em class="text-xs text-gray-500"><?php echo htmlspecialchars($log['comment'] ?? ''); ?></em>
+                                        </td>
                                         <td class="p-2 text-right font-semibold <?php echo ($log['type'] == 'deposit' || $log['type'] == 'tax' || $log['type'] == 'loan_repaid') ? 'text-green-400' : 'text-red-400'; ?>">
                                             <?php echo (($log['type'] == 'deposit' || $log['type'] == 'tax' || $log['type'] == 'loan_repaid') ? '+' : '-') . number_format($log['amount']); ?>
                                         </td>
@@ -302,11 +314,32 @@ $max_loan = $credit_rating_map[$user_data['credit_rating']] ?? 0;
                                 </tbody>
                             </table>
                         </div>
-                        <div class="mt-4 flex justify-center items-center space-x-2 text-sm">
-                            <?php if ($current_page > 1): ?><a href="?tab=ledger&show=<?php echo $items_per_page; ?>&page=<?php echo $current_page - 1; ?>" class="px-3 py-1 bg-gray-700 rounded-md hover:bg-cyan-600">&laquo; Prev</a><?php endif; ?>
-                            <?php for ($i = 1; $i <= $total_pages; $i++): ?><a href="?tab=ledger&show=<?php echo $items_per_page; ?>&page=<?php echo $i; ?>" class="px-3 py-1 <?php echo $i == $current_page ? 'bg-cyan-600 font-bold' : 'bg-gray-700'; ?> rounded-md hover:bg-cyan-600"><?php echo $i; ?></a><?php endfor; ?>
-                            <?php if ($current_page < $total_pages): ?><a href="?tab=ledger&show=<?php echo $items_per_page; ?>&page=<?php echo $current_page + 1; ?>" class="px-3 py-1 bg-gray-700 rounded-md hover:bg-cyan-600">Next &raquo;</a><?php endif; ?>
+                        
+                        <?php if ($total_pages > 1):
+                            $page_window = 10;
+                            $start_page = max(1, $current_page - floor($page_window / 2));
+                            $end_page = min($total_pages, $start_page + $page_window - 1);
+                            $start_page = max(1, $end_page - $page_window + 1);
+                        ?>
+                        <div class="mt-4 flex flex-wrap justify-center items-center gap-2 text-sm">
+                            <a href="?tab=ledger&show=<?php echo $items_per_page; ?>&page=1" class="px-3 py-1 bg-gray-700 rounded-md hover:bg-cyan-600 <?php if ($current_page == 1) echo 'hidden'; ?>">&laquo; First</a>
+                            <a href="?tab=ledger&show=<?php echo $items_per_page; ?>&page=<?php echo max(1, $current_page - $page_window); ?>" class="px-3 py-1 bg-gray-700 rounded-md hover:bg-cyan-600">&laquo;</a>
+
+                            <?php for ($i = $start_page; $i <= $end_page; $i++): ?>
+                                <a href="?tab=ledger&show=<?php echo $items_per_page; ?>&page=<?php echo $i; ?>" class="px-3 py-1 <?php echo $i == $current_page ? 'bg-cyan-600 font-bold' : 'bg-gray-700'; ?> rounded-md hover:bg-cyan-600"><?php echo $i; ?></a>
+                            <?php endfor; ?>
+                            
+                            <a href="?tab=ledger&show=<?php echo $items_per_page; ?>&page=<?php echo min($total_pages, $current_page + $page_window); ?>" class="px-3 py-1 bg-gray-700 rounded-md hover:bg-cyan-600">&raquo;</a>
+                            <a href="?tab=ledger&show=<?php echo $items_per_page; ?>&page=<?php echo $total_pages; ?>" class="px-3 py-1 bg-gray-700 rounded-md hover:bg-cyan-600 <?php if ($current_page == $total_pages) echo 'hidden'; ?>">Last &raquo;</a>
+
+                            <form method="GET" action="/alliance_bank.php" class="inline-flex items-center gap-1">
+                                <input type="hidden" name="tab" value="ledger">
+                                <input type="hidden" name="show" value="<?php echo $items_per_page; ?>">
+                                <input type="number" name="page" min="1" max="<?php echo $total_pages; ?>" value="<?php echo $current_page; ?>" class="bg-gray-900 border border-gray-600 rounded-md w-16 text-center p-1 text-xs">
+                                <button type="submit" class="px-3 py-1 bg-gray-700 rounded-md hover:bg-cyan-600 text-xs">Go</button>
+                            </form>
                         </div>
+                        <?php endif; ?>
                     </div>
                 </div>
             </div>

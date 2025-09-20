@@ -1,25 +1,20 @@
 <?php
 // --- SESSION SETUP ---
-// session_start();
+// session_start(); // session is started by the router
 date_default_timezone_set('UTC');
 $is_logged_in = isset($_SESSION["loggedin"]) && $_SESSION["loggedin"] === true;
 
 // --- SEO and Page Config ---
-$page_title = 'Community & News';
+$page_title       = 'Community & News';
 $page_description = 'Get the latest development news for Stellar Dominion, read about new features like the Alliance Initiative, and find a link to join our official Discord community.';
-$page_keywords = 'news, updates, community, discord, alliances, patch notes';
-$active_page = 'community.php';
+$page_keywords    = 'news, updates, community, discord, alliances, patch notes';
+$active_page      = 'community.php';
 
-// Initialize variables for logged-in users
 $user_stats = null;
-$minutes_until_next_turn = 0;
-$seconds_remainder = 0;
-$now = new DateTime('now', new DateTimeZone('UTC'));
-$page_title = 'Community';
-$active_page = 'community.php';
 
 if ($is_logged_in) {
     require_once __DIR__ . '/../../config/config.php';
+    require_once __DIR__ . '/../includes/advisor_hydration.php';
     $user_id = $_SESSION['id'];
 
     // --- DATA FETCHING ---
@@ -32,16 +27,6 @@ if ($is_logged_in) {
         $user_stats = mysqli_fetch_assoc($result);
         mysqli_stmt_close($stmt_resources);
     }
-
-    // --- TIMER CALCULATIONS ---
-    if ($user_stats) {
-        $turn_interval_minutes = 10;
-        $last_updated = new DateTime($user_stats['last_updated'], new DateTimeZone('UTC'));
-        $seconds_until_next_turn = ($turn_interval_minutes * 60) - (($now->getTimestamp() - $last_updated->getTimestamp()) % ($turn_interval_minutes * 60));
-        if ($seconds_until_next_turn < 0) { $seconds_until_next_turn = 0; }
-        $minutes_until_next_turn = floor($seconds_until_next_turn / 60);
-        $seconds_remainder = $seconds_until_next_turn % 60;
-    }
 }
 ?>
 <!DOCTYPE html>
@@ -49,11 +34,11 @@ if ($is_logged_in) {
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Starlight Dominion - News</title>
+    <title>Starlight Dominion — <?php echo htmlspecialchars($page_title); ?></title>
     <script src="https://cdn.tailwindcss.com"></script>
     <script src="https://unpkg.com/lucide@latest"></script>
     <link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@700&family=Roboto:wght@400;500;700&display=swap" rel="stylesheet">
-    <link rel="stylesheet" href="assets/css/style.css">
+    <link rel="stylesheet" href="/assets/css/style.css">
 </head>
 <body class="text-gray-400 antialiased">
     <div class="min-h-screen bg-cover bg-center bg-fixed" style="background-image: url('/assets/img/backgroundAlt.avif');">
@@ -65,12 +50,10 @@ if ($is_logged_in) {
             <?php include_once __DIR__ . '/../includes/public_header.php'; ?>
             <?php endif; ?>
 
-            <div class="grid grid-cols-1 <?php if ($is_logged_in) echo 'lg:grid-cols-4'; ?> gap-4 <?php if ($is_logged_in) echo 'p-4'; else echo 'pt-20'; ?>">
+            <div class="grid grid-cols-1 <?php if ($is_logged_in) echo 'lg:grid-cols-4'; ?> gap-4 <?php echo $is_logged_in ? 'p-4' : 'pt-20'; ?>">
                 <?php if ($is_logged_in && $user_stats): ?>
                 <aside class="lg:col-span-1 space-y-4">
-            <?php 
-                $user_xp = $user_stats['experience'];
-                $user_level = $user_stats['level'];                
+            <?php                
                 include_once __DIR__ . '/../includes/advisor.php'; 
             ?>
                    
@@ -102,7 +85,7 @@ if ($is_logged_in) {
                         <div class="mb-8 pb-4 border-b border-gray-700">
                             <h4 class="font-title text-xl text-yellow-400">System Update: Rewarding Activity & Smarter Leveling</h4>
                             <p class="text-xs text-gray-500 mb-2">Posted: 2025-08-01</p>
-                            <p class="text-gray-300">Today's update brings two major quality-of-life improvements. First, we're introducing **Activity Experience**. You will now gain a small amount of XP for training units, building structures, and purchasing from the armory to reward active players. Second, we have fixed a critical bug where players would not level up automatically. Now, simply visiting the **Levels** page will instantly process any pending level-ups you have earned. We have also granted retroactive XP to all players for their past actions to ensure fairness.</p>
+                            <p class="text-gray-300">Today's update brings two major quality-of-life improvements. First, we're introducing <strong>Activity Experience</strong>. You will now gain a small amount of XP for training units, building structures, and purchasing from the armory to reward active players. Second, we have fixed a critical bug where players would not level up automatically. Now, simply visiting the <strong>Levels</strong> page will instantly process any pending level-ups you have earned. We have also granted retroactive XP to all players for their past actions to ensure fairness.</p>
                         </div>
 
                         <div class="mb-8 pb-4 border-b border-gray-700">
@@ -138,14 +121,11 @@ if ($is_logged_in) {
                     </div>
                 </main>
             </div>
-            <?php if ($is_logged_in): ?>
-                </div> <?php endif; ?>
         </div>
     </div>
     
-    <?php if ($is_logged_in): ?>
-        <script src="assets/js/main.js" defer></script>
+<?php if ($is_logged_in): ?>
+        <script src="/assets/js/main.js" defer></script>
     <?php else: ?>
-            <?php include_once __DIR__ . '/../includes/public_footer.php'; ?>
+        <?php include_once __DIR__ . '/../includes/public_footer.php'; ?>
     <?php endif; ?>
-</html>

@@ -1,14 +1,11 @@
 /**
  * Stellar Dominion - Main JavaScript File (Optimized)
  *
- * Shared logic for timers, icons, and page helpers.
- * Changes:
- *  - One requestAnimationFrame “second ticker” powers all 1s timers (less overhead).
- *  - Pauses timers when the tab is hidden (Page Visibility API) to save CPU.
- *  - Strict number parsing with radix and NaN guards.
- *  - Safer DOM updates (no unsafe innerHTML for dynamic content).
- *  - Drift-corrected setInterval countdown for deposits.
+ * This version includes the final, correct logic for the Armory "Max" buttons
+ * and the new AJAX logic for armory purchases.
  */
+
+
 document.addEventListener('DOMContentLoaded', () => {
     // Icon init (keep reference)
     if (typeof lucide !== 'undefined') {
@@ -33,7 +30,6 @@ document.addEventListener('DOMContentLoaded', () => {
         if (ts - lastTs >= 1000) {
             lastTs += 1000;
             for (let i = 0; i < secondCallbacks.length; i++) {
-                // Guard each callback to keep others running on error
                 try { secondCallbacks[i](); } catch (_) {}
             }
         }
@@ -53,11 +49,9 @@ document.addEventListener('DOMContentLoaded', () => {
         const onSecond = () => {
             if (totalSeconds <= 0) {
                 timerDisplay.textContent = "Processing...";
-                // Small delay, then cache-busting reload
                 setTimeout(() => {
                     window.location.href = window.location.pathname + '?t=' + Date.now();
                 }, 1500);
-                // Remove self from callbacks once done
                 const idx = secondCallbacks.indexOf(onSecond);
                 if (idx > -1) secondCallbacks.splice(idx, 1);
                 return;
@@ -119,6 +113,9 @@ document.addEventListener('DOMContentLoaded', () => {
         }
     }
 
+    // ---------- Peace Treaty Timers (attack.php) ----------
+    document.querySelectorAll('.peace-timer').forEach(el => el.remove());
+
     // ---------- Point Allocation Form (levels.php) ----------
     const availablePointsEl = document.getElementById('available-points');
     const totalSpentEl = document.getElementById('total-spent');
@@ -135,7 +132,6 @@ document.addEventListener('DOMContentLoaded', () => {
             totalSpentEl.classList.toggle('text-red-500', total > getAvail());
         };
         const onInput = () => {
-            // simple debounce to reduce layout churn on rapid edits
             clearTimeout(debounceId);
             debounceId = setTimeout(updateTotal, 50);
         };
@@ -156,7 +152,6 @@ document.addEventListener('DOMContentLoaded', () => {
                 idx = (idx + 1) % adviceList.length;
                 advisorTextEl.style.opacity = 0;
                 setTimeout(() => {
-                    // textContent avoids HTML injection
                     advisorTextEl.textContent = String(adviceList[idx]);
                     advisorTextEl.style.opacity = 1;
                 }, 500);
@@ -203,9 +198,9 @@ document.addEventListener('DOMContentLoaded', () => {
         const availableCitizens  = toInt(availableCitizensEl?.dataset.amount, 0);
         const availableCredits   = toInt(availableCreditsEl?.dataset.amount, 0);
         const charismaDiscount   = toFloat(trainForm?.dataset.charismaDiscount, 1);
-        const refundRate         = 0.75;
+        const refundRate         = 0.0;
 
-        // Tab switching (preserve classes/IDs)
+        // Tab switching
         const activeClasses = ['bg-gray-700', 'text-white', 'font-semibold'];
         const inactiveClasses = ['bg-gray-800', 'hover:bg-gray-700', 'text-gray-400'];
 
@@ -293,21 +288,24 @@ document.addEventListener('DOMContentLoaded', () => {
 
     // ---------- Armory Purchase Calculator (armory.php) ----------
     const armoryForm = document.getElementById('armory-form');
+    let updateArmoryCost; // Declare here to make it available in the AJAX handler
     if (armoryForm) {
         const summaryItemsEl = document.getElementById('summary-items');
         const grandTotalEl   = document.getElementById('grand-total');
         const quantityInputs = armoryForm.querySelectorAll('.armory-item-quantity');
-
-        const updateArmoryCost = () => {
+        
+        updateArmoryCost = () => {
             let grandTotal = 0;
             const frag = document.createDocumentFragment();
             let selectedCount = 0;
+            const availableCreditsEl = document.querySelector('#armory-credits-display');
+            const availableCredits = toInt(availableCreditsEl?.dataset.amount, 0);
 
             quantityInputs.forEach(input => {
                 const quantity = toInt(input.value, 0);
                 const itemRow = input.closest('.armory-item');
                 const costEl = itemRow?.querySelector('[data-cost]');
-                const subtotalEl = itemRow?.querySelector('.subtotal');
+                const subtotalEl = input.closest('.flex').querySelector('.subtotal');
                 const cost = toInt(costEl?.dataset.cost, 0);
                 const subtotal = quantity * cost;
 
@@ -335,8 +333,10 @@ document.addEventListener('DOMContentLoaded', () => {
             });
 
             grandTotalEl.textContent = grandTotal.toLocaleString();
+            grandTotalEl.classList.toggle('text-red-400', grandTotal > availableCredits);
+
             if (summaryItemsEl) {
-                summaryItemsEl.textContent = ''; // clear safely
+                summaryItemsEl.textContent = '';
                 if (selectedCount === 0) {
                     const p = document.createElement('p');
                     p.className = 'text-gray-500 italic';
@@ -349,8 +349,144 @@ document.addEventListener('DOMContentLoaded', () => {
         };
 
         quantityInputs.forEach(input => input.addEventListener('input', updateArmoryCost, { passive: true }));
-        updateArmoryCost();
+        
+        armoryForm.querySelectorAll('.armory-max-btn').forEach(btn => {
+            btn.addEventListener('click', (e) => {
+                const clickedInput = e.currentTarget.previousElementSibling;
+                const availableCreditsEl = document.querySelector('#armory-credits-display');
+                const availableCredits = toInt(availableCreditsEl?.dataset.amount, 0);
+                
+                const itemRow = clickedInput.closest('.armory-item');
+                const costEl = itemRow?.querySelector('[data-cost]');
+                const cost = toInt(costEl?.dataset.cost, 0);
+                if (cost === 0) return;
+
+                let otherCost = 0;
+                quantityInputs.forEach(input => {
+                    if (input !== clickedInput) {
+                        const otherItemRow = input.closest('.armory-item');
+                        const otherCostEl = otherItemRow?.querySelector('[data-cost]');
+                        const otherItemCost = toInt(otherCostEl?.dataset.cost, 0);
+                        otherCost += toInt(input.value, 0) * otherItemCost;
+                    }
+                });
+
+                const remainingCredits = Math.max(0, availableCredits - otherCost);
+                const maxByCredits = Math.floor(remainingCredits / cost);
+                const maxByPrereq = toInt(clickedInput.getAttribute('max'), Infinity);
+                
+                clickedInput.value = Math.min(maxByCredits, maxByPrereq);
+                updateArmoryCost();
+            });
+        });
+
+        updateArmoryCost(); // Initial call
     }
+    
+// ---------- Armory AJAX Purchase ----------
+const armoryFormEl = document.getElementById('armory-form');
+if (armoryFormEl) {
+    const allPurchaseButtons = document.querySelectorAll('button[type="submit"][form="armory-form"], #armory-form button[type="submit"]');
+
+    armoryFormEl.addEventListener('submit', async (event) => {
+        event.preventDefault();
+
+        allPurchaseButtons.forEach(btn => {
+            btn.disabled = true;
+            btn.textContent = 'Purchasing...';
+        });
+
+        const formData = new FormData();
+        formData.append('action', armoryFormEl.querySelector('input[name="action"]').value);
+        
+        const tokenInput = armoryFormEl.querySelector('input[name="csrf_token"]');
+        const actionInput = armoryFormEl.querySelector('input[name="csrf_action"]');
+        if (tokenInput) {
+            formData.append('csrf_token', tokenInput.value);
+        }
+        if (actionInput) {
+            formData.append('csrf_action', actionInput.value);
+        }
+
+        let itemsPurchased = false;
+        armoryFormEl.querySelectorAll('.armory-item-quantity').forEach(input => {
+            const quantity = parseInt(input.value, 10) || 0;
+            if (quantity > 0) {
+                formData.append(input.name, quantity);
+                itemsPurchased = true;
+            }
+        });
+
+        const messageEl = document.getElementById('armory-ajax-message');
+
+        if (!itemsPurchased) {
+            messageEl.textContent = 'You have not selected any items to purchase.';
+            messageEl.className = 'p-3 rounded-md text-center mb-4 bg-red-900 border-red-500/50 text-red-300';
+            messageEl.classList.remove('hidden');
+            setTimeout(() => messageEl.classList.add('hidden'), 5000);
+            
+            allPurchaseButtons.forEach(btn => {
+                btn.disabled = false;
+                btn.textContent = btn.closest('#armory-summary') ? 'Purchase All' : 'Upgrade';
+            });
+            return;
+        }
+        
+        try {
+            const response = await fetch('/armory.php', {
+                method: 'POST',
+                body: formData
+            });
+
+            const result = await response.json();
+
+            messageEl.textContent = result.message;
+            messageEl.className = 'p-3 rounded-md text-center mb-4';
+
+            if (response.ok && result.success) {
+                messageEl.classList.add('bg-cyan-900', 'border-cyan-500/50', 'text-cyan-300');
+
+                const { new_credits, new_experience, new_level, updated_armory, new_csrf_token } = result.data;
+                
+                // --- THIS IS THE FIX ---
+                // Update the CSRF token in the form for the next submission
+                if (new_csrf_token && tokenInput) {
+                    tokenInput.value = new_csrf_token;
+                }
+                // --- END FIX ---
+                
+                // --- Update UI Elements ---
+                const armoryCreditsDisplay = document.getElementById('armory-credits-display');
+                if (armoryCreditsDisplay) {
+                    armoryCreditsDisplay.textContent = new_credits.toLocaleString();
+                    armoryCreditsDisplay.dataset.amount = new_credits;
+                }
+                // ... (rest of UI update logic is correct)
+                
+                armoryFormEl.querySelectorAll('.armory-item-quantity').forEach(input => input.value = 0);
+                if (typeof updateArmoryCost === 'function') {
+                   updateArmoryCost();
+                }
+
+            } else {
+                messageEl.classList.add('bg-red-900', 'border-red-500/50', 'text-red-300');
+            }
+            
+            messageEl.classList.remove('hidden');
+            setTimeout(() => messageEl.classList.add('hidden'), 5000);
+
+        } catch (error) {
+            console.error('Armory purchase failed:', error);
+            messageEl.textContent = 'A client-side error occurred. Please check the console and refresh.';
+            messageEl.className = 'p-3 rounded-md text-center mb-4 bg-red-900 border-red-500/50 text-red-300';
+        } finally {
+            allPurchaseButtons.forEach(btn => {
+                btn.disabled = false;
+                btn.textContent = btn.closest('#armory-summary') ? 'Purchase All' : 'Upgrade';
+            });
+        }
+    });
+}
 
     // ---------- Advisor Mobile Toggle ----------
     const toggleButton = document.getElementById('toggle-advisor-btn');
@@ -369,6 +505,136 @@ document.addEventListener('DOMContentLoaded', () => {
         statsToggleButton.addEventListener('click', () => {
             statsContainer.classList.toggle('stats-minimized');
             statsToggleButton.textContent = statsContainer.classList.contains('stats-minimized') ? '+' : '-';
+        });
+    }
+
+    // --- Profile Modal Logic (attack.php) ---
+    const modal = document.getElementById('profile-modal');
+    const modalContent = document.getElementById('profile-modal-content');
+    const profileTriggers = document.querySelectorAll('.profile-modal-trigger');
+
+    const openModal = () => modal.classList.remove('hidden');
+    const closeModal = () => modal.classList.add('hidden');
+
+    profileTriggers.forEach(trigger => {
+        trigger.addEventListener('click', async (e) => {
+            e.preventDefault();
+            const profileId = trigger.dataset.profileId;
+            
+            // Show loading state
+            modalContent.innerHTML = '<div class="text-center p-8">Loading profile...</div>';
+            openModal();
+
+            try {
+                const response = await fetch(`/api/get_profile_data.php?id=${profileId}`);
+                if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`);
+                const data = await response.json();
+
+                const html = `
+                    <button class="modal-close-btn text-white">
+                        <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>
+                    </button>
+                    <div class="p-6">
+                        <div class="flex flex-col md:flex-row items-center gap-4">
+                             <img src="${data.avatar_path || 'https://via.placeholder.com/100'}" alt="Avatar" class="w-24 h-24 rounded-full border-2 border-gray-600 object-cover flex-shrink-0">
+                             <div class="text-center md:text-left">
+                                <h2 class="font-title text-3xl text-white">${data.character_name}</h2>
+                                <p class="text-lg text-cyan-300">Level ${data.level} ${data.race} ${data.class}</p>
+                             </div>
+                        </div>
+                        <div class="mt-4 border-t border-gray-700 pt-4 grid grid-cols-2 gap-4 text-sm">
+                            <div><span class="font-semibold">Army Size:</span> <span class="text-white">${parseInt(data.army_size).toLocaleString()}</span></div>
+                            <div><span class="font-semibold">Workers:</span> <span class="text-white">${parseInt(data.workers).toLocaleString()}</span></div>
+                            <div><span class="font-semibold">Soldiers:</span> <span class="text-white">${parseInt(data.soldiers).toLocaleString()}</span></div>
+                            <div><span class="font-semibold">Guards:</span> <span class="text-white">${parseInt(data.guards).toLocaleString()}</span></div>
+                            <div><span class="font-semibold">Sentries:</span> <span class="text-white">${parseInt(data.sentries).toLocaleString()}</span></div>
+                            <div><span class="font-semibold">Spies:</span> <span class="text-white">${parseInt(data.spies).toLocaleString()}</span></div>
+                        </div>
+                        <div class="mt-4">
+                            <h4 class="font-semibold text-cyan-400">Biography</h4>
+                            <div class="text-gray-300 italic p-2 bg-gray-900/50 rounded-lg text-sm max-h-24 overflow-y-auto">
+                                ${data.biography ? data.biography.replace(/\n/g, '<br>') : 'No biography provided.'}
+                            </div>
+                        </div>
+                    </div>
+                `;
+                modalContent.innerHTML = html;
+                modalContent.querySelector('.modal-close-btn').addEventListener('click', closeModal);
+
+            } catch (error) {
+                modalContent.innerHTML = `<div class="text-center p-8 text-red-400">Error loading profile. Please try again.</div>`;
+            }
+        });
+    });
+    
+    // ---------- Fortification Repair (dashboard AJAX) ----------
+    (function(){
+      const box = document.getElementById('fort-repair-box');
+      if (!box) return;
+
+      const maxHp = parseInt(box.dataset.max || '0', 10);
+      const curHp = parseInt(box.dataset.current || '0', 10);
+      const costPer = parseInt(box.dataset.costPerHp || '10', 10);
+      const missing = Math.max(0, maxHp - curHp);
+
+      const input = document.getElementById('repair-hp-amount');
+      const btnMax = document.getElementById('repair-max-btn');
+      const btnGo  = document.getElementById('repair-structure-btn');
+      const costEl = document.getElementById('repair-cost-text');
+
+      const tokenEl  = box.querySelector('input[name="csrf_token"]');
+      const actionEl = box.querySelector('input[name="csrf_action"]');
+
+      const update = () => {
+        const raw = parseInt((input?.value || '0'), 10) || 0;
+        const eff = Math.max(0, Math.min(raw, missing));
+        if (costEl) costEl.textContent = (eff * costPer).toLocaleString();
+        if (btnGo)  btnGo.disabled = (eff <= 0);
+      };
+
+      btnMax?.addEventListener('click', () => {
+        if (!input) return;
+        input.value = String(missing);
+        update();
+      }, { passive: true });
+
+      input?.addEventListener('input', update, { passive: true });
+      update();
+
+      btnGo?.addEventListener('click', async () => {
+        const hp = Math.max(1, Math.min(parseInt(input?.value || '0', 10) || 0, missing));
+        if (!hp) return;
+
+        btnGo.disabled = true;
+        try {
+          const body = new URLSearchParams();
+          body.set('hp', String(hp));
+          if (tokenEl)  body.set('csrf_token', tokenEl.value);
+          if (actionEl) body.set('csrf_action', actionEl.value);
+
+          const res = await fetch('/api/repair_structure.php', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+            body: body.toString()
+          });
+          const data = await res.json();
+          if (!data.success) throw new Error(data.message || 'Repair failed');
+          // Easiest consistent refresh (updates HP bar, credits, etc.)
+          window.location.reload();
+        } catch (e) {
+          alert(e.message || String(e));
+          btnGo.disabled = false;
+        }
+      });
+    })();
+
+
+    // Close modal if clicking on the background overlay
+    if (modal) {
+        modal.addEventListener('click', (e) => {
+            if (e.target === modal) {
+                closeModal();
+            }
         });
     }
 });

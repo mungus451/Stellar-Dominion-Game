@@ -2,105 +2,162 @@
 /**
  * src/Controllers/LevelUpController.php
  *
- * Handles the form submission from the levels.php page for spending proficiency points.
- * Validates that the user has enough points and that no stat exceeds the defined cap.
+ * Spend proficiency points.
+ * - Charisma is hard-capped at SD_CHARISMA_DISCOUNT_CAP_PCT (default 75).
+ * - Any existing Charisma overflow is refunded to level_up_points.
+ * - Any over-submitted Charisma points this request are auto-refunded.
  */
-if (session_status() == PHP_SESSION_NONE) {
+if (session_status() === PHP_SESSION_NONE) {
     session_start();
 }
-if(!isset($_SESSION["loggedin"]) || $_SESSION["loggedin"] !== true){ header("location: index.html"); exit; }
+if (!isset($_SESSION["loggedin"]) || $_SESSION["loggedin"] !== true) { header("location: /index.html"); exit; }
 
-// Correct path from src/Controllers/ to the root config/ folder
-require_once __DIR__ . '/../../config/config.php'; 
+require_once __DIR__ . '/../../config/config.php';
+require_once __DIR__ . '/../../config/balance.php'; // SD_CHARISMA_DISCOUNT_CAP_PCT
 
 // --- CSRF TOKEN VALIDATION ---
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
-    if (!isset($_POST['csrf_token']) || !validate_csrf_token($_POST['csrf_token'])) {
-        $_SESSION['level_up_error'] = "A security error occurred (Invalid Token). Please try again.";
-        header("location: /levels.php");
-        exit;
+    // Prefer the app's original helper if it exists.
+    if (function_exists('protect_csrf')) {
+        protect_csrf(); // reads csrf_token + csrf_action and throws/redirects on failure
+    } else {
+        // Fallback to validate_csrf_token with support for signatures (token[, action])
+        $token  = $_POST['csrf_token']  ?? '';
+        $action = $_POST['csrf_action'] ?? '';
+        $ok = false;
+
+        if (function_exists('validate_csrf_token')) {
+            try {
+                $rf = new ReflectionFunction('validate_csrf_token');
+                $argc = $rf->getNumberOfParameters();
+                if ($argc >= 2) {
+                    $ok = validate_csrf_token($token, $action);
+                } else {
+                    $ok = validate_csrf_token($token);
+                }
+            } catch (Throwable $e) {
+                $ok = false;
+            }
+        } else {
+            // Last-resort naive check if your app stores tokens in session per action
+            $sess = $_SESSION['csrf_tokens'][$action] ?? ($_SESSION['csrf_token'] ?? '');
+            $ok = $token && $sess && hash_equals((string)$sess, (string)$token);
+        }
+
+        if (!$ok) {
+            $_SESSION['level_up_error'] = "A security error occurred (Invalid Token). Please try again.";
+            header("location: /levels.php");
+            exit;
+        }
     }
 }
 // --- END CSRF VALIDATION ---
 
-// --- INPUT PROCESSING ---
-// Sanitize all incoming POST data to ensure they are non-negative integers.
-$points_for_strength = isset($_POST['strength_points']) ? max(0, (int)$_POST['strength_points']) : 0;
-$points_for_constitution = isset($_POST['constitution_points']) ? max(0, (int)$_POST['constitution_points']) : 0;
-$points_for_wealth = isset($_POST['wealth_points']) ? max(0, (int)$_POST['wealth_points']) : 0;
-$points_for_dexterity = isset($_POST['dexterity_points']) ? max(0, (int)$_POST['dexterity_points']) : 0;
-$points_for_charisma = isset($_POST['charisma_points']) ? max(0, (int)$_POST['charisma_points']) : 0;
+// --- INPUT ---
+$add_strength     = isset($_POST['strength_points'])    ? max(0, (int)$_POST['strength_points'])    : 0;
+$add_constitution = isset($_POST['constitution_points'])? max(0, (int)$_POST['constitution_points']): 0;
+$add_wealth       = isset($_POST['wealth_points'])      ? max(0, (int)$_POST['wealth_points'])      : 0;
+$add_dexterity    = isset($_POST['dexterity_points'])   ? max(0, (int)$_POST['dexterity_points'])   : 0;
+$add_charisma_in  = isset($_POST['charisma_points'])    ? max(0, (int)$_POST['charisma_points'])    : 0;
 
-// Calculate the total number of points the user is attempting to spend.
-$total_points_to_spend = $points_for_strength + $points_for_constitution + $points_for_wealth + $points_for_dexterity + $points_for_charisma;
+$attempt_spend = $add_strength + $add_constitution + $add_wealth + $add_dexterity + $add_charisma_in;
+if ($attempt_spend <= 0) { header("location: /levels.php"); exit; }
 
-// If no points are being spent, there's nothing to do.
-if ($total_points_to_spend <= 0) {
-    header("location: /levels.php");
-    exit;
-}
+$cap = defined('SD_CHARISMA_DISCOUNT_CAP_PCT') ? (int)SD_CHARISMA_DISCOUNT_CAP_PCT : 75;
 
-// --- TRANSACTIONAL DATABASE UPDATE ---
+// --- TXN ---
 mysqli_begin_transaction($link);
 try {
-    // Get the user's current stats, locking the row to prevent race conditions.
-    $sql_get = "SELECT level_up_points, strength_points, constitution_points, wealth_points, dexterity_points, charisma_points FROM users WHERE id = ? FOR UPDATE";
+    // Lock user row
+    $sql_get = "SELECT id, level_up_points, strength_points, constitution_points, wealth_points, dexterity_points, charisma_points
+                FROM users WHERE id = ? FOR UPDATE";
     $stmt = mysqli_prepare($link, $sql_get);
     mysqli_stmt_bind_param($stmt, "i", $_SESSION['id']);
     mysqli_stmt_execute($stmt);
     $user = mysqli_fetch_assoc(mysqli_stmt_get_result($stmt));
     mysqli_stmt_close($stmt);
 
-    // --- VALIDATION ---
-    // 1. Check if the user has enough points to spend.
-    if ($user['level_up_points'] < $total_points_to_spend) {
-        throw new Exception("Not enough level up points.");
+    if (!$user) { throw new Exception("User not found."); }
+
+    $avail_points = (int)$user['level_up_points'];
+    $curr_char    = (int)$user['charisma_points'];
+
+    // 1) Refund any existing overflow (already above cap before this request)
+    $refund_existing = max(0, $curr_char - $cap);
+    if ($refund_existing > 0) {
+        $curr_char    = $cap;
+        $avail_points += $refund_existing;
     }
 
-    // 2. Check if any stat would exceed the 75-point cap.
-    $cap = 75;
-    if (($user['strength_points'] + $points_for_strength) > $cap ||
-        ($user['constitution_points'] + $points_for_constitution) > $cap ||
-        ($user['wealth_points'] + $points_for_wealth) > $cap ||
-        ($user['dexterity_points'] + $points_for_dexterity) > $cap ||
-        ($user['charisma_points'] + $points_for_charisma) > $cap) {
-        throw new Exception("Cannot allocate more than 75 points to a single stat.");
+    // 2) Clamp requested Charisma to remaining headroom; refund the rest
+    $char_headroom  = max(0, $cap - $curr_char);
+    $add_charisma   = min($add_charisma_in, $char_headroom);
+    $refund_request = $add_charisma_in - $add_charisma;
+
+    // 3) Actual spend (after clamp)
+    $actual_spend = $add_strength + $add_constitution + $add_wealth + $add_dexterity + $add_charisma;
+    if ($actual_spend <= 0) {
+        // Nothing to apply, but we may have refunded overflow; persist that.
+        if ($refund_existing > 0) {
+            $sql_fix = "UPDATE users
+                           SET level_up_points = level_up_points + ?,
+                               charisma_points = ?
+                         WHERE id = ?";
+            $stmt_fix = mysqli_prepare($link, $sql_fix);
+            mysqli_stmt_bind_param($stmt_fix, "iii", $refund_existing, $cap, $_SESSION['id']);
+            mysqli_stmt_execute($stmt_fix);
+            mysqli_stmt_close($stmt_fix);
+            mysqli_commit($link);
+            $_SESSION['level_up_message'] = "Refunded {$refund_existing} point(s) from Charisma overflow.";
+        } else {
+            mysqli_commit($link);
+        }
+        header("location: /levels.php");
+        exit;
     }
 
-    // --- EXECUTE UPDATE ---
-    // If all checks pass, update the user's stats in the database.
+    // 4) Ensure enough points after considering any refund from existing overflow
+    if ($actual_spend > $avail_points) {
+        throw new Exception("Not enough proficiency points.");
+    }
+
+    // 5) Apply updates in one statement.
+    //    - Charisma is LEAST(current + add, cap) as a final guard.
+    //    - Refund total = previous overflow + over-submitted this request.
+    $refund_total = $refund_existing + $refund_request;
+
     $sql_update = "UPDATE users SET
-                       level_up_points = level_up_points - ?,
-                       strength_points = strength_points + ?,
+                       level_up_points     = level_up_points - ? + ?,
+                       strength_points     = strength_points + ?,
                        constitution_points = constitution_points + ?,
-                       wealth_points = wealth_points + ?,
-                       dexterity_points = dexterity_points + ?,
-                       charisma_points = charisma_points + ?
-                       WHERE id = ?";
-    $stmt = mysqli_prepare($link, $sql_update);
-    mysqli_stmt_bind_param($stmt, "iiiiiii",
-        $total_points_to_spend,
-        $points_for_strength,
-        $points_for_constitution,
-        $points_for_wealth,
-        $points_for_dexterity,
-        $points_for_charisma,
+                       wealth_points       = wealth_points + ?,
+                       dexterity_points    = dexterity_points + ?,
+                       charisma_points     = LEAST(charisma_points + ?, ?)
+                   WHERE id = ?";
+    $stmt_u = mysqli_prepare($link, $sql_update);
+    mysqli_stmt_bind_param(
+        $stmt_u,
+        "iiiiiiiii",
+        $actual_spend, $refund_total,
+        $add_strength, $add_constitution, $add_wealth, $add_dexterity,
+        $add_charisma, $cap,
         $_SESSION['id']
     );
-    mysqli_stmt_execute($stmt);
-    mysqli_stmt_close($stmt);
+    mysqli_stmt_execute($stmt_u);
+    mysqli_stmt_close($stmt_u);
 
-    // Commit the transaction to make the changes permanent.
     mysqli_commit($link);
-    $_SESSION['level_up_message'] = "Successfully allocated " . $total_points_to_spend . " proficiency points.";
 
-} catch (Exception $e) {
-    // If any error occurred, roll back all database changes.
+    $msg = "Allocated {$actual_spend} point(s).";
+    if ($refund_total > 0) {
+        $msg .= " Refunded {$refund_total} point(s) from Charisma cap.";
+    }
+    $_SESSION['level_up_message'] = $msg;
+
+} catch (Throwable $e) {
     mysqli_rollback($link);
     $_SESSION['level_up_error'] = "Error: " . $e->getMessage();
 }
 
-// Redirect back to the levels page.
 header("location: /levels.php");
 exit;
-?>

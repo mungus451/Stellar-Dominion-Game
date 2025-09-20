@@ -2,51 +2,44 @@
 /**
  * src/Game/GameFunctions.php
  *
- * A central place for reusable game logic functions.
+ * Shared game logic helpers.
+ * - Canonical income calculator (ONE source of truth)
+ * - Level up processor
+ * - Offline turn processor
+ * - 30m “assassination to untrained” release
  */
 
-/**
- * Checks if a user has enough experience to level up and processes the level-up if they do.
- * This can handle multiple level-ups from a single large XP gain.
- *
- * @param int $user_id The ID of the user to check.
- * @param mysqli $link The active database connection.
- */
+require_once __DIR__ . '/../Game/GameData.php';
+require_once __DIR__ . '/../../config/balance.php';
+
+/* ────────────────────────────────────────────────────────────────────────────
+ * LEVEL UP
+ * ──────────────────────────────────────────────────────────────────────────*/
 function check_and_process_levelup($user_id, $link) {
-    // Begin a transaction for safety, although it might be called within another transaction.
-    // Using savepoints would be more advanced, but a simple transaction is safe enough here.
     mysqli_begin_transaction($link);
     try {
-        // Fetch the user's current state, locking the row.
         $sql_get = "SELECT level, experience, level_up_points FROM users WHERE id = ? FOR UPDATE";
         $stmt_get = mysqli_prepare($link, $sql_get);
         mysqli_stmt_bind_param($stmt_get, "i", $user_id);
         mysqli_stmt_execute($stmt_get);
         $user = mysqli_fetch_assoc(mysqli_stmt_get_result($stmt_get));
         mysqli_stmt_close($stmt_get);
+        if (!$user) { throw new Exception("User not found."); }
 
-        if (!$user) { throw new Exception("User not found during level-up check."); }
+        $current_level  = (int)$user['level'];
+        $current_xp     = (int)$user['experience'];
+        $current_points = (int)$user['level_up_points'];
+        $leveled_up     = false;
 
-        $current_level = $user['level'];
-        $current_xp = $user['experience'];
-        $current_points = $user['level_up_points'];
-        $leveled_up = false;
-
-        // The XP required for the next level is based on the current level.
         $xp_needed = floor(1000 * pow($current_level, 1.5));
-
-        // Loop to handle multiple level-ups from a large XP gain
-        while ($current_xp >= $xp_needed && $xp_needed > 0) {
-            $leveled_up = true;
-            $current_xp -= $xp_needed; // Subtract the cost of the level-up
-            $current_level++;          // Increase level
-            $current_points++;         // Grant a proficiency point
-
-            // Recalculate the XP needed for the new current level
+        while ($xp_needed > 0 && $current_xp >= $xp_needed) {
+            $leveled_up   = true;
+            $current_xp  -= $xp_needed;
+            $current_level++;
+            $current_points++;
             $xp_needed = floor(1000 * pow($current_level, 1.5));
         }
 
-        // If a level-up occurred, update the database
         if ($leveled_up) {
             $sql_update = "UPDATE users SET level = ?, experience = ?, level_up_points = ? WHERE id = ?";
             $stmt_update = mysqli_prepare($link, $sql_update);
@@ -54,62 +47,432 @@ function check_and_process_levelup($user_id, $link) {
             mysqli_stmt_execute($stmt_update);
             mysqli_stmt_close($stmt_update);
         }
-        
         mysqli_commit($link);
-
-    } catch (Exception $e) {
+    } catch (Throwable $e) {
         mysqli_rollback($link);
-        // Silently fail for now, or add logging for debugging.
+        // Optional: error_log($e->getMessage());
     }
 }
 
+/* ────────────────────────────────────────────────────────────────────────────
+ * “Assassination → Untrained” release (30m lock)
+ * ──────────────────────────────────────────────────────────────────────────*/
+function release_untrained_units(mysqli $link, int $specific_user_id): void {
+    // defensive check for table/columns
+    $chk = mysqli_query(
+        $link,
+        "SELECT 1 FROM information_schema.columns
+         WHERE table_schema = DATABASE()
+           AND table_name='untrained_units'
+           AND column_name IN ('user_id','unit_type','quantity','available_at')"
+    );
+    if (!$chk || mysqli_num_rows($chk) < 4) { if ($chk) mysqli_free_result($chk); return; }
+    mysqli_free_result($chk);
+
+    $sql_sum = "SELECT COALESCE(SUM(quantity),0) AS total
+                  FROM untrained_units
+                 WHERE user_id = ? AND available_at <= UTC_TIMESTAMP()";
+    $stmtS = mysqli_prepare($link, $sql_sum);
+    mysqli_stmt_bind_param($stmtS, "i", $specific_user_id);
+    mysqli_stmt_execute($stmtS);
+    $resS = mysqli_stmt_get_result($stmtS);
+    $rowS = $resS ? mysqli_fetch_assoc($resS) : ['total'=>0];
+    if ($resS) mysqli_free_result($resS);
+    mysqli_stmt_close($stmtS);
+
+    $totalReady = (int)$rowS['total'];
+    if ($totalReady <= 0) return;
+
+    mysqli_begin_transaction($link);
+    try {
+        $sqlU = "UPDATE users SET untrained_citizens = untrained_citizens + ? WHERE id = ?";
+        $stmtU = mysqli_prepare($link, $sqlU);
+        mysqli_stmt_bind_param($stmtU, "ii", $totalReady, $specific_user_id);
+        mysqli_stmt_execute($stmtU);
+        mysqli_stmt_close($stmtU);
+
+        $sqlD = "DELETE FROM untrained_units WHERE user_id = ? AND available_at <= UTC_TIMESTAMP()";
+        $stmtD = mysqli_prepare($link, $sqlD);
+        mysqli_stmt_bind_param($stmtD, "i", $specific_user_id);
+        mysqli_stmt_execute($stmtD);
+        mysqli_stmt_close($stmtD);
+
+        mysqli_commit($link);
+    } catch (Throwable $e) {
+        mysqli_rollback($link);
+        error_log("release_untrained_units() error: " . $e->getMessage());
+    }
+}
+
+/* ────────────────────────────────────────────────────────────────────────────
+ * CANONICAL INCOME CALCULATOR (ONE source of truth)
+ * ──────────────────────────────────────────────────────────────────────────*/
+function sd_get_owned_items(mysqli $link, int $user_id): array {
+    $owned = [];
+    if ($stmt = mysqli_prepare($link, "SELECT item_key, quantity FROM user_armory WHERE user_id = ?")) {
+        mysqli_stmt_bind_param($stmt, "i", $user_id);
+        mysqli_stmt_execute($stmt);
+        $res = mysqli_stmt_get_result($stmt);
+        while ($row = mysqli_fetch_assoc($res)) {
+            $owned[$row['item_key']] = (int)$row['quantity'];
+        }
+        mysqli_stmt_close($stmt);
+    }
+    return $owned;
+}
+
+function sd_compute_alliance_bonuses(mysqli $link, array $user_stats): array {
+    $bonuses = [
+        'income'    => 0.0,   // % multiplier
+        'resources' => 0.0,   // % multiplier
+        'citizens'  => 0,     // + citizens per turn
+        'credits'   => 0,     // + flat credits per turn
+        'offense'   => 0.0,
+        'defense'   => 0.0,
+    ];
+    if (!empty($user_stats['alliance_id'])) {
+        $bonuses['credits']  = 5000;
+        $bonuses['citizens'] = 2;
+
+        $sql = "SELECT structure_key FROM alliance_structures WHERE alliance_id = ?";
+        if ($stmt = mysqli_prepare($link, $sql)) {
+            mysqli_stmt_bind_param($stmt, "i", $user_stats['alliance_id']);
+            mysqli_stmt_execute($stmt);
+            $res = mysqli_stmt_get_result($stmt);
+
+            global $alliance_structures_definitions;
+            while ($row = mysqli_fetch_assoc($res)) {
+                $key = $row['structure_key'];
+                if (isset($alliance_structures_definitions[$key])) {
+                    $json = json_decode($alliance_structures_definitions[$key]['bonuses'] ?? "{}", true);
+                    if (is_array($json)) {
+                        foreach ($json as $k => $v) {
+                            if (array_key_exists($k, $bonuses)) { $bonuses[$k] += $v; }
+                        }
+                    }
+                }
+            }
+            mysqli_stmt_close($stmt);
+        }
+    }
+    return $bonuses;
+}
+
+function sd_worker_armory_income_bonus(array $owned_items, int $worker_count): int {
+    // For workers we count item['attack'] (kept as-is for compatibility)
+    return sd_armory_bonus_logic($owned_items, 'worker', $worker_count, 'attack');
+}
+
+/**
+ * Full breakdown + totals (preferred).
+ */
+function calculate_income_summary(mysqli $link, int $user_id, array $user_stats): array {
+    // constants
+    $BASE_INCOME_PER_TURN = 5000;
+    $CREDITS_PER_WORKER   = 50;
+    $CITIZENS_BASE        = 1;
+
+    global $upgrades;
+
+    $owned_items      = sd_get_owned_items($link, $user_id);
+    $alliance_bonuses = sd_compute_alliance_bonuses($link, $user_stats);
+
+    // upgrades
+    $economy_pct = 0.0;
+    for ($i = 1, $n = (int)($user_stats['economy_upgrade_level'] ?? 0); $i <= $n; $i++) {
+        $economy_pct += (float)($upgrades['economy']['levels'][$i]['bonuses']['income'] ?? 0);
+    }
+
+    // separate upgrade vs health multipliers (so we can expose a pre-structure "base")
+    $economy_mult_upgrades = 1.0 + ($economy_pct / 100.0);
+    $economy_struct_mult   = function_exists('ss_structure_output_multiplier_by_key')
+        ? ss_structure_output_multiplier_by_key($link, $user_id, 'economy')
+        : 1.0;
+    $economy_mult = $economy_mult_upgrades * $economy_struct_mult;
+
+    // population upgrades -> citizens_per_turn (apply structure health before alliance add-ons)
+    $citizens_per_turn = $CITIZENS_BASE;
+    for ($i = 1, $n = (int)($user_stats['population_level'] ?? 0); $i <= $n; $i++) {
+        $citizens_per_turn += (int)($upgrades['population']['levels'][$i]['bonuses']['citizens'] ?? 0);
+    }
+    $citizens_per_turn_base = (int)$citizens_per_turn; // pre-structure, pre-alliance
+    $population_struct_mult = function_exists('ss_structure_output_multiplier_by_key')
+        ? ss_structure_output_multiplier_by_key($link, $user_id, 'population')
+        : 1.0;
+    $citizens_per_turn = (int)floor($citizens_per_turn_base * $population_struct_mult);
+    $citizens_per_turn += (int)$alliance_bonuses['citizens'];
+
+    // proficiencies
+    $wealth_mult = 1.0 + ((float)($user_stats['wealth_points'] ?? 0) * 0.01);
+
+    // workers + armory bonus
+    $workers = (int)($user_stats['workers'] ?? 0);
+    $worker_armory_bonus = sd_worker_armory_income_bonus($owned_items, $workers);
+    $worker_income = ($workers * $CREDITS_PER_WORKER) + $worker_armory_bonus;
+
+    // alliance multipliers
+    $alli_income_mult   = 1.0 + ((float)$alliance_bonuses['income']    / 100.0);
+    $alli_resource_mult = 1.0 + ((float)$alliance_bonuses['resources'] / 100.0);
+
+    // income before structure & maintenance
+    $base_income = $BASE_INCOME_PER_TURN + $worker_income;
+
+    // pre-structure "base" (all other multipliers included), used for analytics/UI
+    $income_per_turn_base = (int)floor(
+        $base_income * $wealth_mult * $economy_mult_upgrades * $alli_income_mult * $alli_resource_mult
+        + (int)$alliance_bonuses['credits']
+    );
+
+    // apply structure to the multiplicative part only
+    $income_pre_maintenance = (int)floor(
+        $base_income * $wealth_mult * $economy_mult * $alli_income_mult * $alli_resource_mult
+        + (int)$alliance_bonuses['credits']
+    );
+
+    // --- per-turn unit maintenance (tuneable via config/balance.php or ENV) ---
+    // Not affected by structure health.
+    $m = function_exists('sd_unit_maintenance') ? sd_unit_maintenance() : [
+        'soldiers' => defined('SD_MAINT_SOLDIER') ? SD_MAINT_SOLDIER : 10,
+        'sentries' => defined('SD_MAINT_SENTRY')  ? SD_MAINT_SENTRY  : 5,
+        'guards'   => defined('SD_MAINT_GUARD')   ? SD_MAINT_GUARD   : 5,
+        'spies'    => defined('SD_MAINT_SPY')     ? SD_MAINT_SPY     : 15,
+    ];
+    $soldiers = (int)($user_stats['soldiers'] ?? 0);
+    $guards   = (int)($user_stats['guards']   ?? 0);
+    $sentries = (int)($user_stats['sentries'] ?? 0);
+    $spies    = (int)($user_stats['spies']    ?? 0);
+
+    $maintenance_per_turn =
+          ($soldiers * (int)$m['soldiers'])
+        + ($sentries * (int)$m['sentries'])
+        + ($guards   * (int)$m['guards'])
+        + ($spies    * (int)$m['spies']);
+
+    $income_per_turn = $income_pre_maintenance - $maintenance_per_turn;
+
+    return [
+        'income_per_turn'           => (int)$income_per_turn,         // includes structure + maintenance
+        'citizens_per_turn'         => (int)$citizens_per_turn,       // includes structure
+        'includes_struct_scaling'   => true,
+        'income_per_turn_base'      => (int)$income_per_turn_base,    // pre-structure, pre-maintenance
+        'citizens_per_turn_base'    => (int)$citizens_per_turn_base,
+        'maintenance_per_turn'      => (int)$maintenance_per_turn,
+        'base_income_per_turn'      => (int)$BASE_INCOME_PER_TURN,
+        'worker_income'             => (int)$worker_income,
+        'worker_armory_bonus'       => (int)$worker_armory_bonus,
+        'base_income_subtotal'      => (int)$base_income,            // base + workers (pre-mult)
+        'workers'                   => (int)$workers,
+        'credits_per_worker'        => (int)$CREDITS_PER_WORKER,
+        'economy_mult_upgrades'     => $economy_mult_upgrades,
+        'economy_struct_mult'       => $economy_struct_mult,
+        'mult' => [
+            'wealth'             => $wealth_mult,
+            'economy'            => $economy_mult,
+            'alliance_income'    => $alli_income_mult,
+            'alliance_resources' => $alli_resource_mult,
+        ],
+        'alliance_additive_credits' => (int)$alliance_bonuses['credits'],
+    ];
+}
+
+/**
+ * Int-only helper for legacy callers.
+ */
+function calculate_income_per_turn(mysqli $link, int $user_id, array $user_stats): int {
+    $s = calculate_income_summary($link, $user_id, $user_stats);
+    return (int)$s['income_per_turn'];
+}
+
+/* ────────────────────────────────────────────────────────────────────────────
+ * OFFLINE TURN PROCESSOR (page load)
+ * ──────────────────────────────────────────────────────────────────────────*/
 function process_offline_turns(mysqli $link, int $user_id): void {
-    $sql_check = "SELECT last_updated, workers, wealth_points, economy_upgrade_level, population_level FROM users WHERE id = ?";
-    if($stmt_check = mysqli_prepare($link, $sql_check)) {
+    // release any completed 30m conversions
+    release_untrained_units($link, $user_id);
+
+    $sql_check = "SELECT id, last_updated, credits, workers, wealth_points, economy_upgrade_level, population_level, alliance_id,
++                         soldiers, guards, sentries, spies
+                  FROM users WHERE id = ?";
+    if ($stmt_check = mysqli_prepare($link, $sql_check)) {
         mysqli_stmt_bind_param($stmt_check, "i", $user_id);
         mysqli_stmt_execute($stmt_check);
-        $result_check = mysqli_stmt_get_result($stmt_check);
-        $user_check_data = mysqli_fetch_assoc($result_check);
+        $user = mysqli_fetch_assoc(mysqli_stmt_get_result($stmt_check));
         mysqli_stmt_close($stmt_check);
 
-        if ($user_check_data) {
-            $turn_interval_minutes = 10;
-            $last_updated = new DateTime($user_check_data['last_updated']);
-            $now = new DateTime();
-            $minutes_since_last_update = ($now->getTimestamp() - $last_updated->getTimestamp()) / 60;
-            $turns_to_process = floor($minutes_since_last_update / $turn_interval_minutes);
+        if (!$user) return;
 
-            if ($turns_to_process > 0) {
-                global $upgrades; // Make sure to access the global $upgrades array
-                $total_economy_bonus_pct = 0;
-                for ($i = 1; $i <= $user_check_data['economy_upgrade_level']; $i++) {
-                    $total_economy_bonus_pct += $upgrades['economy']['levels'][$i]['bonuses']['income'] ?? 0;
-                }
-                $economy_upgrade_multiplier = 1 + ($total_economy_bonus_pct / 100);
+        $turn_interval_minutes = 10;
+        $last_updated = new DateTime($user['last_updated']);
+        $now = new DateTime('now', new DateTimeZone('UTC'));
+        $minutes_since = ($now->getTimestamp() - $last_updated->getTimestamp()) / 60;
+        $turns_to_process = (int)floor($minutes_since / $turn_interval_minutes);
 
-                $citizens_per_turn = 1;
-                for ($i = 1; $i <= $user_check_data['population_level']; $i++) {
-                    $citizens_per_turn += $upgrades['population']['levels'][$i]['bonuses']['citizens'] ?? 0;
-                }
+        if ($turns_to_process <= 0) return;
 
-                $worker_income = $user_check_data['workers'] * 50;
-                $base_income_per_turn = 5000 + $worker_income;
-                $wealth_bonus = 1 + ($user_check_data['wealth_points'] * 0.01);
-                $income_per_turn = floor(($base_income_per_turn * $wealth_bonus) * $economy_upgrade_multiplier);
-                
-                $gained_credits = $income_per_turn * $turns_to_process;
-                $gained_attack_turns = $turns_to_process * 2;
-                $gained_citizens = $turns_to_process * $citizens_per_turn;
-                
-                // --- FIX: Corrected the date format string to use colons for time ---
-                $current_utc_time_str = gmdate('Y-m-d H:i:s');
-                $sql_update = "UPDATE users SET attack_turns = attack_turns + ?, untrained_citizens = untrained_citizens + ?, credits = credits + ?, last_updated = ? WHERE id = ?";
-                if($stmt_update = mysqli_prepare($link, $sql_update)){
-                    mysqli_stmt_bind_param($stmt_update, "iiisi", $gained_attack_turns, $gained_citizens, $gained_credits, $current_utc_time_str, $user_id);
-                    mysqli_stmt_execute($stmt_update);
-                    mysqli_stmt_close($stmt_update);
-                }
+        // unified calculator
+        $summary = calculate_income_summary($link, $user_id, $user);
+        $income_per_turn   = (int)$summary['income_per_turn'];
+        $citizens_per_turn = (int)$summary['citizens_per_turn'];
+
+        $gained_credits      = $income_per_turn   * $turns_to_process;
+        $gained_citizens     = $citizens_per_turn * $turns_to_process;
+        $gained_attack_turns = $turns_to_process * 2;
+
+        $utc_now = gmdate('Y-m-d H:i:s');
+        $sql_upd = "UPDATE users
+           SET attack_turns = attack_turns + ?,
+               untrained_citizens = untrained_citizens + ?,
+               credits = GREATEST(0, credits + ?),
+               last_updated = ?
+         WHERE id = ?";
+        if ($stmt_upd = mysqli_prepare($link, $sql_upd)) {
+            // Compute fatigue using the same summary math as cron
+            $summary = calculate_income_summary($link, (int)$user['id'], $user);
+            $income_per_turn   = (int)($summary['income_per_turn']   ?? 0);
+            $maint_per_turn    = (int)($summary['maintenance_per_turn'] ?? 0);
+            $income_pre_maint  = $income_per_turn + $maint_per_turn;
+            $T                 = (int)$turns_to_process;
+
+            $credits_before  = (int)$user['credits'];
+            $maint_total     = max(0, $maint_per_turn * $T);
+            $funds_available = $credits_before + ($income_pre_maint * $T);
+
+            // 1) apply credits/citizens/turns update
+            mysqli_stmt_bind_param($stmt_upd, "iiisi",
+                $gained_attack_turns, $gained_citizens, $gained_credits, $utc_now, $user_id
+            );
+            mysqli_stmt_execute($stmt_upd);
+            mysqli_stmt_close($stmt_upd);
+
+            // 2) fatigue purge if unpaid maintenance remains
+            if ($maint_total > 0 && $funds_available < $maint_total) {
+                $unpaid_ratio = ($maint_total - $funds_available) / $maint_total; // 0..1
+                if ($unpaid_ratio > 0) {
+                    $purge_ratio = min(1.0, $unpaid_ratio) * (defined('SD_FATIGUE_PURGE_PCT') ? SD_FATIGUE_PURGE_PCT : 0.01);
+                    $soldiers = (int)($user['soldiers'] ?? 0);
+                    $guards   = (int)($user['guards']   ?? 0);
+                    $sentries = (int)($user['sentries'] ?? 0);
+                    $spies    = (int)($user['spies']    ?? 0);
+                    $total_troops = $soldiers + $guards + $sentries + $spies;
+
+                    $purge_soldiers = (int)floor($soldiers * $purge_ratio);
+                    $purge_guards   = (int)floor($guards   * $purge_ratio);
+                    $purge_sentries = (int)floor($sentries * $purge_ratio);
+                    $purge_spies    = (int)floor($spies    * $purge_ratio);
+
+                    if (($purge_soldiers + $purge_guards + $purge_sentries + $purge_spies) === 0 && $total_troops > 0) {
+                        $maxType = 'soldiers'; $maxVal = $soldiers;
+                        if ($guards   > $maxVal) { $maxType = 'guards';   $maxVal = $guards; }
+                        if ($sentries > $maxVal) { $maxType = 'sentries'; $maxVal = $sentries; }
+                        if ($spies    > $maxVal) { $maxType = 'spies';    $maxVal = $spies; }
+                        switch ($maxType) {
+                            case 'guards':   $purge_guards   = min(1, $guards);   break;
+                            case 'sentries': $purge_sentries = min(1, $sentries); break;
+                            case 'spies':    $purge_spies    = min(1, $spies);    break;
+                            default:         $purge_soldiers = min(1, $soldiers); break;
+                        }
+                    }
+
+                    if ($purge_soldiers + $purge_guards + $purge_sentries + $purge_spies > 0) {
+                        $sql_purge = "UPDATE users
+                                       SET soldiers = GREATEST(0, soldiers - ?),
+                                           guards   = GREATEST(0, guards   - ?),
+                                           sentries = GREATEST(0, sentries - ?),
+                                           spies    = GREATEST(0, spies    - ?)
+                                     WHERE id = ?";
+                        if ($stmt_purge = mysqli_prepare($link, $sql_purge)) {
+                            mysqli_stmt_bind_param($stmt_purge, "iiiii",
+                                $purge_soldiers, $purge_guards, $purge_sentries, $purge_spies, $user_id
+                            );
+                            mysqli_stmt_execute($stmt_purge);
+                            mysqli_stmt_close($stmt_purge);
+                        }
+                    }
+               }
             }
         }
     }
+}
+
+/* ────────────────────────────────────────────────────────────────────────────
+ * Armory Logic
+ * ──────────────────────────────────────────────────────────────────────────*/
+/**
+ * Sum best-to-worst items within a single category, capped to unit_count once.
+ * $statKey = 'attack' or 'defense' (workers use 'attack' as "+income" in current data).
+ */
+function sd_sum_category_bonus(array $category, array $owned_items, int $unit_count, string $statKey): int {
+    if ($unit_count <= 0) return 0;
+
+    // Collect owned+stat items in this category
+    $rows = [];
+    foreach ($category['items'] as $item_key => $item) {
+        if (!isset($owned_items[$item_key], $item[$statKey])) continue;
+        $qty = (int)$owned_items[$item_key];
+        $val = (int)$item[$statKey];
+        if ($qty > 0 && $val > 0) {
+            $rows[] = ['val' => $val, 'qty' => $qty];
+        }
+    }
+    if (!$rows) return 0;
+
+    // Highest tier first
+    usort($rows, fn($a,$b) => $b['val'] <=> $a['val']);
+
+    // Fill up to unit_count once
+    $remain = $unit_count;
+    $sum = 0;
+    foreach ($rows as $r) {
+        if ($remain <= 0) break;
+        $take = min($remain, $r['qty']);
+        $sum += $take * $r['val'];
+        $remain -= $take;
+    }
+    return $sum;
+}
+
+function sd_armory_bonus_logic(array $owned_items, string $unit_type, int $unit_count, string $item_stat): int {
+    global $armory_loadouts;
+    $bonus = 0;
+
+    if ($unit_count > 0 && isset($armory_loadouts[$unit_type])) {
+        foreach ($armory_loadouts[$unit_type]['categories'] as $category) {
+            $bonus += sd_sum_category_bonus($category, $owned_items, $unit_count, $item_stat);
+        }
+    }
+
+    return $bonus;
+}
+
+function sd_soldier_armory_attack_bonus(array $owned_items, int $soldier_count): int {
+    return sd_armory_bonus_logic($owned_items, 'soldier', $soldier_count, 'attack');
+}
+
+function sd_guard_armory_defense_bonus(array $owned_items, int $guard_count): int {
+    return sd_armory_bonus_logic($owned_items, 'guard', $guard_count, 'defense');
+}
+
+function sd_sentry_armory_defense_bonus(array $owned_items, int $sentry_count): int {
+    return sd_armory_bonus_logic($owned_items, 'sentry', $sentry_count, 'defense');
+}
+
+function sd_spy_armory_attack_bonus(array $owned_items, int $spy_count): int {
+    return sd_armory_bonus_logic($owned_items, 'spy', $spy_count, 'attack');
+}
+
+/* ────────────────────────────────────────────────────────────────────────────
+ * Fetch Data
+ * ──────────────────────────────────────────────────────────────────────────*/
+function fetch_user_armory(mysqli $link, int $user_id): array {
+    $sql = "SELECT item_key, quantity FROM user_armory WHERE user_id = ?";
+    $stmt = mysqli_prepare($link, $sql);
+    mysqli_stmt_bind_param($stmt, "i", $user_id);
+    mysqli_stmt_execute($stmt);
+    $result = mysqli_stmt_get_result($stmt);
+    $armory = [];
+    while ($row = mysqli_fetch_assoc($result)) {
+        $armory[$row['item_key']] = (int)$row['quantity'];
+    }
+    mysqli_stmt_close($stmt);
+    return $armory;
 }

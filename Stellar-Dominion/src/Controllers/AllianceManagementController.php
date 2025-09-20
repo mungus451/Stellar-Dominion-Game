@@ -6,6 +6,7 @@
  * columns in the database schema.
  */
 require_once __DIR__ . '/BaseAllianceController.php';
+require_once __DIR__ . '/../Services/BadgeService.php';
 
 class AllianceManagementController extends BaseAllianceController
 {
@@ -21,6 +22,19 @@ class AllianceManagementController extends BaseAllianceController
             $redirect_url = '/alliance'; // Default redirect for most actions
 
             switch ($action) {
+
+                // ─────────────────────────────────────────────────────────────
+                // Invitations (player-side)
+                // ─────────────────────────────────────────────────────────────
+                case 'accept_invite':
+                    $this->acceptInvite();
+                    $redirect_url = '/alliance.php';
+                    break;
+                case 'decline_invite':
+                    $this->declineInvite();
+                    $redirect_url = '/alliance.php';
+                    break;
+
                 // Application & Member Actions
                 case 'apply_to_alliance':
                     $this->applyToAlliance();
@@ -84,21 +98,144 @@ class AllianceManagementController extends BaseAllianceController
         } catch (Exception $e) {
             $this->db->rollback();
             $_SESSION['alliance_error'] = $e->getMessage();
-            
+
             // Determine redirect on error based on the action attempted
-            if (in_array($action, ['edit', 'disband', 'transfer_leadership'])) {
+            if (in_array($action, ['accept_invite','decline_invite','apply_to_alliance','cancel_application','accept_application','deny_application','kick','leave'], true)) {
+                $redirect_url = '/alliance.php';
+            } elseif (in_array($action, ['edit', 'disband', 'transfer_leadership'], true)) {
                 $redirect_url = '/alliance_roles.php?tab=leadership';
-            } elseif (in_array($action, ['apply_to_alliance', 'cancel_application', 'accept_application', 'deny_application', 'kick', 'leave'])) {
-                $redirect_url = '/alliance';
             } else {
                 $redirect_url = '/alliance_roles.php';
             }
         }
-        
+
         header("Location: " . $redirect_url);
         exit();
     }
-    
+
+    // ─────────────────────────────────────────────────────────────────────
+    // Invitations (player-side)
+    // ─────────────────────────────────────────────────────────────────────
+
+    /**
+     * Accept a pending alliance invitation (invitee action).
+     * POST: invitation_id, alliance_id
+     */
+    private function acceptInvite(): void
+    {
+        if (!$this->user_id) {
+            throw new Exception('Not authenticated.');
+        }
+        $invitation_id = (int)($_POST['invitation_id'] ?? 0);
+        $alliance_id   = (int)($_POST['alliance_id']   ?? 0);
+        if ($invitation_id <= 0 || $alliance_id <= 0) {
+            throw new Exception('Invalid invitation.');
+        }
+
+        // Must not already be in an alliance
+        $stmtUser = $this->db->prepare("SELECT alliance_id FROM users WHERE id = ? LIMIT 1");
+        $stmtUser->bind_param("i", $this->user_id);
+        $stmtUser->execute();
+        $stmtUser->bind_result($curAllianceId);
+        $stmtUser->fetch();
+        $stmtUser->close();
+        if (!empty($curAllianceId)) {
+            throw new Exception('You are already in an alliance.');
+        }
+
+        // Validate pending invitation belongs to this user and alliance
+        $sql = "SELECT ai.id, ai.alliance_id, a.name, a.tag
+                FROM alliance_invitations ai
+                JOIN alliances a ON a.id = ai.alliance_id
+                WHERE ai.id = ? AND ai.invitee_id = ? AND ai.status = 'pending' LIMIT 1";
+        $stmt = $this->db->prepare($sql);
+        $stmt->bind_param("ii", $invitation_id, $this->user_id);
+        $stmt->execute();
+        $inv = $stmt->get_result()->fetch_assoc();
+        $stmt->close();
+        if (!$inv || (int)$inv['alliance_id'] !== $alliance_id) {
+            throw new Exception('Invitation is no longer valid.');
+        }
+
+        // Close any pending applications to avoid conflicts
+        if ($this->tableExists('alliance_applications')) {
+            $this->db->query(
+                "UPDATE alliance_applications SET status = 'denied'
+                 WHERE user_id = {$this->user_id} AND status = 'pending'"
+            );
+        }
+
+        // Determine default recruit role (highest order number)
+        $recruit_role_id = null;
+        $stmt_role = $this->db->prepare("SELECT id FROM alliance_roles WHERE alliance_id = ? ORDER BY `order` DESC LIMIT 1");
+        $stmt_role->bind_param("i", $alliance_id);
+        $stmt_role->execute();
+        if ($row = $stmt_role->get_result()->fetch_assoc()) {
+            $recruit_role_id = (int)$row['id'];
+        }
+        $stmt_role->close();
+
+        // Join the alliance (assign recruit role if found)
+        if ($recruit_role_id) {
+            $stmtJoin = $this->db->prepare("UPDATE users SET alliance_id = ?, alliance_role_id = ? WHERE id = ? AND alliance_id IS NULL");
+            $stmtJoin->bind_param("iii", $alliance_id, $recruit_role_id, $this->user_id);
+        } else {
+            $stmtJoin = $this->db->prepare("UPDATE users SET alliance_id = ?, alliance_role_id = NULL WHERE id = ? AND alliance_id IS NULL");
+            $stmtJoin->bind_param("ii", $alliance_id, $this->user_id);
+        }
+        if (!$stmtJoin->execute() || $stmtJoin->affected_rows !== 1) {
+            $stmtJoin->close();
+            throw new Exception('Could not join the alliance. Try again.');
+        }
+        $stmtJoin->close();
+
+        // IMPORTANT: schema has UNIQUE(invitee_id). Delete the invitation so future invites are possible if the user leaves later.
+        $stmtDel = $this->db->prepare("DELETE FROM alliance_invitations WHERE id = ? AND invitee_id = ?");
+        $stmtDel->bind_param("ii", $invitation_id, $this->user_id);
+        $stmtDel->execute();
+        $stmtDel->close();
+
+        $_SESSION['alliance_message'] = "You have joined [" . ($inv['tag'] ?? '') . "] " . ($inv['name'] ?? 'Alliance') . "!";
+        // Badges: alliance membership
+        \StellarDominion\Services\BadgeService::seed($this->db);
+        \StellarDominion\Services\BadgeService::evaluateAllianceSnapshot($this->db, (int)$this->user_id);
+    }
+
+    /**
+     * Decline a pending alliance invitation (invitee action).
+     * POST: invitation_id
+     */
+    private function declineInvite(): void
+    {
+        if (!$this->user_id) {
+            throw new Exception('Not authenticated.');
+        }
+        $invitation_id = (int)($_POST['invitation_id'] ?? 0);
+        if ($invitation_id <= 0) {
+            throw new Exception('Invalid invitation.');
+        }
+
+        // Validate it belongs to this user and is still pending
+        $stmt = $this->db->prepare("SELECT id FROM alliance_invitations WHERE id = ? AND invitee_id = ? AND status = 'pending' LIMIT 1");
+        $stmt->bind_param("ii", $invitation_id, $this->user_id);
+        $stmt->execute();
+        $exists = (bool)$stmt->get_result()->fetch_assoc();
+        $stmt->close();
+        if (!$exists) {
+            throw new Exception('Invitation is no longer valid.');
+        }
+
+        // Delete to satisfy UNIQUE(invitee_id)
+        $stmtDel = $this->db->prepare("DELETE FROM alliance_invitations WHERE id = ? AND invitee_id = ? AND status = 'pending'");
+        $stmtDel->bind_param("ii", $invitation_id, $this->user_id);
+        $stmtDel->execute();
+        $stmtDel->close();
+
+        $_SESSION['alliance_message'] = 'Invitation declined.';
+    }
+
+    // ─────────────────────────────────────────────────────────────────────
+
     private function transferLeadership()
     {
         $new_leader_id = (int)($_POST['new_leader_id'] ?? 0);
@@ -110,7 +247,7 @@ class AllianceManagementController extends BaseAllianceController
         if ((int)$currentUserData['leader_id'] !== $this->user_id) {
             throw new Exception("Only the current alliance leader can transfer leadership.");
         }
-        
+
         $alliance_id = (int)$currentUserData['id'];
 
         // Get the role of the person being promoted
@@ -148,13 +285,13 @@ class AllianceManagementController extends BaseAllianceController
         $stmt_demote->bind_param("ii", $old_leader_new_role_id, $this->user_id);
         $stmt_demote->execute();
         $stmt_demote->close();
-        
+
         // 3. Update the leader_id in the alliances table
         $stmt_update_alliance = $this->db->prepare("UPDATE alliances SET leader_id = ? WHERE id = ?");
         $stmt_update_alliance->bind_param("ii", $new_leader_id, $alliance_id);
         $stmt_update_alliance->execute();
         $stmt_update_alliance->close();
-        
+
         $_SESSION['alliance_roles_message'] = "Leadership has been successfully transferred.";
     }
 
@@ -177,7 +314,7 @@ class AllianceManagementController extends BaseAllianceController
         if (!$role_to_edit || (int)$role_to_edit['alliance_id'] !== $alliance_id) {
             throw new Exception("Role not found in your alliance.");
         }
-        
+
         // Only allow editing of standard, deletable roles
         if (empty($role_to_edit['is_deletable'])) {
             // If the role is not deletable (e.g. Leader), only allow permission changes
@@ -210,7 +347,7 @@ class AllianceManagementController extends BaseAllianceController
             $params[] = $value;
             $types .= "i";
         }
-        
+
         $params[] = $role_id;
         $types .= "i";
 
@@ -219,7 +356,7 @@ class AllianceManagementController extends BaseAllianceController
         $stmt->bind_param($types, ...$params);
         $stmt->execute();
         $stmt->close();
-        
+
         $_SESSION['alliance_roles_message'] = "Role '{$role_name}' updated successfully.";
     }
 
@@ -253,8 +390,61 @@ class AllianceManagementController extends BaseAllianceController
         }
         $stmt->close();
     }
-    
-    private function leaveAlliance() {
+
+    private function leaveAlliance()
+    {
+        // Find the user's current alliance + leader
+        $stmt = $this->db->prepare("
+                SELECT a.id AS alliance_id, a.leader_id
+                FROM users u
+                JOIN alliances a ON a.id = u.alliance_id
+                WHERE u.id = ?
+                LIMIT 1
+            ");
+        $stmt->bind_param("i", $this->user_id);
+        $stmt->execute();
+        $result = $stmt->get_result()->fetch_assoc();
+        $stmt->close();
+
+        if (!$result) {
+            throw new Exception("You are not currently in an alliance.");
+        }
+
+        $alliance_id = (int)$result['alliance_id'];
+        $is_leader   = ((int)$result['leader_id'] === (int)$this->user_id);
+
+        if ($is_leader) {
+            // Count members in this alliance
+            $stmtCount = $this->db->prepare("SELECT COUNT(*) FROM users WHERE alliance_id = ?");
+            $stmtCount->bind_param("i", $alliance_id);
+            $stmtCount->execute();
+            $stmtCount->bind_result($member_count);
+            $stmtCount->fetch();
+            $stmtCount->close();
+
+            if ($member_count > 1) {
+                // Prevent leader from leaving a populated alliance
+                throw new Exception("You are the alliance leader. Transfer leadership or disband the alliance before leaving.");
+            }
+
+            // Leader is the last member → disband cleanly
+            // (reuse the same logic as the 'disband' action)
+            // Unset users first (keeps FK happy for roles), then delete alliance.
+            $stmt_update_users = $this->db->prepare("UPDATE users SET alliance_id = NULL, alliance_role_id = NULL WHERE alliance_id = ?");
+            $stmt_update_users->bind_param("i", $alliance_id);
+            $stmt_update_users->execute();
+            $stmt_update_users->close();
+
+            $stmt_delete = $this->db->prepare("DELETE FROM alliances WHERE id = ?");
+            $stmt_delete->bind_param("i", $alliance_id);
+            $stmt_delete->execute();
+            $stmt_delete->close();
+
+            $_SESSION['alliance_message'] = "Alliance disbanded.";
+            return;
+        }
+
+        // Regular member: just leave
         $stmt = $this->db->prepare("UPDATE users SET alliance_id = NULL, alliance_role_id = NULL WHERE id = ?");
         $stmt->bind_param("i", $this->user_id);
         $stmt->execute();
@@ -284,7 +474,7 @@ class AllianceManagementController extends BaseAllianceController
             throw new Exception("No pending application found for this user.");
         }
         $stmt_verify->close();
-        
+
         $stmt_role = $this->db->prepare("SELECT id FROM alliance_roles WHERE alliance_id = ? ORDER BY `order` DESC LIMIT 1");
         $stmt_role->bind_param("i", $alliance_id);
         $stmt_role->execute();
@@ -299,13 +489,16 @@ class AllianceManagementController extends BaseAllianceController
         $stmt_update_user->bind_param("iii", $alliance_id, $recruit_role_id, $applicant_id);
         $stmt_update_user->execute();
         $stmt_update_user->close();
-        
+
         $stmt_delete_app = $this->db->prepare("DELETE FROM alliance_applications WHERE user_id = ? AND alliance_id = ?");
         $stmt_delete_app->bind_param("ii", $applicant_id, $alliance_id);
         $stmt_delete_app->execute();
         $stmt_delete_app->close();
 
         $_SESSION['alliance_message'] = "Application approved. The commander has joined your alliance.";
+        // Badges: alliance membership for applicant
+        \StellarDominion\Services\BadgeService::seed($this->db);
+        \StellarDominion\Services\BadgeService::evaluateAllianceSnapshot($this->db, (int)$applicant_id);
     }
 
     private function denyApplication()
@@ -324,7 +517,7 @@ class AllianceManagementController extends BaseAllianceController
         $stmt_delete_app = $this->db->prepare("DELETE FROM alliance_applications WHERE user_id = ? AND alliance_id = ? AND status = 'pending'");
         $stmt_delete_app->bind_param("ii", $applicant_id, $alliance_id);
         $stmt_delete_app->execute();
-        
+
         if ($stmt_delete_app->affected_rows > 0) {
             $_SESSION['alliance_message'] = "Application successfully denied.";
         } else {
@@ -332,7 +525,7 @@ class AllianceManagementController extends BaseAllianceController
         }
         $stmt_delete_app->close();
     }
-    
+
     private function cancelApplication()
     {
         $stmt = $this->db->prepare("DELETE FROM alliance_applications WHERE user_id = ? AND status = 'pending'");
@@ -381,7 +574,7 @@ class AllianceManagementController extends BaseAllianceController
             throw new Exception("You have a pending invitation to an alliance. You must accept or decline it before applying to another.");
         }
         $stmt_check_invite->close();
-        
+
         $stmt_insert = $this->db->prepare("INSERT INTO alliance_applications (user_id, alliance_id, status) VALUES (?, ?, 'pending')");
         $stmt_insert->bind_param("ii", $this->user_id, $alliance_id);
         $stmt_insert->execute();
@@ -389,7 +582,6 @@ class AllianceManagementController extends BaseAllianceController
 
         $_SESSION['alliance_message'] = "Your application has been sent successfully.";
     }
-
 
     private function editAlliance()
     {
@@ -421,10 +613,10 @@ class AllianceManagementController extends BaseAllianceController
             $stmt_update = $this->db->prepare("UPDATE alliances SET name = ?, tag = ?, description = ? WHERE id = ?");
             $stmt_update->bind_param("sssi", $name, $tag, $description, $alliance_id);
         }
-        
+
         $stmt_update->execute();
         $stmt_update->close();
-        
+
         $_SESSION['alliance_message'] = "Alliance profile updated successfully.";
     }
 
@@ -434,7 +626,7 @@ class AllianceManagementController extends BaseAllianceController
             if ($_FILES['avatar']['size'] > 10000000) {
                 throw new Exception("File too large (10MB max).");
             }
-            
+
             $finfo = new finfo(FILEINFO_MIME_TYPE);
             $mime_type = $finfo->file($_FILES['avatar']['tmp_name']);
             $allowed_types = ['image/jpeg', 'image/png', 'image/gif', 'image/avif'];
@@ -485,7 +677,7 @@ class AllianceManagementController extends BaseAllianceController
         $stmt_delete->bind_param("i", $alliance_id);
         $stmt_delete->execute();
         $stmt_delete->close();
-        
+
         $_SESSION['alliance_message'] = "Alliance successfully disbanded.";
     }
 
@@ -523,7 +715,7 @@ class AllianceManagementController extends BaseAllianceController
         if ($member_count > 0) {
             throw new Exception("Cannot delete the '{$roleToDelete['name']}' role because it is assigned to {$member_count} member(s).");
         }
-        
+
         $stmt_delete = $this->db->prepare("DELETE FROM alliance_roles WHERE id = ?");
         $stmt_delete->bind_param("i", $role_id);
         $stmt_delete->execute();
@@ -552,7 +744,6 @@ class AllianceManagementController extends BaseAllianceController
             throw new Exception("The hierarchy order '{$order}' is already in use.");
         }
         $stmt_check_order->close();
-
 
         $stmt = $this->db->prepare("INSERT INTO alliance_roles (alliance_id, name, `order`) VALUES (?, ?, ?)");
         $stmt->bind_param("isi", $alliance_id, $role_name, $order);
@@ -646,6 +837,9 @@ class AllianceManagementController extends BaseAllianceController
 
             $this->db->commit();
             $_SESSION['alliance_message'] = "Alliance created successfully!";
+            // Badges: founder + member
+            \StellarDominion\Services\BadgeService::seed($this->db);
+            \StellarDominion\Services\BadgeService::evaluateAllianceSnapshot($this->db, (int)$this->user_id);
             header("Location: /alliance.php");
             exit();
         } catch (Exception $e) {
@@ -675,5 +869,16 @@ class AllianceManagementController extends BaseAllianceController
             'can_invite_members', 'can_moderate_forum', 'can_sticky_threads',
             'can_lock_threads', 'can_delete_posts'
         ];
+    }
+
+    /** Helper: table existence (controller scope) */
+    private function tableExists(string $table): bool
+    {
+        $table = preg_replace('/[^a-z0-9_]/i', '', $table);
+        $res = $this->db->query("SHOW TABLES LIKE '{$table}'");
+        if (!$res) return false;
+        $ok = $res->num_rows > 0;
+        $res->free();
+        return $ok;
     }
 }
