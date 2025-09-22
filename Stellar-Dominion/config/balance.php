@@ -40,16 +40,16 @@ if (!defined('SD_CHARISMA_DISCOUNT_CAP_PCT')) {
  * Per-turn unit maintenance (credits). Use ENV to override.
  */
 if (!defined('SD_MAINT_SOLDIER')) {
-    define('SD_MAINT_SOLDIER', sd_env_int('SD_MAINT_SOLDIER', 10));
+    define('SD_MAINT_SOLDIER', sd_env_int('SD_MAINT_SOLDIER', 100));
 }
 if (!defined('SD_MAINT_SENTRY')) {
-    define('SD_MAINT_SENTRY', sd_env_int('SD_MAINT_SENTRY', 5));
+    define('SD_MAINT_SENTRY', sd_env_int('SD_MAINT_SENTRY', 50));
 }
 if (!defined('SD_MAINT_GUARD')) {
-    define('SD_MAINT_GUARD', sd_env_int('SD_MAINT_GUARD', 5));
+    define('SD_MAINT_GUARD', sd_env_int('SD_MAINT_GUARD', 50));
 }
 if (!defined('SD_MAINT_SPY')) {
-    define('SD_MAINT_SPY', sd_env_int('SD_MAINT_SPY', 15));
+    define('SD_MAINT_SPY', sd_env_int('SD_MAINT_SPY', 150));
 }
 
 /**

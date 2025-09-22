@@ -141,7 +141,7 @@ function sd_struct_mult_from_pct(int $pct): float {
 const ATK_TURNS_SOFT_EXP          = 0.50; // Lower = gentler curve (more benefit spreads across 1–10 turns), Higher = steeper early benefit then flat.
 const ATK_TURNS_MAX_MULT          = 1.35; // Raise (e.g., 1.5) if multi-turns should feel stronger; lower (e.g., 1.25) to compress power creep.
 const UNDERDOG_MIN_RATIO_TO_WIN   = 0.985; // Raise (→1.00–1.02) to reduce upsets; lower (→0.97–0.98) to allow more underdog wins.
-const RANDOM_NOISE_MIN            = 0.98; // Narrow (e.g., 0.99–1.01) for more deterministic outcomes; 
+const RANDOM_NOISE_MIN            = 1.00; // Narrow (e.g., 0.99–1.01) for more deterministic outcomes; 
 const RANDOM_NOISE_MAX            = 1.02; // Widen (e.g., 0.95–1.05) for chaos.
 
 // Credits plunder
@@ -357,10 +357,10 @@ try {
     if ($attacker['alliance_id'] !== NULL && $attacker['alliance_id'] === $defender['alliance_id']) throw new Exception("You cannot attack a member of your own alliance.");
     if ((int)$attacker['attack_turns'] < $attack_turns) throw new Exception("Not enough attack turns.");
 
-    // Guardrail 2: ±10 level bracket for all battle attacks
+    // Guardrail 2: ±25 level bracket for all battle attacks
     $level_diff_abs = abs(((int)$attacker['level']) - ((int)$defender['level']));
-    if ($level_diff_abs > 10) {
-        throw new Exception("You can only attack players within ±10 levels of you.");
+    if ($level_diff_abs > 25) {
+        throw new Exception("You can only attack players within ±25 levels of you.");
     }
 
     // Structure health (to match dashboard scaling)

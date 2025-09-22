@@ -9,6 +9,15 @@ require_once __DIR__ . '/../../config/config.php';
 require_once __DIR__ . '/../../src/Services/StateService.php'; // Centralized state
 require_once __DIR__ . '/../includes/advisor_hydration.php';
 
+// Handle POST from modal attack form
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && (string)$_POST['action'] === 'attack') {
+    require_once __DIR__ . '/../../src/Controllers/AttackController.php';
+    exit;
+}
+
+// Dedicated CSRF token for attack modal
+$attack_csrf = function_exists('generate_csrf_token') ? generate_csrf_token('attack') : ($_SESSION['csrf_token'] ?? '');
+
 // Always define $user_id before any usage
 $user_id = isset($_SESSION['id']) ? (int)$_SESSION['id'] : 0;
 if ($user_id <= 0) { header('Location: /index.php'); exit; }
@@ -57,18 +66,17 @@ $total_pages   = max(1, (int)ceil(($total_players ?: 1) / $items_per_page));
 
 /**
  * Compute the current user's rank position under the same ordering as ss_get_targets:
- * ORDER BY level DESC, credits DESC. Rank 1 = highest (best).
+ *   rank order = level DESC, credits DESC (ties by id ASC)
  */
-function sd_get_user_rank_by_targets_order(mysqli $link, int $user_id): ?int {
-    // Fetch user's level and credits
-    $sqlMe = "SELECT level, credits FROM users WHERE id = ? LIMIT 1";
-    if (!$stmt = mysqli_prepare($link, $sqlMe)) return null;
-    mysqli_stmt_bind_param($stmt, "i", $user_id);
+function sd_get_user_rank_by_targets_order(mysqli $link, int $uid): ?int {
+    // quick fetch
+    $sql = "SELECT level, credits FROM users WHERE id = ? LIMIT 1";
+    if (!$stmt = mysqli_prepare($link, $sql)) return null;
+    mysqli_stmt_bind_param($stmt, "i", $uid);
     mysqli_stmt_execute($stmt);
     $me = mysqli_fetch_assoc(mysqli_stmt_get_result($stmt));
     mysqli_stmt_close($stmt);
     if (!$me) return null;
-
     $lvl = (int)$me['level'];
     $cr  = (int)$me['credits'];
 
@@ -103,22 +111,22 @@ if (isset($_GET['page'])) {
                 $current_page = max(1, min($total_pages, $asc_page));
             }
         } else {
-            $current_page = 1; // fallback
+            $current_page = 1;
         }
     } else {
-        // For client-side sorts (army/level), we cannot globally locate the row efficiently → default page 1.
         $current_page = 1;
     }
 }
 
-// Now we can compute slice bookkeeping
+// Offset for the slice we will fetch (rank asc semantics)
 $offset = ($current_page - 1) * $items_per_page;
-$from   = $total_players > 0 ? ($offset + 1) : 0;
-$to     = min($offset + $items_per_page, $total_players);
+$from   = $offset + 1;
+$to     = min($total_players, $offset + $items_per_page);
 
-// Target list via StateService. Pass 0 so the WHERE u.id <> ? does not exclude anyone.
-// Special handling: rank DESC must fetch the mirrored page slice from the end, then reverse.
+// Fetch current page of targets (rank asc semantics)
+$targets = [];
 if ($sort === 'rank' && $dir === 'desc') {
+    // Special handling: rank DESC must fetch the mirrored page slice from the end, then reverse.
     $asc_page_for_desc = ($total_pages - $current_page + 1);
     $offset_for_desc   = ($asc_page_for_desc - 1) * $items_per_page;
     $targets = ss_get_targets($link, 0, $items_per_page, $offset_for_desc);
@@ -147,24 +155,16 @@ if (!empty($targets) && $sort !== 'rank') {
 // --- HEADER ---
 include_once __DIR__ . '/../includes/header.php';
 
-// Helper to build links while preserving params
-function qlink(array $override = []) {
-    $params = [
-        'show' => isset($_GET['show']) ? (int)$_GET['show'] : 20,
-        'page' => isset($_GET['page']) ? (int)$_GET['page'] : 1,
-        'sort' => isset($_GET['sort']) ? $_GET['sort'] : 'rank',
-        'dir'  => isset($_GET['dir'])  ? $_GET['dir']  : 'asc',
-    ];
-    foreach ($override as $k => $v) { $params[$k] = $v; }
-    return '/attack.php?' . http_build_query($params);
+// Utility builders (keep existing ones)
+function qlink(array $params): string {
+    $base = '/attack.php';
+    $query = array_merge($_GET, $params);
+    return $base . '?' . http_build_query($query);
 }
-
-// Compute next dir for a given column
-function next_dir($col, $current_sort, $current_dir) {
+function next_dir(string $col, string $current_sort, string $current_dir): string {
     if ($col !== $current_sort) return 'asc';
-    return ($current_dir === 'asc') ? 'desc' : 'asc';
+    return $current_dir === 'asc' ? 'desc' : 'asc';
 }
-
 // Arrow indicator
 function arrow($col, $current_sort, $current_dir) {
     if ($col !== $current_sort) return '';
@@ -195,13 +195,13 @@ function arrow($col, $current_sort, $current_dir) {
 
 <main class="lg:col-span-3 space-y-4">
     <?php if(isset($_SESSION['attack_message'])): ?>
-        <div class="bg-cyan-900 border border-cyan-500/50 text-cyan-300 p-3 rounded-md text-center">
-            <?php echo htmlspecialchars($_SESSION['attack_message']); unset($_SESSION['attack_message']); ?>
+        <div class="bg-emerald-900/40 border border-emerald-700 text-emerald-200 px-3 py-2 rounded">
+            <?php echo $_SESSION['attack_message']; unset($_SESSION['attack_message']); ?>
         </div>
     <?php endif; ?>
     <?php if(isset($_SESSION['attack_error'])): ?>
-        <div class="bg-red-900 border border-red-500/50 text-red-300 p-3 rounded-md text-center">
-            <?php echo htmlspecialchars($_SESSION['attack_error']); unset($_SESSION['attack_error']); ?>
+        <div class="bg-red-900/40 border border-red-700 text-red-200 px-3 py-2 rounded">
+            <?php echo $_SESSION['attack_error']; unset($_SESSION['attack_error']); ?>
         </div>
     <?php endif; ?>
 
@@ -211,8 +211,8 @@ function arrow($col, $current_sort, $current_dir) {
             <h3 class="font-title text-cyan-400">Target List</h3>
             <div class="flex items-center gap-3 text-xs text-gray-300">
                 <form method="GET" action="/attack.php" class="flex items-center gap-2">
-                    <input type="hidden" name="sort" value="<?php echo htmlspecialchars($sort); ?>">
-                    <input type="hidden" name="dir"  value="<?php echo htmlspecialchars($dir); ?>">
+                    <input type="hidden" name="sort" value="<?php echo htmlspecialchars($sort, ENT_QUOTES, 'UTF-8'); ?>">
+                    <input type="hidden" name="dir"  value="<?php echo htmlspecialchars($dir, ENT_QUOTES, 'UTF-8'); ?>">
                     <label for="show" class="text-gray-400">Per page</label>
                     <select id="show" name="show" class="bg-gray-900 border border-gray-600 rounded-md px-2 py-1 text-xs"
                             onchange="this.form.submit()">
@@ -232,8 +232,8 @@ function arrow($col, $current_sort, $current_dir) {
 
         <div class="overflow-x-auto">
             <table class="min-w-full text-sm">
-                <thead class="bg-gray-800/60 text-gray-300">
-                    <tr>
+                <thead class="text-gray-400">
+                    <tr class="border-b border-gray-700">
                         <th class="px-3 py-2 text-left">
                             <a class="hover:underline" href="<?php echo qlink(['sort'=>'rank','dir'=>next_dir('rank',$sort,$dir),'page'=>1]); ?>">
                                 Rank <?php echo arrow('rank',$sort,$dir); ?>
@@ -265,29 +265,29 @@ function arrow($col, $current_sort, $current_dir) {
                     }
                     foreach ($targets as $t):
                         $avatar = $t['avatar_path'] ?: '/assets/img/default_avatar.webp';
-
-                        // Clickable alliance tag → /view_alliance.php?id={alliance_id}
-                        if (!empty($t['alliance_id']) && !empty($t['alliance_tag'])) {
-                            $tag = '<a href="/view_alliance.php?id='.(int)$t['alliance_id'].'" class="text-cyan-400 hover:underline">'
-                                 . '<span class="alliance-tag">[' . htmlspecialchars($t['alliance_tag']) . ']</span>'
-                                 . '</a> ';
-                        } else {
-                            $tag = !empty($t['alliance_tag'])
-                                ? '<span class="alliance-tag">[' . htmlspecialchars($t['alliance_tag']) . ']</span> '
-                                : '';
+                        // Alliance tag (linked only if it resolves to an alliance)
+                        $tag = '';
+                        if (!empty($t['alliance_tag'])) {
+                            if (!empty($t['alliance_id'])) {
+                                $tag = '<a href="/view_alliance.php?id='.(int)$t['alliance_id'].'" class="text-cyan-400 hover:underline">'
+                                     . '<span class="alliance-tag">[' . htmlspecialchars($t['alliance_tag'], ENT_QUOTES, 'UTF-8') . ']</span>'
+                                     . '</a> ';
+                            } else {
+                                $tag = '<span class="alliance-tag">[' . htmlspecialchars($t['alliance_tag'], ENT_QUOTES, 'UTF-8') . ']</span> ';
+                            }
                         }
                     ?>
                     <tr>
                         <td class="px-3 py-3"><?php echo $rank; $rank += $rank_step; ?></td>
                         <td class="px-3 py-3">
                             <div class="flex items-center gap-3">
-                                <img src="<?php echo htmlspecialchars($avatar); ?>" alt="Avatar" class="w-8 h-8 rounded-md object-cover">
+                                <img src="<?php echo htmlspecialchars($avatar, ENT_QUOTES, 'UTF-8'); ?>" alt="Avatar" class="w-8 h-8 rounded-md object-cover cursor-pointer open-attack-modal" data-defender-id="<?php echo (int)$t['id']; ?>" data-defender-name="<?php echo htmlspecialchars($t['character_name'], ENT_QUOTES, 'UTF-8'); ?>" title="Attack <?php echo htmlspecialchars($t['character_name'], ENT_QUOTES, 'UTF-8'); ?>">
                                 <div class="leading-tight">
                                     <div class="text-white font-semibold">
                                         <?php
                                             echo $tag .
                                                  '<a href="/view_profile.php?id='.(int)$t['id'].'" class="hover:underline">'
-                                                 . htmlspecialchars($t['character_name'])
+                                                 . htmlspecialchars($t['character_name'], ENT_QUOTES, 'UTF-8')
                                                  . '</a>';
                                         ?>
                                     </div>
@@ -329,8 +329,8 @@ function arrow($col, $current_sort, $current_dir) {
 
             <form method="GET" action="/attack.php" class="inline-flex items-center gap-1">
                 <input type="hidden" name="show" value="<?php echo $items_per_page; ?>">
-                <input type="hidden" name="sort" value="<?php echo htmlspecialchars($sort); ?>">
-                <input type="hidden" name="dir"  value="<?php echo htmlspecialchars($dir); ?>">
+                <input type="hidden" name="sort" value="<?php echo htmlspecialchars($sort, ENT_QUOTES, 'UTF-8'); ?>">
+                <input type="hidden" name="dir"  value="<?php echo htmlspecialchars($dir, ENT_QUOTES, 'UTF-8'); ?>">
                 <input type="number" name="page" min="1" max="<?php echo $total_pages; ?>" value="<?php echo $current_page; ?>"
                        class="bg-gray-900 border border-gray-600 rounded-md w-16 text-center p-1 text-xs">
                 <button type="submit" class="px-3 py-1 bg-gray-700 rounded-md hover:bg-cyan-600 text-xs">Go</button>
@@ -360,26 +360,27 @@ function arrow($col, $current_sort, $current_dir) {
             }
             foreach ($targets as $t):
                 $avatar = $t['avatar_path'] ?: '/assets/img/default_avatar.webp';
-                if (!empty($t['alliance_id']) && !empty($t['alliance_tag'])) {
-                    $tag = '<a href="/view_alliance.php?id='.(int)$t['alliance_id'].'" class="text-cyan-400 hover:underline">'
-                         . '<span class="alliance-tag">[' . htmlspecialchars($t['alliance_tag']) . ']</span>'
-                         . '</a> ';
-                } else {
-                    $tag = !empty($t['alliance_tag'])
-                        ? '<span class="alliance-tag">[' . htmlspecialchars($t['alliance_tag']) . ']</span> '
-                        : '';
+                $tag = '';
+                if (!empty($t['alliance_tag'])) {
+                    if (!empty($t['alliance_id'])) {
+                        $tag = '<a href="/view_alliance.php?id='.(int)$t['alliance_id'].'" class="text-cyan-400 hover:underline">'
+                             . '<span class="alliance-tag">[' . htmlspecialchars($t['alliance_tag'], ENT_QUOTES, 'UTF-8') . ']</span>'
+                             . '</a> ';
+                    } else {
+                        $tag = '<span class="alliance-tag">[' . htmlspecialchars($t['alliance_tag'], ENT_QUOTES, 'UTF-8') . ']</span> ';
+                    }
                 }
             ?>
             <div class="bg-gray-900/60 border border-gray-700 rounded-lg p-3">
                 <div class="flex items-center justify-between">
                     <div class="flex items-center gap-3">
-                        <img src="<?php echo htmlspecialchars($avatar); ?>" alt="Avatar" class="w-10 h-10 rounded-md object-cover">
+                        <img src="<?php echo htmlspecialchars($avatar, ENT_QUOTES, 'UTF-8'); ?>" alt="Avatar" class="w-10 h-10 rounded-md object-cover cursor-pointer open-attack-modal" data-defender-id="<?php echo (int)$t['id']; ?>" data-defender-name="<?php echo htmlspecialchars($t['character_name'], ENT_QUOTES, 'UTF-8'); ?>" title="Attack <?php echo htmlspecialchars($t['character_name'], ENT_QUOTES, 'UTF-8'); ?>">
                         <div>
                             <div class="text-white font-semibold">
                                 <?php
                                     echo $tag .
                                          '<a href="/view_profile.php?id='.(int)$t['id'].'" class="hover:underline">'
-                                         . htmlspecialchars($t['character_name'])
+                                         . htmlspecialchars($t['character_name'], ENT_QUOTES, 'UTF-8')
                                          . '</a>';
                                 ?>
                             </div>
@@ -389,8 +390,8 @@ function arrow($col, $current_sort, $current_dir) {
                         </div>
                     </div>
                     <div class="text-right text-xs text-gray-300">
-                        <div><span class="text-gray-400">Credits:</span> <span class="text-white font-semibold"><?php echo number_format((int)$t['credits']); ?></span></div>
-                        <div><span class="text-gray-400">Army:</span> <span class="text-white font-semibold"><?php echo number_format((int)$t['army_size']); ?></span></div>
+                        <div><span class="text-gray-400">Credits:</span> <span class="text-white"><?php echo number_format((int)$t['credits']); ?></span></div>
+                        <div><span class="text-gray-400">Army:</span> <span class="text-white"><?php echo number_format((int)$t['army_size']); ?></span></div>
                     </div>
                 </div>
             </div>
@@ -399,7 +400,7 @@ function arrow($col, $current_sort, $current_dir) {
             endforeach;
             if (empty($targets)):
             ?>
-            <div class="text-center text-gray-400 py-6">No targets found.</div>
+            <div class="px-3 py-6 text-center text-gray-400">No targets found.</div>
             <?php endif; ?>
         </div>
 
@@ -427,5 +428,89 @@ function arrow($col, $current_sort, $current_dir) {
         <?php endif; ?>
     </div>
 </main>
+
+<!-- ATTACK MODAL -->
+<div id="attack-modal" class="fixed inset-0 z-50 hidden items-center justify-center bg-black/70 p-4">
+  <div class="w-full max-w-md bg-gray-900 border border-gray-700 rounded-lg shadow-xl">
+    <div class="px-4 py-3 border-b border-gray-700 flex items-center justify-between">
+      <h3 class="font-title text-cyan-400 text-lg">
+        Direct Assault
+        <span class="text-gray-400 text-sm">
+          → <span id="attack-player-name">Target</span>
+        </span>
+      </h3>
+      <button type="button" id="attack-close-x" class="text-gray-400 hover:text-white">✕</button>
+    </div>
+
+    <form id="attack-form" action="/attack.php" method="POST" class="p-4 space-y-4">
+      <!-- CSRF -->
+      <input type="hidden" name="csrf_token"  value="<?php echo htmlspecialchars($attack_csrf, ENT_QUOTES, 'UTF-8'); ?>">
+      <input type="hidden" name="csrf_action" value="attack">
+
+      <!-- Action + Target -->
+      <input type="hidden" name="action" value="attack">
+      <input type="hidden" name="defender_id" value="0" id="attack-defender-id">
+
+      <div>
+        <label for="attack-turns" class="block text-sm text-gray-300 mb-2">Attack Turns (1–10):</label>
+        <input id="attack-turns" name="attack_turns" type="number" min="1" max="10" value="1"
+               class="w-28 bg-gray-900 border border-gray-600 rounded-md p-2 text-center">
+      </div>
+
+      <div class="flex justify-end gap-2 pt-2">
+        <button type="button" id="attack-cancel" class="bg-gray-700 hover:bg-gray-600 text-white text-sm font-semibold py-2 px-3 rounded-md">
+          Cancel
+        </button>
+        <button type="submit" class="bg-red-700 hover:bg-red-600 text-white text-sm font-bold py-2 px-3 rounded-md">
+          Attack
+        </button>
+      </div>
+    </form>
+  </div>
+</div>
+
+<script>
+(function () {
+  const modal   = document.getElementById('attack-modal');
+  const form    = document.getElementById('attack-form');
+  const idInput = document.getElementById('attack-defender-id');
+  const nameEl  = document.getElementById('attack-player-name');
+  const closeX  = document.getElementById('attack-close-x');
+  const cancel  = document.getElementById('attack-cancel');
+
+  function openModal(defenderId, defenderName) {
+    idInput.value = defenderId || 0;
+    nameEl.textContent = defenderName || 'Target';
+    modal.classList.remove('hidden');
+    modal.classList.add('flex');
+    document.body.classList.add('overflow-hidden');
+  }
+
+  function closeModal() {
+    modal.classList.add('hidden');
+    modal.classList.remove('flex');
+    document.body.classList.remove('overflow-hidden');
+  }
+
+  // Trigger from avatar
+  document.querySelectorAll('.open-attack-modal').forEach(img => {
+    img.addEventListener('click', (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      openModal(img.dataset.defenderId, img.dataset.defenderName);
+    }, { passive: false });
+  });
+
+  // Close interactions
+  closeX.addEventListener('click', closeModal);
+  cancel.addEventListener('click', closeModal);
+  modal.addEventListener('click', (e) => { if (e.target === modal) closeModal(); });
+
+  // Optional: ESC to close
+  document.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape') closeModal();
+  });
+})();
+</script>
 
 <?php include_once __DIR__ . '/../includes/footer.php'; ?>
