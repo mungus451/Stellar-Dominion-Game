@@ -467,11 +467,13 @@ if($user_id>0 && ($st=mysqli_prepare($link,"
 /* ---------- view ---------- */
 include_once __DIR__ . '/../includes/header.php';
 ?>
+    <!-- 
     <div class="lg:col-span-4">
         <div class="rounded-xl border border-yellow-500/50 bg-yellow-900/60 p-3 md:p-4 shadow text-yellow-200 text-sm md:text-base text-center">
             Server Reset: 9-11-2025 9:30am EST, You will find your citizens reset to 1000, your bank cleared, your alliance wiped and all things as if you just created your account. This is unfortunately an unavoidable part of development and will be done as little as possible to maintain playability! Thankyou for your support, feel free to contact the Dev on discord!
         </div>
-    </div>
+    </div> 
+    -->
 
     <!-- PROFILE / POPULATION CARD (full width) -->
     <div class="lg:col-span-4">
@@ -497,9 +499,9 @@ include_once __DIR__ . '/../includes/header.php';
                             <div><div class="text-gray-400">Total Pop</div><div class="text-white font-semibold"><?php echo number_format($total_population); ?></div></div>
                             <div>
                                 <div class="text-gray-400">
-                                    Citizens/Turn<?php echo sd_render_chips($chips['population']); ?>
+                                    Citizens/Turn<div class="text-green-400 font-semibold">+<?php echo number_format($citizens_per_turn); ?></div>
+                                    <?php echo sd_render_chips($chips['population']); ?>
                                 </div>
-                                <div class="text-green-400 font-semibold">+<?php echo number_format($citizens_per_turn); ?></div>
                             </div>
                             <div><div class="text-gray-400">Untrained</div><div class="text-white font-semibold"><?php echo number_format($user_stats['untrained_citizens']); ?></div></div>
                             <div><div class="text-gray-400">Workers</div><div class="text-white font-semibold"><?php echo number_format($user_stats['workers']); ?></div></div>

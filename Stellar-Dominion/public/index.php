@@ -97,6 +97,7 @@ if (isset($_SESSION['vacation_until']) && new DateTime() < new DateTime($_SESSIO
 // Centralized DB connection, configuration constants, helper functions, etc.
 // BaseController provides shared controller infrastructure (e.g., $this->db).
 require_once __DIR__ . '/../config/config.php';
+require_once __DIR__ . '/../src/Services/LegacyShims.php';
 require_once __DIR__ . '/../src/Controllers/BaseController.php';
 
 // ─────────────────────────────────────────────────────────────────────────────

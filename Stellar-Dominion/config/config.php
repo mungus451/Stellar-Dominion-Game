@@ -24,7 +24,7 @@ if (!defined('PROJECT_ROOT')) {
 // We no longer need the old config/security.php file.
 require_once PROJECT_ROOT . '/src/Security/CSRFLogger.php';
 require_once PROJECT_ROOT . '/src/Security/CSRFProtection.php';
-
+require_once PROJECT_ROOT . '/src/Services/LegacyShims.php';
 
 // --- SMS Gateway Definitions for Account Recovery ---
 $sms_gateways = [
