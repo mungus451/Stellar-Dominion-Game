@@ -17,7 +17,7 @@ on:
       branch:
         description: 'Branch to deploy from'
         required: false
-        default: 'dev5'
+        default: 'main'
         type: string
 
 env:
