@@ -191,7 +191,7 @@ $max_loan = (int)($credit_rating_map[$user_data['credit_rating']] ?? 0);
                             </span>
                         </p>
                         <p class="text-xs opacity-80 mt-1">
-                            Alliance bank accrues <span class="font-semibold text-green-300">2% interest</span> every day at <span class="font-semibold">06:00</span> and <span class="font-semibold">18:00</span>.
+                            Alliance bank accrues <span class="font-semibold text-green-300">2% interest</span> every hour.
                         </p>
                     </div>
                     <a href="/alliance_transfer.php" class="bg-purple-600 hover:bg-purple-700 text-white font-bold py-3 px-6 rounded-lg">Member Transfers</a>
