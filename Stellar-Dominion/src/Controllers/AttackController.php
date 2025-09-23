@@ -139,7 +139,7 @@ function sd_struct_mult_from_pct(int $pct): float {
 
 // Attack turns & win threshold
 const ATK_TURNS_SOFT_EXP          = 0.50; // Lower = gentler curve (more benefit spreads across 1–10 turns), Higher = steeper early benefit then flat.
-const ATK_TURNS_MAX_MULT          = 1.35; // Raise (e.g., 1.5) if multi-turns should feel stronger; lower (e.g., 1.25) to compress power creep.
+const ATK_TURNS_MAX_MULT          = 1.45; // Raise (e.g., 1.5) if multi-turns should feel stronger; lower (e.g., 1.25) to compress power creep.
 const UNDERDOG_MIN_RATIO_TO_WIN   = 0.985; // Raise (→1.00–1.02) to reduce upsets; lower (→0.97–0.98) to allow more underdog wins.
 const RANDOM_NOISE_MIN            = 1.00; // Narrow (e.g., 0.99–1.01) for more deterministic outcomes; 
 const RANDOM_NOISE_MAX            = 1.02; // Widen (e.g., 0.95–1.05) for chaos.
