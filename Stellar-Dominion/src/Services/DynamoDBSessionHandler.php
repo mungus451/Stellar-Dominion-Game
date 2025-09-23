@@ -90,9 +90,39 @@ class DynamoDBSessionHandler
             ini_set('session.cookie_httponly', '1');
             ini_set('session.cookie_samesite', 'Strict');
             // Ensure cookie domain is set so the browser sends the cookie to all subdomains
-            // Prefer an explicit environment override, fallback to the production domain.
+            // Prefer an explicit environment override, fallback to deriving from host when
+            // appropriate. Skip setting a domain for localhost or IP addresses since
+            // browsers will reject those cookie domains.
             if (!ini_get('session.cookie_domain')) {
-                ini_set('session.cookie_domain', $_ENV['SESSION_COOKIE_DOMAIN'] ?? '.starlightdominion.com');
+                $cookieDomain = null;
+
+                // 1 If env override provided, validate it (allow an optional leading dot)
+                $envDomain = $_ENV['SESSION_COOKIE_DOMAIN'] ?? null;
+                if (!empty($envDomain)) {
+                    $candidate = ltrim($envDomain, '.');
+                    // Accept only valid hostnames (reject IPs and invalid names)
+                    if (filter_var($candidate, FILTER_VALIDATE_DOMAIN, FILTER_FLAG_HOSTNAME)) {
+                        $cookieDomain = (strpos($envDomain, '.') === 0 ? '.' : '') . $candidate;
+                    } else {
+                        error_log("Invalid SESSION_COOKIE_DOMAIN provided: '{$envDomain}' - ignoring and not setting session.cookie_domain");
+                    }
+                }
+
+                // 2 If no valid env override, try to derive from the request host when it is a
+                //    real domain (contains a dot). Don't set for 'localhost' or raw IPs.
+                if ($cookieDomain === null) {
+                    $host = $_SERVER['HTTP_HOST'] ?? ($_SERVER['SERVER_NAME'] ?? '');
+                    // strip optional port
+                    $host = preg_replace('/:\d+$/', '', $host);
+                    if (!empty($host) && strpos($host, '.') !== false
+                        && filter_var($host, FILTER_VALIDATE_DOMAIN, FILTER_FLAG_HOSTNAME)) {
+                        $cookieDomain = '.' . $host;
+                    }
+                }
+
+                if ($cookieDomain !== null) {
+                    ini_set('session.cookie_domain', $cookieDomain);
+                }
             }
 
             self::register();

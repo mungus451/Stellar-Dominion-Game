@@ -49,6 +49,7 @@ custom:
     FILE_STORAGE_DRIVER: ${self:provider.environment.FILE_STORAGE_DRIVER}
     FILE_STORAGE_S3_BUCKET: ${self:provider.environment.FILE_STORAGE_S3_BUCKET}
     FILE_STORAGE_S3_REGION: ${self:provider.environment.FILE_STORAGE_S3_REGION}
+    SESSION_COOKIE_DOMAIN: ${self:custom.domainName.${sls:stage}, self:custom.domainName.default}
 
   # Domain mapping per stage
   domainName:
