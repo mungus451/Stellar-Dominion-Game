@@ -1,529 +1,557 @@
 <?php
-// src/Controllers/AllianceResourceController.php
-require_once __DIR__ . '/BaseAllianceController.php';
-
 /**
  * AllianceResourceController
  *
- * Manages alliance resources, including the bank, structures, and loans.
- * - Removes SELECT ... FOR UPDATE (portable to more MariaDB builds)
- * - Uses atomic, conditional UPDATEs to avoid negative balances and races
- * - Uses prepared statements everywhere
+ * Handles Alliance Bank actions:
+ * - donate_credits
+ * - leader_withdraw
+ * - request_loan (30% up to rating limit, 50% if over-limit)
+ * - approve_loan / deny_loan
+ * - repay_loan (manual repayment by borrower)
+ * - cron_accrue_interest (2% compounded at 06:00 and 18:00, server time)
  *
- * ─────────────────────────────────────────────────────────────────────────────
- * FILE OVERVIEW & DESIGN INTENT
- * ─────────────────────────────────────────────────────────────────────────────
- * This controller encapsulates all operations that mutate or read "resource"
- * state tied to an alliance: treasury (bank_credits), structures, and loans.
- *
- * Key design choices you will see repeatedly:
- *  • Transaction boundaries per request:
- *    - dispatch() opens a transaction; each action method performs its DB work;
- *      on success, we COMMIT; on error/exception, we ROLLBACK. This provides
- *      atomic behavior — either all steps succeed or none do.
- *
- *  • Lock-free, race-safe debits/credits:
- *    - Rather than SELECT ... FOR UPDATE + conditional checks in userland,
- *      we rely on single-row, atomic UPDATE statements that encode the guard
- *      condition in SQL (e.g., "... WHERE bank_credits >= ?"). If affected_rows
- *      is 1, the debit succeeded; if 0, the precondition failed (insufficient
- *      balance, wrong leader, wrong status, etc.). This approach is portable
- *      and avoids gap locks or table lock escalation on some MariaDB builds.
- *
- *  • Prepared statements:
- *    - Every SQL statement uses prepared/bound parameters, which prevents SQL
- *      injection and ensures proper type coercion by the driver. No dynamic
- *      untrusted values are concatenated into SQL.
- *
- *  • Authorization & capability checks:
- *    - Methods check caller permissions (e.g., can_manage_structures or that
- *      the caller is the alliance leader) *before* performing any writes.
- *
- *  • Auditing:
- *    - Monetary operations are mirrored into alliance_bank_logs via a common
- *      helper, ensuring a durable audit trail with context (who/what/why).
- *
- * Operational assumptions:
- *  • Upstream routing layer has validated CSRF tokens and session auth.
- *  • BaseAllianceController exposes:
- *      - $this->db         : mysqli connection
- *      - $this->user_id    : current user id
- *      - getAllianceDataForUser(int $user_id) : user + alliance + permission snapshot
- *      - getUserRoleInfo(int $user_id)        : minimal user/alliance/role metadata
+ * Notes:
+ * - All public entry flows go through dispatch($action) which wraps a DB transaction.
+ * - Uses guarded UPDATEs so balances never go negative.
+ * - Requires ENUMs 'loan_given','loan_repaid','interest_yield' in alliance_bank_logs.type.
  */
 
-class AllianceResourceController extends BaseAllianceController
+class AllianceResourceController
 {
-    public function dispatch(string $action)
+    /** @var mysqli */
+    private $db;
+
+    /** @var int */
+    private $user_id;
+
+    public function __construct(mysqli $db, ?int $user_id = null)
     {
-        // Start an atomic unit of work for the requested action. All database
-        // mutations inside a single action will either be committed together or
-        // completely rolled back if any check fails or an exception is thrown.
+        $this->db = $db;
+
+        // If a user_id is explicitly provided, use it; otherwise take from session.
+        $this->user_id = ($user_id !== null)
+            ? (int)$user_id
+            : (int)($_SESSION['id'] ?? 0);
+
+        // Allow CLI/system jobs to run without a session
+        if ($this->user_id <= 0 && php_sapi_name() === 'cli') {
+            $this->user_id = 0; // system user (no auth needed for cron methods)
+            return;
+        }
+
+        // For web requests, still require auth
+        if ($this->user_id <= 0) {
+            throw new Exception('Not authenticated.');
+        }
+    }
+
+    /**
+     * One-shot router for POST actions. Always redirects.
+     */
+    public function dispatch(string $action): void
+    {
+        $redirect_url = '/alliance_bank';
+
         $this->db->begin_transaction();
         try {
-            // Default post-action navigation; branches below override as needed.
-            $redirect_url = '/alliance'; // Default redirect
-
             switch ($action) {
-                case 'purchase_structure':
-                    // Acquire an alliance structure if the bank can afford it and
-                    // the invoker has can_manage_structures.
-                    $this->purchaseStructure();
-                    $redirect_url = '/alliance_structures';
-                    break;
                 case 'donate_credits':
-                    // A member donates personal credits to the alliance treasury.
                     $this->donateCredits();
                     $redirect_url = '/alliance_bank?tab=main';
                     break;
+
                 case 'leader_withdraw':
-                    // The sitting leader moves credits from alliance bank to self.
                     $this->leaderWithdraw();
                     $redirect_url = '/alliance_bank?tab=main';
                     break;
+
                 case 'request_loan':
-                    // Member asks the alliance for a loan; inserts a pending record.
                     $this->requestLoan();
                     $redirect_url = '/alliance_bank?tab=loans';
                     break;
+
                 case 'approve_loan':
-                    // Treasury manager approves a pending loan, moves funds.
                     $this->approveLoan();
                     $redirect_url = '/alliance_bank?tab=loans';
                     break;
+
                 case 'deny_loan':
-                    // Treasury manager denies a pending loan (no funds moved).
                     $this->denyLoan();
                     $redirect_url = '/alliance_bank?tab=loans';
                     break;
+
+                case 'repay_loan':
+                    $this->repayLoan();
+                    $redirect_url = '/alliance_bank?tab=loans';
+                    break;
+
+                case 'cron_accrue_interest':
+                    // protect if invoked via web by requiring shared secret
+                    if (php_sapi_name() !== 'cli') {
+                        $secret = $_POST['cron_secret'] ?? $_GET['cron_secret'] ?? '';
+                        $expected = getenv('CRON_SECRET') ?: (defined('CRON_SECRET') ? CRON_SECRET : '');
+                        if (!$expected || !hash_equals((string)$expected, (string)$secret)) {
+                            throw new Exception('Unauthorized interest accrual call.');
+                        }
+                    }
+                    $this->accrueBankInterest();
+                    $redirect_url = '/admin';
+                    break;
+
                 default:
-                    // Defensive guardrail — ensures unrecognized actions cannot
-                    // accidentally fall-through and perform unintended side effects.
-                    throw new Exception("Invalid resource action specified.");
+                    throw new Exception('Unknown action.');
             }
 
-            // All went well: persist DB changes.
             $this->db->commit();
-        } catch (Exception $e) {
-            // Any exception triggers rollback to preserve data consistency.
+        } catch (Throwable $e) {
             $this->db->rollback();
-
-            // Surface error to the session for UI display after redirect.
             $_SESSION['alliance_error'] = $e->getMessage();
-
-            // Choose a context-aware redirect — keep user in a relevant area.
-            if (str_contains($action, 'structure')) {
-                $redirect_url = '/alliance_structures';
-            } else {
-                $redirect_url = '/alliance_bank';
-            }
         }
 
-        // Post/Redirect/Get pattern: prevents double-submits on refresh.
-        header("Location: " . $redirect_url);
-        exit();
+        header('Location: ' . $redirect_url);
+        exit;
     }
 
-    private function logBankTransaction(int $alliance_id, ?int $user_id, string $type, int $amount, string $description, string $comment = '')
+    // ====== Actions ======
+
+    private function donateCredits(): void
     {
-        // Centralized audit log for all bank movements and related actions.
-        // Captures:
-        //  - alliance_id: the treasury affected
-        //  - user_id    : actor or beneficiary (nullable for system actions)
-        //  - type       : semantic category ('deposit', 'withdrawal', 'purchase',
-        //                 'loan_given', etc.)
-        //  - amount     : signed integer amount; convention here is positive
-        //  - description: short human-readable narrative (who/what/why)
-        //  - comment    : optional freeform text (UI comment field)
-        $stmt = $this->db->prepare("
-            INSERT INTO alliance_bank_logs (alliance_id, user_id, type, amount, description, comment)
-            VALUES (?, ?, ?, ?, ?, ?)
-        ");
-        $stmt->bind_param("iisiss", $alliance_id, $user_id, $type, $amount, $description, $comment);
-        $stmt->execute();
-        $stmt->close();
-    }
-
-    private function purchaseStructure()
-    {
-        // Structure catalog comes from static game data (no user-provided input).
-        global $alliance_structures_definitions; // From GameData.php
-        $structure_key = $_POST['structure_key'] ?? '';
-
-        // 1) Authorization: must have can_manage_structures.
-        $data = $this->getAllianceDataForUser($this->user_id);
-        $permissions = $data['permissions'] ?? [];
-        if (empty($permissions['can_manage_structures'])) {
-            throw new Exception("You do not have permission to purchase structures.");
-        }
-
-        // 2) Validate the requested structure key is a known catalog entry.
-        if (!isset($alliance_structures_definitions[$structure_key])) {
-            throw new Exception("Invalid structure specified.");
-        }
-
-        // Resolve cost from definitions and ensure it's treated as an integer.
-        $structure_details = $alliance_structures_definitions[$structure_key];
-        $cost = (int)$structure_details['cost'];
-
-        // 3) Resolve the caller's alliance_id; caller must be in an alliance.
-        $stmt = $this->db->prepare("SELECT alliance_id FROM users WHERE id = ?");
-        $stmt->bind_param("i", $this->user_id);
-        $stmt->execute();
-        $res = $stmt->get_result();
-        $row = $res->fetch_assoc();
-        $stmt->close();
-
-        if (!$row || $row['alliance_id'] === null) {
-            throw new Exception("You are not in an alliance.");
-        }
-        $alliance_id = (int)$row['alliance_id'];
-
-        // 4) Debit the alliance bank atomically *only if* sufficient funds exist.
-        //    If funds are insufficient, affected_rows will be 0 (no debit).
-        $stmt = $this->db->prepare("
-            UPDATE alliances
-            SET bank_credits = bank_credits - ?
-            WHERE id = ? AND bank_credits >= ?
-        ");
-        $stmt->bind_param("iii", $cost, $alliance_id, $cost);
-        $stmt->execute();
-        $affected = $stmt->affected_rows;
-        $stmt->close();
-
-        if ($affected !== 1) {
-            // Another transaction may have spent the funds concurrently; treat
-            // as an expected race and surface a user-friendly error.
-            throw new Exception("Not enough credits in the alliance bank.");
-        }
-
-        // 5) Persist the new structure ownership entry for this alliance.
-        $stmt_insert = $this->db->prepare("
-            INSERT INTO alliance_structures (alliance_id, structure_key)
-            VALUES (?, ?)
-        ");
-        $stmt_insert->bind_param("is", $alliance_id, $structure_key);
-        $stmt_insert->execute();
-        $stmt_insert->close();
-
-        // 6) Gather human-readable actor name for audit log.
-        $stmt = $this->db->prepare("SELECT character_name FROM users WHERE id = ?");
-        $stmt->bind_param("i", $this->user_id);
-        $stmt->execute();
-        $username = ($stmt->get_result()->fetch_assoc()['character_name'] ?? 'Unknown');
-        $stmt->close();
-
-        // 7) Audit log: capture purchase with item name and actor.
-        $this->logBankTransaction($alliance_id, $this->user_id, 'purchase', $cost, "Purchased {$structure_details['name']} by {$username}");
-
-        // 8) UX feedback for the next page load.
-        $_SESSION['alliance_message'] = "Successfully purchased {$structure_details['name']}!";
-    }
-
-    private function donateCredits()
-    {
-        // Normalize and validate donation amount; must be positive integer.
         $amount = (int)($_POST['amount'] ?? 0);
-        $comment = trim($_POST['comment'] ?? '');
+        $comment = trim((string)($_POST['comment'] ?? ''));
+
         if ($amount <= 0) {
-            throw new Exception("Invalid donation amount.");
+            throw new Exception('Invalid donation amount.');
         }
 
-        // Resolve caller's alliance and display name for logging.
-        $stmt = $this->db->prepare("SELECT alliance_id, character_name FROM users WHERE id = ?");
-        $stmt->bind_param("i", $this->user_id);
+        $me = $this->getAllianceDataForUser($this->user_id);
+        $aid = (int)($me['alliance_id'] ?? 0);
+        if ($aid <= 0) {
+            throw new Exception('You must be in an alliance to donate.');
+        }
+
+        // Take from user if they have enough credits
+        $stmt = $this->db->prepare('UPDATE users SET credits = credits - ? WHERE id = ? AND credits >= ?');
+        $stmt->bind_param('iii', $amount, $this->user_id, $amount);
         $stmt->execute();
-        $res = $stmt->get_result();
-        $user = $res->fetch_assoc();
+        $ok = ($stmt->affected_rows === 1);
         $stmt->close();
-
-        if (!$user || $user['alliance_id'] === null) {
-            throw new Exception("You are not in an alliance.");
-        }
-        $alliance_id = (int)$user['alliance_id'];
-        $username = $user['character_name'] ?? 'Unknown';
-
-        // 1) Debit user wallet atomically iff balance is sufficient.
-        $stmt = $this->db->prepare("
-            UPDATE users
-            SET credits = credits - ?
-            WHERE id = ? AND credits >= ?
-        ");
-        // Guard condition embedded in SQL: ensures no negative user balance.
-        $stmt->bind_param("iii", $amount, $this->user_id, $amount);
-        $stmt->execute();
-        $affected = $stmt->affected_rows;
-        $stmt->close();
-
-        if ($affected !== 1) {
-            throw new Exception("Not enough credits to donate.");
+        if (!$ok) {
+            throw new Exception('Insufficient personal credits.');
         }
 
-        // 2) Credit alliance bank (no guard needed; we already debited user).
-        $stmt = $this->db->prepare("
-            UPDATE alliances SET bank_credits = bank_credits + ? WHERE id = ?
-        ");
-        $stmt->bind_param("ii", $amount, $alliance_id);
+        // Credit alliance bank
+        $stmt = $this->db->prepare('UPDATE alliances SET bank_credits = bank_credits + ? WHERE id = ?');
+        $stmt->bind_param('ii', $amount, $aid);
         $stmt->execute();
         $stmt->close();
 
-        // 3) Audit log with optional freeform donor comment.
-        $this->logBankTransaction($alliance_id, $this->user_id, 'deposit', $amount, "Donation from {$username}", $comment);
+        $this->logBankTransaction(
+            $aid,
+            $this->user_id,
+            'deposit',
+            $amount,
+            'Donation from ' . ($me['character_name'] ?? 'Member'),
+            $comment
+        );
 
-        // 4) UX confirmation.
-        $_SESSION['alliance_message'] = "Successfully donated " . number_format($amount) . " credits.";
+        $_SESSION['alliance_message'] = 'Thanks! Donated ' . number_format($amount) . ' credits to your alliance bank.';
     }
 
-    private function leaderWithdraw()
+    private function leaderWithdraw(): void
     {
-        // Caller must be in an alliance and be its leader.
-        $user_info = $this->getUserRoleInfo($this->user_id);
-        $alliance_id = (int)($user_info['alliance_id'] ?? 0);
-        if ($alliance_id <= 0) {
-            throw new Exception("You are not in an alliance.");
-        }
-
-        // Resolve the official leader for this alliance. We do not trust client
-        // input for leadership; verify on the server every time.
-        $stmt = $this->db->prepare("SELECT leader_id FROM alliances WHERE id = ?");
-        $stmt->bind_param("i", $alliance_id);
-        $stmt->execute();
-        $res = $stmt->get_result();
-        $ally = $res->fetch_assoc();
-        $stmt->close();
-
-        if (!$ally || (int)$ally['leader_id'] !== (int)$this->user_id) {
-            throw new Exception("Only the alliance leader can perform this action.");
-        }
-
-        // Amount to withdraw; must be a positive integer.
         $amount = (int)($_POST['amount'] ?? 0);
         if ($amount <= 0) {
-            throw new Exception("Invalid withdrawal amount.");
+            throw new Exception('Invalid withdrawal amount.');
         }
 
-        // 1) Debit the alliance bank only if:
-        //    - Caller is the current leader AND
-        //    - Sufficient funds exist
-        //    This prevents both impersonation and overdrafts inside one atomic step.
-        $stmt = $this->db->prepare("
-            UPDATE alliances
-            SET bank_credits = bank_credits - ?
-            WHERE id = ? AND leader_id = ? AND bank_credits >= ?
-        ");
-        $stmt->bind_param("iiii", $amount, $alliance_id, $this->user_id, $amount);
-        $stmt->execute();
-        $affected = $stmt->affected_rows;
-        $stmt->close();
-
-        if ($affected !== 1) {
-            // Either not the leader anymore or funds insufficient. Treat as a
-            // soft failure with clear error text (no partial updates).
-            throw new Exception("Insufficient funds in the alliance bank.");
+        $me = $this->getAllianceDataForUser($this->user_id);
+        $aid = (int)($me['alliance_id'] ?? 0);
+        if ($aid <= 0) {
+            throw new Exception('You must be in an alliance.');
+        }
+        if ((int)$me['leader_id'] !== $this->user_id) {
+            throw new Exception('Only the alliance leader may withdraw.');
         }
 
-        // 2) Credit the leader's personal credits.
-        $stmt = $this->db->prepare("UPDATE users SET credits = credits + ? WHERE id = ?");
-        $stmt->bind_param("ii", $amount, $this->user_id);
+        // Debit alliance if enough funds
+        $stmt = $this->db->prepare('UPDATE alliances SET bank_credits = bank_credits - ? WHERE id = ? AND bank_credits >= ?');
+        $stmt->bind_param('iii', $amount, $aid, $amount);
+        $stmt->execute();
+        $ok = ($stmt->affected_rows === 1);
+        $stmt->close();
+        if (!$ok) {
+            throw new Exception('Alliance bank has insufficient funds.');
+        }
+
+        // Credit leader
+        $stmt = $this->db->prepare('UPDATE users SET credits = credits + ? WHERE id = ?');
+        $stmt->bind_param('ii', $amount, $this->user_id);
         $stmt->execute();
         $stmt->close();
 
-        // 3) Audit log the withdrawal with the leader's display name.
-        $this->logBankTransaction($alliance_id, $this->user_id, 'withdrawal', $amount, "Leader withdrawal by {$user_info['character_name']}");
+        $this->logBankTransaction(
+            $aid,
+            $this->user_id,
+            'withdrawal',
+            $amount,
+            'Leader withdrawal by ' . ($me['character_name'] ?? 'Leader')
+        );
 
-        // 4) UX confirmation.
-        $_SESSION['alliance_message'] = "Successfully withdrew " . number_format($amount) . " credits.";
+        $_SESSION['alliance_message'] = 'Withdrew ' . number_format($amount) . ' credits to your account.';
     }
 
-    private function requestLoan()
+    private function requestLoan(): void
     {
-        // Normalize and validate request size. Enforce > 0 to avoid no-op loans.
         $amount = (int)($_POST['amount'] ?? 0);
-        if ($amount <= 0) throw new Exception("Invalid loan amount.");
+        if ($amount <= 0) {
+            throw new Exception('Invalid loan amount.');
+        }
 
-        // 1) A user may have at most one active or pending loan at a time.
-        $stmt = $this->db->prepare("
-            SELECT id FROM alliance_loans WHERE user_id = ? AND status IN ('active', 'pending') LIMIT 1
-        ");
-        $stmt->bind_param("i", $this->user_id);
+        // Ensure no active/pending loan
+        $stmt = $this->db->prepare("SELECT id FROM alliance_loans WHERE user_id = ? AND status IN ('pending','active') LIMIT 1");
+        $stmt->bind_param('i', $this->user_id);
         $stmt->execute();
-        $existing = $stmt->get_result()->fetch_assoc();
+        $exists = $stmt->get_result()->fetch_assoc();
         $stmt->close();
-        if ($existing) throw new Exception("You already have an active or pending loan.");
+        if ($exists) {
+            throw new Exception('You already have a pending or active loan.');
+        }
 
-        // 2) Caller must be in an alliance; also load their credit_rating.
-        $stmt = $this->db->prepare("SELECT alliance_id, credit_rating FROM users WHERE id = ?");
-        $stmt->bind_param("i", $this->user_id);
+        // Pull user info
+        $stmt = $this->db->prepare('SELECT alliance_id, character_name, credit_rating FROM users WHERE id = ?');
+        $stmt->bind_param('i', $this->user_id);
         $stmt->execute();
         $user = $stmt->get_result()->fetch_assoc();
         $stmt->close();
 
-        if (!$user || $user['alliance_id'] === null) {
-            throw new Exception("You are not in an alliance.");
+        $aid = (int)($user['alliance_id'] ?? 0);
+        if ($aid <= 0) {
+            throw new Exception('You must be in an alliance to request a loan.');
         }
 
-        // 3) Enforce a simple credit policy cap per credit_rating tier.
-        //    This prevents outsized requests and codifies risk tolerance.
-        $credit_rating_map = [
-            'A++' => 50000000,
-            'A+'  => 25000000,
-            'A'   => 10000000,
-            'B'   =>  5000000,
-            'C'   =>  1000000,
-            'D'   =>   500000,
-            'F'   =>        0
+        // Rating map
+        $map = [
+            'A++' => 50000000, 'A+' => 25000000, 'A' => 10000000,
+            'B' => 5000000, 'C' => 1000000, 'D' => 500000, 'F' => 0
         ];
-        $max_loan = (int)($credit_rating_map[$user['credit_rating']] ?? 0);
-        if ($amount > $max_loan) {
-            throw new Exception("Loan amount exceeds your credit rating limit of " . number_format($max_loan) . ".");
-        }
+        $limit = (int)($map[$user['credit_rating']] ?? 0);
 
-        // 4) Insert the pending loan request. amount_to_repay includes margin
-        //    (e.g., 30% markup) representing interest or a risk premium.
-        $amount_to_repay = (int)floor($amount * 1.30);
-        $stmt = $this->db->prepare("
-            INSERT INTO alliance_loans (alliance_id, user_id, amount_loaned, amount_to_repay, status)
-            VALUES (?, ?, ?, ?, 'pending')
-        ");
-        $stmt->bind_param("iiii", $user['alliance_id'], $this->user_id, $amount, $amount_to_repay);
+        // Interest: over-limit → 50%, else 30%
+        $rate = ($amount > $limit) ? 0.50 : 0.30;
+        $repay = (int)ceil($amount * (1 + $rate));
+
+        // Create pending loan
+        $stmt = $this->db->prepare('INSERT INTO alliance_loans (alliance_id, user_id, amount_loaned, amount_to_repay, status) VALUES (?, ?, ?, ?, "pending")');
+        $stmt->bind_param('iiii', $aid, $this->user_id, $amount, $repay);
         $stmt->execute();
         $stmt->close();
 
-        // 5) UX: communicate the request was lodged for review.
-        $_SESSION['alliance_message'] = "Loan request submitted for " . number_format($amount) . " credits.";
+        $_SESSION['alliance_message'] = 'Loan request submitted for ' . number_format($amount) . ' (repay ' . number_format($repay) . ').';
     }
 
-    private function approveLoan()
+    private function approveLoan(): void
     {
-        // Normalize and ensure we got a valid identifier.
         $loan_id = (int)($_POST['loan_id'] ?? 0);
-        if ($loan_id <= 0) throw new Exception("Invalid loan ID.");
+        if ($loan_id <= 0) throw new Exception('Invalid loan ID.');
 
-        // 1) Caller must have treasury permission in their alliance.
-        $currentUserData = $this->getAllianceDataForUser($this->user_id);
-        if (empty($currentUserData['permissions']['can_manage_treasury'])) {
-            throw new Exception("You do not have permission to manage loans.");
+        $me = $this->getAllianceDataForUser($this->user_id);
+        if (empty($me['can_manage_treasury'])) {
+            throw new Exception('You do not have permission to manage loans.');
         }
-        $my_alliance_id = (int)($currentUserData['alliance_id'] ?? 0); // ✅ use alliance_id
+        $aid = (int)$me['alliance_id'];
 
-        // 2) Load the target loan record; must be pending and belong to caller's alliance.
-        $stmt = $this->db->prepare("
-            SELECT id, alliance_id, user_id, amount_loaned
-            FROM alliance_loans
-            WHERE id = ? AND status = 'pending'
-        ");
-        $stmt->bind_param("i", $loan_id);
+        // Get pending loan in my alliance
+        $stmt = $this->db->prepare('
+            SELECT l.id, l.alliance_id, l.user_id, l.amount_loaned, l.amount_to_repay, u.character_name
+            FROM alliance_loans l
+            JOIN users u ON u.id = l.user_id
+            WHERE l.id = ? AND l.status = "pending"
+            LIMIT 1
+        ');
+        $stmt->bind_param('i', $loan_id);
         $stmt->execute();
         $loan = $stmt->get_result()->fetch_assoc();
         $stmt->close();
 
-        if (!$loan || (int)$loan['alliance_id'] !== $my_alliance_id) {
-            throw new Exception("Loan not found or does not belong to your alliance.");
+        if (!$loan || (int)$loan['alliance_id'] !== $aid) {
+            throw new Exception('Loan not found or not in your alliance.');
         }
 
         $amount = (int)$loan['amount_loaned'];
+        $borrower_id = (int)$loan['user_id'];
 
-        // 3) Atomically debit alliance bank if sufficient funds exist. This step
-        //    doubles as a concurrency guard; if funds were spent elsewhere, this
-        //    UPDATE will affect 0 rows, and we fail cleanly.
-        $stmt = $this->db->prepare("
-            UPDATE alliances
-            SET bank_credits = bank_credits - ?
-            WHERE id = ? AND bank_credits >= ?
-        ");
-        $stmt->bind_param("iii", $amount, $my_alliance_id, $amount);
+        // Debit alliance if enough funds
+        $stmt = $this->db->prepare('UPDATE alliances SET bank_credits = bank_credits - ? WHERE id = ? AND bank_credits >= ?');
+        $stmt->bind_param('iii', $amount, $aid, $amount);
+        $stmt->execute();
+        $ok = ($stmt->affected_rows === 1);
+        $stmt->close();
+        if (!$ok) {
+            throw new Exception('Alliance bank has insufficient funds to approve this loan.');
+        }
+
+        // Credit borrower
+        $stmt = $this->db->prepare('UPDATE users SET credits = credits + ? WHERE id = ?');
+        $stmt->bind_param('ii', $amount, $borrower_id);
+        $stmt->execute();
+        $stmt->close();
+
+        // Activate loan
+        $stmt = $this->db->prepare('UPDATE alliance_loans SET status = "active", approval_date = NOW() WHERE id = ? AND status = "pending"');
+        $stmt->bind_param('i', $loan_id);
+        $stmt->execute();
+        $stmt->close();
+
+        // Audit
+        $this->logBankTransaction(
+            $aid,
+            $this->user_id,
+            'loan_given',
+            $amount,
+            'Loan approved for ' . ($loan['character_name'] ?? 'Member') . ' (to repay ' . number_format((int)$loan['amount_to_repay']) . ')'
+        );
+
+        $_SESSION['alliance_message'] = 'Approved loan of ' . number_format($amount) . ' credits.';
+    }
+
+    private function denyLoan(): void
+    {
+        $loan_id = (int)($_POST['loan_id'] ?? 0);
+        if ($loan_id <= 0) throw new Exception('Invalid loan ID.');
+
+        $me = $this->getAllianceDataForUser($this->user_id);
+        if (empty($me['can_manage_treasury'])) {
+            throw new Exception('You do not have permission to manage loans.');
+        }
+
+        $stmt = $this->db->prepare('UPDATE alliance_loans SET status = "denied" WHERE id = ? AND status = "pending"');
+        $stmt->bind_param('i', $loan_id);
         $stmt->execute();
         $affected = $stmt->affected_rows;
         $stmt->close();
 
         if ($affected !== 1) {
-            throw new Exception("The alliance bank has insufficient funds to approve this loan.");
+            throw new Exception('Loan not pending or not found.');
         }
 
-        // 4) Credit the borrower's user account.
-        $stmt = $this->db->prepare("UPDATE users SET credits = credits + ? WHERE id = ?");
-        $stmt->bind_param("ii", $amount, $loan['user_id']);
-        $stmt->execute();
-        $stmt->close();
-
-        // 5) Transition loan state from 'pending' → 'active' atomically, and
-        //    stamp the approval date. The WHERE clause ensures we don't double
-        //    approve if a concurrent process changed the status.
-        $stmt = $this->db->prepare("
-            UPDATE alliance_loans
-            SET status = 'active', approval_date = NOW()
-            WHERE id = ? AND status = 'pending'
-        ");
-        $stmt->bind_param("i", $loan_id);
-        $stmt->execute();
-        $changed = $stmt->affected_rows;
-        $stmt->close();
-
-        if ($changed !== 1) {
-            // State drift detected — bail and instruct user to retry.
-            throw new Exception("Loan state changed; try again.");
-        }
-
-        // 6) Fetch borrower display name for the log entry.
-        $stmt = $this->db->prepare("SELECT character_name FROM users WHERE id = ?");
-        $stmt->bind_param("i", $loan['user_id']);
-        $stmt->execute();
-        $loan_recipient = $stmt->get_result()->fetch_assoc();
-        $stmt->close();
-
-        // 7) Audit the loan disbursement.
-        $this->logBankTransaction(
-            $my_alliance_id,
-            $this->user_id,
-            'loan_given',
-            $amount,
-            "Loan approved for " . ($loan_recipient['character_name'] ?? 'Unknown')
-        );
-
-        // 8) UX success note.
-        $_SESSION['alliance_message'] = "Loan approved.";
+        $_SESSION['alliance_message'] = 'Loan request denied.';
     }
 
-    private function denyLoan()
+    private function repayLoan(): void
     {
-        // Normalize input and ensure it is a valid identifier.
-        $loan_id = (int)($_POST['loan_id'] ?? 0);
-        if ($loan_id <= 0) throw new Exception("Invalid loan ID.");
+        $amount = (int)($_POST['amount'] ?? 0);
+        if ($amount <= 0) throw new Exception('Invalid repayment amount.');
 
-        // 1) Caller must have treasury permission.
-        $currentUserData = $this->getAllianceDataForUser($this->user_id);
-        if (empty($currentUserData['permissions']['can_manage_treasury'])) {
-            throw new Exception("You do not have permission to manage loans.");
-        }
-        $my_alliance_id = (int)($currentUserData['alliance_id'] ?? 0); // ✅ use alliance_id
-
-        // 2) Ensure the loan is pending and belongs to this alliance.
-        $stmt = $this->db->prepare("
-            SELECT alliance_id
-            FROM alliance_loans
-            WHERE id = ? AND status = 'pending'
-        ");
-        $stmt->bind_param("i", $loan_id);
+        // Active loan for this user
+        $stmt = $this->db->prepare('SELECT id, alliance_id, amount_to_repay FROM alliance_loans WHERE user_id = ? AND status = "active" LIMIT 1');
+        $stmt->bind_param('i', $this->user_id);
         $stmt->execute();
         $loan = $stmt->get_result()->fetch_assoc();
         $stmt->close();
 
-        if (!$loan || (int)$loan['alliance_id'] !== $my_alliance_id) {
-            throw new Exception("Loan not found or does not belong to your alliance.");
-        }
+        if (!$loan) throw new Exception('No active loan to repay.');
 
-        // 3) Mark the loan as denied, but only if it is still pending (avoids
-        //    racing a concurrent approver).
-        $stmt = $this->db->prepare("
-            UPDATE alliance_loans
-            SET status = 'denied'
-            WHERE id = ? AND status = 'pending'
-        ");
-        $stmt->bind_param("i", $loan_id);
+        $repay = min($amount, (int)$loan['amount_to_repay']);
+        if ($repay <= 0) throw new Exception('Nothing to repay.');
+
+        // Debit user if enough credits
+        $stmt = $this->db->prepare('UPDATE users SET credits = credits - ? WHERE id = ? AND credits >= ?');
+        $stmt->bind_param('iii', $repay, $this->user_id, $repay);
+        $stmt->execute();
+        $ok = ($stmt->affected_rows === 1);
+        $stmt->close();
+        if (!$ok) throw new Exception('Insufficient personal credits.');
+
+        // Credit alliance
+        $aid = (int)$loan['alliance_id'];
+        $stmt = $this->db->prepare('UPDATE alliances SET bank_credits = bank_credits + ? WHERE id = ?');
+        $stmt->bind_param('ii', $repay, $aid);
         $stmt->execute();
         $stmt->close();
 
-        // 4) UX success note. (No funds moved, so no audit needed.)
-        $_SESSION['alliance_message'] = "Loan denied.";
+        // Reduce outstanding, set status if paid
+        $new_due = (int)$loan['amount_to_repay'] - $repay;
+        $new_status = ($new_due <= 0) ? 'paid' : 'active';
+        $stmt = $this->db->prepare('UPDATE alliance_loans SET amount_to_repay = ?, status = ? WHERE id = ?');
+        $stmt->bind_param('isi', $new_due, $new_status, $loan['id']);
+        $stmt->execute();
+        $stmt->close();
+
+        // Audit
+        $this->logBankTransaction(
+            $aid,
+            $this->user_id,
+            'loan_repaid',
+            $repay,
+            'Manual loan repayment'
+        );
+
+        $_SESSION['alliance_message'] = 'Repayment of ' . number_format($repay) . ' credits applied.';
+    }
+
+    /**
+     *á2% interest compounded at each half-day boundary (06:00 / 18:00).
+     * Idempotent per alliance using alliances.last_compound_at.
+     */
+    public function accrueBankInterest(): void
+    {
+        // Keep MySQL session in UTC to match CLI
+        $this->db->query("SET time_zone = '+00:00'");
+        $tz = new DateTimeZone('UTC');
+
+        // Process alliances with short transactions to keep locks tiny
+        $rs = $this->db->query('SELECT id FROM alliances ORDER BY id ASC');
+        while ($row = $rs->fetch_assoc()) {
+            $aid = (int)$row['id'];
+
+            $this->db->begin_transaction();
+            try {
+                // Lock the one alliance row
+                $stmt = $this->db->prepare('SELECT bank_credits, last_compound_at FROM alliances WHERE id = ? FOR UPDATE');
+                $stmt->bind_param('i', $aid);
+                $stmt->execute();
+                $current = $stmt->get_result()->fetch_assoc();
+                $stmt->close();
+
+                if (!$current) { $this->db->commit(); continue; }
+
+                $balance = (int)$current['bank_credits'];
+                $now  = new DateTime('now', $tz);
+
+                // If never compounded, start now (avoid accidental backfill)
+                $last = !empty($current['last_compound_at'])
+                    ? new DateTime($current['last_compound_at'], $tz)
+                    : clone $now;
+
+                // How many whole hours elapsed?
+                $dtSeconds = max(0, $now->getTimestamp() - $last->getTimestamp());
+                $hours = intdiv($dtSeconds, 3600);
+
+                if ($hours <= 0) {
+                    // Still advance the pointer to avoid drift if first run
+                    $ts = $now->format('Y-m-d H:i:s');
+                    $stmt = $this->db->prepare('UPDATE alliances SET last_compound_at = ? WHERE id = ?');
+                    $stmt->bind_param('si', $ts, $aid);
+                    $stmt->execute();
+                    $stmt->close();
+                    $this->db->commit();
+                    continue;
+                }
+
+                // Compound +2% for each elapsed hour in one go:
+                // new = old * (1.02 ^ hours); interest = floor(new - old)
+                $factor   = pow(1.02, $hours);
+                $interest = (int) floor($balance * ($factor - 1.0));
+
+                // Advance "last" to NOW to avoid minute drift
+                $ts = $now->format('Y-m-d H:i:s');
+
+                if ($interest > 0) {
+                    $newBalance = $balance + $interest;
+
+                    $stmt = $this->db->prepare('UPDATE alliances SET bank_credits = ?, last_compound_at = ? WHERE id = ?');
+                    $stmt->bind_param('isi', $newBalance, $ts, $aid);
+                    $stmt->execute();
+                    $stmt->close();
+
+                    $this->logBankTransaction(
+                        $aid,
+                        null,
+                        'interest_yield',
+                        $interest,
+                        sprintf('2%% per hour compounded for %d hour(s)', $hours)
+                    );
+                } else {
+                    // Very small balances can round to 0; still advance pointer
+                    $stmt = $this->db->prepare('UPDATE alliances SET last_compound_at = ? WHERE id = ?');
+                    $stmt->bind_param('si', $ts, $aid);
+                    $stmt->execute();
+                    $stmt->close();
+                }
+
+                $this->db->commit();
+            } catch (Throwable $e) {
+                $this->db->rollback();
+                throw $e;
+            }
+        }
+        $rs->close();
+    }
+
+
+
+    // ====== Helpers ======
+
+    private function logBankTransaction(int $alliance_id, ?int $user_id, string $type, int $amount, string $description, string $comment = ''): void
+    {
+        static $valid = [
+            'deposit','withdrawal','purchase','tax','transfer_fee',
+            'loan_given','loan_repaid','interest_yield'
+        ];
+        if (!in_array($type, $valid, true)) {
+            throw new Exception('Invalid bank log type: ' . $type);
+        }
+
+        $stmt = $this->db->prepare('
+            INSERT INTO alliance_bank_logs (alliance_id, user_id, type, amount, description, comment)
+            VALUES (?, ?, ?, ?, ?, ?)
+        ');
+        $stmt->bind_param('iisiss', $alliance_id, $user_id, $type, $amount, $description, $comment);
+        $stmt->execute();
+        $stmt->close();
+    }
+
+    /**
+     * Returns user + alliance context:
+     *  - alliance_id, leader_id, character_name
+     *  - can_manage_treasury (int 0/1)
+     */
+    private function getAllianceDataForUser(int $uid): array
+    {
+        $sql = "
+            SELECT
+                u.alliance_id,
+                u.character_name,
+                a.leader_id,
+                COALESCE(ar.can_manage_treasury, 0) AS can_manage_treasury
+            FROM users u
+            LEFT JOIN alliances a ON a.id = u.alliance_id
+            LEFT JOIN alliance_roles ar ON ar.id = u.alliance_role_id
+            WHERE u.id = ?
+            LIMIT 1
+        ";
+        $stmt = $this->db->prepare($sql);
+        $stmt->bind_param('i', $uid);
+        $stmt->execute();
+        $row = $stmt->get_result()->fetch_assoc();
+        $stmt->close();
+        return $row ?: [];
+    }
+
+    /** Most recent 06:00 or 18:00 at/before $ref. */
+    private function mostRecentBoundary(DateTime $ref): DateTime
+    {
+        $d6 = (clone $ref);  $d6->setTime(6, 0, 0);
+        $d18 = (clone $ref); $d18->setTime(18, 0, 0);
+
+        if ($ref >= $d18) return $d18;
+        if ($ref >= $d6)  return $d6;
+
+        $y = (clone $ref); $y->modify('-1 day')->setTime(18, 0, 0);
+        return $y;
+    }
+
+    /** Next boundary strictly after $ref. */
+    private function nextBoundary(DateTime $ref): DateTime
+    {
+        $h = (int)$ref->format('H');
+        $next = clone $ref;
+
+        if ($h < 6) { $next->setTime(6,0,0); }
+        elseif ($h < 18 || ($h == 18 && $ref->format('i:s') === '00:00')) { $next->setTime(18,0,0); }
+        else { $next->modify('+1 day')->setTime(6,0,0); }
+
+        if ($next <= $ref) $next->modify('+12 hours');
+        return $next;
     }
 }

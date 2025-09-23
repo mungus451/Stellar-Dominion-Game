@@ -2,7 +2,7 @@
 set -euo pipefail
 
 # Configure
-BASE_URL="https://192.168.254.207"   # ← change to your domain
+BASE_URL="https://192.168.254.193"   # ← change to your domain
 TOKEN="enclave-cron"    # ← also set the same token in the PHP files below
 
 # 1) Train even split for a random Enclave member (only if they have citizens)
