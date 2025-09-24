@@ -17,14 +17,13 @@ require_once __DIR__ . '/../Services/StateService.php'; // ss_ensure_structure_r
 
 /**
  * CSRF validator that tolerates multiple action names used across older forms.
- * We try the posted action first (if any), then fall back to common legacy names.
  */
 function sd_validate_csrf_compat(string $token, ?string $postedAction): bool {
     $candidates = array_unique(array_filter([
-        $postedAction,           // whatever the form sent
-        'structure_action',      // current standard
-        'repair_structure',      // earlier API/action name
-        'default',               // legacy default in some forms
+        $postedAction,
+        'structure_action',
+        'repair_structure',
+        'default',
     ]));
     foreach ($candidates as $act) {
         if (validate_csrf_token($token, $act)) return true;
@@ -50,7 +49,6 @@ $post_action = $_POST['action'] ?? ''; // distinct from csrf_action
 /**
  * Calculate repair cost for non-foundation structures.
  * Full repair (0% → 100%) costs ~25% of the *next* upgrade cost.
- * Tweak $SHARE to rebalance.
  */
 function sd_calc_structure_repair_cost(array $user_stats, array $upgrades, string $key, int $health_pct): int {
     $key = strtolower($key);
@@ -83,7 +81,7 @@ try {
     if (!$user_stats) throw new Exception("User data could not be loaded.");
 
     if ($post_action === 'purchase_structure') {
-        $upgrade_type = $_POST['upgrade_type'] ?? '';
+        $upgrade_type = strtolower($_POST['upgrade_type'] ?? '');
         $target_level = (int)($_POST['target_level'] ?? 0);
 
         if (!isset($upgrades[$upgrade_type])) throw new Exception("Invalid upgrade type.");
@@ -97,7 +95,39 @@ try {
         $next_details = $category['levels'][$target_level] ?? null;
         if (!$next_details) throw new Exception("Upgrade level does not exist.");
 
-        // Charisma discount (safe if missing)
+        // ----- NEW: Require 100% health before upgrading -----
+        // Only enforce if upgrading from an existing level (>0). Level 0 -> 1 has no prior health state.
+        if ($current_level > 0) {
+            if ($upgrade_type === 'fortifications') {
+                $curr_max_hp = (int)($upgrades['fortifications']['levels'][$current_level]['hitpoints'] ?? 0);
+                $curr_hp     = (int)($user_stats['fortification_hitpoints'] ?? 0);
+                if ($curr_max_hp > 0 && $curr_hp < $curr_max_hp) {
+                    throw new Exception("Repair your foundation to full health before upgrading.");
+                }
+            } else {
+                // Grades tracked in user_structure_health
+                $healthTrackedKeys = ['economy','offense','defense','population','armory'];
+                if (in_array($upgrade_type, $healthTrackedKeys, true)) {
+                    if (function_exists('ss_ensure_structure_rows')) {
+                        ss_ensure_structure_rows($link, $user_id);
+                    }
+                    $st = mysqli_prepare($link, "SELECT health_pct, locked FROM user_structure_health WHERE user_id = ? AND structure_key = ? FOR UPDATE");
+                    mysqli_stmt_bind_param($st, "is", $user_id, $upgrade_type);
+                    mysqli_stmt_execute($st);
+                    $row = mysqli_fetch_assoc(mysqli_stmt_get_result($st));
+                    mysqli_stmt_close($st);
+
+                    $health = (int)($row['health_pct'] ?? 100);
+                    $locked = (int)($row['locked'] ?? 0);
+                    if ($health < 100 || $locked) {
+                        throw new Exception("Repair your " . ucfirst($upgrade_type) . " to 100% before upgrading.");
+                    }
+                }
+            }
+        }
+        // ----- END: 100% health gate -----
+
+        // Charisma discount
         $charisma_points   = (float)($user_stats['charisma_points'] ?? 0);
         $charisma_discount = max(0.0, 1 - ($charisma_points * 0.01));
         $final_cost = (int)floor(((int)$next_details['cost']) * $charisma_discount);
@@ -125,7 +155,34 @@ try {
         mysqli_stmt_execute($stmt_up);
         mysqli_stmt_close($stmt_up);
 
-        $_SESSION['build_message'] = "Upgrade successful: " . $next_details['name'] . " built!";
+        // --- Initialize new level health to full ---
+        if ($upgrade_type === 'fortifications') {
+            // Foundation: set HP to the *new* max
+            $new_max_hp = (int)($next_details['hitpoints'] ?? 0);
+            $stmt_hp = mysqli_prepare($link, "UPDATE users SET fortification_hitpoints = ? WHERE id = ?");
+            mysqli_stmt_bind_param($stmt_hp, "ii", $new_max_hp, $user_id);
+            mysqli_stmt_execute($stmt_hp);
+            mysqli_stmt_close($stmt_hp);
+        } else {
+            // Grades: upsert health row to 100% and unlocked
+            $healthTrackedKeys = ['economy','offense','defense','population','armory'];
+            if (in_array($upgrade_type, $healthTrackedKeys, true)) {
+                if (function_exists('ss_ensure_structure_rows')) {
+                    ss_ensure_structure_rows($link, $user_id);
+                }
+                $stmt_fix = mysqli_prepare(
+                    $link,
+                    "INSERT INTO user_structure_health (user_id, structure_key, health_pct, locked)
+                     VALUES (?, ?, 100, 0)
+                     ON DUPLICATE KEY UPDATE health_pct = VALUES(health_pct), locked = VALUES(locked)"
+                );
+                mysqli_stmt_bind_param($stmt_fix, "is", $user_id, $upgrade_type);
+                mysqli_stmt_execute($stmt_fix);
+                mysqli_stmt_close($stmt_fix);
+            }
+        }
+
+        $_SESSION['build_message'] = "Upgrade successful: " . $next_details['name'] . " built at 100% health!";
 
     } elseif ($post_action === 'repair_structure') {
         $mode = strtolower(trim($_POST['mode'] ?? 'foundation'));
