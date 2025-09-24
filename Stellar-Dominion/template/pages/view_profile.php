@@ -274,7 +274,6 @@ foreach ($badges as $b) {
         if (!isset($front[$idx])) $front[$idx] = $b;
     } else { $tail[] = $b; }
 }
-ksort($front);
 $ordered_badges = array_merge(array_values($front), $tail);
 
 // =====================================================
@@ -395,6 +394,79 @@ if ($ally_has) {
 }
 
 // =====================================================
+// War outcomes (Economic Vassalage / Humiliation / Custom Badge / Dignity)
+// =====================================================
+$war_outcome_chips = []; // label => ['result' => 'Victor'|'Defeated', 'date' => 'Y-m-d']
+$latestHumiliationDefeat = null;
+$latestDignityVictory    = null;
+
+if ($target_alliance_id > 0) {
+    if ($stmt = @mysqli_prepare($link, "
+        SELECT
+            wh.casus_belli_text, wh.outcome, wh.end_date,
+            w.declarer_alliance_id, w.declared_against_alliance_id
+        FROM war_history wh
+        JOIN wars w ON w.id = wh.war_id
+        WHERE (w.declarer_alliance_id = ? OR w.declared_against_alliance_id = ?)
+          AND w.status = 'ended'
+        ORDER BY wh.end_date DESC
+        LIMIT 150
+    ")) {
+        mysqli_stmt_bind_param($stmt, "ii", $target_alliance_id, $target_alliance_id);
+        if (mysqli_stmt_execute($stmt)) {
+            $res = mysqli_stmt_get_result($stmt);
+            while ($r = $res->fetch_assoc()) {
+                $txt  = strtolower((string)($r['casus_belli_text'] ?? ''));
+                $date = !empty($r['end_date']) ? substr($r['end_date'], 0, 10) : '';
+                $isDeclarer = ($target_alliance_id == (int)$r['declarer_alliance_id']);
+                $won = ((string)$r['outcome'] === 'declarer_win' && $isDeclarer)
+                    || ((string)$r['outcome'] === 'declared_against_win' && !$isDeclarer);
+
+                // Map labels
+                $label = null;
+                if (strpos($txt, 'vassal') !== false)                $label = 'Economic Vassalage';
+                elseif (strpos($txt, 'humiliat') !== false
+                    ||  strpos($txt, 'humilation') !== false)        $label = 'Humiliation';
+                elseif (strpos($txt, 'custom') !== false && strpos($txt, 'badge') !== false) $label = 'Custom Badge';
+                elseif (strpos($txt, 'dignity') !== false)           $label = 'Dignity';
+
+                if (!$label) continue;
+
+                // Capture most recent per label for chips
+                if (!isset($war_outcome_chips[$label])) {
+                    $war_outcome_chips[$label] = ['result' => $won ? 'Victor' : 'Defeated', 'date' => $date];
+                }
+
+                // Track precedence logic: Dignity win clears prior Humiliation defeat
+                if ($label === 'Humiliation' && !$won) {
+                    if ($latestHumiliationDefeat === null || $date > $latestHumiliationDefeat) {
+                        $latestHumiliationDefeat = $date;
+                    }
+                }
+                if ($label === 'Dignity' && $won) {
+                    if ($latestDignityVictory === null || $date > $latestDignityVictory) {
+                        $latestDignityVictory = $date;
+                    }
+                }
+            }
+            $res->free();
+        }
+        mysqli_stmt_close($stmt);
+    }
+}
+
+// If dignity victory is newer or same-day, suppress Humiliation chip
+if ($latestDignityVictory !== null && $latestHumiliationDefeat !== null) {
+    if ($latestDignityVictory >= $latestHumiliationDefeat) {
+        unset($war_outcome_chips['Humiliation']);
+        // Optionally ensure Dignity chip is present & marked Victor
+        if (!isset($war_outcome_chips['Dignity'])) {
+            $war_outcome_chips['Dignity'] = ['result' => 'Victor', 'date' => $latestDignityVictory];
+        }
+    }
+}
+
+// =====================================================
 // Display prep
 // =====================================================
 $attack_csrf = generate_csrf_token('attack');
@@ -464,6 +536,22 @@ include_once __DIR__ . '/../includes/header.php';
                                 <?php if (!empty($last_online_label)): ?><span class="text-gray-500"> • <?php echo htmlspecialchars($last_online_label); ?></span><?php endif; ?>
                             <?php endif; ?>
                         </div>
+
+                        <!-- War Outcomes chips (Economic Vassalage / Humiliation / Custom Badge) -->
+                        <?php if (!empty($war_outcome_chips)): ?>
+                        <div class="mt-2 flex flex-wrap gap-2">
+                            <?php foreach ($war_outcome_chips as $lbl => $info): 
+                                $victor = ($info['result'] === 'Victor');
+                                $cls = $victor
+                                    ? 'bg-emerald-700/25 text-emerald-200 border-emerald-500/40'
+                                    : 'bg-red-700/25 text-red-200 border-red-500/40';
+                            ?>
+                                <span class="px-2 py-0.5 text-xs rounded border <?php echo $cls; ?>" title="<?php echo htmlspecialchars($info['date'] ?? '', ENT_QUOTES, 'UTF-8'); ?>">
+                                    <?php echo htmlspecialchars($lbl); ?> — <?php echo htmlspecialchars($info['result']); ?>
+                                </span>
+                            <?php endforeach; ?>
+                        </div>
+                        <?php endif; ?>
                     </div>
                 </div>
 

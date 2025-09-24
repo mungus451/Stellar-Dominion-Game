@@ -10,6 +10,7 @@ require_once __DIR__ . '/../../config/config.php';
 require_once __DIR__ . '/../../src/Game/GameFunctions.php';
 require_once __DIR__ . '/../../src/Controllers/BaseAllianceController.php';
 require_once __DIR__ . '/../../src/Controllers/AllianceResourceController.php';
+require_once __DIR__ . '/../../src/Game/AllianceCreditRanker.php'; // NEW: activates credit ranking
 
 $allianceController = new AllianceResourceController($link);
 
@@ -55,8 +56,19 @@ if ($alliance_id <= 0) {
     exit;
 }
 
-$is_leader            = ((int)$user_data['leader_id'] === $user_id);
-$can_manage_treasury  = ((int)$user_data['can_manage_treasury'] === 1);
+/* --- Activate credit ranking (recompute on view; idempotent) --- */
+$ranker = new AllianceCreditRanker($link);
+$ranker->recalcForAlliance($alliance_id);
+
+/* Refresh user_data to reflect any rating changes just applied */
+$stmt_user = mysqli_prepare($link, $sql_user);
+mysqli_stmt_bind_param($stmt_user, 'i', $user_id);
+mysqli_stmt_execute($stmt_user);
+$user_data = mysqli_fetch_assoc(mysqli_stmt_get_result($stmt_user));
+mysqli_stmt_close($stmt_user);
+
+$is_leader           = ((int)$user_data['leader_id'] === $user_id);
+$can_manage_treasury = ((int)$user_data['can_manage_treasury'] === 1);
 
 /* --- Alliance --- */
 $sql_alliance = "SELECT id, name, bank_credits FROM alliances WHERE id = ?";
@@ -66,26 +78,53 @@ mysqli_stmt_execute($stmt_alliance);
 $alliance = mysqli_fetch_assoc(mysqli_stmt_get_result($stmt_alliance));
 mysqli_stmt_close($stmt_alliance);
 
+/* --- Ledger filters & sorting --- */
+$allowed_types = ['deposit','withdrawal','purchase','tax','transfer_fee','loan_given','loan_repaid','interest_yield'];
+$filter_type   = (isset($_GET['type']) && in_array($_GET['type'], $allowed_types, true)) ? $_GET['type'] : null;
+
+$allowed_sorts = [
+    'date_desc'   => 'timestamp DESC',
+    'date_asc'    => 'timestamp ASC',
+    'amount_desc' => 'amount DESC',
+    'amount_asc'  => 'amount ASC',
+    'type_asc'    => 'type ASC',
+    'type_desc'   => 'type DESC',
+];
+$sort_key  = $_GET['sort'] ?? 'date_desc';
+$order_sql = $allowed_sorts[$sort_key] ?? $allowed_sorts['date_desc'];
+
 /* --- Pagination for ledger --- */
 $per_page_options = [10, 20];
 $items_per_page   = (isset($_GET['show']) && in_array((int)$_GET['show'], $per_page_options, true)) ? (int)$_GET['show'] : 10;
 $current_page     = isset($_GET['page']) ? max(1, (int)$_GET['page']) : 1;
 
+/* Count respecting filter */
 $sql_count = "SELECT COUNT(id) AS total FROM alliance_bank_logs WHERE alliance_id = ?";
+if ($filter_type) $sql_count .= " AND type = ?";
 $stmt_count = mysqli_prepare($link, $sql_count);
-mysqli_stmt_bind_param($stmt_count, 'i', $alliance_id);
+if ($filter_type) {
+    mysqli_stmt_bind_param($stmt_count, 'is', $alliance_id, $filter_type);
+} else {
+    mysqli_stmt_bind_param($stmt_count, 'i', $alliance_id);
+}
 mysqli_stmt_execute($stmt_count);
 $total_logs  = (int)(mysqli_fetch_assoc(mysqli_stmt_get_result($stmt_count))['total'] ?? 0);
-$total_pages = max(1, (int)ceil($total_logs / $items_per_page));
 mysqli_stmt_close($stmt_count);
 
+$total_pages = max(1, (int)ceil($total_logs / $items_per_page));
 if ($current_page > $total_pages) $current_page = $total_pages;
 $offset = ($current_page - 1) * $items_per_page;
 
-/* --- Fetch paginated logs --- */
-$sql_logs = "SELECT * FROM alliance_bank_logs WHERE alliance_id = ? ORDER BY timestamp DESC LIMIT ? OFFSET ?";
+/* --- Fetch paginated logs (with filter + sort) --- */
+$sql_logs = "SELECT * FROM alliance_bank_logs WHERE alliance_id = ?";
+if ($filter_type) $sql_logs .= " AND type = ?";
+$sql_logs .= " ORDER BY {$order_sql} LIMIT ? OFFSET ?";
 $stmt_logs = mysqli_prepare($link, $sql_logs);
-mysqli_stmt_bind_param($stmt_logs, 'iii', $alliance_id, $items_per_page, $offset);
+if ($filter_type) {
+    mysqli_stmt_bind_param($stmt_logs, 'isii', $alliance_id, $filter_type, $items_per_page, $offset);
+} else {
+    mysqli_stmt_bind_param($stmt_logs, 'iii', $alliance_id, $items_per_page, $offset);
+}
 mysqli_stmt_execute($stmt_logs);
 $bank_logs = mysqli_fetch_all(mysqli_stmt_get_result($stmt_logs), MYSQLI_ASSOC);
 mysqli_stmt_close($stmt_logs);
@@ -114,6 +153,35 @@ if ($can_manage_treasury) {
     $pending_loans = mysqli_fetch_all(mysqli_stmt_get_result($stmt_pending), MYSQLI_ASSOC);
     mysqli_stmt_close($stmt_pending);
 }
+
+/* --- ALL ACTIVE LOANS (entire alliance) --- */
+$sql_active_loans = "
+    SELECT l.*, u.character_name
+    FROM alliance_loans l
+    JOIN users u ON u.id = l.user_id
+    WHERE l.alliance_id = ? AND l.status = 'active'
+    ORDER BY l.amount_to_repay DESC, l.id ASC
+";
+$stmt_al = mysqli_prepare($link, $sql_active_loans);
+mysqli_stmt_bind_param($stmt_al, 'i', $alliance_id);
+mysqli_stmt_execute($stmt_al);
+$all_active_loans = mysqli_fetch_all(mysqli_stmt_get_result($stmt_al), MYSQLI_ASSOC);
+mysqli_stmt_close($stmt_al);
+
+/* --- Biggest Loanee (highest outstanding active loan) --- */
+$sql_biggest = "
+    SELECT u.character_name, l.amount_to_repay AS outstanding
+    FROM alliance_loans l
+    JOIN users u ON u.id = l.user_id
+    WHERE l.alliance_id = ? AND l.status = 'active'
+    ORDER BY l.amount_to_repay DESC
+    LIMIT 1
+";
+$stmt_big = mysqli_prepare($link, $sql_biggest);
+mysqli_stmt_bind_param($stmt_big, 'i', $alliance_id);
+mysqli_stmt_execute($stmt_big);
+$biggest_loanee = mysqli_fetch_assoc(mysqli_stmt_get_result($stmt_big));
+mysqli_stmt_close($stmt_big);
 
 /* --- Top donors / taxers --- */
 $top_donors = [];
@@ -191,7 +259,7 @@ $max_loan = (int)($credit_rating_map[$user_data['credit_rating']] ?? 0);
                             </span>
                         </p>
                         <p class="text-xs opacity-80 mt-1">
-                            Alliance bank accrues <span class="font-semibold text-green-300">2% interest</span> every hour. Deposits at 6am and 6pm.
+                            Alliance bank accrues <span class="font-semibold text-green-300">2% interest</span> every hour. Deposits hourly.
                         </p>
                     </div>
                     <a href="/alliance_transfer.php" class="bg-purple-600 hover:bg-purple-700 text-white font-bold py-3 px-6 rounded-lg">Member Transfers</a>
@@ -358,11 +426,40 @@ $max_loan = (int)($credit_rating_map[$user_data['credit_rating']] ?? 0);
                             </script>
                         <?php endif; ?>
                     </div>
+
+                    <!-- ===== ALL ACTIVE LOANS LIST ===== -->
+                    <div class="bg-gray-800/50 rounded-lg p-6">
+                        <h3 class="font-title text-xl text-cyan-400 border-b border-gray-600 pb-2 mb-3">All Active Loans</h3>
+                        <div class="overflow-x-auto">
+                            <table class="w-full text-sm text-left">
+                                <thead class="bg-gray-900">
+                                    <tr>
+                                        <th class="p-2">Commander</th>
+                                        <th class="p-2 text-right">Borrowed</th>
+                                        <th class="p-2 text-right">Outstanding</th>
+                                        <th class="p-2">Since</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                <?php if (empty($all_active_loans)): ?>
+                                    <tr><td colspan="4" class="p-3 text-center text-gray-500">No active loans.</td></tr>
+                                <?php else: foreach ($all_active_loans as $loan): ?>
+                                    <tr class="border-t border-gray-700">
+                                        <td class="p-2 font-semibold"><?php echo htmlspecialchars($loan['character_name']); ?></td>
+                                        <td class="p-2 text-right"><?php echo number_format((int)$loan['amount_loaned']); ?></td>
+                                        <td class="p-2 text-right text-yellow-300"><?php echo number_format((int)$loan['amount_to_repay']); ?></td>
+                                        <td class="p-2"><?php echo htmlspecialchars($loan['approval_date'] ?? $loan['request_date']); ?></td>
+                                    </tr>
+                                <?php endforeach; endif; ?>
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
                 </div>
 
                 <!-- ===== LEDGER TAB ===== -->
                 <div id="ledger-content" class="<?php if ($current_tab !== 'ledger') echo 'hidden'; ?> mt-4">
-                    <div class="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
+                    <div class="grid grid-cols-1 md:grid-cols-3 gap-4 mb-4">
                         <div class="bg-gray-800/50 rounded-lg p-4">
                             <h3 class="font-title text-lg text-green-400">Top Donors</h3>
                             <ul class="text-sm space-y-1 mt-2">
@@ -385,10 +482,54 @@ $max_loan = (int)($credit_rating_map[$user_data['credit_rating']] ?? 0);
                                 <?php endforeach; ?>
                             </ul>
                         </div>
+                        <div class="bg-gray-800/50 rounded-lg p-4">
+                            <h3 class="font-title text-lg text-yellow-300">Biggest Loanee</h3>
+                            <?php if ($biggest_loanee): ?>
+                                <div class="mt-2 flex justify-between text-sm">
+                                    <span class="font-semibold"><?php echo htmlspecialchars($biggest_loanee['character_name']); ?></span>
+                                    <span class="font-semibold text-yellow-300"><?php echo number_format((int)$biggest_loanee['outstanding']); ?></span>
+                                </div>
+                            <?php else: ?>
+                                <p class="text-sm mt-2 text-gray-400">No active loans.</p>
+                            <?php endif; ?>
+                        </div>
                     </div>
 
                     <div class="bg-gray-800/50 rounded-lg p-6">
-                        <h3 class="font-title text-xl text-cyan-400 border-b border-gray-600 pb-2 mb-3">Recent Bank Activity</h3>
+                        <div class="flex flex-col md:flex-row md:items-end md:justify-between gap-3 mb-3">
+                            <h3 class="font-title text-xl text-cyan-400">Recent Bank Activity</h3>
+                            <form method="GET" action="/alliance_bank.php" class="flex flex-wrap items-center gap-2">
+                                <input type="hidden" name="tab" value="ledger">
+                                <label class="text-sm">Type
+                                    <select name="type" class="bg-gray-900 border border-gray-600 rounded-md p-1 ml-1" onchange="this.form.submit()">
+                                        <option value="">All</option>
+                                        <?php foreach ($allowed_types as $t): ?>
+                                            <option value="<?php echo $t; ?>" <?php if ($filter_type === $t) echo 'selected'; ?>>
+                                                <?php echo ucfirst(str_replace('_',' ',$t)); ?>
+                                            </option>
+                                        <?php endforeach; ?>
+                                    </select>
+                                </label>
+                                <label class="text-sm">Sort
+                                    <select name="sort" class="bg-gray-900 border border-gray-600 rounded-md p-1 ml-1" onchange="this.form.submit()">
+                                        <option value="date_desc"   <?php if ($sort_key==='date_desc')   echo 'selected'; ?>>Newest</option>
+                                        <option value="date_asc"    <?php if ($sort_key==='date_asc')    echo 'selected'; ?>>Oldest</option>
+                                        <option value="amount_desc" <?php if ($sort_key==='amount_desc') echo 'selected'; ?>>Amount (High→Low)</option>
+                                        <option value="amount_asc"  <?php if ($sort_key==='amount_asc')  echo 'selected'; ?>>Amount (Low→High)</option>
+                                        <option value="type_asc"    <?php if ($sort_key==='type_asc')    echo 'selected'; ?>>Type (A→Z)</option>
+                                        <option value="type_desc"   <?php if ($sort_key==='type_desc')   echo 'selected'; ?>>Type (Z→A)</option>
+                                    </select>
+                                </label>
+                                <label class="text-sm">Show
+                                    <select name="show" class="bg-gray-900 border border-gray-600 rounded-md p-1 ml-1" onchange="this.form.submit()">
+                                        <?php foreach ($per_page_options as $opt): ?>
+                                            <option value="<?php echo $opt; ?>" <?php if ($items_per_page===$opt) echo 'selected'; ?>><?php echo $opt; ?></option>
+                                        <?php endforeach; ?>
+                                    </select>
+                                </label>
+                            </form>
+                        </div>
+
                         <div class="overflow-x-auto">
                             <table class="w-full text-sm text-left">
                                 <thead class="bg-gray-900">
@@ -416,6 +557,9 @@ $max_loan = (int)($credit_rating_map[$user_data['credit_rating']] ?? 0);
                                             </td>
                                         </tr>
                                     <?php endforeach; ?>
+                                    <?php if (empty($bank_logs)): ?>
+                                        <tr><td colspan="4" class="p-3 text-center text-gray-500">No activity.</td></tr>
+                                    <?php endif; ?>
                                 </tbody>
                             </table>
                         </div>
@@ -427,19 +571,21 @@ $max_loan = (int)($credit_rating_map[$user_data['credit_rating']] ?? 0);
                             $start_page = max(1, $end_page - $page_window + 1);
                         ?>
                         <div class="mt-4 flex flex-wrap justify-center items-center gap-2 text-sm">
-                            <a href="?tab=ledger&show=<?php echo $items_per_page; ?>&page=1" class="px-3 py-1 bg-gray-700 rounded-md hover:bg-cyan-600 <?php if ($current_page == 1) echo 'hidden'; ?>">&laquo; First</a>
-                            <a href="?tab=ledger&show=<?php echo $items_per_page; ?>&page=<?php echo max(1, $current_page - $page_window); ?>" class="px-3 py-1 bg-gray-700 rounded-md hover:bg-cyan-600">&laquo;</a>
+                            <a href="?tab=ledger&show=<?php echo $items_per_page; ?>&sort=<?php echo urlencode($sort_key); ?>&type=<?php echo urlencode((string)$filter_type); ?>&page=1" class="px-3 py-1 bg-gray-700 rounded-md hover:bg-cyan-600 <?php if ($current_page == 1) echo 'hidden'; ?>">&laquo; First</a>
+                            <a href="?tab=ledger&show=<?php echo $items_per_page; ?>&sort=<?php echo urlencode($sort_key); ?>&type=<?php echo urlencode((string)$filter_type); ?>&page=<?php echo max(1, $current_page - $page_window); ?>" class="px-3 py-1 bg-gray-700 rounded-md hover:bg-cyan-600">&laquo;</a>
 
                             <?php for ($i = $start_page; $i <= $end_page; $i++): ?>
-                                <a href="?tab=ledger&show=<?php echo $items_per_page; ?>&page=<?php echo $i; ?>" class="px-3 py-1 <?php echo $i == $current_page ? 'bg-cyan-600 font-bold' : 'bg-gray-700'; ?> rounded-md hover:bg-cyan-600"><?php echo $i; ?></a>
+                                <a href="?tab=ledger&show=<?php echo $items_per_page; ?>&sort=<?php echo urlencode($sort_key); ?>&type=<?php echo urlencode((string)$filter_type); ?>&page=<?php echo $i; ?>" class="px-3 py-1 <?php echo $i == $current_page ? 'bg-cyan-600 font-bold' : 'bg-gray-700'; ?> rounded-md hover:bg-cyan-600"><?php echo $i; ?></a>
                             <?php endfor; ?>
 
-                            <a href="?tab=ledger&show=<?php echo $items_per_page; ?>&page=<?php echo min($total_pages, $current_page + $page_window); ?>" class="px-3 py-1 bg-gray-700 rounded-md hover:bg-cyan-600">&raquo;</a>
-                            <a href="?tab=ledger&show=<?php echo $items_per_page; ?>&page=<?php echo $total_pages; ?>" class="px-3 py-1 bg-gray-700 rounded-md hover:bg-cyan-600 <?php if ($current_page == $total_pages) echo 'hidden'; ?>">Last &raquo;</a>
+                            <a href="?tab=ledger&show=<?php echo $items_per_page; ?>&sort=<?php echo urlencode($sort_key); ?>&type=<?php echo urlencode((string)$filter_type); ?>&page=<?php echo min($total_pages, $current_page + $page_window); ?>" class="px-3 py-1 bg-gray-700 rounded-md hover:bg-cyan-600">&raquo;</a>
+                            <a href="?tab=ledger&show=<?php echo $items_per_page; ?>&sort=<?php echo urlencode($sort_key); ?>&type=<?php echo urlencode((string)$filter_type); ?>&page=<?php echo $total_pages; ?>" class="px-3 py-1 bg-gray-700 rounded-md hover:bg-cyan-600 <?php if ($current_page == $total_pages) echo 'hidden'; ?>">Last &raquo;</a>
 
                             <form method="GET" action="/alliance_bank.php" class="inline-flex items-center gap-1">
                                 <input type="hidden" name="tab" value="ledger">
                                 <input type="hidden" name="show" value="<?php echo $items_per_page; ?>">
+                                <input type="hidden" name="sort" value="<?php echo htmlspecialchars($sort_key); ?>">
+                                <input type="hidden" name="type" value="<?php echo htmlspecialchars((string)$filter_type); ?>">
                                 <input type="number" name="page" min="1" max="<?php echo $total_pages; ?>" value="<?php echo $current_page; ?>" class="bg-gray-900 border border-gray-600 rounded-md w-16 text-center p-1 text-xs">
                                 <button type="submit" class="px-3 py-1 bg-gray-700 rounded-md hover:bg-cyan-600 text-xs">Go</button>
                             </form>
