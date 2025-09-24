@@ -228,6 +228,20 @@ functions:
       - schedule:
           rate: rate(10 minutes)  # CloudWatch Events trigger every 10 minutes
 
+  # Hourly interest accrual job - runs at 5 minutes past each hour
+  accrueAllianceInterest:
+    handler: Stellar-Dominion/src/Game/accrue_alliance_interest.php
+    description: "accrue alliance bank interest every hour at minute 5"
+    runtime: php-83-console
+    vpc: ${self:custom.vpcConfig}  # Database access required
+    environment: *sharedEnvironment
+    layers:
+      - ${self:custom.SecretsManagerAgentLambdaLayer}
+    events:
+      - schedule:
+          # Run at minute 5 of every hour (UTC). Use cron expression for precise scheduling.
+          rate: cron(5 * * ? *)
+
   # Dedicated API function for advisor polling - optimized for frequent requests
   advisorPoll:
     handler: Stellar-Dominion/src/Lambda/AdvisorPollHandler.php
