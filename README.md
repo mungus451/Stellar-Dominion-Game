@@ -167,11 +167,13 @@ The database is the backbone of the game, storing all persistent data for player
 
 ## Installation and Setup
 
+### Local Development
+
 To run a local instance of Stellar Dominion, follow these steps:
 
 1.  **Clone the Repository:**
     ```bash
-    git clone [https://github.com/mungus451/stellar-dominion-game.git](https://github.com/mungus451/stellar-dominion-game.git)
+    git clone https://github.com/mungus451/stellar-dominion-game.git
     cd stellar-dominion-game/Stellar-Dominion
     ```
 

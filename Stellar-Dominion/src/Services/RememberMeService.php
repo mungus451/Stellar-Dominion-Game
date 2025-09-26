@@ -1,5 +1,7 @@
 <?php
 // src/Services/RememberMeService.php
+// Ensure the IpAddress helper is available for sd_get_client_ip()
+require_once __DIR__ . '/IpAddress.php';
 final class RememberMeService {
     const COOKIE_NAME = 'rm';
     const COOKIE_PATH = '/';
@@ -13,8 +15,9 @@ final class RememberMeService {
         $expires  = gmdate('Y-m-d H:i:s', $expTs);
 
         $uaHash = hash('sha256', $_SERVER['HTTP_USER_AGENT'] ?? '');
-        $ip     = $_SERVER['REMOTE_ADDR'] ?? '';
-        $ipBin  = inet_pton($ip);
+        // Prefer the sd_get_client_ip() helper if available (handles forwarded headers)
+        $ip = \StellarDominion\Services\IpAddress::getClientIp() ?? ($_SERVER['REMOTE_ADDR'] ?? '');
+        $ipBin = @inet_pton($ip) ?: '';
         $ipPrefix = $ipBin ? substr($ipBin, 0, 8) : null; // /64 v6 or /64-ish v4 padded
 
         $stmt = mysqli_prepare($link, "INSERT INTO user_remember_tokens (user_id, selector, token_hash, expires_at, user_agent_hash, ip_prefix) VALUES (?,?,?,?,?,?)");
@@ -54,7 +57,8 @@ final class RememberMeService {
         $uaOk = hash_equals($row['user_agent_hash'] ?? '', hash('sha256', $_SERVER['HTTP_USER_AGENT'] ?? ''));
         $ipOk = true;
         if (!empty($row['ip_prefix'])) {
-            $ipBin = inet_pton($_SERVER['REMOTE_ADDR'] ?? '') ?: '';
+            $currentIp = \StellarDominion\Services\IpAddress::getClientIp() ?? ($_SERVER['REMOTE_ADDR'] ?? '');
+            $ipBin = @inet_pton($currentIp) ?: '';
             $ipOk  = $ipBin && strncmp($row['ip_prefix'], $ipBin, 8) === 0;
         }
         if (!$uaOk || !$ipOk) { self::revokeById($link, (int)$row['id']); self::clearCookie(); return null; }

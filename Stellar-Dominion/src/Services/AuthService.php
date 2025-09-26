@@ -39,12 +39,15 @@ class AuthService
         }
         
         $this->logger = $logger;
-        $this->session = &$_SESSION;
+
         
         // Initialize session if not already started
         if (session_status() === PHP_SESSION_NONE) {
             session_start();
         }
+        // Super global only populated after start.
+        $this->session = &$_SESSION;
+        
     }
     
     /**
@@ -372,7 +375,7 @@ class AuthService
         $this->session['character_name'] = $user['character_name'] ?? $user['username'];
         $this->session['login_time'] = time();
         $this->session['last_activity'] = time();
-        
+
         // Regenerate session ID for security
         session_regenerate_id(true);
     }

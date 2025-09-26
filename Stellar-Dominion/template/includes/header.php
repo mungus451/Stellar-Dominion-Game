@@ -2,6 +2,11 @@
 if (session_status() == PHP_SESSION_NONE) {
     session_start();
 }
+// IpAddress helper should already be loaded by the front controller (public/index.php).
+// In case this file is included directly in other contexts, attempt a local include as fallback.
+if (!function_exists('sd_get_client_ip')) {
+    @require_once __DIR__ . '/../../src/Services/IpAddress.php';
+}
 ?>
 <!DOCTYPE html>
 <html lang="en" x-data="{ panels: { eco:true, mil:true, pop:true, fleet:true, sec:true, esp:true, structure: true, deposit: true, withdraw: true, transfer: true, history: true } }">

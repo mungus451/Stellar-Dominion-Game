@@ -1,0 +1,7 @@
+{
+    "require": {
+        "bref/bref": "^2.4",
+        "vlucas/phpdotenv": "^5.5",
+        "aws/aws-sdk-php": "^3.300"
+    }
+}
