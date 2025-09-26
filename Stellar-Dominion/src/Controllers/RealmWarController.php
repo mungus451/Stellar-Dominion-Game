@@ -1,9 +1,5 @@
 <?php
-// src/Controllers/RealmWarController.php
-//
-// Drop-in replacement: computes live war progress, auto-concludes wars on goal
-// completion, writes history (best-effort), computes MVP, and purges the
-// "Humiliation" badge from winners of a Dignity war.
+declare(strict_types=1);
 
 if (session_status() === PHP_SESSION_NONE) {
     session_start();
@@ -11,29 +7,24 @@ if (session_status() === PHP_SESSION_NONE) {
 
 require_once __DIR__ . '/../../config/config.php';
 require_once __DIR__ . '/BaseController.php';
+require_once __DIR__ . '/../Services/BadgeService.php';
+
+use StellarDominion\Services\BadgeService;
 
 class RealmWarController extends BaseController
 {
-    // Display/UX knobs
-    private const RIVALRY_HEAT_DECAY_RATE   = 5;
-    private const RIVALRY_DISPLAY_THRESHOLD = 10;
+    private const MIN_WAR_THRESHOLD_CREDITS = 100_000_000; // 100M
+    private const BADGE_WAR_VICTOR         = 'War Victor (Realm)';
+    private const BADGE_WAR_PARTICIPANT    = 'War Participant (Realm)';
 
     public function __construct()
     {
         parent::__construct();
     }
 
-    /* =====================================================================
-     * Public API (used by template/pages/realm_war.php)
-     * ===================================================================== */
-
-    /**
-     * Returns active wars, but first updates progress and ends wars that have
-     * met their goal threshold.
-     */
     public function getWars(): array
     {
-        $this->updateActiveWarsProgressAndOutcomes();
+        $this->refreshAndAutoConclude();
 
         $sql = "
             SELECT
@@ -44,142 +35,167 @@ class RealmWarController extends BaseController
             JOIN alliances a1 ON a1.id = w.declarer_alliance_id
             JOIN alliances a2 ON a2.id = w.declared_against_alliance_id
             WHERE w.status = 'active'
-            ORDER BY w.start_date DESC
+            ORDER BY w.start_date DESC, w.id DESC
         ";
         $res = $this->db->query($sql);
-        return $res ? $res->fetch_all(MYSQLI_ASSOC) : [];
-    }
+        if (!$res) {
+            return [];
+        }
+        $rows = $res->fetch_all(MYSQLI_ASSOC);
+        $res->close();
 
-    /**
-     * Rivalries list for sidebar.
-     */
-    public function getRivalries(): array
-    {
-        $sql = "
-            SELECT
-                r.heat_level,
-                a1.id AS alliance1_id, a1.name AS alliance1_name, a1.tag AS alliance1_tag,
-                a2.id AS alliance2_id, a2.name AS alliance2_name, a2.tag AS alliance2_tag
-            FROM rivalries r
-            JOIN alliances a1 ON a1.id = r.alliance1_id
-            JOIN alliances a2 ON a2.id = r.alliance2_id
-            WHERE r.heat_level >= ?
-            ORDER BY r.heat_level DESC
-        ";
-        $stmt = $this->db->prepare($sql);
-        $min  = self::RIVALRY_DISPLAY_THRESHOLD;
-        $stmt->bind_param('i', $min);
-        $stmt->execute();
-        $res = $stmt->get_result();
-        $rows = $res ? $res->fetch_all(MYSQLI_ASSOC) : [];
-        $stmt->close();
+        foreach ($rows as &$row) {
+            $row['casus_belli_key'] = $this->normalizeCasusBelli((string)($row['casus_belli_key'] ?? ''));
+            $row['goal_metric']     = $this->normalizeMetric((string)($row['goal_metric'] ?? 'credits_plundered'));
+        }
+        unset($row);
+
         return $rows;
     }
 
-    /* =====================================================================
-     * Progress engine
-     * ===================================================================== */
-
-    /**
-     * For each active war:
-     *  - compute progress from logs since start_date
-     *  - persist goal_progress_* to the wars table
-     *  - if threshold met, conclude the war and archive it
-     */
-    private function updateActiveWarsProgressAndOutcomes(): void
+    public function getRivalries(): array
     {
-        $sql = "
+        $stmt = $this->db->prepare("
             SELECT
-                w.*,
-                a1.name AS declarer_name, a1.tag AS declarer_tag,
-                a2.name AS declared_against_name, a2.tag AS declared_against_tag
-            FROM wars w
-            JOIN alliances a1 ON a1.id = w.declarer_alliance_id
-            JOIN alliances a2 ON a2.id = w.declared_against_alliance_id
-            WHERE w.status = 'active'
-            ORDER BY w.id ASC
-        ";
-        $rs = $this->db->query($sql);
+                LEAST(ua.alliance_id, ud.alliance_id)   AS a_low,
+                GREATEST(ua.alliance_id, ud.alliance_id) AS a_high,
+                COUNT(*) AS battles,
+                COALESCE(SUM(CASE WHEN bl.outcome='victory' THEN bl.credits_stolen ELSE 0 END),0) AS credits_swung
+            FROM battle_logs bl
+            JOIN users ua ON ua.id = bl.attacker_id
+            JOIN users ud ON ud.id = bl.defender_id
+            WHERE bl.battle_time >= (NOW() - INTERVAL 30 DAY)
+            GROUP BY a_low, a_high
+            HAVING battles > 0
+            ORDER BY battles DESC, credits_swung DESC
+            LIMIT 10
+        ");
+        if (!$stmt) {
+            return [];
+        }
+        $stmt->execute();
+        $rs = $stmt->get_result();
+        $rows = $rs ? $rs->fetch_all(MYSQLI_ASSOC) : [];
+        $stmt->close();
+
+        if (!$rows) {
+            return [];
+        }
+
+        $out = [];
+        $fetchAlliance = $this->db->prepare("SELECT id, name, tag FROM alliances WHERE id IN (?, ?)");
+        foreach ($rows as $r) {
+            $a = (int)$r['a_low'];
+            $b = (int)$r['a_high'];
+            $battles = (int)$r['battles'];
+            $swing   = (int)$r['credits_swung'];
+
+            $fetchAlliance->bind_param('ii', $a, $b);
+            $fetchAlliance->execute();
+            $res = $fetchAlliance->get_result();
+            $map = [];
+            while ($row = $res->fetch_assoc()) {
+                $map[(int)$row['id']] = $row;
+            }
+
+            $out[] = [
+                'a_low_id'      => $a,
+                'a_high_id'     => $b,
+                'a_low_name'    => $map[$a]['name'] ?? ('#'.$a),
+                'a_low_tag'     => $map[$a]['tag']  ?? '',
+                'a_high_name'   => $map[$b]['name'] ?? ('#'.$b),
+                'a_high_tag'    => $map[$b]['tag']  ?? '',
+                'battles'       => $battles,
+                'credits_swung' => $swing,
+            ];
+        }
+        $fetchAlliance->close();
+
+        return $out;
+    }
+
+    public function refreshAndAutoConclude(): void
+    {
+        $rs = $this->db->query("
+            SELECT id, declarer_alliance_id, declared_against_alliance_id, start_date,
+                   goal_metric, goal_threshold, casus_belli_key, casus_belli_custom
+            FROM wars
+            WHERE status = 'active'
+            ORDER BY id ASC
+        ");
         if (!$rs) {
             return;
         }
 
         while ($war = $rs->fetch_assoc()) {
-            $warId = (int)$war['id'];
-            $decId = (int)$war['declarer_alliance_id'];
-            $agaId = (int)$war['declared_against_alliance_id'];
-            $since = (string)$war['start_date'];
-            $metric = (string)$war['goal_metric'];
-            $threshold = (int)$war['goal_threshold'];
+            $warId    = (int)$war['id'];
+            $decId    = (int)$war['declarer_alliance_id'];
+            $agaId    = (int)$war['declared_against_alliance_id'];
+            $since    = (string)$war['start_date'];
+            $metric   = $this->normalizeMetric((string)$war['goal_metric']);
+            $thresh   = (int)$war['goal_threshold'];
+            $cbKey    = $this->normalizeCasusBelli((string)($war['casus_belli_key'] ?? ''));
+            $cbCustom = (string)($war['casus_belli_custom'] ?? '');
 
-            // Compute live progress
-            [$decProg, $agaProg] = $this->computeProgressForMetric($metric, $decId, $agaId, $since);
-
-            // Persist if changed
-            $this->writeWarProgress($warId, $decProg, $agaProg);
-
-            // Decide outcome
-            if ($threshold > 0 && $this->metricIsAutoConcludable($metric)) {
-                $winner = null;
-                $loser  = null;
-
-                if ($decProg >= $threshold && $agaProg >= $threshold) {
-                    if ($decProg === $agaProg) {
-                        // exact tie → declarer wins by tie-break (simple deterministic rule)
-                        $winner = $decId; $loser = $agaId;
-                    } else {
-                        $winner = ($decProg > $agaProg) ? $decId : $agaId;
-                        $loser  = ($winner === $decId) ? $agaId : $decId;
-                    }
-                } elseif ($decProg >= $threshold) {
-                    $winner = $decId; $loser = $agaId;
-                } elseif ($agaProg >= $threshold) {
-                    $winner = $agaId; $loser = $decId;
-                }
-
-                if ($winner !== null && $loser !== null) {
-                    $this->concludeWar($war, $winner, $loser, $metric, $threshold, $decProg, $agaProg);
+            if ($metric === 'credits_plundered' && $thresh < self::MIN_WAR_THRESHOLD_CREDITS) {
+                $thresh = self::MIN_WAR_THRESHOLD_CREDITS;
+                if ($u = $this->db->prepare("UPDATE wars SET goal_threshold=? WHERE id=?")) {
+                    $u->bind_param('ii', $thresh, $warId);
+                    $u->execute();
+                    $u->close();
                 }
             }
+
+            [$decProg, $agaProg] = $this->computeProgress($metric, $decId, $agaId, $since);
+            $this->writeWarProgress($warId, (int)$decProg, (int)$agaProg);
+
+            [$decThresh, $agaThresh] = $this->thresholdsForSides($thresh, $cbKey);
+            $decWin = $decProg >= $decThresh;
+            $agaWin = $agaProg >= $agaThresh;
+
+            if ($decWin || $agaWin) {
+                $decRatio = $decThresh > 0 ? ($decProg / $decThresh) : 0.0;
+                $agaRatio = $agaThresh > 0 ? ($agaProg / $agaThresh) : 0.0;
+
+                $winner  = null;
+                $loser   = null;
+                $outcome = 'stalemate';
+                if ($decRatio > $agaRatio) { $winner = $decId; $loser = $agaId; $outcome = 'declarer_victory'; }
+                elseif ($agaRatio > $decRatio) { $winner = $agaId; $loser = $decId; $outcome = 'declared_against_victory'; }
+
+                $this->concludeWar(
+                    $warId, $decId, $agaId, $since, $metric, $thresh,
+                    (int)$decProg, (int)$agaProg, $cbKey, $cbCustom,
+                    $winner, $loser, $outcome
+                );
+            }
         }
+        $rs->close();
     }
 
-    private function metricIsAutoConcludable(string $metric): bool
+    private function computeProgress(string $metric, int $decAlliance, int $agaAlliance, string $since): array
     {
-        // We have reliable sources for these metrics; prestige_change remains manual.
-        return in_array($metric, ['credits_plundered', 'structure_damage', 'units_killed', 'units_assassinated'], true);
-    }
+        $metric = $this->normalizeMetric($metric);
 
-    /**
-     * Returns [progress_declarer, progress_declared_against] since $since.
-     */
-    private function computeProgressForMetric(string $metric, int $decAlliance, int $agaAlliance, string $since): array
-    {
         switch ($metric) {
-            case 'credits_plundered':
-                $dec = $this->sumCreditsPlundered($decAlliance, $agaAlliance, $since);
-                $aga = $this->sumCreditsPlundered($agaAlliance, $decAlliance, $since);
-                return [(int)$dec, (int)$aga];
-
             case 'structure_damage':
                 $dec = $this->sumStructureDamage($decAlliance, $agaAlliance, $since);
                 $aga = $this->sumStructureDamage($agaAlliance, $decAlliance, $since);
-                return [(int)$dec, (int)$aga];
-
-            case 'units_assassinated':
-                $dec = $this->sumSpyAssassinations($decAlliance, $agaAlliance, $since);
-                $aga = $this->sumSpyAssassinations($agaAlliance, $decAlliance, $since);
-                return [(int)$dec, (int)$aga];
+                break;
 
             case 'units_killed':
-                $dec = $this->sumUnitsKilledApprox($decAlliance, $agaAlliance, $since);
-                $aga = $this->sumUnitsKilledApprox($agaAlliance, $decAlliance, $since);
-                return [(int)$dec, (int)$aga];
+                $dec = $this->sumUnitsKilled($decAlliance, $agaAlliance, $since);
+                $aga = $this->sumUnitsKilled($agaAlliance, $decAlliance, $since);
+                break;
 
-            case 'prestige_change':
+            case 'credits_plundered':
             default:
-                return [0, 0];
+                $dec = $this->sumCreditsPlundered($decAlliance, $agaAlliance, $since);
+                $aga = $this->sumCreditsPlundered($agaAlliance, $decAlliance, $since);
+                break;
         }
+
+        return [(int)$dec, (int)$aga];
     }
 
     private function writeWarProgress(int $warId, int $dec, int $aga): void
@@ -188,437 +204,716 @@ class RealmWarController extends BaseController
             UPDATE wars
                SET goal_progress_declarer = ?, goal_progress_declared_against = ?
              WHERE id = ?
-               AND (goal_progress_declarer <> ? OR goal_progress_declared_against <> ?)
         ");
-        $stmt->bind_param('iiiii', $dec, $aga, $warId, $dec, $aga);
+        if (!$stmt) {
+            return;
+        }
+        $stmt->bind_param('iii', $dec, $aga, $warId);
         $stmt->execute();
         $stmt->close();
     }
-
-    /* =====================================================================
-     * Progress sources (SQL)
-     * ===================================================================== */
 
     private function sumCreditsPlundered(int $attAlliance, int $defAlliance, string $since): int
     {
         $sql = "
             SELECT COALESCE(SUM(bl.credits_stolen), 0) AS total
-              FROM battle_logs bl
-              JOIN users ua ON ua.id = bl.attacker_id
-              JOIN users ud ON ud.id = bl.defender_id
-             WHERE bl.battle_time >= ?
-               AND ua.alliance_id = ?
-               AND ud.alliance_id = ?
-               AND bl.outcome = 'victory'
+            FROM battle_logs bl
+            JOIN users ua ON ua.id = bl.attacker_id
+            JOIN users ud ON ud.id = bl.defender_id
+            WHERE bl.battle_time >= ?
+              AND ua.alliance_id = ?
+              AND ud.alliance_id = ?
+              AND bl.outcome = 'victory'
         ";
         $stmt = $this->db->prepare($sql);
+        if (!$stmt) {
+            return 0;
+        }
         $stmt->bind_param('sii', $since, $attAlliance, $defAlliance);
         $stmt->execute();
         $row = $stmt->get_result()->fetch_assoc();
         $stmt->close();
         return (int)($row['total'] ?? 0);
+    }
+
+    private function sumUnitsKilled(int $attAlliance, int $defAlliance, string $since): int
+    {
+        $battle = $this->db->prepare("
+            SELECT COALESCE(SUM(bl.guards_lost), 0) AS total
+            FROM battle_logs bl
+            JOIN users ua ON ua.id = bl.attacker_id
+            JOIN users ud ON ud.id = bl.defender_id
+            WHERE bl.battle_time >= ?
+              AND ua.alliance_id = ?
+              AND ud.alliance_id = ?
+              AND bl.outcome = 'victory'
+        ");
+        if (!$battle) {
+            return 0;
+        }
+        $battle->bind_param('sii', $since, $attAlliance, $defAlliance);
+        $battle->execute();
+        $b = (int)($battle->get_result()->fetch_assoc()['total'] ?? 0);
+        $battle->close();
+
+        $spy = $this->db->prepare("
+            SELECT COALESCE(SUM(sl.units_killed), 0) AS total
+            FROM spy_logs sl
+            JOIN users ua ON ua.id = sl.attacker_id
+            JOIN users ud ON ud.id = sl.defender_id
+            WHERE sl.mission_time >= ?
+              AND ua.alliance_id = ?
+              AND ud.alliance_id = ?
+              AND sl.outcome = 'success'
+        ");
+        if ($spy) {
+            $spy->bind_param('sii', $since, $attAlliance, $defAlliance);
+            $spy->execute();
+            $s = (int)($spy->get_result()->fetch_assoc()['total'] ?? 0);
+            $spy->close();
+        } else {
+            $s = 0;
+        }
+
+        return $b + $s;
     }
 
     private function sumStructureDamage(int $attAlliance, int $defAlliance, string $since): int
     {
-        $sql1 = "
+        $battle = $this->db->prepare("
             SELECT COALESCE(SUM(bl.structure_damage), 0) AS total
-              FROM battle_logs bl
-              JOIN users ua ON ua.id = bl.attacker_id
-              JOIN users ud ON ud.id = bl.defender_id
-             WHERE bl.battle_time >= ?
-               AND ua.alliance_id = ?
-               AND ud.alliance_id = ?
-        ";
-        $stmt1 = $this->db->prepare($sql1);
-        $stmt1->bind_param('sii', $since, $attAlliance, $defAlliance);
-        $stmt1->execute();
-        $a1 = (int)($stmt1->get_result()->fetch_assoc()['total'] ?? 0);
-        $stmt1->close();
+            FROM battle_logs bl
+            JOIN users ua ON ua.id = bl.attacker_id
+            JOIN users ud ON ud.id = bl.defender_id
+            WHERE bl.battle_time >= ?
+              AND ua.alliance_id = ?
+              AND ud.alliance_id = ?
+        ");
+        if (!$battle) {
+            return 0;
+        }
+        $battle->bind_param('sii', $since, $attAlliance, $defAlliance);
+        $battle->execute();
+        $b = (int)($battle->get_result()->fetch_assoc()['total'] ?? 0);
+        $battle->close();
 
-        $sql2 = "
+        $spy = $this->db->prepare("
             SELECT COALESCE(SUM(sl.structure_damage), 0) AS total
-              FROM spy_logs sl
-              JOIN users ua ON ua.id = sl.attacker_id
-              JOIN users ud ON ud.id = sl.defender_id
-             WHERE sl.mission_time >= ?
-               AND ua.alliance_id = ?
-               AND ud.alliance_id = ?
-               AND sl.outcome = 'success'
-        ";
-        $stmt2 = $this->db->prepare($sql2);
-        $stmt2->bind_param('sii', $since, $attAlliance, $defAlliance);
-        $stmt2->execute();
-        $a2 = (int)($stmt2->get_result()->fetch_assoc()['total'] ?? 0);
-        $stmt2->close();
+            FROM spy_logs sl
+            JOIN users ua ON ua.id = sl.attacker_id
+            JOIN users ud ON ud.id = sl.defender_id
+            WHERE sl.mission_time >= ?
+              AND ua.alliance_id = ?
+              AND ud.alliance_id = ?
+              AND sl.outcome = 'success'
+        ");
+        if ($spy) {
+            $spy->bind_param('sii', $since, $attAlliance, $defAlliance);
+            $spy->execute();
+            $s = (int)($spy->get_result()->fetch_assoc()['total'] ?? 0);
+            $spy->close();
+        } else {
+            $s = 0;
+        }
 
-        return $a1 + $a2;
+        return $b + $s;
     }
 
-    private function sumSpyAssassinations(int $attAlliance, int $defAlliance, string $since): int
+    private function normalizeMetric(string $metric): string
     {
-        $sql = "
-            SELECT COALESCE(SUM(sl.units_killed), 0) AS total
-              FROM spy_logs sl
-              JOIN users ua ON ua.id = sl.attacker_id
-              JOIN users ud ON ud.id = sl.defender_id
-             WHERE sl.mission_time >= ?
-               AND ua.alliance_id = ?
-               AND ud.alliance_id = ?
-               AND sl.outcome = 'success'
-        ";
-        $stmt = $this->db->prepare($sql);
-        $stmt->bind_param('sii', $since, $attAlliance, $defAlliance);
-        $stmt->execute();
-        $row = $stmt->get_result()->fetch_assoc();
-        $stmt->close();
-        return (int)($row['total'] ?? 0);
+        $m = strtolower(trim($metric));
+        $allowed = ['credits_plundered', 'structure_damage', 'units_killed'];
+        return in_array($m, $allowed, true) ? $m : 'credits_plundered';
     }
 
-    /**
-     * Approximate units killed = guards killed in battles + spy assassinations.
-     */
-    private function sumUnitsKilledApprox(int $attAlliance, int $defAlliance, string $since): int
+    private function normalizeCasusBelli(string $cb): string
     {
-        $sql1 = "
-            SELECT COALESCE(SUM(bl.guards_lost), 0) AS total
-              FROM battle_logs bl
-              JOIN users ua ON ua.id = bl.attacker_id
-              JOIN users ud ON ud.id = bl.defender_id
-             WHERE bl.battle_time >= ?
-               AND ua.alliance_id = ?
-               AND ud.alliance_id = ?
-        ";
-        $stmt1 = $this->db->prepare($sql1);
-        $stmt1->bind_param('sii', $since, $attAlliance, $defAlliance);
-        $stmt1->execute();
-        $a1 = (int)($stmt1->get_result()->fetch_assoc()['total'] ?? 0);
-        $stmt1->close();
-
-        $a2 = $this->sumSpyAssassinations($attAlliance, $defAlliance, $since);
-
-        return $a1 + $a2;
+        $k = strtolower(trim($cb));
+        if ($k === 'economic_vassal') {
+            return 'economic_vassalage';
+        }
+        return $k ?: 'humiliation';
     }
-
-    /* =====================================================================
-     * War conclusion & archiving
-     * ===================================================================== */
 
     private function concludeWar(
-        array $war,
-        int $winnerAllianceId,
-        int $loserAllianceId,
+        int $warId,
+        int $decId,
+        int $agaId,
+        string $since,
         string $metric,
         int $threshold,
         int $decProg,
-        int $agaProg
+        int $agaProg,
+        string $cbKey,
+        ?string $cbCustom,
+        ?int $winnerAllianceId,
+        ?int $loserAllianceId,
+        string $outcome
     ): void {
-        $warId = (int)$war['id'];
-        $outcome = ($winnerAllianceId === (int)$war['declarer_alliance_id']) ? 'declarer_win' : 'declared_against_win';
-
-        // End war first; commit even if history insert fails.
-        $this->db->begin_transaction();
         try {
+            $this->db->begin_transaction();
+
+            $updated = 0;
             $stmt = $this->db->prepare("UPDATE wars SET status='ended', outcome=?, end_date=NOW() WHERE id=? AND status='active'");
-            $stmt->bind_param('si', $outcome, $warId);
-            $stmt->execute();
-            $stmt->close();
-            $this->db->commit();
-        } catch (\Throwable $e) {
-            $this->db->rollback();
-            error_log('[RealmWar] Failed to end war #' . $warId . ': ' . $e->getMessage());
-            return;
-        }
-
-        // Build texts & MVP (best effort)
-        $casus_belli_text = $this->renderCasusBelliText($war);
-        $goal_text        = $this->renderGoalText($metric, $threshold, $war);
-
-        // If this was a DIGNITY win, purge Humiliation badges for the winner.
-        if (stripos($casus_belli_text, 'dignity') !== false) {
-            try {
-                $this->removeHumiliationBadgesForAlliance($winnerAllianceId);
-            } catch (\Throwable $e) {
-                error_log('[RealmWar] purge humiliation badges: ' . $e->getMessage());
+            if ($stmt) {
+                $stmt->bind_param('si', $outcome, $warId);
+                $stmt->execute();
+                $updated = $stmt->affected_rows;
+                $stmt->close();
             }
-        }
+            if ($updated !== 1) { $this->db->rollback(); return; }
 
-        try {
-            $names = $this->fetchAllianceNamesPair((int)$war['declarer_alliance_id'], (int)$war['declared_against_alliance_id']);
-            $mvp   = $this->computeMvp($metric, $winnerAllianceId, $loserAllianceId, (string)$war['start_date']);
+            $until = date('Y-m-d H:i:s');
 
-            $finalStatsJson = json_encode([
-                'metric'        => $metric,
-                'threshold'     => $threshold,
-                'dec_progress'  => $decProg,
-                'aga_progress'  => $agaProg,
-            ], JSON_UNESCAPED_SLASHES);
+            $prestigeDelta = 0;
+            if ($st = $this->db->prepare("SELECT goal_prestige_change FROM wars WHERE id=?")) {
+                $st->bind_param('i', $warId);
+                $st->execute();
+                $r = $st->get_result()->fetch_assoc();
+                $st->close();
+                if ($r) $prestigeDelta = (int)$r['goal_prestige_change'];
+            }
 
-            $stmt2 = $this->db->prepare("
+            if (!empty($winnerAllianceId) && $prestigeDelta !== 0 && !empty($loserAllianceId)) {
+                if ($p1 = $this->db->prepare("UPDATE alliances SET war_prestige = war_prestige + ? WHERE id=?")) {
+                    $p1->bind_param('ii', $prestigeDelta, $winnerAllianceId);
+                    $p1->execute(); $p1->close();
+                }
+                if ($p2 = $this->db->prepare("UPDATE alliances SET war_prestige = war_prestige - ? WHERE id=?")) {
+                    $p2->bind_param('ii', $prestigeDelta, $loserAllianceId);
+                    $p2->execute(); $p2->close();
+                }
+            }
+
+            $a1 = $this->fetchAlliance($decId);
+            $a2 = $this->fetchAlliance($agaId);
+            $goalText = sprintf('%s: %s', $this->metricLabel($metric), number_format($threshold));
+            $cbText   = $cbKey === 'custom' ? (string)$cbCustom : $this->casusLabel($cbKey);
+
+            $mvp = ['user_id'=>null,'category'=>null,'value'=>null,'character_name'=>null];
+            if (!empty($winnerAllianceId)) {
+                $mvp = $this->computeMVP($metric, $winnerAllianceId, ($winnerAllianceId === $decId ? $agaId : $decId), $since);
+            }
+
+            // Snapshot members at conclusion to make details reliable
+            $decMembers = $this->getAllianceMemberIds($decId);
+            $agaMembers = $this->getAllianceMemberIds($agaId);
+
+            $details = $this->computeWarDetailsSnapshot($metric, $decMembers, $agaMembers, $since, $until);
+            if (!empty($winnerAllianceId) && $prestigeDelta !== 0) {
+                $details['prestige_awarded'] = ['winner' => $prestigeDelta, 'loser' => -$prestigeDelta];
+            }
+
+            $hist = $this->db->prepare("
                 INSERT INTO war_history
                     (war_id, declarer_alliance_name, declared_against_alliance_name,
                      start_date, end_date, outcome, casus_belli_text, goal_text,
                      mvp_user_id, mvp_category, mvp_value, mvp_character_name, final_stats)
-                VALUES (?, ?, ?, ?, NOW(), ?, ?, ?, ?, ?, ?, ?, ?)
+                VALUES (?,?,?,?,NOW(),?,?,?,?,?,?,?,?)
             ");
+            if ($hist) {
+                list(, $defT) = $this->thresholdsForSides($threshold, $cbKey);
+                $final = [
+                    'metric'                     => $metric,
+                    'threshold'                  => $threshold,
+                    'defender_threshold'         => $defT,
+                    'declarer_progress'          => $decProg,
+                    'declared_against_progress'  => $agaProg,
+                    'details'                    => $details,
+                ];
+                $finalJson = json_encode($final, JSON_UNESCAPED_SLASHES);
 
-            $mvpUserId   = $mvp['user_id']        ?? null;
-            $mvpCat      = $mvp['category']       ?? null;
-            $mvpVal      = $mvp['value']          ?? null;
-            $mvpCharName = $mvp['character_name'] ?? null;
+                $a1Name = $a1['name'] ?? ('#'.$decId);
+                $a2Name = $a2['name'] ?? ('#'.$agaId);
 
-            // types: i, s, s, s, s, s, s, i, s, i, s, s  (12 params)
-            $types = 'issssssisiss';
-            $stmt2->bind_param(
-                $types,
-                $warId,
-                $names['dec'],
-                $names['aga'],
-                $war['start_date'],
-                $outcome,
-                $casus_belli_text,
-                $goal_text,
-                $mvpUserId,
-                $mvpCat,
-                $mvpVal,
-                $mvpCharName,
-                $finalStatsJson
-            );
-            $stmt2->execute();
-            $stmt2->close();
-        } catch (\Throwable $e) {
-            error_log('[RealmWar] Failed to write war_history for war #' . $warId . ': ' . $e->getMessage());
-        }
-    }
-
-    private function fetchAllianceNamesPair(int $decId, int $agaId): array
-    {
-        $stmt = $this->db->prepare("SELECT id, name FROM alliances WHERE id IN (?, ?)");
-        $stmt->bind_param('ii', $decId, $agaId);
-        $stmt->execute();
-        $res = $stmt->get_result();
-        $out = ['dec' => 'Alliance A', 'aga' => 'Alliance B'];
-        while ($row = $res->fetch_assoc()) {
-            if ((int)$row['id'] === $decId) {
-                $out['dec'] = (string)$row['name'];
-            } elseif ((int)$row['id'] === $agaId) {
-                $out['aga'] = (string)$row['name'];
+                $hist->bind_param(
+                    'issssssisiss',
+                    $warId,
+                    $a1Name,
+                    $a2Name,
+                    $since,
+                    $outcome,
+                    $cbText,
+                    $goalText,
+                    $mvp['user_id'],
+                    $mvp['category'],
+                    $mvp['value'],
+                    $mvp['character_name'],
+                    $finalJson
+                );
+                $hist->execute();
+                $hist->close();
             }
+
+            if (!empty($winnerAllianceId)) {
+                $this->awardAllianceBadge($winnerAllianceId, self::BADGE_WAR_VICTOR);
+            }
+            $this->awardAllianceBadge($decId, self::BADGE_WAR_PARTICIPANT);
+            $this->awardAllianceBadge($agaId, self::BADGE_WAR_PARTICIPANT);
+
+            $this->db->commit();
+        } catch (\Throwable $e) {
+            $this->db->rollback();
+            error_log('[RealmWarController][concludeWar] ' . $e->getMessage());
         }
-        $stmt->close();
-        return $out;
     }
 
-    private function renderCasusBelliText(array $war): string
-    {
-        if (!empty($war['casus_belli_custom'])) {
-            return (string)$war['casus_belli_custom'];
-        }
-        if (!empty($war['casus_belli_key'])) {
-            return (string)$war['casus_belli_key'];
-        }
-        return 'A Private Matter';
-    }
-
-    private function renderGoalText(string $metric, int $threshold, array $war): string
-    {
-        $labels = [
-            'credits_plundered'  => 'Credits Plundered',
-            'units_killed'       => 'Units Killed',
-            'units_assassinated' => 'Units Assassinated',
-            'structure_damage'   => 'Structure Damage',
-            'prestige_change'    => 'Prestige Gained',
-        ];
-        $label  = $labels[$metric] ?? ucfirst(str_replace('_', ' ', $metric));
-        $custom = !empty($war['goal_custom_label']) ? ' - ' . $war['goal_custom_label'] : '';
-        return sprintf('%s%s (≥ %s)', $label, $custom, number_format($threshold));
-    }
-
-    /**
-     * Determine MVP on the primary metric for the winning alliance.
-     * Returns ['user_id'=>int,'character_name'=>string,'category'=>string,'value'=>int] or [].
-     */
-    private function computeMvp(string $metric, int $winAlliance, int $oppAlliance, string $since): array
+    private function metricLabel(string $metric): string
     {
         switch ($metric) {
-            case 'credits_plundered':
-                $sql = "
-                    SELECT bl.attacker_id AS uid, u.character_name, COALESCE(SUM(bl.credits_stolen),0) AS v
-                      FROM battle_logs bl
-                      JOIN users u  ON u.id = bl.attacker_id
-                      JOIN users ud ON ud.id = bl.defender_id
-                     WHERE bl.battle_time >= ?
-                       AND u.alliance_id = ?
-                       AND ud.alliance_id = ?
-                       AND bl.outcome = 'victory'
-                     GROUP BY bl.attacker_id, u.character_name
-                     ORDER BY v DESC
-                     LIMIT 1
-                ";
-                $types  = 'sii';
-                $params = [$since, $winAlliance, $oppAlliance];
-                $cat    = 'credits_plundered';
-                break;
-
-            case 'structure_damage':
-                $sql = "
-                    SELECT uid, character_name, SUM(v) AS v FROM (
-                        SELECT bl.attacker_id AS uid, u.character_name, COALESCE(SUM(bl.structure_damage),0) AS v
-                          FROM battle_logs bl
-                          JOIN users u  ON u.id = bl.attacker_id
-                          JOIN users ud ON ud.id = bl.defender_id
-                         WHERE bl.battle_time >= ?
-                           AND u.alliance_id = ?
-                           AND ud.alliance_id = ?
-                         GROUP BY bl.attacker_id, u.character_name
-                        UNION ALL
-                        SELECT sl.attacker_id AS uid, u.character_name, COALESCE(SUM(sl.structure_damage),0) AS v
-                          FROM spy_logs sl
-                          JOIN users u  ON u.id = sl.attacker_id
-                          JOIN users ud ON ud.id = sl.defender_id
-                         WHERE sl.mission_time >= ?
-                           AND u.alliance_id = ?
-                           AND ud.alliance_id = ?
-                           AND sl.outcome = 'success'
-                         GROUP BY sl.attacker_id, u.character_name
-                    ) t
-                    GROUP BY uid, character_name
-                    ORDER BY v DESC
-                    LIMIT 1
-                ";
-                $types  = 'siisii'; // (sii)(sii)
-                $params = [$since, $winAlliance, $oppAlliance, $since, $winAlliance, $oppAlliance];
-                $cat    = 'structure_damage';
-                break;
-
-            case 'units_assassinated':
-                $sql = "
-                    SELECT sl.attacker_id AS uid, u.character_name, COALESCE(SUM(sl.units_killed),0) AS v
-                      FROM spy_logs sl
-                      JOIN users u  ON u.id = sl.attacker_id
-                      JOIN users ud ON ud.id = sl.defender_id
-                     WHERE sl.mission_time >= ?
-                       AND u.alliance_id = ?
-                       AND ud.alliance_id = ?
-                       AND sl.outcome = 'success'
-                     GROUP BY sl.attacker_id, u.character_name
-                     ORDER BY v DESC
-                     LIMIT 1
-                ";
-                $types  = 'sii';
-                $params = [$since, $winAlliance, $oppAlliance];
-                $cat    = 'units_assassinated';
-                break;
-
-            case 'units_killed':
-            default:
-                $sql = "
-                    SELECT uid, character_name, SUM(v) AS v FROM (
-                        SELECT bl.attacker_id AS uid, u.character_name, COALESCE(SUM(bl.guards_lost),0) AS v
-                          FROM battle_logs bl
-                          JOIN users u  ON u.id = bl.attacker_id
-                          JOIN users ud ON ud.id = bl.defender_id
-                         WHERE bl.battle_time >= ?
-                           AND u.alliance_id = ?
-                           AND ud.alliance_id = ?
-                         GROUP BY bl.attacker_id, u.character_name
-                        UNION ALL
-                        SELECT sl.attacker_id AS uid, u.character_name, COALESCE(SUM(sl.units_killed),0) AS v
-                          FROM spy_logs sl
-                          JOIN users u  ON u.id = sl.attacker_id
-                          JOIN users ud ON ud.id = sl.defender_id
-                         WHERE sl.mission_time >= ?
-                           AND u.alliance_id = ?
-                           AND ud.alliance_id = ?
-                           AND sl.outcome = 'success'
-                         GROUP BY sl.attacker_id, u.character_name
-                    ) t
-                    GROUP BY uid, character_name
-                    ORDER BY v DESC
-                    LIMIT 1
-                ";
-                $types  = 'siisii'; // (sii)(sii)
-                $params = [$since, $winAlliance, $oppAlliance, $since, $winAlliance, $oppAlliance];
-                $cat    = 'units_killed';
-                break;
+            case 'structure_damage': return 'Structure Damage';
+            case 'units_killed':     return 'Units Killed';
+            default:                 return 'Credits Plundered';
         }
-
-        $stmt = $this->db->prepare($sql);
-        $stmt->bind_param($types, ...$params);
-        $stmt->execute();
-        $row = $stmt->get_result()->fetch_assoc();
-        $stmt->close();
-
-        if (!$row) {
-            return [];
-        }
-
-        return [
-            'user_id'        => (int)$row['uid'],
-            'character_name' => (string)$row['character_name'],
-            'category'       => $cat,
-            'value'          => (int)$row['v'],
-        ];
     }
 
-    /* =====================================================================
-     * Badge maintenance
-     * ===================================================================== */
-
-    /**
-     * Remove the "Humiliation" badge (and common misspelling) from all current
-     * members of the given alliance. Used when that alliance wins a Dignity war.
-     */
-    private function removeHumiliationBadgesForAlliance(int $allianceId): void
+    private function casusLabel(string $key): string
     {
-        if ($allianceId <= 0) {
-            return;
+        switch ($key) {
+            case 'economic_vassalage':
+            case 'economic_vassal': return 'Economic Vassalage';
+            case 'dignity':         return 'Restore Dignity';
+            case 'revolution':      return 'Revolution';
+            case 'humiliation':     return 'Humiliation';
+            default:                return ucfirst($key);
         }
+    }
 
-        // Find badge ids (case-insensitive names).
-        $badgeIds = [];
-        $res = $this->db->query("SELECT id FROM badges WHERE LOWER(name) IN ('humiliation','humilation')");
-        if ($res) {
-            while ($r = $res->fetch_assoc()) {
-                $badgeIds[] = (int)$r['id'];
+    private function fetchAlliance(int $id): ?array
+    {
+        $st = $this->db->prepare("SELECT id, name, tag FROM alliances WHERE id=?");
+        if (!$st) return null;
+        $st->bind_param('i', $id);
+        $st->execute();
+        $row = $st->get_result()->fetch_assoc();
+        $st->close();
+        return $row ?: null;
+    }
+
+    private function computeMVP(string $metric, int $attAlliance, int $defAlliance, string $since): array
+    {
+        $metric = $this->normalizeMetric($metric);
+
+        if ($metric === 'credits_plundered') {
+            $sql = "
+                SELECT ua.id AS user_id, ua.character_name, COALESCE(SUM(bl.credits_stolen),0) AS val
+                FROM battle_logs bl
+                JOIN users ua ON ua.id = bl.attacker_id
+                JOIN users ud ON ud.id = bl.defender_id
+                WHERE bl.battle_time >= ?
+                  AND ua.alliance_id = ?
+                  AND ud.alliance_id = ?
+                  AND bl.outcome='victory'
+                GROUP BY ua.id
+                ORDER BY val DESC
+                LIMIT 1
+            ";
+            $st = $this->db->prepare($sql);
+            if ($st) {
+                $st->bind_param('sii', $since, $attAlliance, $defAlliance);
+                $st->execute();
+                $r = $st->get_result()->fetch_assoc();
+                $st->close();
+                if ($r) return ['user_id'=>(int)$r['user_id'],'category'=>'credits_plundered','value'=>(int)$r['val'],'character_name'=>$r['character_name']];
             }
-            $res->free();
+        } elseif ($metric === 'structure_damage') {
+            $sql = "
+                SELECT ua.id AS user_id, ua.character_name, COALESCE(SUM(bl.structure_damage),0) AS val
+                FROM battle_logs bl
+                JOIN users ua ON ua.id = bl.attacker_id
+                JOIN users ud ON ud.id = bl.defender_id
+                WHERE bl.battle_time >= ?
+                  AND ua.alliance_id = ?
+                  AND ud.alliance_id = ?
+                GROUP BY ua.id
+                ORDER BY val DESC
+                LIMIT 1
+            ";
+            $st = $this->db->prepare($sql);
+            if ($st) {
+                $st->bind_param('sii', $since, $attAlliance, $defAlliance);
+                $st->execute();
+                $r = $st->get_result()->fetch_assoc();
+                $st->close();
+                if ($r) return ['user_id'=>(int)$r['user_id'],'category'=>'structure_damage','value'=>(int)$r['val'],'character_name'=>$r['character_name']];
+            }
+        } else {
+            $sqlB = "
+                SELECT ua.id AS user_id, ua.character_name, COALESCE(SUM(bl.guards_lost),0) AS val
+                FROM battle_logs bl
+                JOIN users ua ON ua.id = bl.attacker_id
+                JOIN users ud ON ud.id = bl.defender_id
+                WHERE bl.battle_time >= ?
+                  AND ua.alliance_id = ?
+                  AND ud.alliance_id = ?
+                  AND bl.outcome='victory'
+                GROUP BY ua.id
+                ORDER BY val DESC
+                LIMIT 1
+            ";
+            $stB = $this->db->prepare($sqlB);
+            $best = ['user_id'=>null,'character_name'=>null,'val'=>0];
+            if ($stB) {
+                $stB->bind_param('sii', $since, $attAlliance, $defAlliance);
+                $stB->execute();
+                $r = $stB->get_result()->fetch_assoc();
+                $stB->close();
+                if ($r) $best = ['user_id'=>(int)$r['user_id'],'character_name'=>$r['character_name'],'val'=>(int)$r['val']];
+            }
+            $sqlS = "
+                SELECT ua.id AS user_id, ua.character_name, COALESCE(SUM(sl.units_killed),0) AS val
+                FROM spy_logs sl
+                JOIN users ua ON ua.id = sl.attacker_id
+                JOIN users ud ON ud.id = sl.defender_id
+                WHERE sl.mission_time >= ?
+                  AND ua.alliance_id = ?
+                  AND ud.alliance_id = ?
+                  AND sl.outcome='success'
+                GROUP BY ua.id
+                ORDER BY val DESC
+                LIMIT 1
+            ";
+            $stS = $this->db->prepare($sqlS);
+            if ($stS) {
+                $stS->bind_param('sii', $since, $attAlliance, $defAlliance);
+                $stS->execute();
+                $r2 = $stS->get_result()->fetch_assoc();
+                $stS->close();
+                $v2 = $r2 ? (int)$r2['val'] : 0;
+                if ($v2 > $best['val']) {
+                    return ['user_id'=>(int)$r2['user_id'],'category'=>'units_killed','value'=>$v2,'character_name'=>$r2['character_name']];
+                }
+            }
+            if ($best['user_id']) {
+                return ['user_id'=>$best['user_id'],'category'=>'units_killed','value'=>$best['val'],'character_name'=>$best['character_name']];
+            }
         }
-        if (!$badgeIds) {
-            return;
+        return ['user_id'=>null,'category'=>null,'value'=>null,'character_name'=>null];
+    }
+
+    private function awardAllianceBadge(int $allianceId, string $badgeName): void
+    {
+        $st = $this->db->prepare("SELECT id FROM users WHERE alliance_id=?");
+        if (!$st) return;
+        $st->bind_param('i', $allianceId);
+        $st->execute();
+        $rs = $st->get_result();
+        while ($u = $rs->fetch_assoc()) {
+            $uid = (int)$u['id'];
+            BadgeService::award($this->db, $uid, $badgeName);
+        }
+        $st->close();
+    }
+
+    private function thresholdsForSides(int $baseThreshold, string $cbKey): array
+    {
+        $attacker = max(1, $baseThreshold);
+        $defender = max(1, intdiv($attacker, 2));
+        return [$attacker, $defender];
+    }
+
+    /** snapshot member IDs at conclusion for reliable details */
+    private function getAllianceMemberIds(int $allianceId): array
+    {
+        $ids = [];
+        $st = $this->db->prepare("SELECT id FROM users WHERE alliance_id=?");
+        if (!$st) return $ids;
+        $st->bind_param('i', $allianceId);
+        $st->execute();
+        $rs = $st->get_result();
+        while ($row = $rs->fetch_assoc()) {
+            $ids[] = (int)$row['id'];
+        }
+        $st->close();
+        return $ids;
+    }
+
+    /** Build details using member-id snapshots and a bounded time window. */
+    private function computeWarDetailsSnapshot(string $metric, array $decMembers, array $agaMembers, string $since, string $until): array
+    {
+        $metric = $this->normalizeMetric($metric);
+        $details = [
+            'metric' => $metric,
+            'period' => ['since' => $since, 'until' => $until],
+            'biggest_attack' => ['declarer'=>null,'declared_against'=>null],
+            'top_attacker'   => ['declarer'=>null,'declared_against'=>null],
+            'xp_gained'      => ['declarer'=>0,'declared_against'=>0],
+        ];
+
+        if (empty($decMembers) || empty($agaMembers)) {
+            return $details;
         }
 
-        $placeholders = implode(',', array_fill(0, count($badgeIds), '?'));
-        $types = str_repeat('i', count($badgeIds)) . 'i';
+        // Helpers
+        $mkIn = function(array $ids): string {
+            return '(' . implode(',', array_map('intval', $ids)) . ')';
+        };
+        $inDec = $mkIn($decMembers);
+        $inAga = $mkIn($agaMembers);
+
+        // Biggest attacks
+        if ($metric === 'credits_plundered') {
+            $sql = "
+                SELECT bl.attacker_id AS user_id, u.character_name AS name, bl.credits_stolen AS val, bl.battle_time AS at
+                FROM battle_logs bl
+                JOIN users u ON u.id = bl.attacker_id
+                WHERE bl.battle_time BETWEEN ? AND ?
+                  AND bl.attacker_id IN $inDec
+                  AND bl.defender_id IN $inAga
+                  AND bl.outcome='victory'
+                ORDER BY bl.credits_stolen DESC
+                LIMIT 1
+            ";
+            $st = $this->db->prepare($sql);
+            if ($st) {
+                $st->bind_param('ss', $since, $until);
+                $st->execute();
+                $r = $st->get_result()->fetch_assoc(); $st->close();
+                if ($r) $details['biggest_attack']['declarer'] = ['user_id'=>(int)$r['user_id'],'name'=>$r['name'],'value'=>(int)$r['val'],'source'=>'battle','at'=>$r['at']];
+            }
+
+            $sql = "
+                SELECT bl.attacker_id AS user_id, u.character_name AS name, bl.credits_stolen AS val, bl.battle_time AS at
+                FROM battle_logs bl
+                JOIN users u ON u.id = bl.attacker_id
+                WHERE bl.battle_time BETWEEN ? AND ?
+                  AND bl.attacker_id IN $inAga
+                  AND bl.defender_id IN $inDec
+                  AND bl.outcome='victory'
+                ORDER BY bl.credits_stolen DESC
+                LIMIT 1
+            ";
+            $st = $this->db->prepare($sql);
+            if ($st) {
+                $st->bind_param('ss', $since, $until);
+                $st->execute();
+                $r = $st->get_result()->fetch_assoc(); $st->close();
+                if ($r) $details['biggest_attack']['declared_against'] = ['user_id'=>(int)$r['user_id'],'name'=>$r['name'],'value'=>(int)$r['val'],'source'=>'battle','at'=>$r['at']];
+            }
+        } elseif ($metric === 'units_killed') {
+            // battle
+            $sqlB = "
+                SELECT bl.attacker_id AS user_id, u.character_name AS name, bl.guards_lost AS val, bl.battle_time AS at
+                FROM battle_logs bl
+                JOIN users u ON u.id = bl.attacker_id
+                WHERE bl.battle_time BETWEEN ? AND ?
+                  AND bl.attacker_id IN %s
+                  AND bl.defender_id IN %s
+                  AND bl.outcome='victory'
+                ORDER BY bl.guards_lost DESC
+                LIMIT 1
+            ";
+            // spy
+            $sqlS = "
+                SELECT sl.attacker_id AS user_id, u.character_name AS name, sl.units_killed AS val, sl.mission_time AS at
+                FROM spy_logs sl
+                JOIN users u ON u.id = sl.attacker_id
+                WHERE sl.mission_time BETWEEN ? AND ?
+                  AND sl.attacker_id IN %s
+                  AND sl.defender_id IN %s
+                  AND sl.outcome='success'
+                ORDER BY sl.units_killed DESC
+                LIMIT 1
+            ";
+            // declarer
+            $st = $this->db->prepare(sprintf($sqlB, $inDec, $inAga));
+            if ($st) { $st->bind_param('ss', $since, $until); $st->execute(); $b = $st->get_result()->fetch_assoc(); $st->close(); } else { $b = null; }
+            $st = $this->db->prepare(sprintf($sqlS, $inDec, $inAga));
+            if ($st) { $st->bind_param('ss', $since, $until); $st->execute(); $s = $st->get_result()->fetch_assoc(); $st->close(); } else { $s = null; }
+            $details['biggest_attack']['declarer'] = $this->pickMaxRow($b, $s, 'units');
+
+            // defender
+            $st = $this->db->prepare(sprintf($sqlB, $inAga, $inDec));
+            if ($st) { $st->bind_param('ss', $since, $until); $st->execute(); $b = $st->get_result()->fetch_assoc(); $st->close(); } else { $b = null; }
+            $st = $this->db->prepare(sprintf($sqlS, $inAga, $inDec));
+            if ($st) { $st->bind_param('ss', $since, $until); $st->execute(); $s = $st->get_result()->fetch_assoc(); $st->close(); } else { $s = null; }
+            $details['biggest_attack']['declared_against'] = $this->pickMaxRow($b, $s, 'units');
+        } else { // structure_damage
+            $sqlB = "
+                SELECT bl.attacker_id AS user_id, u.character_name AS name, bl.structure_damage AS val, bl.battle_time AS at
+                FROM battle_logs bl
+                JOIN users u ON u.id = bl.attacker_id
+                WHERE bl.battle_time BETWEEN ? AND ?
+                  AND bl.attacker_id IN %s
+                  AND bl.defender_id IN %s
+                ORDER BY bl.structure_damage DESC
+                LIMIT 1
+            ";
+            $sqlS = "
+                SELECT sl.attacker_id AS user_id, u.character_name AS name, sl.structure_damage AS val, sl.mission_time AS at
+                FROM spy_logs sl
+                JOIN users u ON u.id = sl.attacker_id
+                WHERE sl.mission_time BETWEEN ? AND ?
+                  AND sl.attacker_id IN %s
+                  AND sl.defender_id IN %s
+                  AND sl.outcome='success'
+                ORDER BY sl.structure_damage DESC
+                LIMIT 1
+            ";
+            $st = $this->db->prepare(sprintf($sqlB, $inDec, $inAga));
+            if ($st) { $st->bind_param('ss', $since, $until); $st->execute(); $b = $st->get_result()->fetch_assoc(); $st->close(); } else { $b = null; }
+            $st = $this->db->prepare(sprintf($sqlS, $inDec, $inAga));
+            if ($st) { $st->bind_param('ss', $since, $until); $st->execute(); $s = $st->get_result()->fetch_assoc(); $st->close(); } else { $s = null; }
+            $details['biggest_attack']['declarer'] = $this->pickMaxRow($b, $s, 'structure');
+
+            $st = $this->db->prepare(sprintf($sqlB, $inAga, $inDec));
+            if ($st) { $st->bind_param('ss', $since, $until); $st->execute(); $b = $st->get_result()->fetch_assoc(); $st->close(); } else { $b = null; }
+            $st = $this->db->prepare(sprintf($sqlS, $inAga, $inDec));
+            if ($st) { $st->bind_param('ss', $since, $until); $st->execute(); $s = $st->get_result()->fetch_assoc(); $st->close(); } else { $s = null; }
+            $details['biggest_attack']['declared_against'] = $this->pickMaxRow($b, $s, 'structure');
+        }
+
+        // Top attacker + XP
+        if ($metric === 'credits_plundered') {
+            $details['top_attacker']['declarer'] = $this->topFromSum("battle_logs","credits_stolen","battle_time","outcome","victory",$decMembers,$agaMembers,$since,$until);
+            $details['top_attacker']['declared_against'] = $this->topFromSum("battle_logs","credits_stolen","battle_time","outcome","victory",$agaMembers,$decMembers,$since,$until);
+            $details['biggest_plunderer'] = [
+                'declarer' => $details['top_attacker']['declarer'],
+                'declared_against' => $details['top_attacker']['declared_against'],
+            ];
+        } elseif ($metric === 'units_killed') {
+            $decTop = $this->mergeTopRows(
+                $this->sumByUserRows("battle_logs","guards_lost","battle_time","outcome","victory",$decMembers,$agaMembers,$since,$until),
+                $this->sumByUserRows("spy_logs","units_killed","mission_time","outcome","success",$decMembers,$agaMembers,$since,$until)
+            );
+            $agaTop = $this->mergeTopRows(
+                $this->sumByUserRows("battle_logs","guards_lost","battle_time","outcome","victory",$agaMembers,$decMembers,$since,$until),
+                $this->sumByUserRows("spy_logs","units_killed","mission_time","outcome","success",$agaMembers,$decMembers,$since,$until)
+            );
+            $details['top_attacker']['declarer'] = $decTop;
+            $details['top_attacker']['declared_against'] = $agaTop;
+        } else {
+            $decTop = $this->mergeTopRows(
+                $this->sumByUserRows("battle_logs","structure_damage","battle_time","outcome","",$decMembers,$agaMembers,$since,$until),
+                $this->sumByUserRows("spy_logs","structure_damage","mission_time","outcome","success",$decMembers,$agaMembers,$since,$until)
+            );
+            $agaTop = $this->mergeTopRows(
+                $this->sumByUserRows("battle_logs","structure_damage","battle_time","outcome","",$agaMembers,$decMembers,$since,$until),
+                $this->sumByUserRows("spy_logs","structure_damage","mission_time","outcome","success",$agaMembers,$decMembers,$since,$until)
+            );
+            $details['top_attacker']['declarer'] = $decTop;
+            $details['top_attacker']['declared_against'] = $agaTop;
+        }
+
+        $details['xp_gained']['declarer'] = $this->sumXP($decMembers,$agaMembers,$since,$until);
+        $details['xp_gained']['declared_against'] = $this->sumXP($agaMembers,$decMembers,$since,$until);
+
+        return $details;
+    }
+
+    private function sumXP(array $attIds, array $defIds, string $since, string $until): int
+    {
+        if (empty($attIds) || empty($defIds)) return 0;
+        $inAtt = '(' . implode(',', array_map('intval',$attIds)) . ')';
+        $inDef = '(' . implode(',', array_map('intval',$defIds)) . ')';
+        $total = 0;
 
         $sql = "
-            DELETE ub
-              FROM user_badges ub
-              JOIN users u ON u.id = ub.user_id
-             WHERE ub.badge_id IN ($placeholders)
-               AND u.alliance_id = ?
+            SELECT COALESCE(SUM(bl.attacker_xp_gained),0) AS val
+            FROM battle_logs bl
+            WHERE bl.battle_time BETWEEN ? AND ?
+              AND bl.attacker_id IN $inAtt
+              AND bl.defender_id IN $inDef
         ";
-        $stmt = $this->db->prepare($sql);
-        $params = [...$badgeIds, $allianceId];
-        $stmt->bind_param($types, ...$params);
-        $stmt->execute();
-        $stmt->close();
+        if ($st = $this->db->prepare($sql)) {
+            $st->bind_param('ss', $since, $until);
+            $st->execute(); $r = $st->get_result()->fetch_assoc(); $st->close();
+            $total += (int)($r['val'] ?? 0);
+        }
+        $sql = "
+            SELECT COALESCE(SUM(sl.attacker_xp_gained),0) AS val
+            FROM spy_logs sl
+            WHERE sl.mission_time BETWEEN ? AND ?
+              AND sl.attacker_id IN $inAtt
+              AND sl.defender_id IN $inDef
+              AND sl.outcome='success'
+        ";
+        if ($st = $this->db->prepare($sql)) {
+            $st->bind_param('ss', $since, $until);
+            $st->execute(); $r = $st->get_result()->fetch_assoc(); $st->close();
+            $total += (int)($r['val'] ?? 0);
+        }
+        return $total;
     }
 
-    /* =====================================================================
-     * Rivalry heat decay (optional housekeeping)
-     * ===================================================================== */
-
-    private function decayRivalryHeat(): void
+    private function topFromSum(string $table, string $col, string $timeCol, string $outcomeCol, string $okOutcome, array $attIds, array $defIds, string $since, string $until): ?array
     {
-        $decay = self::RIVALRY_HEAT_DECAY_RATE;
-        $stmt = $this->db->prepare("
-            UPDATE rivalries
-               SET heat_level = GREATEST(0, heat_level - ?)
-             WHERE last_attack_date < NOW() - INTERVAL 1 DAY
-        ");
-        $stmt->bind_param('i', $decay);
-        $stmt->execute();
-        $stmt->close();
+        if (empty($attIds) || empty($defIds)) return null;
+        $inAtt = '(' . implode(',', array_map('intval',$attIds)) . ')';
+        $inDef = '(' . implode(',', array_map('intval',$defIds)) . ')';
+        $outcomeFilter = $okOutcome !== '' ? " AND t.$outcomeCol='$okOutcome'" : "";
+        $sql = "
+            SELECT ua.id AS user_id, ua.character_name AS name, COALESCE(SUM(t.$col),0) AS val
+            FROM $table t
+            JOIN users ua ON ua.id=t.attacker_id
+            WHERE t.$timeCol BETWEEN ? AND ?
+              AND t.attacker_id IN $inAtt
+              AND t.defender_id IN $inDef
+              $outcomeFilter
+            GROUP BY ua.id
+            ORDER BY val DESC
+            LIMIT 1
+        ";
+        $st = $this->db->prepare($sql);
+        if (!$st) return null;
+        $st->bind_param('ss', $since, $until);
+        $st->execute();
+        $r = $st->get_result()->fetch_assoc();
+        $st->close();
+        return $r ? ['user_id'=>(int)$r['user_id'],'name'=>$r['name'],'value'=>(int)$r['val']] : null;
+    }
+
+    private function sumByUserRows(string $table, string $col, string $timeCol, string $outcomeCol, string $okOutcome, array $attIds, array $defIds, string $since, string $until): array
+    {
+        if (empty($attIds) || empty($defIds)) return [];
+        $inAtt = '(' . implode(',', array_map('intval',$attIds)) . ')';
+        $inDef = '(' . implode(',', array_map('intval',$defIds)) . ')';
+        $outcomeFilter = $okOutcome !== '' ? " AND t.$outcomeCol='$okOutcome'" : "";
+        $sql = "
+            SELECT ua.id AS user_id, ua.character_name, COALESCE(SUM(t.$col),0) AS val
+            FROM $table t
+            JOIN users ua ON ua.id=t.attacker_id
+            WHERE t.$timeCol BETWEEN ? AND ?
+              AND t.attacker_id IN $inAtt
+              AND t.defender_id IN $inDef
+              $outcomeFilter
+            GROUP BY ua.id
+            ORDER BY val DESC
+            LIMIT 50
+        ";
+        $st = $this->db->prepare($sql);
+        if (!$st) return [];
+        $st->bind_param('ss', $since, $until);
+        $st->execute();
+        $rs = $st->get_result();
+        $rows = $rs ? $rs->fetch_all(MYSQLI_ASSOC) : [];
+        $st->close();
+        return $rows;
+    }
+
+    private function mergeTopRows(array $battleRows, array $spyRows): ?array
+    {
+        $tot = [];
+        foreach ($battleRows as $r) { $tot[(int)$r['user_id']] = ['name'=>$r['character_name'], 'val'=>(int)$r['val']]; }
+        foreach ($spyRows as $r) {
+            $id = (int)$r['user_id']; $v = (int)$r['val'];
+            if (!isset($tot[$id])) $tot[$id] = ['name'=>$r['character_name'],'val'=>0];
+            $tot[$id]['val'] += $v;
+        }
+        $best = null; $bestVal = -1;
+        foreach ($tot as $uid => $info) {
+            if ($info['val'] > $bestVal) { $bestVal = $info['val']; $best = ['user_id'=>$uid, 'name'=>$info['name'], 'value'=>$info['val']]; }
+        }
+        return $best;
+    }
+
+    private function pickMaxRow(?array $b, ?array $s, string $kind): ?array
+    {
+        $B = $b ? ['user_id'=>(int)$b['user_id'],'name'=>$b['name'],'value'=>(int)$b['val'],'source'=>'battle','at'=>$b['at']] : null;
+        $S = $s ? ['user_id'=>(int)$s['user_id'],'name'=>$s['name'],'value'=>(int)$s['val'],'source'=>'spy','at'=>$s['at']] : null;
+        if (!$B && !$S) return null;
+        if ($B && !$S) return $B;
+        if ($S && !$B) return $S;
+        return ($B['value'] >= $S['value']) ? $B : $S;
     }
 }

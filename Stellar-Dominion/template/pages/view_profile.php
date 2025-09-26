@@ -394,24 +394,34 @@ if ($ally_has) {
 }
 
 // =====================================================
-// War outcomes (Economic Vassalage / Humiliation / Custom Badge / Dignity)
+// War outcomes (chips) — precedence rules:
+// - A newer Dignity victory clears any older/same-day Humiliation defeat.
+// - A newer Humiliation victory clears Dignity defeated on the victor,
+//   and clears Dignity victor on the loser.
 // =====================================================
 $war_outcome_chips = []; // label => ['result' => 'Victor'|'Defeated', 'date' => 'Y-m-d']
-$latestHumiliationDefeat = null;
-$latestDignityVictory    = null;
+$latest = [
+    'dignity_victory'      => null,
+    'dignity_defeat'       => null,
+    'humiliation_victory'  => null,
+    'humiliation_defeat'   => null,
+];
 
 if ($target_alliance_id > 0) {
-    if ($stmt = @mysqli_prepare($link, "
+    if ($stmt = @mysqli_prepare(
+        $link,
+        "
         SELECT
             wh.casus_belli_text, wh.outcome, wh.end_date,
             w.declarer_alliance_id, w.declared_against_alliance_id
         FROM war_history wh
         JOIN wars w ON w.id = wh.war_id
         WHERE (w.declarer_alliance_id = ? OR w.declared_against_alliance_id = ?)
-          AND w.status = 'ended'
+          AND w.status IN ('ended','concluded')
         ORDER BY wh.end_date DESC
-        LIMIT 150
-    ")) {
+        LIMIT 200
+        "
+    )) {
         mysqli_stmt_bind_param($stmt, "ii", $target_alliance_id, $target_alliance_id);
         if (mysqli_stmt_execute($stmt)) {
             $res = mysqli_stmt_get_result($stmt);
@@ -419,33 +429,37 @@ if ($target_alliance_id > 0) {
                 $txt  = strtolower((string)($r['casus_belli_text'] ?? ''));
                 $date = !empty($r['end_date']) ? substr($r['end_date'], 0, 10) : '';
                 $isDeclarer = ($target_alliance_id == (int)$r['declarer_alliance_id']);
-                $won = ((string)$r['outcome'] === 'declarer_win' && $isDeclarer)
-                    || ((string)$r['outcome'] === 'declared_against_win' && !$isDeclarer);
+                $out = (string)($r['outcome'] ?? '');
 
-                // Map labels
+                // Normalize outcomes
+                $wonDec = in_array($out, ['declarer_win','declarer_victory'], true);
+                $wonAga = in_array($out, ['declared_against_win','declared_against_victory'], true);
+                $won = ($wonDec && $isDeclarer) || ($wonAga && !$isDeclarer);
+
+                // label mapping
                 $label = null;
-                if (strpos($txt, 'vassal') !== false)                $label = 'Economic Vassalage';
-                elseif (strpos($txt, 'humiliat') !== false
-                    ||  strpos($txt, 'humilation') !== false)        $label = 'Humiliation';
-                elseif (strpos($txt, 'custom') !== false && strpos($txt, 'badge') !== false) $label = 'Custom Badge';
-                elseif (strpos($txt, 'dignity') !== false)           $label = 'Dignity';
-
+                if (strpos($txt, 'vassal') !== false)                           $label = 'Economic Vassalage';
+                elseif (strpos($txt, 'humiliat') !== false || strpos($txt, 'humilation') !== false) $label = 'Humiliation';
+                elseif (strpos($txt, 'custom') !== false && strpos($txt, 'badge') !== false)        $label = 'Custom Badge';
+                elseif (strpos($txt, 'dignity') !== false)                      $label = 'Dignity';
                 if (!$label) continue;
 
-                // Capture most recent per label for chips
                 if (!isset($war_outcome_chips[$label])) {
                     $war_outcome_chips[$label] = ['result' => $won ? 'Victor' : 'Defeated', 'date' => $date];
                 }
 
-                // Track precedence logic: Dignity win clears prior Humiliation defeat
-                if ($label === 'Humiliation' && !$won) {
-                    if ($latestHumiliationDefeat === null || $date > $latestHumiliationDefeat) {
-                        $latestHumiliationDefeat = $date;
+                // Track latest timestamps used for precedence
+                if ($label === 'Dignity') {
+                    if ($won) {
+                        if ($latest['dignity_victory'] === null || $date > $latest['dignity_victory']) $latest['dignity_victory'] = $date;
+                    } else {
+                        if ($latest['dignity_defeat'] === null || $date > $latest['dignity_defeat']) $latest['dignity_defeat'] = $date;
                     }
-                }
-                if ($label === 'Dignity' && $won) {
-                    if ($latestDignityVictory === null || $date > $latestDignityVictory) {
-                        $latestDignityVictory = $date;
+                } elseif ($label === 'Humiliation') {
+                    if ($won) {
+                        if ($latest['humiliation_victory'] === null || $date > $latest['humiliation_victory']) $latest['humiliation_victory'] = $date;
+                    } else {
+                        if ($latest['humiliation_defeat'] === null || $date > $latest['humiliation_defeat']) $latest['humiliation_defeat'] = $date;
                     }
                 }
             }
@@ -455,13 +469,28 @@ if ($target_alliance_id > 0) {
     }
 }
 
-// If dignity victory is newer or same-day, suppress Humiliation chip
-if ($latestDignityVictory !== null && $latestHumiliationDefeat !== null) {
-    if ($latestDignityVictory >= $latestHumiliationDefeat) {
-        unset($war_outcome_chips['Humiliation']);
-        // Optionally ensure Dignity chip is present & marked Victor
-        if (!isset($war_outcome_chips['Dignity'])) {
-            $war_outcome_chips['Dignity'] = ['result' => 'Victor', 'date' => $latestDignityVictory];
+// Precedence rules (symmetric clearing)
+if ($latest['dignity_victory'] !== null && $latest['humiliation_defeat'] !== null) {
+    if ($latest['dignity_victory'] >= $latest['humiliation_defeat']) {
+        // Newer (or same-day) Dignity win clears Humiliation Defeated
+        if (isset($war_outcome_chips['Humiliation']) && $war_outcome_chips['Humiliation']['result'] === 'Defeated') {
+            unset($war_outcome_chips['Humiliation']);
+        }
+    }
+}
+if ($latest['humiliation_victory'] !== null && $latest['dignity_defeat'] !== null) {
+    if ($latest['humiliation_victory'] >= $latest['dignity_defeat']) {
+        // Newer Humiliation win clears Dignity Defeated on victor
+        if (isset($war_outcome_chips['Dignity']) && $war_outcome_chips['Dignity']['result'] === 'Defeated') {
+            unset($war_outcome_chips['Dignity']);
+        }
+    }
+}
+if ($latest['humiliation_defeat'] !== null && $latest['dignity_victory'] !== null) {
+    if ($latest['humiliation_defeat'] >= $latest['dignity_victory']) {
+        // Losing a Humiliation clears prior Dignity Victor
+        if (isset($war_outcome_chips['Dignity']) && $war_outcome_chips['Dignity']['result'] === 'Victor') {
+            unset($war_outcome_chips['Dignity']);
         }
     }
 }

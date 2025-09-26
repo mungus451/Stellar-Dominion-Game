@@ -1,9 +1,6 @@
 <?php
-/**
- * battle_report.php — Drop‑in replacement
- *
- * Integrates site header/footer/navbar includes and keeps the original
- * battle report logic, tidy and secure.
+/*
+ * battle_report.php 
  */
 
 if (session_status() === PHP_SESSION_NONE) {
