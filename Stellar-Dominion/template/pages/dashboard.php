@@ -42,7 +42,6 @@ if ($user_id > 0 && ($st=$link->prepare("SELECT structure_key,health_pct,locked 
     }
     $st->close();
 }
-/* Use canonical structure multiplier (includes 10% floor and lock semantics) */
 $offense_integrity_mult = function_exists('ss_structure_output_multiplier_by_key') ? ss_structure_output_multiplier_by_key($link,$user_id,'offense') : (($structure_health['offense']['locked']?0.0:$structure_health['offense']['health_pct']/100));
 $defense_integrity_mult = function_exists('ss_structure_output_multiplier_by_key') ? ss_structure_output_multiplier_by_key($link,$user_id,'defense') : (($structure_health['defense']['locked']?0.0:$structure_health['defense']['health_pct']/100));
 $economy_integrity_mult = function_exists('ss_structure_output_multiplier_by_key') ? ss_structure_output_multiplier_by_key($link,$user_id,'economy') : (($structure_health['economy']['locked']?0.0:$structure_health['economy']['health_pct']/100));
@@ -52,11 +51,85 @@ $owned_items = ($user_id>0)? ss_get_armory_inventory($link,$user_id):[];
 
 /* ---------- alliance info ---------- */
 $alliance_info = null;
+$is_alliance_leader = false;
 if (!empty($user_stats['alliance_id'])) {
-    if ($st = mysqli_prepare($link,"SELECT name,tag FROM alliances WHERE id=?")) {
+    if ($st = mysqli_prepare($link,"SELECT id,name,tag,leader_id FROM alliances WHERE id=?")) {
         mysqli_stmt_bind_param($st,"i",$user_stats['alliance_id']);
         mysqli_stmt_execute($st);
         $alliance_info = mysqli_fetch_assoc(mysqli_stmt_get_result($st)) ?: null;
+        mysqli_stmt_close($st);
+        if ($alliance_info) {
+            $is_alliance_leader = ((int)$alliance_info['leader_id'] === (int)$user_id);
+        }
+    }
+}
+
+/* ---------- ACTIVE WARS AGAINST USER'S ALLIANCE (red notice) ---------- */
+$wars_declared_against = [];
+if (!empty($user_stats['alliance_id'])) {
+    $sql = "
+        SELECT w.id, w.name, w.start_date,
+               w.declarer_alliance_id, w.declared_against_alliance_id,
+               a1.name AS declarer_name, a1.tag AS declarer_tag,
+               a2.name AS target_name,   a2.tag AS target_tag
+        FROM wars w
+        JOIN alliances a1 ON a1.id = w.declarer_alliance_id
+        JOIN alliances a2 ON a2.id = w.declared_against_alliance_id
+        WHERE w.status='active' AND w.declared_against_alliance_id = ?
+        ORDER BY w.start_date DESC
+        LIMIT 5
+    ";
+    if ($st = mysqli_prepare($link,$sql)) {
+        mysqli_stmt_bind_param($st,"i",$user_stats['alliance_id']);
+        if (mysqli_stmt_execute($st)) {
+            $res = mysqli_stmt_get_result($st);
+            while ($row = mysqli_fetch_assoc($res)) {
+                $wars_declared_against[] = $row;
+            }
+        }
+        mysqli_stmt_close($st);
+    }
+}
+
+/* ---------- ACTIVE WARS DECLARED BY USER'S ALLIANCE (amber badge with casus belli) ---------- */
+$wars_declared_by = [];
+if (!empty($user_stats['alliance_id'])) {
+    $sql = "
+        SELECT w.id, w.name, w.start_date,
+               w.declarer_alliance_id, w.declared_against_alliance_id,
+               w.casus_belli_key, w.casus_belli_custom,
+               a1.name AS declarer_name, a1.tag AS declarer_tag,
+               a2.name AS target_name,   a2.tag AS target_tag
+        FROM wars w
+        JOIN alliances a1 ON a1.id = w.declarer_alliance_id
+        JOIN alliances a2 ON a2.id = w.declared_against_alliance_id
+        WHERE w.status='active' AND w.declarer_alliance_id = ?
+        ORDER BY w.start_date DESC
+        LIMIT 5
+    ";
+    if ($st = mysqli_prepare($link,$sql)) {
+        mysqli_stmt_bind_param($st,"i",$user_stats['alliance_id']);
+        if (mysqli_stmt_execute($st)) {
+            $res = mysqli_stmt_get_result($st);
+            while ($row = mysqli_fetch_assoc($res)) {
+                // Resolve casus belli display text
+                $cb = '';
+                if (!empty($row['casus_belli_custom'])) {
+                    $cb = (string)$row['casus_belli_custom'];
+                } elseif (!empty($row['casus_belli_key'])) {
+                    $key = (string)$row['casus_belli_key'];
+                    if (isset($casus_belli_presets[$key]['name'])) {
+                        $cb = (string)$casus_belli_presets[$key]['name'];
+                    } else {
+                        $cb = ucfirst(str_replace('_',' ',$key));
+                    }
+                } else {
+                    $cb = 'A Private Matter';
+                }
+                $row['casus_belli_text'] = $cb;
+                $wars_declared_by[] = $row;
+            }
+        }
         mysqli_stmt_close($st);
     }
 }
@@ -124,17 +197,16 @@ function sd_sum_upgrade_pct(array $upgrades,array $stats,string $cat,array $keys
     return $sum;
 }
 $economy_upgrades_pct    = sd_sum_upgrade_pct($upgrades,$user_stats,'economy',['income','economy','credits','income_pct']);
-$population_upgrades_pct = sd_sum_upgrade_pct($upgrades,$user_stats,'population',['population','citizens','population_pct']); // kept for compatibility; not used for citizen chips
+$population_upgrades_pct = sd_sum_upgrade_pct($upgrades,$user_stats,'population',['population','citizens','population_pct']);
 
 /* ---------- per-turn economy (use canonical summary) ---------- */
 $summary = calculate_income_summary($link,$user_id,$user_stats);
 $credits_per_turn   = (int)($summary['income_per_turn'] ?? 0);
 $citizens_per_turn  = (int)($summary['citizens_per_turn'] ?? 0);
 
-/* pull canonical base figure (pre-structure, pre-maintenance; includes upgrades, alliance %/resources, +flat credits) */
+/* pull canonical base figure */
 $income_base_label = 'Pre-structure (pre-maintenance) total';
 $base_income_raw   = (int)($summary['income_per_turn_base'] ?? 0);
-
 
 /* breakdown inputs for clarity */
 $workers_count          = (int)($summary['workers'] ?? (int)($user_stats['workers'] ?? 0));
@@ -151,15 +223,11 @@ $mult_econ_upgrades     = (float)($summary['economy_mult_upgrades'] ?? (1.0 + ($
 $mult_struct_econ       = (float)($summary['economy_struct_mult'] ?? 1.0);
 $alli_flat_credits      = (int)($summary['alliance_additive_credits'] ?? 0);
 
-/* clarity label */
-
 /* --- maintenance breakdown for UI (troops only, per turn) --- */
-/* Ensure troop counts exist before using them (prevents "Undefined variable" warnings) */
 if (!isset($soldier_count)) { $soldier_count = (int)($user_stats['soldiers']  ?? 0); }
 if (!isset($guard_count))   { $guard_count   = (int)($user_stats['guards']    ?? 0); }
 if (!isset($sentry_count))  { $sentry_count  = (int)($user_stats['sentries']  ?? 0); }
 if (!isset($spy_count))     { $spy_count     = (int)($user_stats['spies']     ?? 0); }
-/* (If you also populate $summary with counts, you can extend each line with "?? $summary['...'] ?? 0") */
 
 $__unit_maint = function_exists('sd_unit_maintenance') ? sd_unit_maintenance() : [
     'soldiers' => defined('SD_MAINT_SOLDIER') ? SD_MAINT_SOLDIER : 10,
@@ -180,9 +248,8 @@ $maintenance_max   = max(1, (int)max($maintenance_breakdown ?: [0]));
 $alliance_bonuses = function_exists('sd_compute_alliance_bonuses') ? sd_compute_alliance_bonuses($link,$user_stats) : ['income'=>0,'resources'=>0,'offense'=>0,'defense'=>0,'credits'=>0,'citizens'=>0];
 $alli_offense_mult = 1.0 + ((float)($alliance_bonuses['offense']??0)/100.0);
 $alli_defense_mult = 1.0 + ((float)($alliance_bonuses['defense']??0)/100.0);
-// Apply baseline alliance combat bonus if user is in an alliance.
 if (!empty($user_stats['alliance_id'])) {
-    $alli_base = defined('ALLIANCE_BASE_COMBAT_BONUS') ? (float)ALLIANCE_BASE_COMBAT_BONUS : 0.10; // +10% default
+    $alli_base = defined('ALLIANCE_BASE_COMBAT_BONUS') ? (float)ALLIANCE_BASE_COMBAT_BONUS : 0.10;
     $alli_offense_mult *= (1.0 + $alli_base);
     $alli_defense_mult *= (1.0 + $alli_base);
 }
@@ -190,7 +257,7 @@ if (!empty($user_stats['alliance_id'])) {
 /* ---------- derived stats & bases ---------- */
 $strength_bonus     = 1 + ((float)$user_stats['strength_points']     * 0.01);
 $constitution_bonus = 1 + ((float)$user_stats['constitution_points'] * 0.01);
-$wealth_bonus       = 1 + ((float)$user_stats['wealth_points']       * 0.01); // used for income est.
+$wealth_bonus       = 1 + ((float)$user_stats['wealth_points']       * 0.01);
 
 $soldier_count=(int)$user_stats['soldiers'];
 $guard_count  =(int)$user_stats['guards'];
@@ -212,9 +279,7 @@ $maintenance_breakdown = [
 ];
 $maintenance_total = (int)($summary['maintenance_per_turn'] ?? array_sum($maintenance_breakdown));
 $maintenance_max   = max(1, (int)max($maintenance_breakdown ?: [0]));
-/* helper to avoid showing "-0" */
 $fmtNeg = static function(int $n): string { return $n > 0 ? '-' . number_format($n) : '0'; };
-
 
 $armory_attack_bonus  = sd_soldier_armory_attack_bonus($owned_items,$soldier_count);
 $armory_defense_bonus = sd_guard_armory_defense_bonus($owned_items,$guard_count);
@@ -242,7 +307,6 @@ $sentry_defense = (int)floor($sentry_defense_base * $defense_integrity_mult);
 function sd_fmt_pct(float $v):string{ $s=rtrim(rtrim(number_format($v,1),'0'),'.'); return ($v>=0?'+':'').$s.'%'; }
 function sd_render_chips(array $chips):string{
     if(empty($chips)) return '';
-    /* Mobile: chips go to next line; Desktop: inline like before */
     $html='<span class="ml-0 md:ml-2 block md:inline-flex flex-wrap gap-1 align-middle mt-1 md:mt-0">';
     foreach($chips as $c){
         $html.='<span class="text-[10px] px-1.5 py-0.5 rounded bg-cyan-900/40 text-cyan-300 border border-cyan-800/60">'.
@@ -272,7 +336,6 @@ if (!empty($user_stats['alliance_id'])) {
                 $name=$def['name']??ucfirst($k);
                 if(!empty($bonus['income']))     $chips['income'][]    = ['label'=>sd_fmt_pct((float)$bonus['income']).' '.$name];
                 if(!empty($bonus['population'])) $chips['population'][]= ['label'=>sd_fmt_pct((float)$bonus['population']).' '.$name];
-                // Citizens are FLAT per-turn, not percent
                 if (isset($bonus['citizens']) && (int)$bonus['citizens'] !== 0){
                     $val=(int)$bonus['citizens'];
                     $alli_struct_citizens_total += $val;
@@ -286,41 +349,33 @@ if (!empty($user_stats['alliance_id'])) {
         }
         mysqli_stmt_close($st);
     }
-    // Alliance baseline citizens (total from bonuses minus structure-provided)
     $alli_cit_total = (int)($alliance_bonuses['citizens'] ?? 0);
     $alli_base_only = $alli_cit_total - (int)$alli_struct_citizens_total;
     if ($alli_base_only > 0) {
         $chips['population'][] = ['label'=>'+' . number_format($alli_base_only) . ' alliance'];
     }
 }
-/* upgrades */
 if ($total_offense_bonus_pct>0)   $chips['offense'][]   = ['label'=>sd_fmt_pct($total_offense_bonus_pct).' upgrades'];
 if ($total_defense_bonus_pct>0)   $chips['defense'][]   = ['label'=>sd_fmt_pct($total_defense_bonus_pct).' upgrades'];
 if ($economy_upgrades_pct>0)      $chips['income'][]    = ['label'=>sd_fmt_pct($economy_upgrades_pct).' upgrades'];
-// Population upgrades are FLAT +citizens/turn; compute exact sum by level
 $population_upgrades_flat = 0;
 for($i=1,$n=(int)($user_stats['population_level']??0);$i<=$n;$i++){
     $population_upgrades_flat += (int)($upgrades['population']['levels'][$i]['bonuses']['citizens'] ?? 0);
 }
 if ($population_upgrades_flat>0)  $chips['population'][]= ['label'=>'+' . number_format($population_upgrades_flat) . ' upgrades'];
-/* prof points */
 if ((float)$user_stats['strength_points']>0)     $chips['offense'][]   = ['label'=>sd_fmt_pct((float)$user_stats['strength_points']).' STR'];
 if ((float)$user_stats['constitution_points']>0) $chips['defense'][]   = ['label'=>sd_fmt_pct((float)$user_stats['constitution_points']).' CON'];
 if ((float)$user_stats['wealth_points']>0)       $chips['income'][]    = ['label'=>sd_fmt_pct((float)$user_stats['wealth_points']).' WEALTH'];
-/* armory chip (flat additive) */
 if ($armory_attack_bonus>0)  $chips['offense'][] = ['label'=>'+' . number_format($armory_attack_bonus)  . ' armory (flat)'];
 if ($armory_defense_bonus>0) $chips['defense'][] = ['label'=>'+' . number_format($armory_defense_bonus) . ' armory (flat)'];
-/* integrity chips if damaged */
 if ($economy_integrity_mult<1) $chips['income'][]  = ['label'=>sd_fmt_pct(($economy_integrity_mult-1)*100).' integrity'];
 if ($offense_integrity_mult<1) $chips['offense'][] = ['label'=>sd_fmt_pct(($offense_integrity_mult-1)*100).' integrity'];
 if ($defense_integrity_mult<1) $chips['defense'][] = ['label'=>sd_fmt_pct(($defense_integrity_mult-1)*100).' integrity'];
 
 /* ---------- Battle analytics (Last 7 days) ---------- */
-/* Labels window */
 $days=[]; for($i=6;$i>=0;$i--){ $days[] = date('Y-m-d', strtotime("-$i days")); }
 $labels=[]; foreach($days as $d){ $labels[] = date('m-d', strtotime($d)); }
 
-/* Outcomes (win rate) as attacker and defender */
 $outcome_series = ['att_win'=>array_fill(0,7,0),'def_win'=>array_fill(0,7,0)];
 if ($user_id>0 && ($st=mysqli_prepare($link,"
     SELECT DATE(battle_time) d,
@@ -340,7 +395,6 @@ if ($user_id>0 && ($st=mysqli_prepare($link,"
     foreach($days as $idx=>$d){ if(isset($map[$d])){ $outcome_series['att_win'][$idx]=$map[$d]['aw']; $outcome_series['def_win'][$idx]=$map[$d]['dw']; } }
 }
 
-/* Attack + Defense frequency (combined) */
 $attack_freq  = array_fill(0,7,0);
 $defense_freq = array_fill(0,7,0);
 if ($user_id>0 && ($st=mysqli_prepare($link,"
@@ -368,7 +422,6 @@ if ($user_id>0 && ($st=mysqli_prepare($link,"
     }
 }
 
-/* Outcome rates (wins ÷ total per day) */
 $attack_win_rate  = array_fill(0,7,0.0);
 $defense_win_rate = array_fill(0,7,0.0);
 for($i=0;$i<7;$i++){
@@ -424,7 +477,6 @@ function pie_slices(array $parts,float $cx,float $cy,float $r):array{
         $x2=$cx+$r*cos($end);   $y2=$cy+$r*sin($end);
         $large=($th>pi())?1:0;
         $path=sprintf("M %.2f %.2f L %.2f %.2f A %.2f %.2f 0 %d 1 %.2f %.2f Z",$cx,$cy,$x1,$y1,$r,$r,$large,$x2,$y2);
-        // palette via evenly spaced hues
         $hue = (int)round(($i*360/max(1,count($parts))));
         $slices[]=['path'=>$path,'fill'=>"hsl($hue, 70%, 50%)",'label'=>$p['name'],'count'=>$p['count']];
     }
@@ -467,18 +519,9 @@ if($user_id>0 && ($st=mysqli_prepare($link,"
 /* ---------- view ---------- */
 include_once __DIR__ . '/../includes/header.php';
 ?>
-    <!-- 
-    <div class="lg:col-span-4">
-        <div class="rounded-xl border border-yellow-500/50 bg-yellow-900/60 p-3 md:p-4 shadow text-yellow-200 text-sm md:text-base text-center">
-            Server Reset: 9-11-2025 9:30am EST, You will find your citizens reset to 1000, your bank cleared, your alliance wiped and all things as if you just created your account. This is unfortunately an unavoidable part of development and will be done as little as possible to maintain playability! Thankyou for your support, feel free to contact the Dev on discord!
-        </div>
-    </div> 
-    -->
-
     <!-- PROFILE / POPULATION CARD (full width) -->
     <div class="lg:col-span-4">
         <div class="content-box rounded-lg p-5 md:p-6">
-            <!-- Mobile: align to start so content doesn't feel squished -->
             <div class="flex flex-col md:flex-row items-start md:items-center gap-5">
                 <button id="avatar-open" class="block focus:outline-none">
                     <img src="<?php echo htmlspecialchars($user_stats['avatar_path'] ?? 'https://via.placeholder.com/150'); ?>"
@@ -494,7 +537,6 @@ include_once __DIR__ . '/../includes/header.php';
                                 <p class="text-sm">Alliance: <span class="font-bold">[<?php echo htmlspecialchars($alliance_info['tag']); ?>] <?php echo htmlspecialchars($alliance_info['name']); ?></span></p>
                             <?php endif; ?>
                         </div>
-                        <!-- Mobile = 1 col, small gap; sm+ = 2 cols; md+ = 4 cols -->
                         <div class="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-2 md:gap-3 text-sm bg-gray-900/40 p-3 rounded-lg border border-gray-700">
                             <div><div class="text-gray-400">Total Pop</div><div class="text-white font-semibold"><?php echo number_format($total_population); ?></div></div>
                             <div>
@@ -507,6 +549,51 @@ include_once __DIR__ . '/../includes/header.php';
                             <div><div class="text-gray-400">Workers</div><div class="text-white font-semibold"><?php echo number_format($user_stats['workers']); ?></div></div>
                         </div>
                     </div>
+
+                    <?php if (!empty($wars_declared_against)): ?>
+                        <!-- WAR NOTICE(S): your alliance is the target -->
+                        <div class="mt-3 space-y-2">
+                            <?php foreach ($wars_declared_against as $w): ?>
+                                <div class="rounded-lg border border-red-500/50 bg-red-900/60 px-3 py-2 text-red-100 text-sm flex flex-col md:flex-row md:items-center md:justify-between gap-2">
+                                    <div class="flex items-center">
+                                        <i data-lucide="alarm-octagon" class="w-4 h-4 mr-2 text-red-300"></i>
+                                        <span>
+                                            <span class="font-semibold">[<?php echo htmlspecialchars($w['declarer_tag']); ?>] <?php echo htmlspecialchars($w['declarer_name']); ?></span>
+                                            has declared <span class="font-extrabold text-red-200">WAR</span> on
+                                            <span class="font-semibold">[<?php echo htmlspecialchars($w['target_tag']); ?>] <?php echo htmlspecialchars($w['target_name']); ?></span>
+                                            <?php if (!empty($w['name'])): ?>
+                                                <span class="text-red-200/80">— “<?php echo htmlspecialchars($w['name']); ?>”</span>
+                                            <?php endif; ?>
+                                        </span>
+                                    </div>
+                                    <?php if ($is_alliance_leader): ?>
+                                        <a href="/war_declaration.php"
+                                           class="inline-flex items-center justify-center px-3 py-1 rounded bg-red-700 hover:bg-red-600 text-white font-medium">
+                                            Set War Goals
+                                        </a>
+                                    <?php endif; ?>
+                                </div>
+                            <?php endforeach; ?>
+                        </div>
+                    <?php endif; ?>
+
+                    <?php if (!empty($wars_declared_by)): ?>
+                        <!-- WAR BADGE(S): your alliance is the declarer -->
+                        <div class="mt-2 space-y-2">
+                            <?php foreach ($wars_declared_by as $w): ?>
+                                <div class="rounded-lg border border-amber-500/60 bg-amber-900/50 px-3 py-2 text-amber-100 text-sm flex items-start md:items-center gap-2">
+                                    <i data-lucide="triangle-alert" class="w-4 h-4 mt-0.5 text-amber-300"></i>
+                                    <div class="flex-1">
+                                        <span class="font-semibold">[<?php echo htmlspecialchars($w['declarer_tag']); ?>] <?php echo htmlspecialchars($w['declarer_name']); ?></span>
+                                        has declared <span class="font-extrabold text-amber-50">WAR</span> on
+                                        <span class="font-semibold">[<?php echo htmlspecialchars($w['target_tag']); ?>] <?php echo htmlspecialchars($w['target_name']); ?></span>
+                                        for <span class="italic">“<?php echo htmlspecialchars($w['casus_belli_text']); ?>”</span>.
+                                    </div>
+                                </div>
+                            <?php endforeach; ?>
+                        </div>
+                    <?php endif; ?>
+
                 </div>
             </div>
         </div>
@@ -538,7 +625,6 @@ include_once __DIR__ . '/../includes/header.php';
                     <span class="text-green-400 font-semibold">+<?php echo number_format($credits_per_turn); ?></span>
                 </div>
 
-
                 <div class="text-[11px] text-gray-400 mt-1 space-y-0.5">
                     <div>
                         <?php echo htmlspecialchars($income_base_label); ?>:
@@ -565,7 +651,6 @@ include_once __DIR__ . '/../includes/header.php';
                     </div>
                 </div>
 
-                <!-- Troop Maintenance Breakdown -->
                 <div class="mt-3">
                     <div class="text-[11px] text-gray-400 mb-1">
                         Troop Maintenance (per turn):
@@ -672,7 +757,6 @@ include_once __DIR__ . '/../includes/header.php';
             ?>
 
             <?php if($hasBattleData): ?>
-                <!-- Line: Outcomes (wins) -->
                 <div>
                     <div class="flex items-center justify-between text-sm mb-1">
                         <span>Outcomes (wins)</span>
@@ -688,7 +772,6 @@ include_once __DIR__ . '/../includes/header.php';
                     </div>
                 </div>
 
-                <!-- Line: Attack/Defense Frequency -->
                 <div class="mt-3">
                     <div class="flex items-center justify-between text-sm mb-1">
                         <span>Attack & Defense Frequency</span>
@@ -704,7 +787,6 @@ include_once __DIR__ . '/../includes/header.php';
                     </div>
                 </div>
 
-                <!-- Pie: Biggest Attackers -->
                 <div class="mt-3">
                     <div class="flex items-center justify-between text-sm mb-1">
                         <span>Biggest Attackers</span>

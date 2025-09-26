@@ -1,274 +1,387 @@
 <?php
 // template/pages/war_declaration.php
+// - Enforces a minimum threshold of 100,000,000 credits for wars that use the "credits_plundered" metric.
+// - Validates CSRF and permissions (alliance role order 1 or 2).
+// - Prevents simultaneous active wars between the same pair of alliances.
+// - Deducts war cost: max(10% of alliance bank, 30,000,000), in a transaction.
+// - Inserts a new active war with casus belli, goals, and start date.
+// - UI dynamically shows proper minimum threshold based on selected metric.
 
-if (session_status() === PHP_SESSION_NONE) session_start();
+if (session_status() === PHP_SESSION_NONE) { session_start(); }
+if (!isset($_SESSION["loggedin"]) || $_SESSION["loggedin"] !== true) { header("location: /index.html"); exit; }
 
 $active_page = 'war_declaration.php';
 $ROOT = dirname(__DIR__, 2);
 
 require_once $ROOT . '/config/config.php';
+require_once $ROOT . '/src/Security/CSRFProtection.php';
 require_once $ROOT . '/src/Game/GameData.php';
 require_once $ROOT . '/src/Game/GameFunctions.php';
 require_once $ROOT . '/template/includes/advisor_hydration.php';
 
-// ── Authz: leaders/officers only (hierarchy 1 or 2)
-$user_id = (int)($_SESSION['id'] ?? 0);
-if ($user_id <= 0) { header('Location: /index.html'); exit; }
+const SD_MIN_WAR_THRESHOLD_CREDITS = 100000000; // 100M
+const SD_MIN_WAR_COST             = 30000000;   // 30M
 
-$sql = "SELECT u.alliance_id, ar.`order` as hierarchy
-        FROM users u
-        JOIN alliance_roles ar ON u.alliance_role_id = ar.id
-        WHERE u.id = ?";
-$stmt = $link->prepare($sql);
-$stmt->bind_param("i", $user_id);
-$stmt->execute();
-$result    = $stmt->get_result();
-$user_data = $result->fetch_assoc();
-$stmt->close();
+// --- helpers ---
+function sd_h($s) { return htmlspecialchars((string)$s, ENT_QUOTES, 'UTF-8'); }
 
-if (!$user_data || !in_array((int)$user_data['hierarchy'], [1, 2], true)) {
-    $_SESSION['alliance_error'] = "You do not have the required permissions to declare war.";
-    header("Location: /alliance");
+function sd_get_user_perms(mysqli $db, int $user_id): ?array {
+    $sql = "SELECT u.alliance_id, ar.`order` AS hierarchy
+            FROM users u
+            LEFT JOIN alliance_roles ar ON u.alliance_role_id = ar.id
+            WHERE u.id = ?";
+    $st = $db->prepare($sql);
+    if (!$st) return null;
+    $st->bind_param('i', $user_id);
+    $st->execute();
+    $row = $st->get_result()->fetch_assoc();
+    $st->close();
+    return $row ?: null;
+}
+
+function sd_active_war_exists(mysqli $db, int $a, int $b): bool {
+    $sql = "SELECT id FROM wars
+            WHERE status='active'
+              AND ((declarer_alliance_id=? AND declared_against_alliance_id=?)
+                OR (declarer_alliance_id=? AND declared_against_alliance_id=?))
+            LIMIT 1";
+    $st = $db->prepare($sql);
+    $st->bind_param('iiii', $a, $b, $b, $a);
+    $st->execute();
+    $ok = (bool)$st->get_result()->fetch_row();
+    $st->close();
+    return $ok;
+}
+
+function sd_normalize_cb(string $key): string {
+    $k = strtolower(trim($key));
+    if ($k === 'economic_vassalage' || $k === 'economic_vassal') { return 'economic_vassal'; }
+    $allowed = ['humiliation','dignity','revolution','custom','economic_vassal'];
+    return in_array($k, $allowed, true) ? $k : 'humiliation';
+}
+
+function sd_normalize_metric(string $m): string {
+    $m = strtolower(trim($m));
+    $allowed = ['credits_plundered','structure_damage','units_killed'];
+    return in_array($m, $allowed, true) ? $m : 'credits_plundered';
+}
+
+function sd_alliance_by_id(mysqli $db, int $id): ?array {
+    $st = $db->prepare("SELECT id, name, tag, bank_credits FROM alliances WHERE id=?");
+    $st->bind_param('i', $id);
+    $st->execute();
+    $row = $st->get_result()->fetch_assoc();
+    $st->close();
+    return $row ?: null;
+}
+
+// --- state / auth ---
+$user_id = (int)$_SESSION['id'];
+$me      = sd_get_user_perms($link, $user_id);
+if (!$me || !$me['alliance_id']) {
+    $_SESSION['war_message'] = 'You must be in an alliance to declare wars.';
+    header('Location: /realm_war.php');
+    exit;
+}
+$my_alliance_id = (int)$me['alliance_id'];
+$my_hierarchy   = (int)($me['hierarchy'] ?? 999);
+if (!in_array($my_hierarchy, [1,2], true)) {
+    $_SESSION['war_message'] = 'Only alliance leaders or diplomats can declare war.';
+    header('Location: /realm_war.php');
     exit;
 }
 
+$errors = [];
+$success = "";
 
+// --- handle POST ---
+if ($_SERVER['REQUEST_METHOD'] === 'POST') {
+    try {
+        $token = $_POST['csrf_token'] ?? '';
+        if (!CSRFProtection::getInstance()->validateToken($token, 'war_declare')) {
+            throw new Exception('Security check failed. Please try again.');
+        }
 
-// ── Alliances list (exclude own)
-$sql_alliances = "SELECT id, name, tag FROM alliances WHERE id != ?";
-$stmt_alliances = $link->prepare($sql_alliances);
-$stmt_alliances->bind_param("i", $user_data['alliance_id']);
-$stmt_alliances->execute();
-$alliances = $stmt_alliances->get_result()->fetch_all(MYSQLI_ASSOC);
-$stmt_alliances->close();
+        $war_name   = trim((string)($_POST['war_name'] ?? ''));
+        if ($war_name === '') { $war_name = 'Unnamed Conflict'; }
+        $target_id  = (int)($_POST['alliance_id'] ?? 0);
+        if ($target_id <= 0) { throw new Exception('Please choose a target alliance.'); }
+        if ($target_id === $my_alliance_id) { throw new Exception('You cannot declare war on your own alliance.'); }
 
-// CSRF
-$csrf_token_war     = generate_csrf_token('war_declare');
-$csrf_token_rivalry = generate_csrf_token('rivalry_declare');
+        $cb_key     = sd_normalize_cb((string)($_POST['casus_belli'] ?? 'humiliation'));
+        $cb_custom  = null;
+        if ($cb_key === 'custom') {
+            $cb_custom = trim((string)($_POST['casus_belli_custom'] ?? ''));
+            if ($cb_custom === '') { throw new Exception('Provide a custom casus belli description.'); }
+        }
 
-// Page chrome
-$page_title = 'Starlight Dominion - War Declaration';
-include $ROOT . '/template/includes/header.php';
+        $metric     = sd_normalize_metric((string)($_POST['goal_metric'] ?? 'credits_plundered'));
+        $posted_thr = (int)($_POST['goal_threshold'] ?? 0);
+        $threshold  = max(1, $posted_thr);
+        if ($metric === 'credits_plundered') {
+            $threshold = max(SD_MIN_WAR_THRESHOLD_CREDITS, $threshold);
+        }
+
+        // Prevent duplicate active wars
+        if (sd_active_war_exists($link, $my_alliance_id, $target_id)) {
+            throw new Exception('There is already an active war between these alliances.');
+        }
+
+        // Compute war cost against current bank (re-check inside TX)
+        $myAlliance = sd_alliance_by_id($link, $my_alliance_id);
+        if (!$myAlliance) { throw new Exception('Alliance not found.'); }
+        $bank = (int)$myAlliance['bank_credits'];
+        $war_cost = max(SD_MIN_WAR_COST, (int)ceil($bank * 0.10));
+        if ($bank < $war_cost) { throw new Exception('Insufficient alliance funds. Need '.number_format($war_cost).' credits.'); }
+
+        // Begin transaction: lock bank, re-evaluate, deduct, insert war
+        $link->begin_transaction();
+        try {
+            // Lock row
+            $st = $link->prepare("SELECT bank_credits FROM alliances WHERE id=? FOR UPDATE");
+            $st->bind_param('i', $my_alliance_id);
+            $st->execute();
+            $row = $st->get_result()->fetch_assoc();
+            $st->close();
+            $bankNow = (int)($row['bank_credits'] ?? 0);
+            $war_cost = max(SD_MIN_WAR_COST, (int)ceil($bankNow * 0.10));
+            if ($bankNow < $war_cost) { throw new Exception('Insufficient funds at time of declaration.'); }
+
+            // Duplicate check again inside TX
+            if (sd_active_war_exists($link, $my_alliance_id, $target_id)) {
+                throw new Exception('An active war already exists between these alliances.');
+            }
+
+            // Deduct
+            $st = $link->prepare("UPDATE alliances SET bank_credits = bank_credits - ? WHERE id=?");
+            $st->bind_param('ii', $war_cost, $my_alliance_id);
+            $st->execute();
+            $st->close();
+
+            // Insert war row
+            $cols = [
+                'name','declarer_alliance_id','declared_against_alliance_id',
+                'casus_belli_key','casus_belli_custom',
+                'status','goal_metric','goal_threshold','start_date'
+            ];
+            $vals = [
+                $war_name, $my_alliance_id, $target_id,
+                $cb_key, $cb_custom,
+                'active', $metric, $threshold, date('Y-m-d H:i:s')
+            ];
+            $types = 'siisssiss';
+
+            // Additionally set goal_* convenience fields if present in schema
+            if ($metric === 'credits_plundered') {
+                // goal_credits_plundered equals threshold for convenience
+                $cols[] = 'goal_credits_plundered'; $vals[] = $threshold; $types .= 'i';
+            } elseif ($metric === 'structure_damage') {
+                $cols[] = 'goal_structure_damage'; $vals[] = $threshold; $types .= 'i';
+            } elseif ($metric === 'units_killed') {
+                $cols[] = 'goal_units_killed'; $vals[] = $threshold; $types .= 'i';
+            }
+
+            // If your schema has war_cost column, persist it
+            $hasWarCost = false;
+            $chk = $link->query("SHOW COLUMNS FROM wars LIKE 'war_cost'");
+            if ($chk && $chk->num_rows > 0) { $hasWarCost = true; }
+            if ($chk) { $chk->close(); }
+            if ($hasWarCost) { $cols[]='war_cost'; $vals[]=$war_cost; $types.='i'; }
+
+            $placeholder = implode(',', array_fill(0, count($cols), '?'));
+            $sql = "INSERT INTO wars (".implode(',', $cols).") VALUES ($placeholder)";
+            $st = $link->prepare($sql);
+            $st->bind_param($types, ...$vals);
+            $st->execute();
+            $st->close();
+
+            $link->commit();
+            $_SESSION['war_message'] = 'War declared successfully. Cost: '.number_format($war_cost).' credits.';
+            header('Location: /realm_war.php');
+            exit;
+        } catch (Throwable $e) {
+            $link->rollback();
+            throw $e;
+        }
+
+    } catch (Throwable $e) {
+        $errors[] = $e->getMessage();
+    }
+}
+
+// --- page data ---
+$alliances = [];
+$st = $link->prepare("SELECT id, name, tag FROM alliances WHERE id <> ? ORDER BY name ASC");
+$st->bind_param('i', $my_alliance_id);
+$st->execute();
+$alliances = $st->get_result()->fetch_all(MYSQLI_ASSOC);
+$st->close();
+
+// compute current estimated war cost for display
+$meAlliance = sd_alliance_by_id($link, $my_alliance_id);
+$est_cost = 0;
+if ($meAlliance) {
+    $est_cost = max(SD_MIN_WAR_COST, (int)ceil(((int)$meAlliance['bank_credits']) * 0.10));
+}
+
+$page_title = 'Declare War - Starlight Dominion';
+include_once $ROOT . '/template/includes/header.php';
 ?>
+<div class="lg:col-span-4 space-y-6">
 
-<!-- NOTE: We rely on the 4-col grid from header.php.
-     Use col spans to position sidebar and main. -->
-
-<!-- Sidebar (left) -->
-<aside class="lg:col-span-1 space-y-4">
-  <?php $advisor = $ROOT . '/template/includes/advisor.php'; if (is_file($advisor)) include $advisor; ?>
-</aside>
-
-<!-- Main (center column = spans 3 of 4 cols) -->
-<div class="lg:col-span-3">
-  <?php if (!empty($_SESSION['alliance_error'])): ?>
-    <div class="content-box text-red-200 border-red-600/60 p-3 rounded-md text-center mb-4">
-      <?= htmlspecialchars($_SESSION['alliance_error']); unset($_SESSION['alliance_error']); ?>
+  <?php if (!empty($errors)): ?>
+    <div class="rounded-md border border-red-600 bg-red-900/30 text-red-200 px-3 py-2">
+      <?php foreach ($errors as $err): ?>
+        <div><?php echo sd_h($err); ?></div>
+      <?php endforeach; ?>
     </div>
   <?php endif; ?>
 
-  <!-- Center the card inside the wide main column -->
-  <div class="content-box rounded-lg p-6 w-full max-w-4xl mx-auto">
-    <h1 class="font-title text-3xl text-white mb-4 border-b border-gray-700 pb-3">Initiate Hostilities</h1>
+  <div class="content-box">
+    <h2 class="font-title text-2xl mb-3">Declare a Realm War</h2>
+    <p class="text-sm opacity-80 mb-4">
+      War cost is <strong>10%</strong> of your alliance bank (minimum <strong><?php echo number_format(SD_MIN_WAR_COST); ?></strong> credits).
+      When the goal metric is <strong>Credits Plundered</strong>, the minimum threshold is <strong><?php echo number_format(SD_MIN_WAR_THRESHOLD_CREDITS); ?></strong>.
+    </p>
 
     <form id="warForm" action="/war_declaration.php" method="POST" class="space-y-6">
-      <input type="hidden" name="csrf_token" value="<?= htmlspecialchars($csrf_token_war) ?>">
-      <input type="hidden" name="csrf_action" value="war_declare">
-      <input type="hidden" name="action" value="declare_war">
+      <?php echo CSRFProtection::getInstance()->getTokenField('war_declare'); ?>
+      <input type="hidden" name="action" value="declare_war" />
 
-      <!-- Step 1: Name -->
       <div>
-        <label for="war_name" class="block mb-2 text-lg font-title text-cyan-400">Step 1: Name Your War</label>
-        <input type="text" id="war_name" name="war_name"
-               class="w-full px-3 py-2 text-gray-300 bg-gray-800 border border-gray-700 rounded-lg focus:outline-none focus:border-cyan-500"
-               placeholder="e.g., The Great Expansion" required>
+        <span class="block mb-2 text-lg font-title text-cyan-400">Step 1: Name the War</span>
+        <input type="text" name="war_name" maxlength="100" class="w-full p-2 rounded bg-gray-800 border border-gray-700 text-white"
+               placeholder="e.g., The Orion Conflict">
       </div>
 
-      <!-- Step 2: Target -->
       <div>
-        <label for="alliance_id" class="block mb-2 text-lg font-title text-cyan-400">Step 2: Select Target</label>
-        <select id="alliance_id" name="alliance_id" required
-                class="w-full px-3 py-2 text-gray-300 bg-gray-800 border border-gray-700 rounded-lg focus:outline-none focus:border-cyan-500">
-          <option value="" disabled selected>Choose an alliance to declare war upon...</option>
-          <?php foreach ($alliances as $alliance): ?>
-            <option value="<?= (int)$alliance['id'] ?>">
-              [<?= htmlspecialchars($alliance['tag']) ?>] <?= htmlspecialchars($alliance['name']) ?>
-            </option>
+        <span class="block mb-2 text-lg font-title text-cyan-400">Step 2: Choose Opponent</span>
+        <select name="alliance_id" required class="w-full p-2 rounded bg-gray-800 border border-gray-700 text-white">
+          <option value="">— Select Alliance —</option>
+          <?php foreach ($alliances as $a): ?>
+            <option value="<?php echo (int)$a['id']; ?>">[<?php echo sd_h($a['tag']); ?>] <?php echo sd_h($a['name']); ?></option>
           <?php endforeach; ?>
         </select>
       </div>
 
-      <!-- Step 3: Casus Belli -->
       <div>
-        <span class="block mb-2 text-lg font-title text-cyan-400">Step 3: Justify Your War (Casus Belli)</span>
-        <div class="grid md:grid-cols-2 gap-3">
-          <label class="flex items-start gap-2 bg-gray-900/60 border border-gray-700 rounded p-3">
-            <input type="radio" name="casus_belli" value="humiliation" required>
-            <span>
-              <span class="font-semibold text-white">Humiliation</span><br>
-              <span class="text-xs text-gray-400">Losing alliance is humiliated; loss posted on public profile until they win a war to remove it.</span>
-            </span>
+        <span class="block mb-2 text-lg font-title text-cyan-400">Step 3: Casus Belli</span>
+        <div class="grid md:grid-cols-3 gap-3">
+          <label class="flex items-center gap-2 bg-gray-900/60 border border-gray-700 rounded p-3">
+            <input type="radio" name="casus_belli" value="humiliation" checked>
+            <span class="font-semibold text-white">Humiliation</span>
           </label>
-
-          <label class="flex items-start gap-2 bg-gray-900/60 border border-gray-700 rounded p-3">
-            <input type="radio" name="casus_belli" value="dignity">
-            <span>
-              <span class="font-semibold text-white">Dignity</span><br>
-              <span class="text-xs text-gray-400">Erases Humiliation if you win; if you lose, an additional loss is posted to your profile.</span>
-            </span>
-          </label>
-
-          <label class="flex items-start gap-2 bg-gray-900/60 border border-gray-700 rounded p-3">
+          <label class="flex items-center gap-2 bg-gray-900/60 border border-gray-700 rounded p-3">
             <input type="radio" name="casus_belli" value="economic_vassal">
-            <span>
-              <span class="font-semibold text-white">Economic Vassal</span><br>
-              <span class="text-xs text-gray-400">Losing alliance pays half of their battle tax to winner until a successful Revolution.</span>
-            </span>
+            <span class="font-semibold text-white">Economic Vassalage</span>
           </label>
-
-          <label class="flex items-start gap-2 bg-gray-900/60 border border-gray-700 rounded p-3">
+          <label class="flex items-center gap-2 bg-gray-900/60 border border-gray-700 rounded p-3">
+            <input type="radio" name="casus_belli" value="dignity">
+            <span class="font-semibold text-white">Restore Dignity</span>
+          </label>
+          <label class="flex items-center gap-2 bg-gray-900/60 border border-gray-700 rounded p-3">
             <input type="radio" name="casus_belli" value="revolution">
-            <span>
-              <span class="font-semibold text-white">Revolution</span><br>
-              <span class="text-xs text-gray-400">War to end Economic Vassalage.</span>
-            </span>
+            <span class="font-semibold text-white">Revolution</span>
           </label>
-
-          <label class="flex items-start gap-2 bg-gray-900/60 border border-gray-700 rounded p-3 md:col-span-2">
-            <input id="cb-custom" type="radio" name="casus_belli" value="custom">
-            <span class="w-full">
-              <span class="font-semibold text-white">Custom</span><br>
-              <span class="text-xs text-gray-400">Leader-entered reason; if opponent loses, a permanent badge with this text appears on their profile.</span>
-              <textarea id="custom_casus_belli" name="custom_casus_belli" rows="2" maxlength="244"
-                        class="hidden mt-2 w-full px-3 py-2 text-gray-300 bg-gray-900 border border-gray-600 rounded-lg"
-                        placeholder="Enter up to 244 characters"></textarea>
-            </span>
+          <label class="flex items-center gap-2 bg-gray-900/60 border border-gray-700 rounded p-3">
+            <input type="radio" name="casus_belli" value="custom">
+            <span class="font-semibold text-white">Custom…</span>
           </label>
         </div>
+        <input type="text" name="casus_belli_custom" id="cb_custom"
+               class="mt-2 w-full p-2 rounded bg-gray-800 border border-gray-700 text-white hidden"
+               placeholder="Describe your justification…">
       </div>
 
-      <!-- Step 4: Goals (composite allowed; sliders) -->
       <div>
-        <span class="block mb-2 text-lg font-title text-cyan-400">Step 4: Define Your War Goals</span>
-        <p class="text-xs text-gray-500 mb-3">You can set any combination. A war marked as composite requires meeting <em>all</em> non-zero thresholds to claim victory.</p>
-        <div class="space-y-4">
-          <div>
-            <label for="goal_credits_plundered" class="block text-sm font-medium text-gray-300">
-              Credits Plundered: <span id="goal_credits_plundered_value">0</span>
-            </label>
-            <input type="range" id="goal_credits_plundered" name="goal_credits_plundered"
-                   min="0" max="1000000000" step="1000000" value="0"
-                   class="w-full h-2 bg-gray-700 rounded-lg appearance-none cursor-pointer">
-          </div>
+        <span class="block mb-2 text-lg font-title text-cyan-400">Step 4: War Goal</span>
+        <p class="text-xs opacity-75 mb-2">If you choose Credits Plundered, the <b>minimum</b> threshold is <?php echo number_format(SD_MIN_WAR_THRESHOLD_CREDITS); ?>.</p>
+        <div class="grid md:grid-cols-3 gap-3">
+          <label class="flex items-center gap-2 bg-gray-900/60 border border-gray-700 rounded p-3">
+            <input type="radio" name="goal_metric" value="credits_plundered" checked>
+            <span class="font-semibold text-white">Credits Plundered</span>
+          </label>
+          <label class="flex items-center gap-2 bg-gray-900/60 border border-gray-700 rounded p-3">
+            <input type="radio" name="goal_metric" value="structure_damage">
+            <span class="font-semibold text-white">Structure Damage</span>
+          </label>
+          <label class="flex items-center gap-2 bg-gray-900/60 border border-gray-700 rounded p-3">
+            <input type="radio" name="goal_metric" value="units_killed">
+            <span class="font-semibold text-white">Units Killed</span>
+          </label>
+        </div>
 
-          <div>
-            <label for="goal_units_killed" class="block text-sm font-medium text-gray-300">
-              Guards/Units Killed: <span id="goal_units_killed_value">0</span>
-            </label>
-            <input type="range" id="goal_units_killed" name="goal_units_killed"
-                   min="0" max="100000" step="100" value="0"
-                   class="w-full h-2 bg-gray-700 rounded-lg appearance-none cursor-pointer">
-          </div>
-
-          <div>
-            <label for="goal_units_assassinated" class="block text-sm font-medium text-gray-300">
-              Units Assassinated: <span id="goal_units_assassinated_value">0</span>
-            </label>
-            <input type="range" id="goal_units_assassinated" name="goal_units_assassinated"
-                   min="0" max="100000" step="10" value="0"
-                   class="w-full h-2 bg-gray-700 rounded-lg appearance-none cursor-pointer">
-          </div>
-
-          <div>
-            <label for="goal_structure_damage" class="block text-sm font-medium text-gray-300">
-              Total Structure Damage: <span id="goal_structure_damage_value">0</span>
-            </label>
-            <input type="range" id="goal_structure_damage" name="goal_structure_damage"
-                   min="0" max="10000000" step="1000" value="0"
-                   class="w-full h-2 bg-gray-700 rounded-lg appearance-none cursor-pointer">
-          </div>
-
-          <div>
-            <label for="goal_prestige_change" class="block text-sm font-medium text-gray-300">
-              Prestige Gained: <span id="goal_prestige_change_value">0</span>
-            </label>
-            <input type="range" id="goal_prestige_change" name="goal_prestige_change"
-                   min="0" max="5000" step="10" value="0"
-                   class="w-full h-2 bg-gray-700 rounded-lg appearance-none cursor-pointer">
-          </div>
+        <div class="mt-3">
+          <label class="block text-sm font-medium text-gray-300">
+            Threshold (<span id="goal_threshold_min_label">min <?php echo number_format(SD_MIN_WAR_THRESHOLD_CREDITS); ?></span> for Credits):
+            <span id="goal_threshold_value"><?php echo number_format(SD_MIN_WAR_THRESHOLD_CREDITS); ?></span>
+          </label>
+          <input type="range" id="goal_threshold" name="goal_threshold"
+                 min="<?php echo SD_MIN_WAR_THRESHOLD_CREDITS; ?>" max="1000000000" step="1000000" value="<?php echo SD_MIN_WAR_THRESHOLD_CREDITS; ?>"
+                 class="w-full h-2 bg-gray-700 rounded-lg appearance-none cursor-pointer">
+          <input type="number" id="goal_threshold_number"
+                 class="mt-2 w-full p-2 rounded bg-gray-800 border border-gray-700 text-white"
+                 min="<?php echo SD_MIN_WAR_THRESHOLD_CREDITS; ?>" max="1000000000" step="1000000"
+                 value="<?php echo SD_MIN_WAR_THRESHOLD_CREDITS; ?>">
+          <p class="text-xs text-yellow-300 mt-2">
+            Declaring war will cost approximately <strong><?php echo number_format($est_cost); ?></strong> credits (recalculated at submission).
+          </p>
         </div>
       </div>
 
-      <div class="border-t border-gray-700 pt-4 text-center">
-        <button type="submit"
-                class="w-full md:w-auto px-10 py-3 font-bold text-white bg-red-700 rounded-lg hover:bg-red-800 text-xl font-title tracking-wider">
+      <div class="pt-2">
+        <button type="submit" class="px-4 py-2 rounded bg-cyan-600 hover:bg-cyan-500 text-white font-semibold">
           Declare War
-        </button>
-      </div>
-    </form>
-
-    <!-- Rivalry -->
-    <h1 class="font-title text-3xl text-white mb-4 border-b border-gray-700 pb-3 mt-8">Declare Rivalry</h1>
-    <form id="rivalryForm" action="/war_declaration.php" method="POST" class="space-y-6">
-      <input type="hidden" name="csrf_token" value="<?= htmlspecialchars($csrf_token_rivalry) ?>">
-      <input type="hidden" name="csrf_action" value="rivalry_declare">
-      <input type="hidden" name="action" value="declare_rivalry">
-
-      <div>
-        <label for="rival_alliance_id" class="block mb-2 text-lg font-title text-cyan-400">Select Target Alliance</label>
-        <select id="rival_alliance_id" name="alliance_id" required
-                class="w-full px-3 py-2 text-gray-300 bg-gray-800 border border-gray-700 rounded-lg focus:outline-none focus:border-cyan-500">
-          <option value="" disabled selected>Choose an alliance to declare rivalry upon...</option>
-          <?php foreach ($alliances as $alliance): ?>
-            <option value="<?= (int)$alliance['id'] ?>">
-              [<?= htmlspecialchars($alliance['tag']) ?>] <?= htmlspecialchars($alliance['name']) ?>
-            </option>
-          <?php endforeach; ?>
-        </select>
-      </div>
-
-      <div class="border-t border-gray-700 pt-4 text-center">
-        <button type="submit"
-                class="w-full md:w-auto px-10 py-3 font-bold text-white bg-yellow-700 rounded-lg hover:bg-yellow-800 text-xl font-title tracking-wider">
-          Declare Rivalry
         </button>
       </div>
     </form>
   </div>
 </div>
 
-<?php include $ROOT . '/template/includes/footer.php'; ?>
+<?php include_once $ROOT . '/template/includes/footer.php'; ?>
 
 <script>
-document.addEventListener('DOMContentLoaded', function () {
-  // Show/hide custom casus belli
-  const customText  = document.getElementById('custom_casus_belli');
-  document.querySelectorAll('input[name="casus_belli"]').forEach(r => {
+document.addEventListener('DOMContentLoaded', () => {
+  const cbRadios = document.querySelectorAll('input[name="casus_belli"]');
+  const cbCustom = document.getElementById('cb_custom');
+  cbRadios.forEach(r => {
     r.addEventListener('change', () => {
-      if (r.value === 'custom' && r.checked) {
-        customText.classList.remove('hidden');
-        customText.required = true;
-      } else if (r.checked) {
-        customText.classList.add('hidden');
-        customText.required = false;
-        customText.value = '';
-      }
+      cbCustom.classList.toggle('hidden', r.value !== 'custom' || !r.checked);
+      if (r.value === 'custom' && r.checked) cbCustom.focus();
     });
   });
 
-  // Slider value mirrors
-  const sliders = [
-    { id: 'goal_credits_plundered',   valueId: 'goal_credits_plundered_value' },
-    { id: 'goal_units_killed',        valueId: 'goal_units_killed_value' },
-    { id: 'goal_units_assassinated',  valueId: 'goal_units_assassinated_value' },
-    { id: 'goal_structure_damage',    valueId: 'goal_structure_damage_value' },
-    { id: 'goal_prestige_change',     valueId: 'goal_prestige_change_value' },
-  ];
-  sliders.forEach(({id, valueId}) => {
-    const el = document.getElementById(id);
-    const out = document.getElementById(valueId);
-    const sync = () => out.textContent = parseInt(el.value || '0', 10).toLocaleString();
-    if (el) { el.addEventListener('input', sync); sync(); }
-  });
+  const metricRadios = document.querySelectorAll('input[name="goal_metric"]');
+  const th = document.getElementById('goal_threshold');
+  const thNum = document.getElementById('goal_threshold_number');
+  const thVal = document.getElementById('goal_threshold_value');
+  const minLabel = document.getElementById('goal_threshold_min_label');
+
+  function setMin(maxSwitch) {
+    const metric = document.querySelector('input[name="goal_metric"]:checked')?.value || 'credits_plundered';
+    const min = metric === 'credits_plundered' ? <?php echo SD_MIN_WAR_THRESHOLD_CREDITS; ?> : 1;
+    th.min = min; thNum.min = min;
+    if (parseInt(th.value || '0', 10) < min) { th.value = min; thNum.value = min; }
+    th.step = metric === 'credits_plundered' ? 1000000 : 1;
+    thNum.step = th.step;
+    minLabel.textContent = 'min ' + (metric === 'credits_plundered' ? (<?php echo SD_MIN_WAR_THRESHOLD_CREDITS; ?>).toLocaleString() : '1');
+    if (maxSwitch) sync();
+  }
+
+  function sync() {
+    thVal.textContent = parseInt(th.value || '0', 10).toLocaleString();
+    thNum.value = th.value;
+  }
+  function syncFromNumber() {
+    th.value = thNum.value;
+    thVal.textContent = parseInt(th.value || '0', 10).toLocaleString();
+  }
+
+  metricRadios.forEach(r => r.addEventListener('change', () => setMin(true)));
+  th.addEventListener('input', sync);
+  thNum.addEventListener('input', syncFromNumber);
+
+  setMin(true);
+  sync();
 });
 </script>

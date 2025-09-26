@@ -35,8 +35,8 @@ date_default_timezone_set('UTC');
 
 // --- SHARED DEFINITIONS ---
 $base_unit_costs = [
-    'workers' => 100, 'soldiers' => 250, 'guards' => 250,
-    'sentries' => 500, 'spies' => 1000,
+    'workers' => 1000, 'soldiers' => 2500, 'guards' => 2500,
+    'sentries' => 5000, 'spies' => 10000,
 ];
 $action = $_POST['action'] ?? ''; // Determine if we are training or disbanding
 

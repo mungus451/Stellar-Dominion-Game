@@ -438,94 +438,87 @@ try {
     // ─────────────────────────────────────────────────────────────────────────
     // BATTLE CALCULATION
     // ─────────────────────────────────────────────────────────────────────────
+
     // Read attacker armory
     $owned_items = fetch_user_armory($link, $attacker_id);
-    
+
     // Accumulate armory attack bonus (clamped by soldier count)
     $soldier_count = (int)$attacker['soldiers'];
     $armory_attack_bonus = sd_soldier_armory_attack_bonus($owned_items, $soldier_count);
 
     // Defender armory (defense)
     $defender_owned_items = fetch_user_armory($link, $defender_id);
-
     $guard_count = (int)$defender['guards'];
     $defender_armory_defense_bonus = sd_guard_armory_defense_bonus($defender_owned_items, $guard_count);
 
-    // Upgrade multipliers
+    // Upgrade multipliers (from $upgrades in GameData/StructureData)
     $total_offense_bonus_pct = 0.0;
     for ($i = 1, $n = (int)$attacker['offense_upgrade_level']; $i <= $n; $i++) {
         $total_offense_bonus_pct += (float)($upgrades['offense']['levels'][$i]['bonuses']['offense'] ?? 0);
     }
     $offense_upgrade_mult = 1 + ($total_offense_bonus_pct / 100.0);
-    $strength_mult = 1 + ((int)$attacker['strength_points'] * 0.01);
+    $strength_mult        = 1 + ((int)$attacker['strength_points'] * 0.01);
 
     $total_defense_bonus_pct = 0.0;
     for ($i = 1, $n = (int)$defender['defense_upgrade_level']; $i <= $n; $i++) {
         $total_defense_bonus_pct += (float)($upgrades['defense']['levels'][$i]['bonuses']['defense'] ?? 0);
     }
     $defense_upgrade_mult = 1 + ($total_defense_bonus_pct / 100.0);
-    $constitution_mult = 1 + ((int)$defender['constitution_points'] * 0.01);
+    $constitution_mult    = 1 + ((int)$defender['constitution_points'] * 0.01);
 
-    // Effective strengths
+    // Bases
     $AVG_UNIT_POWER   = 10;
     $base_soldier_atk = max(0, (int)$attacker['soldiers']) * $AVG_UNIT_POWER;
     $base_guard_def   = max(0, (int)$defender['guards'])  * $AVG_UNIT_POWER;
 
+    // Raw strengths (match dashboard pre-mult)
     $RawAttack  = (($base_soldier_atk * $strength_mult) + $armory_attack_bonus) * $offense_upgrade_mult;
-    // Scale attacker attack by Offense structure integrity (match dashboard)
-    $RawAttack *= $OFFENSE_STRUCT_MULT;
-
     $RawDefense = (($base_guard_def + $defender_armory_defense_bonus) * $constitution_mult) * $defense_upgrade_mult;
-    // Scale defender defense by Defense structure integrity (match dashboard)
+
+    // Structure integrity (health %) multipliers (same as dashboard)
+    $RawAttack  *= $OFFENSE_STRUCT_MULT;
     $RawDefense *= $DEFENSE_STRUCT_MULT;
 
-    // Alliance base combat bonus (+10%) if the side is in any alliance.
-    // Applied before fort/turn/noise to keep tuning predictable.
-    if (!empty($attacker['alliance_id'])) {
-        $RawAttack *= (1.0 + ALLIANCE_BASE_COMBAT_BONUS);
-    }
-    if (!empty($defender['alliance_id'])) {
-        $RawDefense *= (1.0 + ALLIANCE_BASE_COMBAT_BONUS);
-    }
+    // Alliance **structure** bonuses (+5% OTG, +8% Starfighter, +10% Citadel, etc.)
+    $alli_attacker = sd_compute_alliance_bonuses($link, ['alliance_id' => (int)($attacker['alliance_id'] ?? 0)]);
+    $alli_defender = sd_compute_alliance_bonuses($link, ['alliance_id' => (int)($defender['alliance_id'] ?? 0)]);
+    $alli_offense_mult = 1.0 + ((float)($alli_attacker['offense'] ?? 0) / 100.0);
+    $alli_defense_mult = 1.0 + ((float)($alli_defender['defense'] ?? 0) / 100.0);
+    $RawAttack  *= $alli_offense_mult;
+    $RawDefense *= $alli_defense_mult;
 
-    // ─────────────────────────────────────────────────────────────────────────────
-    // Fortification health → multipliers (runs before final strengths / kills / plunder)
-    // ─────────────────────────────────────────────────────────────────────────────
+    // Flat +10% if in any alliance (same as dashboard does, multiplicative)
+    if (!empty($attacker['alliance_id'])) { $RawAttack  *= (1.0 + ALLIANCE_BASE_COMBAT_BONUS); }
+    if (!empty($defender['alliance_id'])) { $RawDefense *= (1.0 + ALLIANCE_BASE_COMBAT_BONUS); }
+
+    // Fortification health → multipliers (unchanged)
     {
         $fort_hp      = max(0, (int)($defender['fortification_hitpoints'] ?? 0));
         $fort_full_hp = (int)STRUCT_FULL_HP_DEFAULT;
         $h = ($fort_full_hp > 0) ? max(0.0, min(1.0, $fort_hp / $fort_full_hp)) : 0.5;
-        // Map to t ∈ [-1, +1] where 0 = neutral at 50%
+
         $t = ($h - 0.5) * 2.0;
         $low  = ($t < 0) ? pow(-$t, FORT_CURVE_EXP_LOW)  : 0.0;
         $high = ($t > 0) ? pow( $t, FORT_CURVE_EXP_HIGH) : 0.0;
 
-        // Guard kill multiplier ( >1 below 50%, <1 above 50% )
         $FORT_GUARD_KILL_MULT = (1.0 + FORT_LOW_GUARD_KILL_BOOST_MAX * $low)
                               * (1.0 - FORT_HIGH_GUARD_KILL_REDUCTION_MAX * $high);
-        // Plunder multiplier ( >1 below 50%, <1 above 50% )
         $FORT_PLUNDER_MULT    = (1.0 + FORT_LOW_CREDITS_PLUNDER_BOOST_MAX * $low)
                               * (1.0 - FORT_HIGH_CREDITS_PLUNDER_REDUCTION_MAX * $high);
-        // Defense multiplier ( >=1 above 50%; can be <=1 below 50% if penalty enabled)
         $FORT_DEFENSE_MULT    = (1.0 - FORT_LOW_DEF_PENALTY_MAX * $low)
                               * (1.0 + FORT_HIGH_DEF_BONUS_MAX * $high);
 
-        // Apply defense mult directly on raw defense prior to noise/turns
         $RawDefense *= max(0.10, $FORT_DEFENSE_MULT);
     }
 
-    // Turns multiplier
+    // Turns & noise
     $TurnsMult = min(1 + ATK_TURNS_SOFT_EXP * (pow(max(1, $attack_turns), ATK_TURNS_SOFT_EXP) - 1), ATK_TURNS_MAX_MULT);
-
-    // Noise
     $noiseA = mt_rand((int)(RANDOM_NOISE_MIN * 1000), (int)(RANDOM_NOISE_MAX * 1000)) / 1000.0;
     $noiseD = mt_rand((int)(RANDOM_NOISE_MIN * 1000), (int)(RANDOM_NOISE_MAX * 1000)) / 1000.0;
 
-    // Final strengths
+    // Final strengths & decision
     $EA = max(1.0, $RawAttack  * $TurnsMult * $noiseA);
     $ED = max(1.0, $RawDefense * $noiseD);
-
-    // Win decision
     $R = $EA / $ED;
     $attacker_wins = ($R >= UNDERDOG_MIN_RATIO_TO_WIN);
     $outcome = $attacker_wins ? 'victory' : 'defeat';
