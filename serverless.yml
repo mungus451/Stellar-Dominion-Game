@@ -239,8 +239,8 @@ functions:
       - ${self:custom.SecretsManagerAgentLambdaLayer}
     events:
       - schedule:
-          # Run at minute 5 of every hour (UTC). Use cron expression for precise scheduling.
-          rate: cron(5 * * ? *)
+          # Run at minute 5 of every hour (UTC). Use AWS cron expression (6 fields) for precise scheduling.
+          rate: cron(5 * * * ? *)
 
   # Dedicated API function for advisor polling - optimized for frequent requests
   advisorPoll:
