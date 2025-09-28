@@ -1,11 +1,10 @@
 <?php
 // template/pages/war_declaration.php
-// - Enforces a minimum threshold of 100,000,000 credits for wars that use the "credits_plundered" metric.
-// - Validates CSRF and permissions (alliance role order 1 or 2).
-// - Prevents simultaneous active wars between the same pair of alliances.
-// - Deducts war cost: max(10% of alliance bank, 30,000,000), in a transaction.
-// - Inserts a new active war with casus belli, goals, and start date.
-// - UI dynamically shows proper minimum threshold based on selected metric.
+// - Enforces a minimum threshold of 100,000,000 credits (credits_plundered is the only goal).
+// - Removes Economic Vassalage AND Revolution from casus belli options.
+// - Adds optional Custom War Badge (name/desc/icon) when casus_belli = custom and persists it into wars.* if columns exist.
+// - Validates CSRF + permissions; prevents simultaneous active wars; charges war cost in TX.
+// - Keeps original UI/layout (slider + number input).
 
 if (session_status() === PHP_SESSION_NONE) { session_start(); }
 if (!isset($_SESSION["loggedin"]) || $_SESSION["loggedin"] !== true) { header("location: /index.html"); exit; }
@@ -55,15 +54,14 @@ function sd_active_war_exists(mysqli $db, int $a, int $b): bool {
 
 function sd_normalize_cb(string $key): string {
     $k = strtolower(trim($key));
-    if ($k === 'economic_vassalage' || $k === 'economic_vassal') { return 'economic_vassal'; }
-    $allowed = ['humiliation','dignity','revolution','custom','economic_vassal'];
+    // Economic vassalage and revolution removed
+    $allowed = ['humiliation','dignity','custom'];
     return in_array($k, $allowed, true) ? $k : 'humiliation';
 }
 
 function sd_normalize_metric(string $m): string {
-    $m = strtolower(trim($m));
-    $allowed = ['credits_plundered','structure_damage','units_killed'];
-    return in_array($m, $allowed, true) ? $m : 'credits_plundered';
+    // Force credits only
+    return 'credits_plundered';
 }
 
 function sd_alliance_by_id(mysqli $db, int $id): ?array {
@@ -75,20 +73,29 @@ function sd_alliance_by_id(mysqli $db, int $id): ?array {
     return $row ?: null;
 }
 
+function sd_column_exists(mysqli $db, string $table, string $column): bool {
+    $q = $db->prepare("SHOW COLUMNS FROM `$table` LIKE ?");
+    if (!$q) return false;
+    $q->bind_param('s', $column);
+    $q->execute();
+    $res = $q->get_result();
+    $ok = $res && $res->num_rows > 0;
+    $q->close();
+    return $ok;
+}
+
 // --- state / auth ---
 $user_id = (int)$_SESSION['id'];
 $me      = sd_get_user_perms($link, $user_id);
 if (!$me || !$me['alliance_id']) {
     $_SESSION['war_message'] = 'You must be in an alliance to declare wars.';
-    header('Location: /realm_war.php');
-    exit;
+    header('Location: /realm_war.php'); exit;
 }
 $my_alliance_id = (int)$me['alliance_id'];
 $my_hierarchy   = (int)($me['hierarchy'] ?? 999);
 if (!in_array($my_hierarchy, [1,2], true)) {
     $_SESSION['war_message'] = 'Only alliance leaders or diplomats can declare war.';
-    header('Location: /realm_war.php');
-    exit;
+    header('Location: /realm_war.php'); exit;
 }
 
 $errors = [];
@@ -113,14 +120,48 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         if ($cb_key === 'custom') {
             $cb_custom = trim((string)($_POST['casus_belli_custom'] ?? ''));
             if ($cb_custom === '') { throw new Exception('Provide a custom casus belli description.'); }
+            if (mb_strlen($cb_custom) > 244) $cb_custom = mb_substr($cb_custom, 0, 244);
         }
 
+        // Custom Badge inputs
+        $customBadgeName = null;
+        $customBadgeDesc = null;
+        $customBadgePath = null;
+
+        if ($cb_key === 'custom') {
+            $customBadgeName = trim((string)($_POST['custom_badge_name'] ?? ''));
+            $customBadgeDesc = trim((string)($_POST['custom_badge_description'] ?? ''));
+            if ($customBadgeName !== '') {
+                if (mb_strlen($customBadgeName) > 100) $customBadgeName = mb_substr($customBadgeName, 0, 100);
+                if (mb_strlen($customBadgeDesc) > 255) $customBadgeDesc = mb_substr($customBadgeDesc, 0, 255);
+            }
+
+            if (!empty($_FILES['custom_badge_icon']['name'] ?? '')) {
+                $allowed = ['png','jpg','jpeg','gif','avif','webp'];
+                $maxSize = 256 * 1024; // 256KB
+                $err = (int)($_FILES['custom_badge_icon']['error'] ?? UPLOAD_ERR_OK);
+                if ($err !== UPLOAD_ERR_OK) { throw new Exception('Badge icon upload failed.'); }
+                if (($_FILES['custom_badge_icon']['size'] ?? 0) > $maxSize) { throw new Exception('Badge icon too large (max 256KB).'); }
+
+                $ext = strtolower(pathinfo($_FILES['custom_badge_icon']['name'], PATHINFO_EXTENSION));
+                if (!in_array($ext, $allowed, true)) { throw new Exception('Invalid badge icon type.'); }
+
+                $uploadDir = $ROOT . '/public/uploads/war_badges/';
+                if (!is_dir($uploadDir)) { @mkdir($uploadDir, 0775, true); }
+                $safeBase = preg_replace('/[^a-z0-9_-]+/i', '-', $customBadgeName ?: 'custom');
+                $fileName = sprintf('war_%d_%s_%d.%s', $my_alliance_id, strtolower($safeBase), time(), $ext);
+                $destFs   = $uploadDir . $fileName;
+                if (!move_uploaded_file($_FILES['custom_badge_icon']['tmp_name'], $destFs)) {
+                    throw new Exception('Could not save badge icon.');
+                }
+                $customBadgePath = '/uploads/war_badges/' . $fileName;
+            }
+        }
+
+        // Force credits goal + min
         $metric     = sd_normalize_metric((string)($_POST['goal_metric'] ?? 'credits_plundered'));
         $posted_thr = (int)($_POST['goal_threshold'] ?? 0);
-        $threshold  = max(1, $posted_thr);
-        if ($metric === 'credits_plundered') {
-            $threshold = max(SD_MIN_WAR_THRESHOLD_CREDITS, $threshold);
-        }
+        $threshold  = max(SD_MIN_WAR_THRESHOLD_CREDITS, $posted_thr);
 
         // Prevent duplicate active wars
         if (sd_active_war_exists($link, $my_alliance_id, $target_id)) {
@@ -171,22 +212,22 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             ];
             $types = 'siisssiss';
 
-            // Additionally set goal_* convenience fields if present in schema
-            if ($metric === 'credits_plundered') {
-                // goal_credits_plundered equals threshold for convenience
+            // Convenience goal column (credits only)
+            if (sd_column_exists($link, 'wars', 'goal_credits_plundered')) {
                 $cols[] = 'goal_credits_plundered'; $vals[] = $threshold; $types .= 'i';
-            } elseif ($metric === 'structure_damage') {
-                $cols[] = 'goal_structure_damage'; $vals[] = $threshold; $types .= 'i';
-            } elseif ($metric === 'units_killed') {
-                $cols[] = 'goal_units_killed'; $vals[] = $threshold; $types .= 'i';
             }
 
-            // If your schema has war_cost column, persist it
-            $hasWarCost = false;
-            $chk = $link->query("SHOW COLUMNS FROM wars LIKE 'war_cost'");
-            if ($chk && $chk->num_rows > 0) { $hasWarCost = true; }
-            if ($chk) { $chk->close(); }
-            if ($hasWarCost) { $cols[]='war_cost'; $vals[]=$war_cost; $types.='i'; }
+            // Optional war_cost column
+            if (sd_column_exists($link, 'wars', 'war_cost')) {
+                $cols[] = 'war_cost'; $vals[] = $war_cost; $types .= 'i';
+            }
+
+            // Persist custom badge metadata if present in schema and casus is custom
+            if ($cb_key === 'custom') {
+                if (sd_column_exists($link, 'wars', 'custom_badge_name'))        { $cols[]='custom_badge_name';        $vals[]=$customBadgeName; $types.='s'; }
+                if (sd_column_exists($link, 'wars', 'custom_badge_description')) { $cols[]='custom_badge_description'; $vals[]=$customBadgeDesc; $types.='s'; }
+                if (sd_column_exists($link, 'wars', 'custom_badge_icon_path'))   { $cols[]='custom_badge_icon_path';   $vals[]=$customBadgePath; $types.='s'; }
+            }
 
             $placeholder = implode(',', array_fill(0, count($cols), '?'));
             $sql = "INSERT INTO wars (".implode(',', $cols).") VALUES ($placeholder)";
@@ -197,8 +238,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
             $link->commit();
             $_SESSION['war_message'] = 'War declared successfully. Cost: '.number_format($war_cost).' credits.';
-            header('Location: /realm_war.php');
-            exit;
+            header('Location: /realm_war.php'); exit;
         } catch (Throwable $e) {
             $link->rollback();
             throw $e;
@@ -217,7 +257,7 @@ $st->execute();
 $alliances = $st->get_result()->fetch_all(MYSQLI_ASSOC);
 $st->close();
 
-// compute current estimated war cost for display
+// war cost estimate for UI
 $meAlliance = sd_alliance_by_id($link, $my_alliance_id);
 $est_cost = 0;
 if ($meAlliance) {
@@ -241,12 +281,13 @@ include_once $ROOT . '/template/includes/header.php';
     <h2 class="font-title text-2xl mb-3">Declare a Realm War</h2>
     <p class="text-sm opacity-80 mb-4">
       War cost is <strong>10%</strong> of your alliance bank (minimum <strong><?php echo number_format(SD_MIN_WAR_COST); ?></strong> credits).
-      When the goal metric is <strong>Credits Plundered</strong>, the minimum threshold is <strong><?php echo number_format(SD_MIN_WAR_THRESHOLD_CREDITS); ?></strong>.
+      Only <strong>Credits Plundered</strong> is supported as a goal, with a minimum threshold of <strong><?php echo number_format(SD_MIN_WAR_THRESHOLD_CREDITS); ?></strong>.
     </p>
 
-    <form id="warForm" action="/war_declaration.php" method="POST" class="space-y-6">
+    <form id="warForm" action="/war_declaration.php" method="POST" enctype="multipart/form-data" class="space-y-6">
       <?php echo CSRFProtection::getInstance()->getTokenField('war_declare'); ?>
       <input type="hidden" name="action" value="declare_war" />
+      <input type="hidden" name="goal_metric" value="credits_plundered" />
 
       <div>
         <span class="block mb-2 text-lg font-title text-cyan-400">Step 1: Name the War</span>
@@ -272,22 +313,35 @@ include_once $ROOT . '/template/includes/header.php';
             <span class="font-semibold text-white">Humiliation</span>
           </label>
           <label class="flex items-center gap-2 bg-gray-900/60 border border-gray-700 rounded p-3">
-            <input type="radio" name="casus_belli" value="economic_vassal">
-            <span class="font-semibold text-white">Economic Vassalage</span>
-          </label>
-          <label class="flex items-center gap-2 bg-gray-900/60 border border-gray-700 rounded p-3">
             <input type="radio" name="casus_belli" value="dignity">
             <span class="font-semibold text-white">Restore Dignity</span>
-          </label>
-          <label class="flex items-center gap-2 bg-gray-900/60 border border-gray-700 rounded p-3">
-            <input type="radio" name="casus_belli" value="revolution">
-            <span class="font-semibold text-white">Revolution</span>
           </label>
           <label class="flex items-center gap-2 bg-gray-900/60 border border-gray-700 rounded p-3">
             <input type="radio" name="casus_belli" value="custom">
             <span class="font-semibold text-white">Custom…</span>
           </label>
         </div>
+
+        <div id="customBadgeBox" class="mt-3 hidden">
+          <span class="block mb-2 text-lg font-title text-cyan-400">Custom War Badge</span>
+          <p class="text-xs opacity-75 mb-2">
+            Optional: the loser’s members will receive this badge when the war ends in your victory.
+          </p>
+          <div class="grid md:grid-cols-2 gap-3">
+            <input type="text" name="custom_badge_name" maxlength="100"
+                   placeholder="Badge name (e.g., Mark of Orion)"
+                   class="w-full p-2 rounded bg-gray-800 border border-gray-700 text-white">
+            <input type="text" name="custom_badge_description" maxlength="255"
+                   placeholder="Short description shown on profiles"
+                   class="w-full p-2 rounded bg-gray-800 border border-gray-700 text-white">
+          </div>
+          <div class="mt-2">
+            <input type="file" name="custom_badge_icon" accept=".png,.jpg,.jpeg,.gif,.avif,.webp"
+                   class="block w-full text-sm text-gray-300 file:mr-4 file:py-2 file:px-4 file:rounded file:border-0 file:bg-cyan-600 file:text-white hover:file:bg-cyan-500" />
+            <p class="text-xs opacity-60 mt-1">Recommended: square image, ≤ 256 KB.</p>
+          </div>
+        </div>
+
         <input type="text" name="casus_belli_custom" id="cb_custom"
                class="mt-2 w-full p-2 rounded bg-gray-800 border border-gray-700 text-white hidden"
                placeholder="Describe your justification…">
@@ -295,21 +349,10 @@ include_once $ROOT . '/template/includes/header.php';
 
       <div>
         <span class="block mb-2 text-lg font-title text-cyan-400">Step 4: War Goal</span>
-        <p class="text-xs opacity-75 mb-2">If you choose Credits Plundered, the <b>minimum</b> threshold is <?php echo number_format(SD_MIN_WAR_THRESHOLD_CREDITS); ?>.</p>
-        <div class="grid md:grid-cols-3 gap-3">
-          <label class="flex items-center gap-2 bg-gray-900/60 border border-gray-700 rounded p-3">
-            <input type="radio" name="goal_metric" value="credits_plundered" checked>
-            <span class="font-semibold text-white">Credits Plundered</span>
-          </label>
-          <label class="flex items-center gap-2 bg-gray-900/60 border border-gray-700 rounded p-3">
-            <input type="radio" name="goal_metric" value="structure_damage">
-            <span class="font-semibold text-white">Structure Damage</span>
-          </label>
-          <label class="flex items-center gap-2 bg-gray-900/60 border border-gray-700 rounded p-3">
-            <input type="radio" name="goal_metric" value="units_killed">
-            <span class="font-semibold text-white">Units Killed</span>
-          </label>
-        </div>
+        <p class="text-xs opacity-75 mb-2">
+          Only <b>Credits Plundered</b> is supported. Minimum threshold is
+          <?php echo number_format(SD_MIN_WAR_THRESHOLD_CREDITS); ?> credits.
+        </p>
 
         <div class="mt-3">
           <label class="block text-sm font-medium text-gray-300">
@@ -319,7 +362,7 @@ include_once $ROOT . '/template/includes/header.php';
           <input type="range" id="goal_threshold" name="goal_threshold"
                  min="<?php echo SD_MIN_WAR_THRESHOLD_CREDITS; ?>" max="1000000000" step="1000000" value="<?php echo SD_MIN_WAR_THRESHOLD_CREDITS; ?>"
                  class="w-full h-2 bg-gray-700 rounded-lg appearance-none cursor-pointer">
-          <input type="number" id="goal_threshold_number"
+          <input type="number" id="goal_threshold_number" name="goal_threshold"
                  class="mt-2 w-full p-2 rounded bg-gray-800 border border-gray-700 text-white"
                  min="<?php echo SD_MIN_WAR_THRESHOLD_CREDITS; ?>" max="1000000000" step="1000000"
                  value="<?php echo SD_MIN_WAR_THRESHOLD_CREDITS; ?>">
@@ -342,33 +385,28 @@ include_once $ROOT . '/template/includes/header.php';
 
 <script>
 document.addEventListener('DOMContentLoaded', () => {
+  // Toggle custom fields when casus=custom
   const cbRadios = document.querySelectorAll('input[name="casus_belli"]');
   const cbCustom = document.getElementById('cb_custom');
-  cbRadios.forEach(r => {
-    r.addEventListener('change', () => {
-      cbCustom.classList.toggle('hidden', r.value !== 'custom' || !r.checked);
-      if (r.value === 'custom' && r.checked) cbCustom.focus();
-    });
-  });
+  const customBadgeBox = document.getElementById('customBadgeBox');
 
-  const metricRadios = document.querySelectorAll('input[name="goal_metric"]');
+  function updateCB() {
+    const checked = document.querySelector('input[name="casus_belli"]:checked');
+    const isCustom = checked && checked.value === 'custom';
+    cbCustom.classList.toggle('hidden', !isCustom);
+    customBadgeBox.classList.toggle('hidden', !isCustom);
+    if (isCustom) cbCustom.focus();
+  }
+  cbRadios.forEach(r => r.addEventListener('change', updateCB));
+  updateCB();
+
+  // Goal threshold slider <-> number sync (credits-only)
   const th = document.getElementById('goal_threshold');
   const thNum = document.getElementById('goal_threshold_number');
   const thVal = document.getElementById('goal_threshold_value');
   const minLabel = document.getElementById('goal_threshold_min_label');
 
-  function setMin(maxSwitch) {
-    const metric = document.querySelector('input[name="goal_metric"]:checked')?.value || 'credits_plundered';
-    const min = metric === 'credits_plundered' ? <?php echo SD_MIN_WAR_THRESHOLD_CREDITS; ?> : 1;
-    th.min = min; thNum.min = min;
-    if (parseInt(th.value || '0', 10) < min) { th.value = min; thNum.value = min; }
-    th.step = metric === 'credits_plundered' ? 1000000 : 1;
-    thNum.step = th.step;
-    minLabel.textContent = 'min ' + (metric === 'credits_plundered' ? (<?php echo SD_MIN_WAR_THRESHOLD_CREDITS; ?>).toLocaleString() : '1');
-    if (maxSwitch) sync();
-  }
-
-  function sync() {
+  function syncFromSlider() {
     thVal.textContent = parseInt(th.value || '0', 10).toLocaleString();
     thNum.value = th.value;
   }
@@ -376,12 +414,11 @@ document.addEventListener('DOMContentLoaded', () => {
     th.value = thNum.value;
     thVal.textContent = parseInt(th.value || '0', 10).toLocaleString();
   }
-
-  metricRadios.forEach(r => r.addEventListener('change', () => setMin(true)));
-  th.addEventListener('input', sync);
+  th.addEventListener('input', syncFromSlider);
   thNum.addEventListener('input', syncFromNumber);
 
-  setMin(true);
-  sync();
+  // Static (credits-only) min label
+  minLabel.textContent = 'min ' + (<?php echo SD_MIN_WAR_THRESHOLD_CREDITS; ?>).toLocaleString();
+  syncFromSlider();
 });
 </script>

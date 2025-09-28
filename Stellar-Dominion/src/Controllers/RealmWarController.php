@@ -200,6 +200,13 @@ class RealmWarController extends BaseController
 
     private function writeWarProgress(int $warId, int $dec, int $aga): void
     {
+        // Clamp to INT32 to avoid out-of-range errors on INT columns.
+        $INT32_MAX = 2147483647;
+        if ($dec < 0) $dec = 0;
+        if ($aga < 0) $aga = 0;
+        if ($dec > $INT32_MAX) $dec = $INT32_MAX;
+        if ($aga > $INT32_MAX) $aga = $INT32_MAX;
+
         $stmt = $this->db->prepare("
             UPDATE wars
                SET goal_progress_declarer = ?, goal_progress_declared_against = ?
@@ -450,6 +457,95 @@ class RealmWarController extends BaseController
             }
             $this->awardAllianceBadge($decId, self::BADGE_WAR_PARTICIPANT);
             $this->awardAllianceBadge($agaId, self::BADGE_WAR_PARTICIPANT);
+
+            // === Per-casus dynamic badges ===
+            if (!empty($winnerAllianceId) && !empty($loserAllianceId)) {
+                $aWin  = $this->fetchAlliance($winnerAllianceId);
+                $aLose = $this->fetchAlliance($loserAllianceId);
+                $winName = $aWin['name'] ?? 'Unknown';
+                $winTag  = $aWin['tag']  ?? '';
+                $loseName= $aLose['name'] ?? 'Unknown';
+                $loseTag = $aLose['tag']  ?? '';
+
+                $warRow = null;
+                if ($stWB = $this->db->prepare("SELECT name, custom_badge_name, custom_badge_description, custom_badge_icon_path FROM wars WHERE id=?")) {
+                    $stWB->bind_param('i', $warId);
+                    $stWB->execute();
+                    $warRow = $stWB->get_result()->fetch_assoc();
+                    $stWB->close();
+                }
+                $warName = trim((string)($warRow['name'] ?? 'War'));
+
+                $loserIds  = $this->getAllianceMemberIds($loserAllianceId);
+                $winnerIds = $this->getAllianceMemberIds($winnerAllianceId);
+
+                if ($cbKey === 'custom') {
+                    $bName = trim((string)($warRow['custom_badge_name'] ?? '')) ?: ("Marked by [{$winTag}]");
+                    $bIcon = trim((string)($warRow['custom_badge_icon_path'] ?? '')) ?: '/assets/img/war_monger.avif';
+                    $bDesc = trim((string)($warRow['custom_badge_description'] ?? '')) ?: ("Marked by {$winName} in {$warName}");
+                    foreach ($loserIds as $uid) {
+                        if (method_exists(BadgeService::class, 'awardCustom')) {
+                            BadgeService::awardCustom($this->db, (int)$uid, $bName, $bIcon, $bDesc);
+                        } else {
+                            $bid = $this->ensureBadge($bName, $bIcon, $bDesc);
+                            $this->awardBadgeIdToUsers($bid, [(int)$uid]);
+                        }
+                    }
+                }
+
+                if ($cbKey === 'humiliation') {
+                    $bName = "Humiliated by [{$winTag}]";
+                    $bIcon = '/assets/img/war_monger.avif';
+                    $bDesc = "Humiliated by {$winName} in {$warName}";
+                    foreach ($loserIds as $uid) {
+                        if (method_exists(BadgeService::class, 'awardCustom')) {
+                            BadgeService::awardCustom($this->db, (int)$uid, $bName, $bIcon, $bDesc);
+                        } else {
+                            $bid = $this->ensureBadge($bName, $bIcon, $bDesc);
+                            $this->awardBadgeIdToUsers($bid, [(int)$uid]);
+                        }
+                    }
+                }
+
+                if ($cbKey === 'dignity') {
+                    // Winners get the "Dignity Restored" badge
+                    $bName = "Dignity Restored from [{$loseTag}]";
+                    $bIcon = '/assets/img/bulwark.avif';
+                    $bDesc = "Dignity restored from {$loseName} in {$warName}";
+                    foreach ($winnerIds as $uid) {
+                        if (method_exists(BadgeService::class, 'awardCustom')) {
+                            BadgeService::awardCustom($this->db, (int)$uid, $bName, $bIcon, $bDesc);
+                        } else {
+                            $bid = $this->ensureBadge($bName, $bIcon, $bDesc);
+                            $this->awardBadgeIdToUsers($bid, [(int)$uid]);
+                        }
+                    }
+
+                    // === New logic per request ===
+                    // Declarer is the one attempting to restore dignity.
+                    $declarerWon  = ($winnerAllianceId === $decId);
+                    $declarerLost = ($loserAllianceId  === $decId);
+
+                    $baseHumil = "Humiliated by [{$winTag}]"; // opponent perspective for declarer
+                    $baseHumilForWinner = "Humiliated by [{$loseTag}]"; // opponent perspective for winner side
+
+                    if ($declarerWon) {
+                        // Remove humiliation badge(s) from the victor's members (declarer)
+                        $this->removeBadgesFromUsersByBase($decMembers, $baseHumilForWinner);
+
+                        // Also remove the humiliation-victor badge from the loser (if present)
+                        $this->removeBadgesLikeFromUsers($loserIds, "Humiliation Victor%");
+                        $this->removeBadgesLikeFromUsers($loserIds, "Humiliator%"); // alternative naming, if used
+                    }
+
+                    if ($declarerLost) {
+                        // Increase the tally mark on the declarer's humiliation badge set
+                        $this->incrementHumiliationTallyForUsers($decMembers, $winTag, '/assets/img/war_monger.avif', "Humiliated by {$winName}");
+                    }
+                    // === end new logic ===
+                }
+            }
+            // === end per-casus dynamic badges ===
 
             $this->db->commit();
         } catch (\Throwable $e) {
@@ -763,37 +859,13 @@ class RealmWarController extends BaseController
             $details['biggest_attack']['declared_against'] = $this->pickMaxRow($b, $s, 'structure');
         }
 
-        // Top attacker + XP
-        if ($metric === 'credits_plundered') {
-            $details['top_attacker']['declarer'] = $this->topFromSum("battle_logs","credits_stolen","battle_time","outcome","victory",$decMembers,$agaMembers,$since,$until);
-            $details['top_attacker']['declared_against'] = $this->topFromSum("battle_logs","credits_stolen","battle_time","outcome","victory",$agaMembers,$decMembers,$since,$until);
-            $details['biggest_plunderer'] = [
-                'declarer' => $details['top_attacker']['declarer'],
-                'declared_against' => $details['top_attacker']['declared_against'],
-            ];
-        } elseif ($metric === 'units_killed') {
-            $decTop = $this->mergeTopRows(
-                $this->sumByUserRows("battle_logs","guards_lost","battle_time","outcome","victory",$decMembers,$agaMembers,$since,$until),
-                $this->sumByUserRows("spy_logs","units_killed","mission_time","outcome","success",$decMembers,$agaMembers,$since,$until)
-            );
-            $agaTop = $this->mergeTopRows(
-                $this->sumByUserRows("battle_logs","guards_lost","battle_time","outcome","victory",$agaMembers,$decMembers,$since,$until),
-                $this->sumByUserRows("spy_logs","units_killed","mission_time","outcome","success",$agaMembers,$decMembers,$since,$until)
-            );
-            $details['top_attacker']['declarer'] = $decTop;
-            $details['top_attacker']['declared_against'] = $agaTop;
-        } else {
-            $decTop = $this->mergeTopRows(
-                $this->sumByUserRows("battle_logs","structure_damage","battle_time","outcome","",$decMembers,$agaMembers,$since,$until),
-                $this->sumByUserRows("spy_logs","structure_damage","mission_time","outcome","success",$decMembers,$agaMembers,$since,$until)
-            );
-            $agaTop = $this->mergeTopRows(
-                $this->sumByUserRows("battle_logs","structure_damage","battle_time","outcome","",$agaMembers,$decMembers,$since,$until),
-                $this->sumByUserRows("spy_logs","structure_damage","mission_time","outcome","success",$agaMembers,$decMembers,$since,$until)
-            );
-            $details['top_attacker']['declarer'] = $decTop;
-            $details['top_attacker']['declared_against'] = $agaTop;
-        }
+        // Top attacker + XP (credits-only UI path still uses this)
+        $details['top_attacker']['declarer'] = $this->topFromSum("battle_logs","credits_stolen","battle_time","outcome","victory",$decMembers,$agaMembers,$since,$until);
+        $details['top_attacker']['declared_against'] = $this->topFromSum("battle_logs","credits_stolen","battle_time","outcome","victory",$agaMembers,$decMembers,$since,$until);
+        $details['biggest_plunderer'] = [
+            'declarer' => $details['top_attacker']['declarer'],
+            'declared_against' => $details['top_attacker']['declared_against'],
+        ];
 
         $details['xp_gained']['declarer'] = $this->sumXP($decMembers,$agaMembers,$since,$until);
         $details['xp_gained']['declared_against'] = $this->sumXP($agaMembers,$decMembers,$since,$until);
@@ -915,5 +987,162 @@ class RealmWarController extends BaseController
         if ($B && !$S) return $B;
         if ($S && !$B) return $S;
         return ($B['value'] >= $S['value']) ? $B : $S;
+    }
+
+    // ====================== Badge utilities (local, SQL-level) ======================
+
+    /** Ensure a badge row exists and return its id. */
+    private function ensureBadge(string $name, string $iconPath, string $desc): int
+    {
+        $bid = $this->fetchBadgeIdByName($name);
+        if ($bid) return $bid;
+
+        $sql = "INSERT INTO badges (name, icon_path, description, created_at) VALUES (?,?,?,NOW())
+                ON DUPLICATE KEY UPDATE icon_path=VALUES(icon_path), description=VALUES(description)";
+        if ($st = $this->db->prepare($sql)) {
+            $st->bind_param('sss', $name, $iconPath, $desc);
+            $st->execute();
+            $st->close();
+        }
+        $bid = $this->fetchBadgeIdByName($name) ?? 0;
+        return (int)$bid;
+    }
+
+    private function fetchBadgeIdByName(string $name): ?int
+    {
+        if (!$st = $this->db->prepare("SELECT id FROM badges WHERE name=? LIMIT 1")) { return null; }
+        $st->bind_param('s', $name);
+        $st->execute();
+        $row = $st->get_result()->fetch_assoc();
+        $st->close();
+        return $row ? (int)$row['id'] : null;
+    }
+
+    /** Award an existing badge id to multiple users (INSERT IGNORE). */
+    private function awardBadgeIdToUsers(int $badgeId, array $userIds): void
+    {
+        if ($badgeId <= 0 || empty($userIds)) return;
+        $sql = "INSERT IGNORE INTO user_badges (user_id, badge_id, earned_at) VALUES (?, ?, NOW())";
+        if (!$st = $this->db->prepare($sql)) return;
+        foreach ($userIds as $uid) {
+            $u = (int)$uid;
+            if ($u <= 0) continue;
+            $st->bind_param('ii', $u, $badgeId);
+            $st->execute();
+        }
+        $st->close();
+    }
+
+    /** Remove badges with exact base or base ×N from the given users. */
+    private function removeBadgesFromUsersByBase(array $userIds, string $baseName): void
+    {
+        if (empty($userIds)) return;
+
+        // Fetch candidate badge IDs
+        $ids = [];
+        if ($st = $this->db->prepare("SELECT id FROM badges WHERE name=? OR name LIKE CONCAT(?, ' ×%')")) {
+            $st->bind_param('ss', $baseName, $baseName);
+            $st->execute();
+            $rs = $st->get_result();
+            while ($r = $rs->fetch_assoc()) { $ids[] = (int)$r['id']; }
+            $st->close();
+        }
+        if (!$ids) return;
+
+        $inIds = '(' . implode(',', array_map('intval', $ids)) . ')';
+        $inUsers = '(' . implode(',', array_map('intval', $userIds)) . ')';
+        $sql = "DELETE FROM user_badges WHERE badge_id IN $inIds AND user_id IN $inUsers";
+        $this->db->query($sql);
+    }
+
+    /** Remove badges where badge.name LIKE $pattern from given users. */
+    private function removeBadgesLikeFromUsers(array $userIds, string $likePattern): void
+    {
+        if (empty($userIds)) return;
+        $inUsers = '(' . implode(',', array_map('intval', $userIds)) . ')';
+        $sql = "
+            DELETE ub FROM user_badges ub
+            JOIN badges b ON b.id = ub.badge_id
+            WHERE ub.user_id IN $inUsers
+              AND b.name LIKE ?
+        ";
+        if ($st = $this->db->prepare($sql)) {
+            $st->bind_param('s', $likePattern);
+            $st->execute();
+            $st->close();
+        }
+    }
+
+    /**
+     * For each user, if they have 'Humiliated by [TAG]' (or ×N), replace it with ×(N+1).
+     * If missing, award base first.
+     */
+    private function incrementHumiliationTallyForUsers(array $userIds, string $opponentTag, string $iconPath, string $descPrefix): void
+    {
+        if (empty($userIds)) return;
+
+        $base = "Humiliated by [{$opponentTag}]";
+        $inUsers = '(' . implode(',', array_map('intval', $userIds)) . ')';
+
+        // Map user_id => (badge_id, currentN)
+        $map = [];
+        $sql = "
+            SELECT ub.user_id, b.id AS bid, b.name
+            FROM user_badges ub
+            JOIN badges b ON b.id = ub.badge_id
+            WHERE ub.user_id IN $inUsers
+              AND (b.name = ? OR b.name LIKE CONCAT(?, ' ×%'))
+        ";
+        if ($st = $this->db->prepare($sql)) {
+            $st->bind_param('ss', $base, $base);
+            $st->execute();
+            $rs = $st->get_result();
+            while ($row = $rs->fetch_assoc()) {
+                $uid = (int)$row['user_id'];
+                $name = (string)$row['name'];
+                $n = 1;
+                if (preg_match('/ ×(\d+)$/u', $name, $m)) {
+                    $n = max(1, (int)$m[1]);
+                }
+                if (!isset($map[$uid]) || $n > $map[$uid]['n']) {
+                    $map[$uid] = ['bid' => (int)$row['bid'], 'n' => $n];
+                }
+            }
+            $st->close();
+        }
+
+        // For users missing any badge, we'll start at 1
+        $missing = [];
+        foreach ($userIds as $u) {
+            if (!isset($map[(int)$u])) $missing[] = (int)$u;
+        }
+        if ($missing) {
+            $bid1 = $this->ensureBadge($base, $iconPath, $descPrefix);
+            $this->awardBadgeIdToUsers($bid1, $missing);
+            foreach ($missing as $u) { $map[$u] = ['bid' => $bid1, 'n' => 1]; }
+        }
+
+        // For all, replace with N+1
+        foreach ($map as $uid => $info) {
+            $newN = $info['n'] + 1;
+            $newName = $base . ' ×' . $newN;
+            $newDesc = $descPrefix . " (×{$newN})";
+            $newBid  = $this->ensureBadge($newName, $iconPath, $newDesc);
+
+            // Delete old badge link(s) for this user for this base
+            if ($st = $this->db->prepare("
+                DELETE ub FROM user_badges ub
+                JOIN badges b ON b.id = ub.badge_id
+                WHERE ub.user_id = ?
+                  AND (b.name = ? OR b.name LIKE CONCAT(?, ' ×%'))
+            ")) {
+                $st->bind_param('iss', $uid, $base, $base);
+                $st->execute();
+                $st->close();
+            }
+
+            // Insert new
+            $this->awardBadgeIdToUsers($newBid, [$uid]);
+        }
     }
 }
