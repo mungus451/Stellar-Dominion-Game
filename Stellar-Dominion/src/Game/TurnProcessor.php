@@ -49,8 +49,8 @@ if ($result) {
                         untrained_citizens = untrained_citizens + ?,
                         credits = GREATEST(0, credits + ?),
                         deposits_today = GREATEST(0, deposits_today - ?),
-                        last_updated = ?,
-                        last_deposit_timestamp = IF(? > 0, NOW(), last_deposit_timestamp)
+                        last_updated = FROM_UNIXTIME(?),
+                        last_deposit_timestamp = CASE WHEN ? > 0 THEN FROM_UNIXTIME(?) ELSE last_deposit_timestamp END
                    WHERE id = ?";
     $stmt_update = mysqli_prepare($link, $sql_update);
     if (!$stmt_update) {
@@ -60,24 +60,32 @@ if ($result) {
 
     mysqli_stmt_bind_param(
         $stmt_update,
-        "iiiisii",
-        $bind_attack_turns, $bind_citizens, $bind_credits, $bind_deposits, $bind_now_str, $bind_deposits_ok, $bind_user_id
+        "iiiiiiii",
+        $bind_attack_turns, $bind_citizens, $bind_credits, $bind_deposits,
+        $bind_last_updated_ts, $bind_deposit_flag, $bind_last_deposit_ts, $bind_user_id
     );
 
-    $now_ts = time();
+    $turn_interval_seconds    = $turn_interval_minutes * 60;
+    $deposit_interval_seconds = 6 * 3600;
 
     while ($user = mysqli_fetch_assoc($result)) {
+        $current_ts = time();
         $uid = (int)$user['id'];
         $deposits_granted = 0;
         $deposits_today   = (int)$user['deposits_today'];
 
         // 6h deposit regeneration
-        if ($deposits_today > 0 && !empty($user['last_deposit_timestamp'])) {
-            $last_dep_ts = strtotime($user['last_deposit_timestamp'] . ' UTC');
-            if ($last_dep_ts !== false) {
-                $hours = ($now_ts - $last_dep_ts) / 3600;
-                if ($hours >= 6) {
-                    $deposits_granted = min($deposits_today, (int)floor($hours / 6));
+        $last_dep_ts = !empty($user['last_deposit_timestamp'])
+            ? strtotime($user['last_deposit_timestamp'] . ' UTC')
+            : false;
+        $new_last_deposit_ts = ($last_dep_ts !== false) ? $last_dep_ts : null;
+        if ($deposits_today > 0 && $last_dep_ts !== false) {
+            $elapsed_deposit_seconds = $current_ts - $last_dep_ts;
+            if ($elapsed_deposit_seconds >= $deposit_interval_seconds) {
+                $deposit_intervals = intdiv($elapsed_deposit_seconds, $deposit_interval_seconds);
+                $deposits_granted = min($deposits_today, $deposit_intervals);
+                if ($deposits_granted > 0) {
+                    $new_last_deposit_ts = $last_dep_ts + ($deposits_granted * $deposit_interval_seconds);
                 }
             }
         }
@@ -85,9 +93,13 @@ if ($result) {
         // How many turns since last update?
         $turns_to_process = 0;
         $last_upd_ts = !empty($user['last_updated']) ? strtotime($user['last_updated'] . ' UTC') : false;
+        $new_last_updated_ts = ($last_upd_ts !== false) ? $last_upd_ts : $current_ts;
         if ($last_upd_ts !== false) {
-            $minutes = ($now_ts - $last_upd_ts) / 60;
-            $turns_to_process = (int)floor($minutes / $turn_interval_minutes);
+            $elapsed_turn_seconds = $current_ts - $last_upd_ts;
+            if ($elapsed_turn_seconds >= $turn_interval_seconds) {
+                $turns_to_process = intdiv($elapsed_turn_seconds, $turn_interval_seconds);
+                $new_last_updated_ts = $last_upd_ts + ($turns_to_process * $turn_interval_seconds);
+            }
         }
 
         if ($turns_to_process <= 0 && $deposits_granted <= 0) {
@@ -169,13 +181,14 @@ if ($result) {
         }
 
         // Bind and update
-        $bind_attack_turns = (int)$gained_attack_turns;
-        $bind_citizens     = (int)$gained_citizens;
-        $bind_credits      = (int)$gained_credits;
-        $bind_deposits     = (int)$deposits_granted;
-        $bind_now_str      = gmdate('Y-m-d H:i:s');
-        $bind_deposits_ok  = (int)$deposits_granted;
-        $bind_user_id      = $uid;
+        $bind_attack_turns     = (int)$gained_attack_turns;
+        $bind_citizens         = (int)$gained_citizens;
+        $bind_credits          = (int)$gained_credits;
+        $bind_deposits         = (int)$deposits_granted;
+        $bind_last_updated_ts  = (int)$new_last_updated_ts;
+        $bind_deposit_flag     = ($deposits_granted > 0) ? 1 : 0;
+        $bind_last_deposit_ts  = ($new_last_deposit_ts !== null) ? (int)$new_last_deposit_ts : (int)$current_ts;
+        $bind_user_id          = $uid;
 
         if (mysqli_stmt_execute($stmt_update)) {
             $users_processed++;
