@@ -2,3 +2,6 @@
 logs/*
 .DS_Store
 *.sql
+vendor/
+.serverless/
+node_modules

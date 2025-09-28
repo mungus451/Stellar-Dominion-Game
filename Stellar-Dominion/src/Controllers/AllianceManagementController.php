@@ -8,6 +8,9 @@
 require_once __DIR__ . '/BaseAllianceController.php';
 require_once __DIR__ . '/../Services/BadgeService.php';
 
+use StellarDominion\Services\FileManager\FileManagerFactory;
+use StellarDominion\Services\FileManager\FileValidator;
+
 class AllianceManagementController extends BaseAllianceController
 {
     public function __construct(mysqli $db)
@@ -622,35 +625,16 @@ class AllianceManagementController extends BaseAllianceController
 
     private function handleAvatarUpload(int $alliance_id): ?string
     {
-        if (isset($_FILES['avatar']) && $_FILES['avatar']['error'] === UPLOAD_ERR_OK) {
-            if ($_FILES['avatar']['size'] > 10000000) {
-                throw new Exception("File too large (10MB max).");
+        // Delegate avatar upload to AvatarUploader service
+        if (isset($_FILES['avatar']) && $_FILES['avatar']['error'] !== UPLOAD_ERR_NO_FILE) {
+            try {
+                $uploader = new \StellarDominion\Services\Upload\AvatarUploader();
+                return $uploader->uploadAvatarFromRequest($_FILES['avatar'], 'alliance_avatar', $alliance_id);
+            } catch (Exception $e) {
+                throw new Exception("Upload Error: " . $e->getMessage());
             }
-
-            $finfo = new finfo(FILEINFO_MIME_TYPE);
-            $mime_type = $finfo->file($_FILES['avatar']['tmp_name']);
-            $allowed_types = ['image/jpeg', 'image/png', 'image/gif', 'image/avif'];
-
-            if (!in_array($mime_type, $allowed_types)) {
-                throw new Exception("Invalid file type. Only JPG, PNG, GIF, and AVIF are allowed.");
-            }
-
-            $upload_dir = __DIR__ . '/../../public/uploads/avatars/';
-            if (!is_dir($upload_dir)) {
-                if (!mkdir($upload_dir, 0755, true)) {
-                    throw new Exception("Failed to create avatar directory.");
-                }
-            }
-
-            $file_ext = pathinfo($_FILES['avatar']['name'], PATHINFO_EXTENSION);
-            $new_filename = 'alliance_avatar_' . $alliance_id . '_' . time() . '.' . $file_ext;
-            $destination = $upload_dir . $new_filename;
-
-            if (move_uploaded_file($_FILES['avatar']['tmp_name'], $destination)) {
-                return '/uploads/avatars/' . $new_filename;
-            }
-            throw new Exception("Could not move uploaded file.");
         }
+
         return null;
     }
 

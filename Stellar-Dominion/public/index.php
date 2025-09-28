@@ -1,4 +1,3 @@
-
 <?php
 /**
  * public/index.php
@@ -73,9 +72,14 @@
 
 // ─────────────────────────────────────────────────────────────────────────────
 // 1) SESSION INITIALIZATION & VACATION MODE ENFORCEMENT
+// Ensure configuration (cookie domain, session handler) is loaded BEFORE starting session
+// so that session.save_handler and session.name are applied consistently.
 // ─────────────────────────────────────────────────────────────────────────────
 
-session_start(); // Start/continue the session; must be called before any output.
+require_once __DIR__ . '/../config/config.php'; // config will start the session
+
+// Ensure helper for client IP resolution is available globally
+require_once __DIR__ . '/../src/Services/IpAddress.php';
 
 // If a "vacation_until" timestamp exists in the session and it's still in the
 // future, force a logout. This protects game state by ensuring players cannot
@@ -93,7 +97,6 @@ if (isset($_SESSION['vacation_until']) && new DateTime() < new DateTime($_SESSIO
 // ─────────────────────────────────────────────────────────────────────────────
 // 2) CORE CONFIG & BASE CONTROLLER BOOTSTRAP
 // ─────────────────────────────────────────────────────────────────────────────
-//
 // Centralized DB connection, configuration constants, helper functions, etc.
 // BaseController provides shared controller infrastructure (e.g., $this->db).
 require_once __DIR__ . '/../config/config.php';
@@ -307,6 +310,7 @@ $authenticated_routes = [
     '/war_leaderboard', '/war_leaderboard.php',
     '/alliance_war_history', '/alliance_war_history.php',
     '/diplomacy', '/diplomacy.php', '/view_alliance', '/view_alliance.php'
+    // Note: /api/ endpoints handled by dedicated Lambda functions with their own auth
 ];
 
 // ─────────────────────────────────────────────────────────────────────────────

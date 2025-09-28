@@ -331,16 +331,43 @@ $__now_et_epoch = $__now_et->getTimestamp();
     }
 
     // -----------------------------------------------
-    // 10s POLL: STATS ONLY (does not touch countdown)
+    // 10 SECOND POLL: STATS ONLY (does not touch countdown)
+    // Stop polling on any error response or after 10 polls
     // -----------------------------------------------
+    let pollInterval = null;
+    let pollCount = 0;
+    const MAX_POLLS = 10;
+    
     async function pollAdvisor(){
+        pollCount++;
+        
+        // Stop polling after 10 attempts
+        if (pollCount > MAX_POLLS) {
+            if (pollInterval) {
+                clearInterval(pollInterval);
+                pollInterval = null;
+                console.log('Stopped advisor polling after', MAX_POLLS, 'polls');
+            }
+            return;
+        }
         try {
             const res = await fetch('/api/advisor_poll.php', {
                 credentials: 'same-origin',
                 headers: { 'Accept': 'application/json' },
                 cache: 'no-store'
             });
-            if (!res.ok) return;
+            
+            // Stop polling if response is not successful
+            if (!res.ok) {
+                console.warn('Advisor poll failed with status:', res.status);
+                if (pollInterval) {
+                    clearInterval(pollInterval);
+                    pollInterval = null;
+                    console.log('Stopped advisor polling due to error response');
+                }
+                return;
+            }
+            
             const data = await res.json();
 
             if (elCredits && typeof data.credits === 'number') {
@@ -358,10 +385,19 @@ $__now_et_epoch = $__now_et->getTimestamp();
                 domEpoch = parseInt(data.server_time_unix, 10);
                 renderDomTime(domEpoch);
             }
-        } catch (_) { /* silent */ }
+        } catch (error) { 
+            console.warn('Advisor poll error:', error);
+            // Stop polling on network/parse errors too
+            if (pollInterval) {
+                clearInterval(pollInterval);
+                pollInterval = null;
+                console.log('Stopped advisor polling due to error');
+            }
+        }
     }
 
+    // Initial poll and then every 10 seconds (10000ms)
     pollAdvisor();
-    setInterval(pollAdvisor, 10000);
+    pollInterval = setInterval(pollAdvisor, 10000);
 })();
 </script>

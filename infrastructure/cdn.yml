@@ -1,0 +1,128 @@
+Resources:
+      # -------------------------------------------------------------------------
+      # CloudFront Origin Access Control for S3 bucket access
+      # -------------------------------------------------------------------------
+      CloudFrontOriginAccessControl:
+        Type: AWS::CloudFront::OriginAccessControl
+        Properties:
+          OriginAccessControlConfig:
+            Name: !Sub "${AWS::StackName}-OAC"
+            OriginAccessControlOriginType: s3
+            SigningBehavior: always
+            SigningProtocol: sigv4
+            Description: Origin Access Control for ${self:service}-files-${sls:stage} bucket
+
+      FileStorageBucketPolicy:
+        Type: AWS::S3::BucketPolicy
+        Properties:
+          Bucket: !Ref FileStorageBucket
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Sid: AllowCloudFrontServicePrincipalReadOnly
+                Effect: Allow
+                Principal:
+                  Service: cloudfront.amazonaws.com
+                Action: s3:GetObject
+                Resource: !Sub "arn:aws:s3:::${FileStorageBucket}/*"
+                Condition:
+                  StringEquals:
+                    "AWS:SourceArn": !Sub "arn:aws:cloudfront::${AWS::AccountId}:distribution/${CloudFrontDistribution}"
+      CloudFrontDistribution:
+        Type: AWS::CloudFront::Distribution
+        Properties:
+          DistributionConfig:
+            Enabled: true
+            Origins:
+              - Id: ApiOrigin
+                DomainName: !Sub "${HttpApi}.execute-api.${AWS::Region}.amazonaws.com"
+                CustomOriginConfig:
+                  OriginProtocolPolicy: https-only
+                  HTTPPort: 80
+                  HTTPSPort: 443
+                  OriginSSLProtocols:
+                    - TLSv1.2
+              - Id: FileStorageOrigin
+                DomainName: !GetAtt FileStorageBucket.DomainName
+                S3OriginConfig:
+                  OriginAccessIdentity: ""
+                OriginAccessControlId: !Ref CloudFrontOriginAccessControl
+            DefaultCacheBehavior:
+              TargetOriginId: ApiOrigin
+              ViewerProtocolPolicy: redirect-to-https
+              AllowedMethods:
+                - GET
+                - HEAD
+                - OPTIONS
+                - PUT
+                - POST
+                - PATCH
+                - DELETE
+              CachedMethods:
+                - GET
+                - HEAD
+              ForwardedValues:
+                QueryString: true
+                Cookies:
+                  Forward: all
+            CacheBehaviors:
+              - PathPattern: /avatars/*
+                TargetOriginId: FileStorageOrigin
+                ViewerProtocolPolicy: redirect-to-https
+                AllowedMethods:
+                  - GET
+                  - HEAD
+                CachedMethods:
+                  - GET
+                  - HEAD
+                ForwardedValues:
+                  QueryString: false
+                  Cookies:
+                    Forward: none
+              - PathPattern: /assets/*
+                TargetOriginId: FileStorageOrigin
+                ViewerProtocolPolicy: redirect-to-https
+                AllowedMethods:
+                  - GET
+                  - HEAD
+                CachedMethods:
+                  - GET
+                  - HEAD
+                ForwardedValues:
+                  QueryString: false
+                  Cookies:
+                    Forward: none
+              - PathPattern: /favicon.ico
+                TargetOriginId: FileStorageOrigin
+                ViewerProtocolPolicy: redirect-to-https
+                AllowedMethods:
+                  - GET
+                  - HEAD
+                CachedMethods:
+                  - GET
+                  - HEAD
+                ForwardedValues:
+                  QueryString: false
+                  Cookies:
+                    Forward: none
+              - PathPattern: /robots.txt
+                TargetOriginId: FileStorageOrigin
+                ViewerProtocolPolicy: redirect-to-https
+                AllowedMethods:
+                  - GET
+                  - HEAD
+                CachedMethods:
+                  - GET
+                  - HEAD
+                ForwardedValues:
+                  QueryString: false
+                  Cookies:
+                    Forward: none
+            Aliases:
+              - ${self:custom.domainName.${sls:stage}, self:custom.domainName.default}
+            PriceClass: PriceClass_100
+            ViewerCertificate:
+              # Use the same ACM cert used by the website construct (must be in us-east-1)
+              AcmCertificateArn: arn:aws:acm:us-east-1:019076941043:certificate/52ad640b-220b-4fda-a09b-80ca90237671
+              SslSupportMethod: sni-only
+              MinimumProtocolVersion: TLSv1.2_2021

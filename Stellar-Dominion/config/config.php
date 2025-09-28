@@ -1,8 +1,47 @@
 <?php
+// Load environment variables if running in serverless environment
+if (file_exists(__DIR__ . '/../../vendor/autoload.php')) {
+    require_once __DIR__ . '/../../vendor/autoload.php';
+    // Load .env file if it exists (for local development)
+    if (file_exists(__DIR__ . '/../.env') && class_exists('Dotenv\Dotenv')) {
+        $dotenv = Dotenv\Dotenv::createImmutable(__DIR__ . '/..');
+        $dotenv->load();
+    }
+}
+// Define the project root directory based on the location of this config file.
+if (!defined('PROJECT_ROOT')) {
+    define('PROJECT_ROOT', dirname(__DIR__));
+}
+
+if (!file_exists(PROJECT_ROOT . '/src/Services/DynamoDBSessionHandler.php')) {
+    throw new Exception("DynamoDBSessionHandler.php not found; cannot use DynamoDB sessions");
+}
+require_once PROJECT_ROOT . '/src/Services/DynamoDBSessionHandler.php';
+
+StellarDominion\Services\DynamoDBSessionHandler::setup();
+
+
 // Enable full error reporting
 ini_set('display_errors', 1);
 ini_set('display_startup_errors', 1);
 error_reporting(E_ALL);
+
+// Configure PHP for file uploads in Lambda environment
+if (isset($_ENV['AWS_LAMBDA_FUNCTION_NAME'])) {
+    // Running in Lambda - optimize for VPC S3 endpoint uploads
+    ini_set('max_execution_time', 25); // Stay under 29s Lambda timeout
+    ini_set('upload_max_filesize', '10M');
+    ini_set('post_max_size', '10M');
+    ini_set('memory_limit', '256M');
+    ini_set('max_input_time', 20); // Max time to parse input
+} else {
+    // Local development settings
+    ini_set('max_execution_time', 60);
+    ini_set('upload_max_filesize', '10M');
+    ini_set('post_max_size', '10M');
+    ini_set('memory_limit', '512M');
+}
+
 
 // Start the session if it's not already started. This is crucial for CSRF protection.
 if (session_status() == PHP_SESSION_NONE) {
@@ -10,14 +49,27 @@ if (session_status() == PHP_SESSION_NONE) {
 }
 
 // --- Database Credentials ---
-define('DB_SERVER', 'localhost');
-define('DB_USERNAME', 'admin');
-define('DB_PASSWORD', 'password');
-define('DB_NAME', 'users');
-
-// Define the project root directory based on the location of this config file.
-if (!defined('PROJECT_ROOT')) {
-    define('PROJECT_ROOT', dirname(__DIR__));
+// Use Secrets Manager in Lambda environment, fallback to environment variables or hardcoded values for local development
+if (file_exists(PROJECT_ROOT . '/src/Services/SecretsManagerService.php')) {
+    require_once PROJECT_ROOT . '/src/Services/SecretsManagerService.php';
+    $dbCredentials = StellarDominion\Services\SecretsManagerService::getDatabaseCredentialsWithFallback(
+        $_ENV['DB_SECRET_ARN'] ?? null,
+        [
+            'username' => $_ENV['DB_USERNAME'] ?? 'admin',
+            'password' => $_ENV['DB_PASSWORD'] ?? '',
+        ]
+    );
+    
+    define('DB_SERVER', $_ENV['DB_HOST'] ?? 'starlight-dominion.cl8ugqwekrkc.us-east-2.rds.amazonaws.com');
+    define('DB_USERNAME', $dbCredentials['username']);
+    define('DB_PASSWORD', $dbCredentials['password']);
+    define('DB_NAME', $_ENV['DB_NAME'] ?? 'users');
+} else {
+    // Fallback if SecretsManagerService is not available
+    define('DB_SERVER', $_ENV['DB_HOST'] ?? 'starlight-dominion.cl8ugqwekrkc.us-east-2.rds.amazonaws.com');
+    define('DB_USERNAME', $_ENV['DB_USERNAME'] ?? 'admin');
+    define('DB_PASSWORD', $_ENV['DB_PASSWORD']);
+    define('DB_NAME', $_ENV['DB_NAME'] ?? 'users');
 }
 
 // Include the new, secure CSRF Protection system.
@@ -52,8 +104,21 @@ $sms_gateways = [
 
 // --- Modern Error Handling for Connection ---
 try {
+    $mysqli = mysqli_init();
+
+    // Verify server certificate when connecting directly to the RDS DNS name
+    mysqli_options($mysqli, MYSQLI_OPT_SSL_VERIFY_SERVER_CERT, true);
+
+    // Load CA bundle; key/cert are NULL because client certs are not required for RDS
+    // mysqli_ssl_set($mysqli, NULL, NULL, $caPath, NULL, NULL);
+
+    // Use SSL flag to force TLS
+    $flags = MYSQLI_CLIENT_SSL;
     // Attempt to connect to MySQL database
-    $link = mysqli_connect(DB_SERVER, DB_USERNAME, DB_PASSWORD, DB_NAME);
+    if (!mysqli_real_connect($mysqli, DB_SERVER, DB_USERNAME, DB_PASSWORD, DB_NAME, 3306, NULL, $flags)) {
+        throw new Exception("ERROR: Could not connect. " . mysqli_connect_error());
+    }
+    $link = $mysqli;
 
     // Check if the connection failed
     if ($link === false) {
@@ -89,6 +154,30 @@ define('SMTP_SECURE', 'tls'); // Use 'ssl' for port 465
 // This is the "From" address that will appear on your emails
 define('MAIL_FROM_ADDRESS', 'no-reply@starlightdominion.com');
 define('MAIL_FROM_NAME', 'Starlight Dominion');
+
+// --- File Storage Configuration ---
+// File storage driver: 'local' or 's3'
+define('FILE_STORAGE_DRIVER', $_ENV['FILE_STORAGE_DRIVER'] ?? 'local');
+
+// Local file storage settings
+define('FILE_STORAGE_LOCAL_PATH', $_ENV['FILE_STORAGE_LOCAL_PATH'] ?? PROJECT_ROOT . '/public/uploads');
+define('FILE_STORAGE_LOCAL_URL', $_ENV['FILE_STORAGE_LOCAL_URL'] ?? '/uploads');
+
+// S3 file storage settings
+define('FILE_STORAGE_S3_BUCKET', $_ENV['FILE_STORAGE_S3_BUCKET'] ?? '');
+define('FILE_STORAGE_S3_REGION', $_ENV['FILE_STORAGE_S3_REGION'] ?? 'us-east-1');
+
+// Include FileManager classes
+require_once PROJECT_ROOT . '/src/Services/FileManager/FileManagerInterface.php';
+require_once PROJECT_ROOT . '/src/Services/FileManager/FileDriverType.php';
+require_once PROJECT_ROOT . '/src/Services/FileManager/DriverType.php';
+require_once PROJECT_ROOT . '/src/Services/FileManager/Config/FileManagerConfigInterface.php';
+require_once PROJECT_ROOT . '/src/Services/FileManager/Config/LocalFileManagerConfig.php';
+require_once PROJECT_ROOT . '/src/Services/FileManager/Config/S3FileManagerConfig.php';
+require_once PROJECT_ROOT . '/src/Services/FileManager/LocalFileManager.php';
+require_once PROJECT_ROOT . '/src/Services/FileManager/S3FileManager.php';
+require_once PROJECT_ROOT . '/src/Services/FileManager/FileManagerFactory.php';
+require_once PROJECT_ROOT . '/src/Services/FileManager/FileValidator.php';
 
 
 ?>
