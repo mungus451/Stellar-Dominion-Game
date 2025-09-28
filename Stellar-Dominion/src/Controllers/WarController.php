@@ -3,6 +3,8 @@
  * src/Controllers/WarController.php
  *
  * Handles the declaration of wars, rivalries, and peace treaties.
+ * Updated: remove Economic Vassalage; enforce credits-only war goal;
+ * allow optional custom badge metadata on custom casus belli.
  */
 
 if (session_status() == PHP_SESSION_NONE) { session_start(); }
@@ -20,26 +22,25 @@ class WarController extends BaseController
         parent::__construct();
     }
 
-    /** Small helper: does a column exist? */
     private function columnExists(string $table, string $column): bool
     {
-        $t = preg_replace('/[^a-z0-9_]/i', '', $table);
-        $c = preg_replace('/[^a-z0-9_]/i', '', $column);
-        $res = $this->db->query("SHOW COLUMNS FROM `$t` LIKE '$c'");
-        if (!$res) return false;
-        $ok = $res->num_rows > 0;
-        $res->free();
-        return $ok;
+        $sql = "SHOW COLUMNS FROM `$table` LIKE ?";
+        if ($stmt = $this->db->prepare($sql)) {
+            $stmt->bind_param("s", $column);
+            if ($stmt->execute() && ($res = $stmt->get_result())) {
+                $ok = (bool)$res->fetch_assoc();
+                $stmt->close();
+                return $ok;
+            }
+            $stmt->close();
+        }
+        return false;
     }
 
-    /**
-     * Dispatch a diplomacy action.
-     *
-     * @param string $action 'declare_war' | 'declare_rivalry' | 'propose_treaty' | 'accept_treaty' | 'decline_treaty' | 'cancel_treaty'
-     */
-    public function dispatch($action)
+    public function handle(): void
     {
-        if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
+        $action = $_POST['war_action'] ?? null;
+        if (!$action) {
             throw new Exception("Invalid request method.");
         }
 
@@ -64,12 +65,14 @@ class WarController extends BaseController
     /**
      * Declare a war between the invoker's alliance and a target alliance.
      *
-     * Supports composite goals and the new Casus Belli set.
+     * Enforced constraints:
+     * - Casus Belli allowed: humiliation, dignity, revolution, custom.
+     * - War goal: credits_plundered only, min threshold 100,000,000.
+     * - Optional custom badge metadata stored if columns exist.
      */
-    private function declareWar()
+    public function declareWar(): void
     {
-        // canonical casus belli keys we accept
-        $allowed_cb = ['humiliation','dignity','economic_vassal','revolution','custom'];
+        $allowed_cb = ['humiliation','dignity','revolution','custom'];
 
         $user_id = (int)$_SESSION['id'];
 
@@ -88,11 +91,15 @@ class WarController extends BaseController
             throw new Exception("You do not have the authority to declare war.");
         }
 
-        $declarer_alliance_id  = (int)$user['alliance_id'];
-        $declared_against_id   = (int)($_POST['alliance_id'] ?? 0);
-        $war_name              = trim((string)($_POST['war_name'] ?? 'War'));
-        $casus_belli_key       = (string)($_POST['casus_belli'] ?? '');
-        $custom_casus_belli    = trim((string)($_POST['custom_casus_belli'] ?? ''));
+        $declarer_alliance_id = (int)$user['alliance_id'];
+        $declared_against_id  = (int)($_POST['alliance_id'] ?? 0);
+
+        $war_name = trim((string)($_POST['war_name'] ?? ''));
+        if ($war_name === '') $war_name = 'Unnamed War';
+        if (mb_strlen($war_name) > 100) $war_name = mb_substr($war_name, 0, 100);
+
+        $casus_belli_key     = (string)($_POST['casus_belli'] ?? '');
+        $custom_casus_belli  = trim((string)($_POST['custom_casus_belli'] ?? ''));
 
         if ($declared_against_id <= 0 || $declared_against_id === $declarer_alliance_id) {
             throw new Exception("Invalid target alliance.");
@@ -102,51 +109,48 @@ class WarController extends BaseController
         }
         if ($casus_belli_key === 'custom') {
             $len = strlen($custom_casus_belli);
-            if ($len < 5 || $len > 244) { // updated 244-char limit
+            if ($len < 5 || $len > 244) {
                 throw new Exception("Custom reason must be between 5 and 244 characters.");
             }
         }
 
-        // Goals (allow composite: any combo of non-zero thresholds)
-        $goal_credits_plundered  = (int)($_POST['goal_credits_plundered']  ?? 0);
-        $goal_units_killed       = (int)($_POST['goal_units_killed']       ?? 0);
-        $goal_units_assassinated = (int)($_POST['goal_units_assassinated'] ?? 0); // new
-        $goal_structure_damage   = (int)($_POST['goal_structure_damage']   ?? 0);
-        $goal_prestige_change    = (int)($_POST['goal_prestige_change']    ?? 0);
+        // Enforce credits-only goal; accept posted number but clamp min 100M.
+        $goal_credits_plundered = (int)($_POST['goal_credits_plundered'] ?? ($_POST['goal_threshold'] ?? 0));
+        $goal_credits_plundered = max(100000000, $goal_credits_plundered);
+        $goal_units_killed = 0;
+        $goal_units_assassinated = 0;
+        $goal_structure_damage = 0;
+        $goal_prestige_change = 0;
 
-        $goals_map = [
-            'credits_plundered'  => $goal_credits_plundered,
-            'units_killed'       => $goal_units_killed,
-            'units_assassinated' => $goal_units_assassinated,
-            'structure_damage'   => $goal_structure_damage,
-            'prestige_change'    => $goal_prestige_change,
-        ];
-        $nonzero = array_filter($goals_map, fn($v) => (int)$v > 0);
-        $nonzero_count = count($nonzero);
-
-        // Prefer composite labeling if 2+ non-zero goals AND columns exist
-        $final_goal_metric    = null;
-        $final_goal_threshold = null;
-
-        $has_goal_metric    = $this->columnExists('wars','goal_metric');
-        $has_goal_threshold = $this->columnExists('wars','goal_threshold');
-
-        if ($has_goal_metric && $has_goal_threshold) {
-            if ($nonzero_count >= 2) {
-                $final_goal_metric    = 'composite';
-                $final_goal_threshold = $nonzero_count; // require all non-zero thresholds
-            } else {
-                // pick the single nonzero metric if any; else prestige_change @ 0
-                if ($nonzero_count === 1) {
-                    $key = array_key_first($nonzero);
-                    $final_goal_metric    = $key;
-                    $final_goal_threshold = (int)$nonzero[$key];
-                } else {
-                    $final_goal_metric    = 'prestige_change';
-                    $final_goal_threshold = 0;
-                }
-            }
+        // Prevent duplicate active wars
+        $hasActive = false;
+        if ($st = $this->db->prepare("SELECT 1 FROM wars WHERE status='active' AND ((declarer_alliance_id=? AND declared_against_alliance_id=?) OR (declarer_alliance_id=? AND declared_against_alliance_id=?)) LIMIT 1")) {
+            $st->bind_param('iiii', $declarer_alliance_id, $declared_against_id, $declared_against_id, $declarer_alliance_id);
+            $st->execute();
+            $hasActive = (bool)$st->get_result()->fetch_row();
+            $st->close();
         }
+        if ($hasActive) {
+            throw new Exception("There is already an active war between these alliances.");
+        }
+
+        // War cost: max(30M, 10% of bank)
+        $bank = 0;
+        if ($st = $this->db->prepare("SELECT bank_credits FROM alliances WHERE id=?")) {
+            $st->bind_param('i', $declarer_alliance_id);
+            $st->execute();
+            $row = $st->get_result()->fetch_assoc();
+            $bank = (int)($row['bank_credits'] ?? 0);
+            $st->close();
+        }
+        $war_cost = max(30000000, (int)floor($bank * 0.10));
+        if ($bank < $war_cost) { throw new Exception("Insufficient alliance bank to declare war."); }
+
+        // Derive final goal meta (credits only)
+        $final_goal_metric    = 'credits_plundered';
+        $final_goal_threshold = max(100000000, (int)$goal_credits_plundered);
+        $has_goal_metric      = $this->columnExists('wars','goal_metric');
+        $has_goal_threshold   = $this->columnExists('wars','goal_threshold');
 
         // Build dynamic INSERT respecting available columns
         $cols = ['name','declarer_alliance_id','declared_against_alliance_id','casus_belli_key','casus_belli_custom'];
@@ -166,42 +170,87 @@ class WarController extends BaseController
         if ($has_goal_metric)    { $cols[] = 'goal_metric';    $vals[] = $final_goal_metric;    $types .= 's'; }
         if ($has_goal_threshold) { $cols[] = 'goal_threshold'; $vals[] = (int)$final_goal_threshold; $types .= 'i'; }
 
-        // Standard numeric goal columns (present in your prior schema)
+        // Standard numeric goal columns (credits only, others zero)
         if ($this->columnExists('wars','goal_credits_plundered')) {
-            $cols[]='goal_credits_plundered'; $vals[]=$goal_credits_plundered; $types.='i';
+            $cols[]='goal_credits_plundered'; $vals[]=$final_goal_threshold; $types.='i';
         }
         if ($this->columnExists('wars','goal_units_killed')) {
-            $cols[]='goal_units_killed'; $vals[]=$goal_units_killed; $types.='i';
+            $cols[]='goal_units_killed'; $vals[]=0; $types.='i';
         }
         if ($this->columnExists('wars','goal_structure_damage')) {
-            $cols[]='goal_structure_damage'; $vals[]=$goal_structure_damage; $types.='i';
+            $cols[]='goal_structure_damage'; $vals[]=0; $types.='i';
         }
         if ($this->columnExists('wars','goal_prestige_change')) {
-            $cols[]='goal_prestige_change'; $vals[]=$goal_prestige_change; $types.='i';
+            $cols[]='goal_prestige_change'; $vals[]=0; $types.='i';
         }
-        // New: optional assassinations column
         if ($this->columnExists('wars','goal_units_assassinated')) {
-            $cols[]='goal_units_assassinated'; $vals[]=$goal_units_assassinated; $types.='i';
-        } else {
-            // If there’s a generic JSON blob column, persist there too
-            if ($this->columnExists('wars','goal_extra_json')) {
-                $cols[]='goal_extra_json';
-                $vals[] = json_encode(['units_assassinated'=>$goal_units_assassinated], JSON_UNESCAPED_SLASHES);
-                $types.='s';
-            }
+            $cols[]='goal_units_assassinated'; $vals[]=0; $types.='i';
         }
 
-        // Compose and execute
-        $placeholders = implode(',', array_fill(0, count($cols), '?'));
-        $sql = "INSERT INTO wars (".implode(',', $cols).") VALUES ($placeholders)";
-        $stmt = $this->db->prepare($sql);
-        $stmt->bind_param($types, ...$vals);
-        $stmt->execute();
-        $stmt->close();
+        // Custom war badge metadata (if schema supports it)
+        $hasCustomBadgeCols = $this->columnExists('wars','custom_badge_name') || $this->columnExists('wars','custom_badge_description') || $this->columnExists('wars','custom_badge_icon_path');
+        if ($casus_belli_key === 'custom' && $hasCustomBadgeCols) {
+            $custom_badge_name = trim((string)($_POST['custom_badge_name'] ?? ''));
+            $custom_badge_description = trim((string)($_POST['custom_badge_description'] ?? ''));
+            $custom_badge_icon_path = null;
 
-        $_SESSION['war_message'] = "War has been declared successfully!";
-        header("Location: /realm_war.php");
-        exit;
+            if (!empty($_FILES['custom_badge_icon']['name'] ?? '')) {
+                $allowed = ['png','jpg','jpeg','gif','avif','webp'];
+                $maxSize = 256 * 1024;
+                if (($_FILES['custom_badge_icon']['error'] ?? UPLOAD_ERR_OK) !== UPLOAD_ERR_OK) {
+                    throw new \Exception('Badge icon upload failed.');
+                }
+                if (($_FILES['custom_badge_icon']['size'] ?? 0) > $maxSize) {
+                    throw new \Exception('Badge icon too large (max 256KB).');
+                }
+                $ext = strtolower(pathinfo($_FILES['custom_badge_icon']['name'], PATHINFO_EXTENSION));
+                if (!in_array($ext, $allowed, true)) {
+                    throw new \Exception('Invalid badge icon type.');
+                }
+                $safeBase = preg_replace('/[^a-z0-9_-]+/i', '-', $custom_badge_name ?: 'custom');
+                $uploadDir = __DIR__ . '/../../public/uploads/war_badges/';
+                if (!is_dir($uploadDir)) { @mkdir($uploadDir, 0775, true); }
+                $fileName = sprintf('war_%d_%s_%d.%s', $declarer_alliance_id, strtolower($safeBase), time(), $ext);
+                $destFs   = $uploadDir . $fileName;
+                if (!move_uploaded_file($_FILES['custom_badge_icon']['tmp_name'], $destFs)) {
+                    throw new \Exception('Could not save badge icon.');
+                }
+                $custom_badge_icon_path = '/uploads/war_badges/' . $fileName;
+            }
+
+            if ($this->columnExists('wars','custom_badge_name'))        { $cols[]='custom_badge_name';        $vals[]=$custom_badge_name; $types.='s'; }
+            if ($this->columnExists('wars','custom_badge_description')) { $cols[]='custom_badge_description'; $vals[]=$custom_badge_description; $types.='s'; }
+            if ($this->columnExists('wars','custom_badge_icon_path'))   { $cols[]='custom_badge_icon_path';   $vals[]=$custom_badge_icon_path; $types.='s'; }
+        }
+
+        // Start & status
+        if ($this->columnExists('wars','status'))      { $cols[]='status'; $vals[]='active'; $types.='s'; }
+        if ($this->columnExists('wars','start_date'))  { $cols[]='start_date'; $vals[]=date('Y-m-d H:i:s'); $types.='s'; }
+
+        // Optional war_cost
+        if ($this->columnExists('wars','war_cost'))    { $cols[]='war_cost'; $vals[]=$war_cost; $types.='i'; }
+
+        // Deduct cost, then insert
+        $this->db->begin_transaction();
+        try {
+            if ($st = $this->db->prepare("UPDATE alliances SET bank_credits = bank_credits - ? WHERE id=?")) {
+                $st->bind_param('ii', $war_cost, $declarer_alliance_id);
+                $st->execute(); $st->close();
+            }
+
+            $placeholders = implode(',', array_fill(0, count($cols), '?'));
+            $sql = "INSERT INTO wars (".implode(',', $cols).") VALUES ($placeholders)";
+            if ($st = $this->db->prepare($sql)) {
+                $st->bind_param($types, ...$vals);
+                $st->execute();
+                $st->close();
+            }
+
+            $this->db->commit();
+        } catch (\Throwable $e) {
+            $this->db->rollback();
+            throw $e;
+        }
     }
 
     /** Declare a rivalry (unchanged behavior; now CSRF uses 'rivalry_declare') */

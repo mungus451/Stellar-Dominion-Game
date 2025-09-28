@@ -129,6 +129,31 @@ class BadgeService
         }
     }
 
+    public static function awardCustom(\mysqli $link, int $userId, string $badgeName, string $iconPath, string $desc): void
+    {
+        // Upsert badge definition by unique name
+        $sqlB = "INSERT INTO badges (name, icon_path, description, created_at)
+                 VALUES (?, ?, ?, UTC_TIMESTAMP())
+                 ON DUPLICATE KEY UPDATE icon_path = VALUES(icon_path), description = VALUES(description)";
+        if ($stmtB = \mysqli_prepare($link, $sqlB)) {
+            \mysqli_stmt_bind_param($stmtB, "sss", $badgeName, $iconPath, $desc);
+            @\mysqli_stmt_execute($stmtB);
+            \mysqli_stmt_close($stmtB);
+        }
+
+        // Grant to user (idempotent)
+        $sql = "INSERT IGNORE INTO user_badges (user_id, badge_id, earned_at)
+                SELECT ?, b.id, UTC_TIMESTAMP()
+                  FROM badges b
+                 WHERE b.name = ?";
+        if ($stmt = \mysqli_prepare($link, $sql)) {
+            \mysqli_stmt_bind_param($stmt, "is", $userId, $badgeName);
+            @\mysqli_stmt_execute($stmt);
+            \mysqli_stmt_close($stmt);
+        }
+    }
+
+
     /**
      * Experience-based milestones (safe to call anytime).
      */
