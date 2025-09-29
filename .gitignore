@@ -3,3 +3,7 @@ logs/*
 .DS_Store
 *.sql
 *.txt
+schema_checker.php
+debug_info.php
+schema_diff.php
+alliances-interest.log
