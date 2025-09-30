@@ -1,9 +1,8 @@
 <?php
-
-# ---------------------------------------------
-# File: /pages/includes/dashboard/espionage_card.php
-# Expects: $spy_offense, $sentry_defense, $recent_spy_logs, $user_id
-# ---------------------------------------------
+$spy_offense = (int)($spy_offense ?? 0);
+$sentry_defense = (int)($sentry_defense ?? 0);
+$recent_spy_logs = $recent_spy_logs ?? [];
+$user_id = (int)($user_id ?? 0);
 ?>
 <div class="content-box rounded-lg p-4 space-y-3">
   <div class="flex items-center justify-between border-b border-gray-600 pb-2 mb-2">

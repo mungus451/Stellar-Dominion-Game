@@ -212,7 +212,7 @@ const XP_DEF_TURNS_EXP                = 0.0;  // 0.0 = ignore turns for defender
 const HOURLY_FULL_LOOT_CAP            = 5;     // first 5 attacks in last hour = full loot
 const HOURLY_REDUCED_LOOT_MAX         = 50;    // attacks 6..10 in last hour = reduced
 const HOURLY_REDUCED_LOOT_FACTOR      = 0.25;  // 25% of normal credits
-const DAILY_STRUCT_ONLY_THRESHOLD     = 50;    // 11th+ attack in last 24h => structure-only
+const DAILY_STRUCT_ONLY_THRESHOLD     = 200;    // 11th+ attack in last 24h => structure-only
 
 // Attacker soldier combat casualties (adds to existing fatigue losses)
 const ATK_SOLDIER_LOSS_BASE_FRAC = 0.001;

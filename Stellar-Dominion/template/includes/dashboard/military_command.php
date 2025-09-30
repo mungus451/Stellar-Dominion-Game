@@ -1,12 +1,18 @@
 <?php
-
-# ---------------------------------------------
-# File: /pages/includes/dashboard/military_command.php
-# Expects: $chips, $offense_power, $defense_rating, $offense_units_base, $armory_attack_bonus,
-#          $offense_pre_mult_base, $defense_units_base, $armory_defense_bonus, $defense_pre_mult_base,
-#          $user_stats, $attack_turns (via $user_stats['attack_turns']), $wins, $total_losses,
-#          $recent_battles, $user_id
-# ---------------------------------------------
+$chips = $chips ?? ['income'=>[],'population'=>[],'offense'=>[],'defense'=>[]];
+$offense_power = (int)($offense_power ?? 0);
+$defense_rating = (int)($defense_rating ?? 0);
+$offense_units_base = (int)($offense_units_base ?? 0);
+$armory_attack_bonus = (int)($armory_attack_bonus ?? 0);
+$offense_pre_mult_base = (int)($offense_pre_mult_base ?? 0);
+$defense_units_base = (int)($defense_units_base ?? 0);
+$armory_defense_bonus = (int)($armory_defense_bonus ?? 0);
+$defense_pre_mult_base = (int)($defense_pre_mult_base ?? 0);
+$user_stats = isset($user_stats) && is_array($user_stats) ? $user_stats : [];
+$wins = (int)($wins ?? 0);
+$total_losses = (int)($total_losses ?? 0);
+$recent_battles = $recent_battles ?? [];
+$user_id = (int)($user_id ?? 0);
 ?>
 <div class="content-box rounded-lg p-4 space-y-3">
   <div class="flex items-center justify-between border-b border-gray-600 pb-2 mb-2">

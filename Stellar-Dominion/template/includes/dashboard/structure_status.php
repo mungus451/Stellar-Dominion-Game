@@ -1,9 +1,6 @@
 <?php
-
-# ---------------------------------------------
-# File: /pages/includes/dashboard/structure_status.php
-# Expects: $user_stats, $upgrades, csrf_token_field(), $csrf_token
-# ---------------------------------------------
+$user_stats = isset($user_stats) && is_array($user_stats) ? $user_stats : [];
+$upgrades = $upgrades ?? ['fortifications'=>['levels'=>[]]];
 ?>
 <div class="content-box rounded-lg p-4 space-y-3">
   <div class="flex items-center justify-between border-b border-gray-600 pb-2 mb-2">

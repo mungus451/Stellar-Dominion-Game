@@ -1,10 +1,3 @@
-<?php
-
-# ---------------------------------------------
-# File: /pages/includes/dashboard/footer_scripts.php
-# Expects: none (operates on DOM created by the other includes)
-# ---------------------------------------------
-?>
 <script>
 (function(){
   /* Lightbox for avatar */
