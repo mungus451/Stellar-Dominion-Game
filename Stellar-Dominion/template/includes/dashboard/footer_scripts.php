@@ -1,3 +1,4 @@
+<<<<<<< HEAD
 <?php
 
 # ---------------------------------------------
@@ -5,6 +6,8 @@
 # Expects: none (operates on DOM created by the other includes)
 # ---------------------------------------------
 ?>
+=======
+>>>>>>> main
 <script>
 (function(){
   /* Lightbox for avatar */
