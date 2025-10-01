@@ -1,4 +1,14 @@
+<<<<<<< HEAD
+<?php
+
+# ---------------------------------------------
+# File: /pages/includes/dashboard/security_info.php
+# Expects: $user_stats
+# ---------------------------------------------
+?>
+=======
 <?php $user_stats = isset($user_stats) && is_array($user_stats) ? $user_stats : []; ?>
+>>>>>>> main
 <div class="content-box rounded-lg p-4 space-y-3">
   <div class="flex items-center justify-between border-b border-gray-600 pb-2 mb-2">
     <h3 class="font-title text-cyan-400 flex items-center"><i data-lucide="shield-check" class="w-5 h-5 mr-2"></i>Security Information</h3>
