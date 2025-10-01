@@ -1,6 +1,6 @@
 <?php
 // template/pages/levels.php
-// Page shell: mirrors dashboard/view_profile structure
+// Page shell: mirrors dashboard/view_profile/bank structure
 
 $page_title  = $page_title  ?? 'Commander Level';
 $active_page = $active_page ?? 'levels.php';

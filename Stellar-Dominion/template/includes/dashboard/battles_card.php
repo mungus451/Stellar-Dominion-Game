@@ -1,12 +1,4 @@
 <?php
-<<<<<<< HEAD
-
-# ---------------------------------------------
-# File: /pages/includes/dashboard/battles_card.php
-# Expects: $outcome_series, $attack_freq, $defense_freq, $big_attackers, $labels,
-#          sparkline_path(), pie_slices()
-# ---------------------------------------------
-=======
 $outcome_series = $outcome_series ?? ['att_win'=>array_fill(0,7,0),'def_win'=>array_fill(0,7,0)];
 $attack_freq = $attack_freq ?? array_fill(0,7,0);
 $defense_freq = $defense_freq ?? array_fill(0,7,0);
@@ -14,7 +6,6 @@ $big_attackers = $big_attackers ?? [];
 $labels = $labels ?? [];
 if (!function_exists('sparkline_path')) { function sparkline_path(array $p,int $w=220,int $h=44,int $pad=4){ return ''; } }
 if (!function_exists('pie_slices')) { function pie_slices(array $parts,float $cx,float $cy,float $r){ return []; } }
->>>>>>> main
 ?>
 <div class="content-box rounded-lg p-4 space-y-3">
   <div class="flex items-center justify-between border-b border-gray-600 pb-2 mb-2">
