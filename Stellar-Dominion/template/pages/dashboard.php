@@ -36,7 +36,7 @@ include_once __DIR__ . '/../includes/header.php';
 <div class="lg:col-span-4 grid grid-cols-1 lg:grid-cols-2 gap-4">
 
     <!-- Advisor card (left column, optional) -->
-    <div>
+    <div class="content-box rounded-xl p-4">
         <?php
         include __DIR__ . '/../includes/advisor.php';
         ?>

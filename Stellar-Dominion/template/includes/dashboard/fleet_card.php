@@ -1,9 +1,17 @@
 <?php
+<<<<<<< HEAD
+
+# ---------------------------------------------
+# File: /pages/includes/dashboard/fleet_card.php
+# Expects: $total_military_units, $soldier_count, $guard_count, $sentry_count, $spy_count
+# ---------------------------------------------
+=======
 $total_military_units = (int)($total_military_units ?? 0);
 $soldier_count = (int)($soldier_count ?? 0);
 $guard_count = (int)($guard_count ?? 0);
 $sentry_count = (int)($sentry_count ?? 0);
 $spy_count = (int)($spy_count ?? 0);
+>>>>>>> main
 ?>
 <div class="content-box rounded-lg p-4 space-y-3">
   <div class="flex items-center justify-between border-b border-gray-600 pb-2 mb-2">
