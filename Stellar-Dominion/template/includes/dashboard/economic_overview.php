@@ -1,83 +1,117 @@
 <?php
-$outcome_series = $outcome_series ?? ['att_win'=>array_fill(0,7,0),'def_win'=>array_fill(0,7,0)];
-$attack_freq = $attack_freq ?? array_fill(0,7,0);
-$defense_freq = $defense_freq ?? array_fill(0,7,0);
-$big_attackers = $big_attackers ?? [];
-$labels = $labels ?? [];
-if (!function_exists('sparkline_path')) { function sparkline_path(array $p,int $w=220,int $h=44,int $pad=4){ return ''; } }
-if (!function_exists('pie_slices')) { function pie_slices(array $parts,float $cx,float $cy,float $r){ return []; } }
+declare(strict_types=1);
+/** View: Economic Overview (uses vars hydrated by economic_hydration.php) */
+
+if (!function_exists('sd_h'))  { function sd_h($s){ return htmlspecialchars((string)$s, ENT_QUOTES, 'UTF-8'); } }
+if (!function_exists('sd_num')){ function sd_num($n){ return number_format((int)$n); } }
+
+/* safe fallbacks */
+$credits_on_hand = (int)($user_stats['credits'] ?? 0);
+$banked_credits  = (int)($user_stats['banked_credits'] ?? 0);
+$net_worth_safe  = (int)($user_stats['net_worth'] ?? (int)($summary['net_worth'] ?? 0));
+$credits_per_turn = (int)($credits_per_turn ?? 0);
+
+$chips = is_array($chips ?? null) ? $chips : [];
+$chips['income'] = is_array($chips['income'] ?? null) ? $chips['income'] : [];
 ?>
+
+<!-- Economic Overview (right column) -->
 <div class="content-box rounded-lg p-4 space-y-3">
   <div class="flex items-center justify-between border-b border-gray-600 pb-2 mb-2">
-    <h3 class="font-title text-cyan-400 flex items-center"><i data-lucide="line-chart" class="w-5 h-5 mr-2"></i>Battles (Last 7 Days)</h3>
-    <span class="text-xs text-gray-400">outcomes • frequency • attackers</span>
+    <h3 class="font-title text-cyan-400 flex items-center"><i data-lucide="banknote" class="w-5 h-5 mr-2"></i>Economic Overview</h3>
+    <button type="button" class="text-sm px-2 py-1 rounded bg-gray-800 hover:bg-gray-700" @click="panels.eco = !panels.eco" x-text="panels.eco ? 'Hide' : 'Show'"></button>
   </div>
+  <div x-show="panels.eco" x-transition x-cloak>
 
-  <?php $hasBattleData = array_sum($outcome_series['att_win']) + array_sum($outcome_series['def_win']) + array_sum($attack_freq) + (isset($defense_freq) ? array_sum($defense_freq) : 0) + array_sum(array_column($big_attackers,'count')) > 0; ?>
+    <div class="flex justify-between text-sm">
+      <span>Credits on Hand:</span>
+      <span id="credits-on-hand-display" class="text-white font-semibold"><?= sd_num($credits_on_hand) ?></span>
+    </div>
+    <div class="flex justify-between text-sm">
+      <span>Banked Credits:</span>
+      <span class="text-white font-semibold"><?= sd_num($banked_credits) ?></span>
+    </div>
 
-  <?php if($hasBattleData): ?>
-    <div>
-      <div class="flex items-center justify-between text-sm mb-1">
-        <span>Outcomes (wins)</span>
-        <span class="text-xs text-gray-400"><?php echo implode(' · ', $labels); ?></span>
+    <div class="flex justify-between text-sm items-center">
+      <span class="text-gray-300">
+        Income per Turn
+        <?php
+        if (!function_exists('sd_render_chips')) {
+            function sd_render_chips(array $chips): string {
+                if (empty($chips)) return '';
+                $html = '<span class="ml-0 md:ml-2 block md:inline-flex flex-wrap gap-1 align-middle mt-1 md:mt-0">';
+                foreach ($chips as $c) {
+                    $label = is_array($c) ? (string)($c['label'] ?? '') : (string)$c;
+                    if ($label === '') continue;
+                    $html .= '<span class="text-[10px] px-1.5 py-0.5 rounded bg-cyan-900/40 text-cyan-300 border border-cyan-800/60">'
+                           . sd_h($label) . '</span>';
+                }
+                return $html . '</span>';
+            }
+        }
+        echo sd_render_chips($chips['income']);
+        ?>
+      </span>
+      <span class="text-green-400 font-semibold">+<?= sd_num($credits_per_turn) ?></span>
+    </div>
+
+    <div class="text-[11px] text-gray-400 mt-1 space-y-0.5">
+      <div>
+        <?= sd_h($income_base_label ?? 'Pre-structure (pre-maintenance) total') ?>:
+        <span class="text-gray-300"><?= sd_num($base_income_raw ?? 0) ?></span>
       </div>
-      <svg viewBox="0 0 240 48" class="w-full h-12">
-        <path d="<?php echo htmlspecialchars(sparkline_path($outcome_series['att_win'])); ?>" stroke="currentColor" stroke-width="1.8" fill="none" stroke-linecap="round" stroke-linejoin="round" class="text-green-400"/>
-        <path d="<?php echo htmlspecialchars(sparkline_path($outcome_series['def_win'])); ?>" stroke="currentColor" stroke-width="1.8" fill="none" stroke-linecap="round" stroke-linejoin="round" class="text-purple-400"/>
-      </svg>
-      <div class="flex gap-4 text-[11px] text-gray-400 mt-1">
-        <span class="inline-flex items-center"><span class="w-2 h-2 rounded-full bg-green-400 mr-1"></span># of Attack Wins </span>
-        <span class="inline-flex items-center"><span class="w-2 h-2 rounded-full bg-purple-400 mr-1"></span># of Defense Wins</span>
+      <div class="ml-0.5">
+        Inputs: base <?= sd_num($base_flat_income ?? 5000) ?>
+        + workers <span class="text-gray-300"><?= sd_num($workers_count ?? 0) ?></span>
+        × <?= sd_num($credits_per_worker ?? 50) ?>
+        = <?= sd_num($worker_income_no_arm ?? 0) ?>
+        + armory <?= sd_num($worker_armory_bonus ?? 0) ?>
+        → <span class="text-gray-300"><?= sd_num($base_income_subtotal ?? 0) ?></span>
+      </div>
+      <div class="ml-0.5">
+        Multipliers:
+        × upgrades <?= number_format((float)($mult_econ_upgrades ?? 1.0), 3) ?>
+        · × alliance inc <?= number_format((float)($mult_alli_inc ?? 1.0), 3) ?>
+        · × alliance res <?= number_format((float)($mult_alli_res ?? 1.0), 3) ?>
+        · × wealth <?= number_format((float)($mult_wealth ?? 1.0), 2) ?>
+        + alliance flat <?= sd_num($alli_flat_credits ?? 0) ?>
+      </div>
+      <div class="ml-0.5">
+        Structure health: × <?= number_format((float)($mult_struct_econ ?? 1.0), 2) ?>
       </div>
     </div>
 
     <div class="mt-3">
-      <div class="flex items-center justify-between text-sm mb-1">
-        <span>Attack & Defense Frequency</span>
-        <span class="text-xs text-gray-400"><?php echo implode(' · ', $labels); ?></span>
+      <div class="text-[11px] text-gray-400 mb-1">
+        Troop Maintenance (per turn):
+        <span class="text-red-400 font-medium">
+          <?= isset($fmtNeg) && is_callable($fmtNeg) ? $fmtNeg((int)($maintenance_total ?? 0)) : '0' ?>
+        </span>
       </div>
-      <svg viewBox="0 0 240 48" class="w-full h-12">
-        <path d="<?php echo htmlspecialchars(sparkline_path($attack_freq)); ?>"  stroke="currentColor" stroke-width="1.8" fill="none" stroke-linecap="round" stroke-linejoin="round" class="text-cyan-400"/>
-        <path d="<?php echo htmlspecialchars(sparkline_path($defense_freq)); ?>" stroke="currentColor" stroke-width="1.8" fill="none" stroke-linecap="round" stroke-linejoin="round" class="text-purple-400"/>
-      </svg>
-      <div class="flex gap-4 text-[11px] text-gray-400 mt-1">
-        <span class="inline-flex items-center"><span class="w-2 h-2 rounded-full bg-cyan-400 mr-1"></span>Offense freq</span>
-        <span class="inline-flex items-center"><span class="w-2 h-2 rounded-full bg-purple-400 mr-1"></span>Defense freq</span>
-      </div>
-    </div>
-
-    <div class="mt-3">
-      <div class="flex items-center justify-between text-sm mb-1">
-        <span>Biggest Attackers</span>
-        <span class="text-xs text-gray-400">last 7 days</span>
-      </div>
-      <?php $slices = pie_slices($big_attackers, 30, 30, 28); ?>
-      <div class="flex items-center gap-4">
-        <svg viewBox="0 0 60 60" class="w-20 h-20">
-          <?php foreach($slices as $sl): ?>
-            <path d="<?php echo htmlspecialchars($sl['path']); ?>" fill="<?php echo htmlspecialchars($sl['fill']); ?>" stroke="rgba(0,0,0,0.25)" stroke-width="0.5"/>
-          <?php endforeach; ?>
-        </svg>
-        <div class="flex-1">
-          <?php if(!empty($big_attackers)): ?>
-            <ul class="text-xs space-y-1">
-              <?php foreach($slices as $sl): ?>
-                <li class="flex items-center justify-between">
-                  <span class="inline-flex items-center">
-                    <span class="w-2.5 h-2.5 rounded-sm mr-2" style="background: <?php echo htmlspecialchars($sl['fill']); ?>"></span>
-                    <span class="text-gray-300 truncate max-w-[180px]"><?php echo htmlspecialchars($sl['label']); ?></span>
-                  </span>
-                  <span class="text-gray-400"><?php echo (int)$sl['count']; ?></span>
-                </li>
-              <?php endforeach; ?>
-            </ul>
-          <?php else: ?>
-            <p class="text-xs text-gray-500">No one attacked you in this window.</p>
-          <?php endif; ?>
+      <div class="space-y-1.5">
+        <?php
+        $maintenance_breakdown = is_array($maintenance_breakdown ?? null) ? $maintenance_breakdown : [];
+        $maintenance_max = max(1, (int)max($maintenance_breakdown ?: [0]));
+        foreach ($maintenance_breakdown as $__label => $__cost):
+            $__pct = ($maintenance_max > 0) ? max(0, min(100, (int)round((int)$__cost / $maintenance_max * 100))) : 0;
+        ?>
+        <div>
+          <div class="flex justify-between text-[11px] text-gray-400 mb-0.5">
+            <span><?= sd_h($__label) ?></span>
+            <span class="text-red-400"><?= isset($fmtNeg) && is_callable($fmtNeg) ? $fmtNeg((int)$__cost) : '0' ?></span>
+          </div>
+          <div class="w-full h-2 bg-gray-700 rounded">
+            <div class="h-2 bg-red-500 rounded" style="width: <?= (int)$__pct ?>%;"></div>
+          </div>
         </div>
+        <?php endforeach; ?>
       </div>
     </div>
-  <?php else: ?>
-    <p class="text-xs text-gray-400">No battles in the last 7 days.</p>
-  <?php endif; ?>
+
+    <div class="flex justify-between text-sm">
+      <span>Net Worth:</span>
+      <span class="text-yellow-300 font-semibold"><?= sd_num($net_worth_safe) ?></span>
+    </div>
+
+  </div>
 </div>
