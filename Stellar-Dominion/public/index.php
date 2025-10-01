@@ -89,7 +89,6 @@ if (isset($_SESSION['vacation_until']) && new DateTime() < new DateTime($_SESSIO
     header("location: /auth.php?action=logout");
     exit;
 }
-
 // ─────────────────────────────────────────────────────────────────────────────
 // 2) CORE CONFIG & BASE CONTROLLER BOOTSTRAP
 // ─────────────────────────────────────────────────────────────────────────────
@@ -99,6 +98,7 @@ if (isset($_SESSION['vacation_until']) && new DateTime() < new DateTime($_SESSIO
 require_once __DIR__ . '/../config/config.php';
 require_once __DIR__ . '/../src/Services/LegacyShims.php';
 require_once __DIR__ . '/../src/Controllers/BaseController.php';
+require_once __DIR__ . '/../template/includes/auth_touch_last_seen.php';
 
 // ─────────────────────────────────────────────────────────────────────────────
 // 3) NORMALIZE THE REQUEST PATH

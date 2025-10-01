@@ -1,10 +1,3 @@
-<<<<<<< HEAD
-<?php include_once __DIR__ . '/../includes/header.php'; ?>
-
-<!-- PROFILE / POPULATION CARD (full width) -->
-<?php include __DIR__ . '/../includes/dashboard/profile_card.php'; ?>
-
-=======
 <?php 
 // template/pages/dashboard.php
 $page_title = $page_title ?? 'Dashboard'; 
@@ -39,19 +32,14 @@ include_once __DIR__ . '/../includes/header.php';
 
 <?php include __DIR__ . '/../includes/dashboard/profile_card.php'; ?>
 
->>>>>>> main
 <!-- GRID: two columns of cards -->
 <div class="lg:col-span-4 grid grid-cols-1 lg:grid-cols-2 gap-4">
 
     <!-- Advisor card (left column, optional) -->
-    <div>
-<<<<<<< HEAD
-        <?php $user_xp=$user_stats['experience']; $user_level=$user_stats['level']; include __DIR__ . '/../includes/advisor.php'; ?>
-=======
+    <div class="content-box rounded-xl p-4">
         <?php
         include __DIR__ . '/../includes/advisor.php';
         ?>
->>>>>>> main
     </div>
 
     <!-- Economic Overview (right column) -->
