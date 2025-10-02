@@ -393,7 +393,7 @@ class AllianceResourceController
      *á2% interest compounded at each half-day boundary (06:00 / 18:00).
      * Idempotent per alliance using alliances.last_compound_at.
      */
-    public function accrueBankInterest(): void
+    public function accrueBankInterest(bool $forcePerRun = false, int $minHoursPerRun = 1): void
     {
         // Keep MySQL session in UTC to match CLI
         $this->db->query("SET time_zone = '+00:00'");
@@ -427,23 +427,28 @@ class AllianceResourceController
                 $dtSeconds = max(0, $now->getTimestamp() - $last->getTimestamp());
                 $hours = intdiv($dtSeconds, 3600);
 
-                if ($hours <= 0) {
-                    // Still advance the pointer to avoid drift if first run
-                    $ts = $now->format('Y-m-d H:i:s');
-                    $stmt = $this->db->prepare('UPDATE alliances SET last_compound_at = ? WHERE id = ?');
-                    $stmt->bind_param('si', $ts, $aid);
-                    $stmt->execute();
-                    $stmt->close();
-                    $this->db->commit();
-                    continue;
+                if ($forcePerRun) {
+                    // Force at least N "hours" per run
+                    $hours = max($minHoursPerRun, $hours);
+                } else {
+                    // Legacy behavior: skip if less than 1 hour elapsed
+                    if ($hours <= 0) {
+                        $ts = $now->format('Y-m-d H:i:s');
+                        $stmt = $this->db->prepare('UPDATE alliances SET last_compound_at = ? WHERE id = ?');
+                        $stmt->bind_param('si', $ts, $aid);
+                        $stmt->execute();
+                        $stmt->close();
+                        $this->db->commit();
+                        continue;
+                    }
                 }
 
-                // Compound +2% for each elapsed hour in one go:
+                // Compound +2% for each (possibly forced) hour in one go:
                 // new = old * (1.02 ^ hours); interest = floor(new - old)
                 $factor   = pow(1.02, $hours);
                 $interest = (int) floor($balance * ($factor - 1.0));
 
-                // Advance "last" to NOW to avoid minute drift
+                // Advance pointer to NOW to avoid drift
                 $ts = $now->format('Y-m-d H:i:s');
 
                 if ($interest > 0) {
@@ -454,12 +459,16 @@ class AllianceResourceController
                     $stmt->execute();
                     $stmt->close();
 
+                    $desc = $forcePerRun
+                        ? sprintf('2%% per hour compounded for %d hour(s) (forced per-run)', $hours)
+                        : sprintf('2%% per hour compounded for %d hour(s)', $hours);
+
                     $this->logBankTransaction(
                         $aid,
                         null,
                         'interest_yield',
                         $interest,
-                        sprintf('2%% per hour compounded for %d hour(s)', $hours)
+                        $desc
                     );
                 } else {
                     // Very small balances can round to 0; still advance pointer
