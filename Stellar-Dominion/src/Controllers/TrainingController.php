@@ -1,6 +1,6 @@
 <?php
 /**
- * src/Controllers/SpyController.php
+ * src/Controllers/TrainingController.php
  */
 
 if (session_status() == PHP_SESSION_NONE) {
@@ -18,11 +18,9 @@ require_once __DIR__ . '/../../config/balance.php';
 
 // --- CSRF TOKEN VALIDATION (CORRECTED) ---
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
-    // Get the token and the action from the submitted form
-    $token = $_POST['csrf_token'] ?? '';
+    $token  = $_POST['csrf_token'] ?? '';
     $action = $_POST['csrf_action'] ?? 'default';
 
-    // Validate the token against the specific action
     if (!validate_csrf_token($token, $action)) {
         $_SESSION['spy_error'] = "A security error occurred (Invalid Token). Please try again.";
         header("location: /spy.php");
@@ -35,10 +33,13 @@ date_default_timezone_set('UTC');
 
 // --- SHARED DEFINITIONS ---
 $base_unit_costs = [
-    'workers' => 1000, 'soldiers' => 2500, 'guards' => 2500,
-    'sentries' => 5000, 'spies' => 10000,
+    'workers'  => 1000,
+    'soldiers' => 2500,
+    'guards'   => 2500,
+    'sentries' => 5000,
+    'spies'    => 10000,
 ];
-$action = $_POST['action'] ?? ''; // Determine if we are training or disbanding
+$action = $_POST['action'] ?? '';
 
 // --- TRANSACTIONAL DATABASE UPDATE ---
 mysqli_begin_transaction($link);
@@ -54,17 +55,21 @@ try {
         $total_citizens_needed = array_sum($units_to_train);
         if ($total_citizens_needed <= 0) { header("location: /battle.php"); exit; }
 
-        $sql_get_user = "SELECT experience, untrained_citizens, credits, charisma_points FROM users WHERE id = ? FOR UPDATE";
+        // NOTE: fetch level now (FOR UPDATE to guard race conditions).
+        $sql_get_user = "SELECT level, experience, untrained_citizens, credits, charisma_points 
+                         FROM users WHERE id = ? FOR UPDATE";
         $stmt = mysqli_prepare($link, $sql_get_user);
         mysqli_stmt_bind_param($stmt, "i", $_SESSION["id"]);
         mysqli_stmt_execute($stmt);
         $user = mysqli_fetch_assoc(mysqli_stmt_get_result($stmt));
         mysqli_stmt_close($stmt);
 
-        $initial_xp = $user['experience'];
+        $initial_xp = (int)$user['experience'];
+
         // Cap charisma discount at SD_CHARISMA_DISCOUNT_CAP_PCT
         $discount_pct = min((int)$user['charisma_points'], (int)SD_CHARISMA_DISCOUNT_CAP_PCT);
         $charisma_discount = 1 - ($discount_pct / 100.0);
+
         $total_credits_needed = 0;
         foreach ($units_to_train as $unit => $amount) {
             if ($amount > 0) {
@@ -72,34 +77,59 @@ try {
             }
         }
 
-        if ($user['untrained_citizens'] < $total_citizens_needed) {
+        if ((int)$user['untrained_citizens'] < $total_citizens_needed) {
             throw new Exception("Not enough untrained citizens.");
         }
-        if ($user['credits'] < $total_credits_needed) {
+        if ((int)$user['credits'] < $total_credits_needed) {
             throw new Exception("Not enough credits.");
         }
 
-        $experience_gained = rand(2 * $total_citizens_needed, 5 * $total_citizens_needed);
+        // --- XP GATE: No XP from training at level >= 45 ---
+        if ((int)$user['level'] >= 45) {
+            $experience_gained = 0;
+        } else {
+            $experience_gained = rand(2 * $total_citizens_needed, 5 * $total_citizens_needed);
+        }
         $final_xp = $initial_xp + $experience_gained;
 
         $sql_update = "UPDATE users SET 
-                            untrained_citizens = untrained_citizens - ?, credits = credits - ?,
-                            workers = workers + ?, soldiers = soldiers + ?, guards = guards + ?,
-                            sentries = sentries + ?, spies = spies + ?, experience = experience + ?
-                           WHERE id = ?";
+                            untrained_citizens = untrained_citizens - ?, 
+                            credits = credits - ?,
+                            workers = workers + ?, 
+                            soldiers = soldiers + ?, 
+                            guards = guards + ?,
+                            sentries = sentries + ?, 
+                            spies = spies + ?, 
+                            experience = experience + ?
+                       WHERE id = ?";
         $stmt_update = mysqli_prepare($link, $sql_update);
-        mysqli_stmt_bind_param($stmt_update, "iiiiiiiii", 
-            $total_citizens_needed, $total_credits_needed,
-            $units_to_train['workers'], $units_to_train['soldiers'], $units_to_train['guards'],
-            $units_to_train['sentries'], $units_to_train['spies'], $experience_gained,
+        mysqli_stmt_bind_param(
+            $stmt_update,
+            "iiiiiiiii",
+            $total_citizens_needed,
+            $total_credits_needed,
+            $units_to_train['workers'],
+            $units_to_train['soldiers'],
+            $units_to_train['guards'],
+            $units_to_train['sentries'],
+            $units_to_train['spies'],
+            $experience_gained,
             $_SESSION["id"]
         );
         mysqli_stmt_execute($stmt_update);
         mysqli_stmt_close($stmt_update);
-        
+
+        // Still OK to call; it’s a no-op if no thresholds are crossed.
         check_and_process_levelup($_SESSION["id"], $link);
-        
-        $_SESSION['training_message'] = "Units trained successfully. Gained " . number_format($experience_gained) . " XP (" . number_format($initial_xp) . " -> " . number_format($final_xp) . ").";
+
+        if ($experience_gained > 0) {
+            $_SESSION['training_message'] =
+                "Units trained successfully. Gained " . number_format($experience_gained) .
+                " XP (" . number_format($initial_xp) . " -> " . number_format($final_xp) . ").";
+        } else {
+            $_SESSION['training_message'] =
+                "Units trained successfully. No XP gained from training at level 45+.";
+        }
 
     } elseif ($action === 'disband') {
         // --- DISBANDING LOGIC ---
@@ -131,36 +161,44 @@ try {
             $total_refund += floor($amount * $base_unit_costs[$unit] * $refund_rate);
         }
 
-        $disband_workers = $units_to_disband['workers'] ?? 0;
+        $disband_workers  = $units_to_disband['workers']  ?? 0;
         $disband_soldiers = $units_to_disband['soldiers'] ?? 0;
-        $disband_guards = $units_to_disband['guards'] ?? 0;
+        $disband_guards   = $units_to_disband['guards']   ?? 0;
         $disband_sentries = $units_to_disband['sentries'] ?? 0;
-        $disband_spies = $units_to_disband['spies'] ?? 0;
+        $disband_spies    = $units_to_disband['spies']    ?? 0;
 
         $sql_update = "UPDATE users SET 
                             untrained_citizens = untrained_citizens + ?,
-                            workers = workers - ?, soldiers = soldiers - ?, guards = guards - ?,
-                            sentries = sentries - ?, spies = spies - ?
+                            workers = workers - ?, 
+                            soldiers = soldiers - ?, 
+                            guards = guards - ?,
+                            sentries = sentries - ?, 
+                            spies = spies - ?
                        WHERE id = ?";
         $stmt_update = mysqli_prepare($link, $sql_update);
-        mysqli_stmt_bind_param($stmt_update, "iiiiiii", 
+        mysqli_stmt_bind_param(
+            $stmt_update,
+            "iiiiiii",
             $total_citizens_to_return,
-            $disband_workers, $disband_soldiers, $disband_guards,
-            $disband_sentries, $disband_spies, $_SESSION["id"]
+            $disband_workers,
+            $disband_soldiers,
+            $disband_guards,
+            $disband_sentries,
+            $disband_spies,
+            $_SESSION["id"]
         );
         mysqli_stmt_execute($stmt_update);
         mysqli_stmt_close($stmt_update);
+
         $_SESSION['training_message'] = "Units successfully disbanded for " . number_format($total_refund) . " credits.";
 
     } else {
         throw new Exception("Invalid action specified.");
     }
 
-    // If we reach here, the transaction was successful.
     mysqli_commit($link);
 
 } catch (Exception $e) {
-    // If any error occurred, roll back all database changes.
     mysqli_rollback($link);
     $_SESSION['training_error'] = "Error: " . $e->getMessage();
 }
@@ -169,4 +207,3 @@ try {
 $redirect_tab = ($action === 'disband') ? '?tab=disband' : '';
 header("location: /battle.php" . $redirect_tab);
 exit;
-?>

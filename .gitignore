@@ -8,3 +8,5 @@ debug_info.php
 schema_diff.php
 alliances-interest.log
 cron_log.txt
+*.zip
+*.log

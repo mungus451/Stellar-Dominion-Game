@@ -1,127 +1,256 @@
 <?php
-// --- Starlight Dominion: Enclave NPC AI Cron Job ---
+declare(strict_types=1);
 
-// This script should be run by a cron job every 6 hours.
+/**
+ * Enclave Cron – Train all (with credit costs) + Attack up to 10x per member
+ * Members: 42, 43, 44, 45
+ * - Training respects credit costs and Charisma discount cap (same as TrainingController)
+ * - Training splits as evenly as possible across: workers, soldiers, guards, sentries, spies
+ * - If credits are insufficient to train all citizens, we train the maximum T <= untrained
+ *   such that the evenly-split basket cost(T) <= credits.
+ */
 
-// Mute browser output if run manually, this is for server execution.
-if (php_sapi_name() !== 'cli') {
-    die("This script is designed for command-line execution only.");
+if (php_sapi_name() !== 'cli') { http_response_code(403); echo "forbidden\n"; exit; }
+
+// Aggressive runtime diagnostics
+ini_set('display_errors', '1');
+ini_set('display_startup_errors', '1');
+error_reporting(E_ALL);
+
+date_default_timezone_set('UTC');
+
+$LOG_FILE = __DIR__ . '/../../src/Game/cron_log.txt';
+@is_dir(dirname($LOG_FILE)) || @mkdir(dirname($LOG_FILE), 0775, true);
+function logBoth(string $m): void {
+    global $LOG_FILE;
+    $line = '['.date('Y-m-d H:i:s')."] ".$m.PHP_EOL;
+    echo $line;
+    @file_put_contents($LOG_FILE, $line, FILE_APPEND | LOCK_EX);
 }
 
-// --- INITIALIZATION ---
-// Set a long execution time limit.
-set_time_limit(300); // 5 minutes
+require_once __DIR__ . '/../../config/config.php';
+require_once __DIR__ . '/../../config/balance.php'; // SD_CHARISMA_DISCOUNT_CAP_PCT
 
-// Bootstrap your application to get the database and functions
-require_once __DIR__ . '/../config/config.php';
-require_once __DIR__ . '/../src/Game/GameFunctions.php'; // Assuming you have this
-// We will define simplified action functions here for clarity.
-
-// --- LOGGING ---
-$log_file = __DIR__ . '/enclave_cron.log';
-function write_log($message) {
-    global $log_file;
-    $timestamp = date('Y-m-d H:i:s');
-    file_put_contents($log_file, "[$timestamp] $message\n", FILE_APPEND);
+if (!isset($link) || !($link instanceof mysqli)) {
+    logBoth("FATAL: DB \$link not set/connected");
+    exit(1);
 }
 
-write_log("--- Starting Enclave Cron Job ---");
+// ---- CONFIG ----
+const ENCLAVE_MEMBER_IDS = [42,43,44,45];
+const MAX_ATTACKS_PER_RUN = 10;
 
-// --- CORE LOGIC ---
+// Costs identical to TrainingController
+$BASE_UNIT_COSTS = [
+    'workers'  => 1000,
+    'soldiers' => 2500,
+    'guards'   => 2500,
+    'sentries' => 5000,
+    'spies'    => 10000,
+];
 
-// 1. Find the Enclave Alliance ID
-$alliance_id = 0;
-$sql_find_alliance = "SELECT id FROM alliances WHERE name = 'The Enclave' LIMIT 1";
-if ($result = mysqli_query($link, $sql_find_alliance)) {
-    if ($row = mysqli_fetch_assoc($result)) {
-        $alliance_id = (int)$row['id'];
+function even_split_counts(int $total, int $k): array {
+    if ($total <= 0) return array_fill(0, $k, 0);
+    $base = intdiv($total, $k);
+    $rem  = $total % $k;
+    $out = array_fill(0, $k, $base);
+    for ($i=0; $i<$rem; $i++) $out[$i]++;
+    return $out;
+}
+
+/** total discounted cost of an evenly-split basket of size T across the 5 types */
+function basket_cost(int $T, int $charismaPoints, array $BASE_UNIT_COSTS): int {
+    if ($T <= 0) return 0;
+    $discount_pct = min((int)$charismaPoints, (int)SD_CHARISMA_DISCOUNT_CAP_PCT);
+    $mult = 1 - ($discount_pct / 100.0);
+
+    $types = ['workers','soldiers','guards','sentries','spies'];
+    $parts = even_split_counts($T, count($types));
+    $sum = 0;
+    foreach ($types as $i => $type) {
+        $unitCost = (int)floor(($BASE_UNIT_COSTS[$type] ?? 0) * $mult);
+        $sum += $parts[$i] * $unitCost;
+    }
+    return (int)$sum;
+}
+
+/** Given citizens N and credits C, find max T (0..N) with basket_cost(T) <= C (binary search) */
+function max_trainable_even(int $N, int $credits, int $charismaPoints, array $BASE_UNIT_COSTS): int {
+    if ($N <= 0 || $credits <= 0) return 0;
+    $lo = 0; $hi = $N; $best = 0;
+    while ($lo <= $hi) {
+        $mid = intdiv($lo + $hi, 2);
+        $cost = basket_cost($mid, $charismaPoints, $BASE_UNIT_COSTS);
+        if ($cost <= $credits) { $best = $mid; $lo = $mid + 1; }
+        else { $hi = $mid - 1; }
+    }
+    return $best;
+}
+
+function fetch_user(mysqli $db, int $uid, bool $forUpdate=false): ?array {
+    $sql = "SELECT id, character_name, level, alliance_id, credits, charisma_points, experience,
+                   untrained_citizens, workers, soldiers, guards, sentries, spies, attack_turns
+            FROM users WHERE id = ? ".($forUpdate?'FOR UPDATE':'');
+    $st = $db->prepare($sql);
+    $st->bind_param('i', $uid);
+    $st->execute();
+    $r = $st->get_result();
+    $row = $r ? $r->fetch_assoc() : null;
+    $st->close();
+    return $row ?: null;
+}
+
+function pick_target(mysqli $db, array $excludeIds, int $excludeAllianceId, int $excludeUid, int $lvl): ?array {
+    // prefer ±5 levels, exclude enclave IDs and same alliance
+    $placeholders = implode(',', array_fill(0, count($excludeIds), '?'));
+    $types = str_repeat('i', count($excludeIds)+4);
+    $sql = "
+        SELECT id, level, character_name, credits FROM users
+         WHERE id NOT IN ($placeholders)
+           AND (alliance_id IS NULL OR alliance_id <> ?)
+           AND id <> ?
+           AND level BETWEEN ?-5 AND ?+5
+         ORDER BY RAND() LIMIT 1";
+    $st = $db->prepare($sql);
+    $params = array_merge($excludeIds, [$excludeAllianceId, $excludeUid, $lvl, $lvl]);
+    $st->bind_param($types, ...$params);
+    $st->execute();
+    $r = $st->get_result();
+    $row = $r ? $r->fetch_assoc() : null;
+    $st->close();
+    if ($row) return $row;
+
+    // fallback: any non-enclave, not same alliance
+    $sql2 = "
+        SELECT id, level, character_name, credits FROM users
+         WHERE id NOT IN ($placeholders)
+           AND (alliance_id IS NULL OR alliance_id <> ?)
+           AND id <> ?
+         ORDER BY RAND() LIMIT 1";
+    $st = $db->prepare($sql2);
+    $st->bind_param(str_repeat('i', count($excludeIds)+2), ...array_merge($excludeIds, [$excludeAllianceId, $excludeUid]));
+    $st->execute();
+    $r = $st->get_result();
+    $row = $r ? $r->fetch_assoc() : null;
+    $st->close();
+    return $row ?: null;
+}
+
+function do_attack_once(mysqli $db, int $attackerId, array $enclaveIds): string {
+    $db->begin_transaction(); $db->query("SET TRANSACTION ISOLATION LEVEL READ COMMITTED");
+    try {
+        $u = fetch_user($db, $attackerId, true);
+        if (!$u) { $db->rollback(); return "attack uid={$attackerId}: not_found"; }
+        if ((int)$u['attack_turns'] <= 0) { $db->commit(); return "attack uid={$attackerId}: noop (0 turns)"; }
+
+        // spend 1 turn now
+        $st = $db->prepare("UPDATE users SET attack_turns = attack_turns - 1 WHERE id = ? AND attack_turns >= 1");
+        $st->bind_param('i', $attackerId); $st->execute();
+        $okTurn = ($st->affected_rows === 1); $st->close();
+        if (!$okTurn) { $db->rollback(); return "attack uid={$attackerId}: lost_race"; }
+
+        $aid = (int)$u['alliance_id']; $lvl = (int)$u['level']; $an = (string)$u['character_name'];
+        $def = pick_target($db, $enclaveIds, $aid, $attackerId, $lvl);
+        if (!$def) { $db->commit(); return "attack uid={$attackerId}: noop (no target)"; }
+
+        $did = (int)$def['id']; $dn = (string)$def['character_name']; $dl = (int)$def['level']; $dc=(int)$def['credits'];
+        $win = (random_int(0,99) < 60);
+        $capByLevel = max(1000, $lvl*1000);
+        $byPct = (int)floor($dc * 0.005);
+        $plunder = $win ? min($capByLevel, $byPct) : 0;
+        $take = 0;
+        if ($plunder>0) {
+            $st = $db->prepare("SELECT credits FROM users WHERE id=? FOR UPDATE");
+            $st->bind_param('i',$did); $st->execute(); $r=$st->get_result();
+            $row = $r? $r->fetch_assoc() : null; $st->close();
+            if ($row) {
+                $avail = (int)$row['credits']; $t = min($plunder, max(0,$avail));
+                if ($t>0) {
+                    $st=$db->prepare("UPDATE users SET credits=credits-? WHERE id=? AND credits>=?");
+                    $st->bind_param('iii',$t,$did,$t); $st->execute(); $ok1=($st->affected_rows===1); $st->close();
+                    if ($ok1) {
+                        $st=$db->prepare("UPDATE users SET credits=credits+? WHERE id=?");
+                        $st->bind_param('ii',$t,$attackerId); $st->execute(); $st->close();
+                        $take=$t;
+                    }
+                }
+            }
+        }
+        $attD = random_int(50,200); $defD=random_int(50,200); $out = $win?'victory':'defeat';
+        $st=$db->prepare("INSERT INTO battle_logs
+            (attacker_id, defender_id, attacker_name, defender_name, outcome, credits_stolen, attack_turns_used, attacker_damage, defender_damage, attacker_xp_gained, defender_xp_gained, guards_lost, structure_damage, attacker_soldiers_lost, battle_time)
+            VALUES (?, ?, ?, ?, ?, ?, 1, ?, ?, 0, 0, 0, 0, 0, UTC_TIMESTAMP())");
+        $st->bind_param('iisssiii', $attackerId,$did,$an,$dn,$out,$take,$attD,$defD);
+        $st->execute(); $st->close();
+
+        $db->commit();
+        return "attack uid={$attackerId}({$lvl}) -> def={$did}({$dl}) {$dn} outcome={$out} plunder={$take}";
+    } catch (Throwable $e) { $db->rollback(); return "attack uid={$attackerId}: error=".$e->getMessage(); }
+}
+
+logBoth('--- enclave_cron start ---');
+
+// TRAIN + ATTACK per member
+foreach (ENCLAVE_MEMBER_IDS as $uid) {
+    // TRAIN
+    $link->begin_transaction(); $link->query("SET TRANSACTION ISOLATION LEVEL READ COMMITTED");
+    try {
+        $u = fetch_user($link, $uid, true);
+        if (!$u) { $link->rollback(); logBoth("train uid={$uid}: not_found"); goto AFTER_TRAIN; }
+        $N = (int)$u['untrained_citizens'];
+        $credits = (int)$u['credits'];
+        $charisma = (int)$u['charisma_points'];
+
+        // Target T: all citizens if possible, else maximum affordable
+        $T = min($N, max_trainable_even($N, $credits, $charisma, $BASE_UNIT_COSTS));
+        if ($T <= 0) {
+            $link->commit();
+            logBoth("train uid={$uid}: noop (N={$N} credits={$credits})");
+        } else {
+            $parts = even_split_counts($T, 5);
+            [$w,$s,$g,$se,$sp] = $parts;
+            $cost = basket_cost($T, $charisma, $BASE_UNIT_COSTS);
+            $xp = random_int(2*$T, 5*$T);
+
+            $st = $link->prepare("UPDATE users
+                SET untrained_citizens = untrained_citizens - ?,
+                    credits = credits - ?,
+                    workers = workers + ?,
+                    soldiers = soldiers + ?,
+                    guards = guards + ?,
+                    sentries = sentries + ?,
+                    spies = spies + ?,
+                    experience = experience + ?
+                 WHERE id = ? AND untrained_citizens >= ? AND credits >= ?");
+            $st->bind_param('iiiiiiiiiii', $T, $cost, $w,$s,$g,$se,$sp,$xp, $uid, $T, $cost);
+            $st->execute();
+            $ok = ($st->affected_rows === 1);
+            $st->close();
+
+            if ($ok) {
+                $link->commit();
+                logBoth("train uid={$uid}: trained={$T} (+W{$w}/+S{$s}/+G{$g}/+Se{$se}/+Sp{$sp}) cost={$cost} xp={$xp}");
+            } else {
+                $link->rollback();
+                logBoth("train uid={$uid}: conflict (state changed)");
+            }
+        }
+    } catch (Throwable $e) {
+        $link->rollback();
+        logBoth("train uid={$uid}: error=".$e->getMessage());
+    }
+    AFTER_TRAIN:
+
+    // ATTACKS up to MAX_ATTACKS_PER_RUN
+    $u2 = fetch_user($link, $uid, false);
+    if (!$u2) { logBoth("prep uid={$uid}: not_found"); continue; }
+    $avail = max(0, (int)$u2['attack_turns']);
+    $toUse = min(MAX_ATTACKS_PER_RUN, $avail);
+    logBoth("prep uid={$uid}: attack_turns_available={$avail} will_use={$toUse}");
+    for ($i=0; $i<$toUse; $i++) {
+        logBoth( do_attack_once($link, $uid, ENCLAVE_MEMBER_IDS) );
     }
 }
 
-if ($alliance_id === 0) {
-    write_log("FATAL: Could not find 'The Enclave' alliance. Exiting.");
-    exit;
-}
-write_log("Found Enclave Alliance ID: $alliance_id");
-
-// 2. Fetch all NPC accounts
-$sql_get_npcs = "SELECT * FROM users WHERE is_npc = TRUE AND alliance_id = ?";
-$stmt_get_npcs = mysqli_prepare($link, $sql_get_npcs);
-mysqli_stmt_bind_param($stmt_get_npcs, "i", $alliance_id);
-mysqli_stmt_execute($stmt_get_npcs);
-$npc_result = mysqli_stmt_get_result($stmt_get_npcs);
-$npc_users = mysqli_fetch_all($npc_result, MYSQLI_ASSOC);
-mysqli_stmt_close($stmt_get_npcs);
-
-if (empty($npc_users)) {
-    write_log("No NPC users found for The Enclave. Exiting.");
-    exit;
-}
-write_log("Found " . count($npc_users) . " NPC members to process.");
-
-// 3. Loop through each NPC to perform actions
-foreach ($npc_users as $npc) {
-    $npc_id = (int)$npc['id'];
-    write_log("Processing NPC: {$npc['character_name']} (ID: $npc_id)");
-
-    // A. Process offline turns to gain resources
-    process_offline_turns($link, $npc_id);
-    
-    // Refresh NPC data after turn processing
-    $sql_refresh = "SELECT * FROM users WHERE id = ?";
-    $stmt_refresh = mysqli_prepare($link, $sql_refresh);
-    mysqli_stmt_bind_param($stmt_refresh, "i", $npc_id);
-    mysqli_stmt_execute($stmt_refresh);
-    $npc = mysqli_fetch_assoc(mysqli_stmt_get_result($stmt_refresh));
-    mysqli_stmt_close($stmt_refresh);
-
-    // B. Autonomous Spending (Simple AI)
-    $credits = (int)$npc['credits'];
-    // Spend half of their available credits, save the rest
-    $credits_to_spend = floor($credits / 2);
-    
-    // Very simple logic: buy soldiers if they can, otherwise buy guards.
-    // (A more advanced AI could check unit ratios, etc.)
-    $soldier_cost = 2500; // Example cost, use your actual GameData value
-    $guard_cost = 2500;   // Example cost
-    
-    if ($credits_to_spend > $soldier_cost) {
-        $num_soldiers = floor($credits_to_spend / $soldier_cost);
-        $sql_buy = "UPDATE users SET soldiers = soldiers + ?, credits = credits - ? WHERE id = ?";
-        $stmt_buy = mysqli_prepare($link, $sql_buy);
-        $cost = $num_soldiers * $soldier_cost;
-        mysqli_stmt_bind_param($stmt_buy, "idi", $num_soldiers, $cost, $npc_id);
-        mysqli_stmt_execute($stmt_buy);
-        mysqli_stmt_close($stmt_buy);
-        write_log("-> Purchased $num_soldiers soldiers.");
-    }
-    
-    // C. Autonomous Attacking
-    $attacks_to_perform = rand(2, 3);
-    write_log("-> Performing $attacks_to_perform attacks.");
-    
-    // Find random, valid player targets
-    $sql_find_targets = "SELECT id FROM users WHERE is_npc = FALSE AND vacation_mode = 0 AND id <> ? ORDER BY RAND() LIMIT ?";
-    $stmt_find_targets = mysqli_prepare($link, $sql_find_targets);
-    mysqli_stmt_bind_param($stmt_find_targets, "ii", $npc_id, $attacks_to_perform);
-    mysqli_stmt_execute($stmt_find_targets);
-    $targets_result = mysqli_stmt_get_result($stmt_find_targets);
-    $targets = mysqli_fetch_all($targets_result, MYSQLI_ASSOC);
-    mysqli_stmt_close($stmt_find_targets);
-    
-    foreach ($targets as $target) {
-        $target_id = (int)$target['id'];
-        $attack_turns_to_use = rand(4, 8); // Enclave uses a variable but strong number of turns
-        
-        // This requires a simplified, non-controller attack function
-        // You would need to adapt this from your AttackController.php
-        // For now, we'll just log it. A real implementation would call your battle logic.
-        write_log("--> Attacking Player ID: $target_id with $attack_turns_to_use turns.");
-        
-        // In a real implementation, you would call your core battle function here, e.g.:
-        // execute_battle($npc_id, $target_id, $attack_turns_to_use);
-    }
-}
-
-write_log("--- Enclave Cron Job Finished ---\n");
-exit;
+logBoth('--- enclave_cron done ---');
+echo "done\n";
