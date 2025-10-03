@@ -372,31 +372,40 @@ try {
     $DEFENSE_STRUCT_MULT = sd_struct_mult_from_pct((int)($def_struct['defense'] ?? 100));
 
     // ─────────────────────────────────────────────────────────────────────────
-    // RATE LIMIT COUNTS (per-target)
+    // RATE LIMIT COUNTS (per-target, **OFFENSE-ONLY**)
     // ─────────────────────────────────────────────────────────────────────────
+    // We intentionally do NOT call StateService::attackWindowCounters() here,
+    // because some implementations count both offensive and defensive events.
+    // Policy: count ONLY rows where current user is the attacker.
     $hour_count = 0;
     $day_count  = 0;
-    if (method_exists($state, 'attackWindowCounters')) {
-        $limits     = $state->attackWindowCounters($attacker_id, $defender_id);
-        $hour_count = (int)($limits['hour'] ?? 0);
-        $day_count  = (int)($limits['day']  ?? 0);
-    } else {
-        // Fallback: local SQL
-        $sql_hour = "SELECT COUNT(id) AS c FROM battle_logs WHERE attacker_id = ? AND defender_id = ? AND battle_time > NOW() - INTERVAL 1 HOUR";
-        $stmt_hour = mysqli_prepare($link, $sql_hour);
-        mysqli_stmt_bind_param($stmt_hour, "ii", $attacker_id, $defender_id);
-        mysqli_stmt_execute($stmt_hour);
-        $hour_count = (int)mysqli_fetch_assoc(mysqli_stmt_get_result($stmt_hour))['c'];
-        mysqli_stmt_close($stmt_hour);
 
-        // Use a 24H window for the daily anti-farm threshold
-        $sql_day = "SELECT COUNT(id) AS c FROM battle_logs WHERE attacker_id = ? AND defender_id = ? AND battle_time > NOW() - INTERVAL 24 HOUR";
-        $stmt_day = mysqli_prepare($link, $sql_day);
-        mysqli_stmt_bind_param($stmt_day, "ii", $attacker_id, $defender_id);
-        mysqli_stmt_execute($stmt_day);
-        $day_count = (int)mysqli_fetch_assoc(mysqli_stmt_get_result($stmt_day))['c'];
-        mysqli_stmt_close($stmt_day);
-    }
+    $sql_hour = "
+        SELECT COUNT(*) AS c
+          FROM battle_logs
+         WHERE attacker_id = ?
+           AND defender_id = ?
+           AND battle_time >= (UTC_TIMESTAMP() - INTERVAL 1 HOUR)";
+    $stmt_hour = mysqli_prepare($link, $sql_hour);
+    mysqli_stmt_bind_param($stmt_hour, "ii", $attacker_id, $defender_id);
+    mysqli_stmt_execute($stmt_hour);
+    $hour_row   = mysqli_fetch_assoc(mysqli_stmt_get_result($stmt_hour)) ?: ['c' => 0];
+    $hour_count = (int)$hour_row['c'];
+    mysqli_stmt_close($stmt_hour);
+
+    // Daily threshold uses a rolling 24h window
+    $sql_day = "
+        SELECT COUNT(*) AS c
+          FROM battle_logs
+         WHERE attacker_id = ?
+           AND defender_id = ?
+           AND battle_time >= (UTC_TIMESTAMP() - INTERVAL 24 HOUR)";
+    $stmt_day = mysqli_prepare($link, $sql_day);
+    mysqli_stmt_bind_param($stmt_day, "ii", $attacker_id, $defender_id);
+    mysqli_stmt_execute($stmt_day);
+    $day_row  = mysqli_fetch_assoc(mysqli_stmt_get_result($stmt_day)) ?: ['c' => 0];
+    $day_count = (int)$day_row['c'];
+    mysqli_stmt_close($stmt_day);
 
     // ─────────────────────────────────────────────────────────────────────────
     // CREDIT LOOT FACTOR (derived from anti-farm rules)

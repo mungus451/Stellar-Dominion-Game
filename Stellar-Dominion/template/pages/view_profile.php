@@ -33,7 +33,6 @@ if ($target_id <= 0) {
 
 // Profile hydration (reuses advisor hydration already loaded)
 require_once __DIR__ . '/../includes/profile/profile_hydration.php';
-
 include_once __DIR__ . '/../includes/header.php';
 ?>
 <main class="lg:col-span-4 space-y-6">

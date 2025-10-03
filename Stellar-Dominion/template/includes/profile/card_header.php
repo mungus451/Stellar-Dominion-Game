@@ -1,5 +1,14 @@
 <?php
 // template/includes/profile/card_header.php
+
+// Pull the head-to-head counters (offense/defense/offense 1h).
+// This file only hydrates the three vars and adds no other side effects.
+require_once __DIR__ . '/versus_hydration.php';
+
+// Normalize for rendering
+$vs_offense_total = (int)($vs_offense_total ?? 0); // You → Them (lifetime)
+$vs_defense_total = (int)($vs_defense_total ?? 0); // Them → You (lifetime)
+$vs_offense_hour  = (int)($vs_offense_hour  ?? 0); // You → Them (last hour)
 ?>
 <section class="content-box rounded-xl p-5">
     <div class="flex items-start justify-between gap-4">
@@ -81,14 +90,29 @@
             <div class="text-gray-400 text-xs">Wins</div>
             <div class="text-white text-lg font-semibold"><?php echo number_format((int)$wins); ?></div>
         </div>
-        <div class="bg-gray-900/60 border border-gray-700 rounded-lg p-3 text-center">
-            <div class="text-gray-400 text-xs">Today vs You</div>
-            <div class="text-white text-lg font-semibold"><?php echo number_format((int)$h2h_today['count']); ?></div>
+
+        <!-- Battles vs (chips) -->
+        <div class="bg-gray-900/60 border border-gray-700 rounded-lg p-3">
+            <div class="text-gray-400 text-xs mb-2">Battles in the Last 24 hours</div>
+            <div class="flex flex-col items-start gap-2">
+                <span class="px-2 py-0.5 rounded text-xs font-semibold bg-blue-600 text-white"
+                      title="Your offensive attacks vs this commander (lifetime)">
+                    Offense <?php echo number_format($vs_offense_total); ?>
+                </span>
+                <span class="px-2 py-0.5 rounded text-xs font-semibold bg-rose-600 text-white"
+                      title="Their offensive attacks vs you (your defensive battles; lifetime)">
+                    Defense <?php echo number_format($vs_defense_total); ?>
+                </span>
+                <span class="px-2 py-0.5 rounded text-xs font-semibold bg-amber-500 text-black"
+                      title="Your offensive attacks vs this commander in the last hour">
+                    Offense (1h) <?php echo number_format($vs_offense_hour); ?>
+                </span>
+            </div>
         </div>
     </div>
 
     <?php
+    // 🔹 Keep attack operations exactly as you had them
     include __DIR__ . '/card_operations.php';
-     ?>
-
+    ?>
 </section>
