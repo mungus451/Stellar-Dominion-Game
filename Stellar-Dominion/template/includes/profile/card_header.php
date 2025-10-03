@@ -93,7 +93,7 @@ $vs_offense_hour  = (int)($vs_offense_hour  ?? 0); // You → Them (last hour)
 
         <!-- Battles vs (chips) -->
         <div class="bg-gray-900/60 border border-gray-700 rounded-lg p-3">
-            <div class="text-gray-400 text-xs mb-2">Battles in the Last 24 hours</div>
+            <div class="text-gray-400 text-xs mb-2">Battle History</div>
             <div class="flex flex-col items-start gap-2">
                 <span class="px-2 py-0.5 rounded text-xs font-semibold bg-blue-600 text-white"
                       title="Your offensive attacks vs this commander (lifetime)">
