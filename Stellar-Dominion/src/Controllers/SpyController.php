@@ -23,79 +23,26 @@ require_once __DIR__ . '/../Game/GameFunctions.php';
 require_once __DIR__ . '/../Services/StateService.php';
 require_once __DIR__ . '/../Services/BadgeService.php';
 
-// Upgrades tree (safe default if not found)
+// Upgrades tree
 $upgrades = $GLOBALS['UPGRADES'] ?? ($GLOBALS['upgrades'] ?? []);
-
-/* ------------------------------- fallbacks -------------------------------- */
-if (!function_exists('calculate_income_per_turn') || !function_exists('calculate_offense_power') || !function_exists('calculate_defense_power')) {
-    @require_once __DIR__ . '/../Game/GameFunctions.php';
-    if (!function_exists('calculate_income_per_turn')) {
-        function calculate_income_per_turn($link, $user_id, $user_stats, $upgrades, $owned_items) {
-            $worker_income = (int)$user_stats['workers'] * 50;
-            $base_income   = 5000 + $worker_income;
-            $wealth_bonus  = 1 + ((float)$user_stats['wealth_points'] * 0.01);
-            $total_econ = 0;
-            for ($i = 1, $n = (int)$user_stats['economy_upgrade_level']; $i <= $n; $i++) {
-                $total_econ += (float)($upgrades['economy']['levels'][$i]['bonuses']['income'] ?? 0);
-            }
-            $econ_mult = 1 + ($total_econ / 100);
-            $armory_income = sd_worker_armory_income_bonus($owned_items, (int)$user_stats['workers']);
-            return (int)floor($base_income * $wealth_bonus * $econ_mult + $armory_income);
-        }
-    }
-    if (!function_exists('calculate_offense_power')) {
-        function calculate_offense_power($link, $user_id, $user_stats, $upgrades, $owned_items) {
-            $soldiers   = (int)$user_stats['soldiers'];
-            $str_mult   = 1 + ((float)$user_stats['strength_points'] * 0.01);
-            $off_pct    = 0;
-            for ($i = 1, $n = (int)$user_stats['offense_upgrade_level']; $i <= $n; $i++) {
-                $off_pct += (float)($upgrades['offense']['levels'][$i]['bonuses']['offense'] ?? 0);
-            }
-            $off_mult = 1 + ($off_pct / 100);
-            $armory_attack = sd_soldier_armory_attack_bonus($owned_items, (int)$user_stats['soldiers']);
-            return (int)floor((($soldiers * 10) * $str_mult + $armory_attack) * $off_mult);
-        }
-    }
-    if (!function_exists('calculate_defense_power')) {
-        function calculate_defense_power($link, $user_id, $user_stats, $upgrades, $owned_items) {
-            $guards   = (int)$user_stats['guards'];
-            $con_mult = 1 + ((float)$user_stats['constitution_points'] * 0.01);
-            $def_pct  = 0;
-            for ($i = 1, $n = (int)$user_stats['defense_upgrade_level']; $i <= $n; $i++) {
-                $def_pct += (float)($upgrades['defense']['levels'][$i]['bonuses']['defense'] ?? 0);
-            }
-            $def_mult = 1 + ($def_pct / 100);
-            $armory_def = sd_guard_armory_defense_bonus($owned_items, (int)$user_stats['guards']);
-            return (int)floor(((($guards * 10) + $armory_def) * $con_mult) * $def_mult);
-        }
-    }
-}
-
-/* --------------------------- CSRF validation ------------------------------ */
-if ($_SERVER['REQUEST_METHOD'] === 'POST') {
-    $token  = $_POST['csrf_token']  ?? '';
-    $action = $_POST['csrf_action'] ?? 'default';
-    if (!validate_csrf_token($token, $action)) {
-        $_SESSION['spy_error'] = 'A security error occurred (Invalid Token). Please try again.';
-        header('location: /spy.php');
-        exit;
-    }
-}
 
 date_default_timezone_set('UTC');
 
 /* -------------------------------- tuning ---------------------------------- */
+// Luck & turns
 const SPY_TURNS_SOFT_EXP      = 0.50; //Raise exp (e.g. 0.65) or raise max mult (e.g. 1.50) if you want multi-turn spy missions to matter more. Lower to compress differences between 1 vs multi-turn attempts.
 const SPY_TURNS_MAX_MULT      = 1.35; //Upper clamp for the above. If you want 3–10 turn missions to scale, bump this (careful with success creep).
 const SPY_RANDOM_BAND         = 0.01; //Luck scalar in [1−band, 1+band]. Default ±1%. Use 0.00 for deterministic tests or tight ladders. 0.03–0.05 adds spice but raises variance complaints.
 const SPY_MIN_SUCCESS_RATIO   = 1.02; //Needed effective_ratio to pass. Lower (toward 1.00) to make borderline attempts succeed more; raise to bias toward defenders.
 
+// Assassination
 //Kill percent of chosen unit group (workers/soldiers/guards), then queued as untrained for 30 minutes. Actual applied percent is also multiplied by min(1.5, max(0.75, effective_ratio)).
 //Raise for bloodier assassinations; lower if snowballing is too fast.
 
-const SPY_ASSASSINATE_KILL_MIN = 0.02; 
+const SPY_ASSASSINATE_KILL_MIN = 0.02;
 const SPY_ASSASSINATE_KILL_MAX = 0.06;
 
+// Sabotage
 //Raise if structures feel immortal; lower to make forts more resilient. Consider the meta with offense/defense structure multipliers.
 const SPY_SABOTAGE_DMG_MIN    = 0.04;
 const SPY_SABOTAGE_DMG_MAX    = 0.55;
@@ -109,129 +56,150 @@ const SPY_XP_ATTACKER_MAX     = 160;
 const SPY_XP_DEFENDER_MIN     = 40;
 const SPY_XP_DEFENDER_MAX     = 80;
 
+// Intel
 //Number of defender stats sampled from the intel pool (income, powers, unit counts, etc.). Increase to reveal more; keep ≤7 to preserve fog-of-war.
 const SPY_INTEL_DRAW_COUNT    = 5;
 
+// Assassinate per-target limits (policy only; logging/analytics elsewhere)
 //Policy knobs for per-target try limits inside a window. If you want them enforced at controller level, add a spy_logs count check (snippet below in “Hardening & Limits”).
-
 const SPY_ASSASSINATE_WINDOW_HRS = 2;
 const SPY_ASSASSINATE_MAX_TRIES  = 2;
 
+// Total Sabotage thresholds (success uses raw >= 1.0; CRIT uses this)
 // Total Sabotage thresholds (used only for CRIT; success is raw >= 1.0)
 const SPY_TOTAL_SABOTAGE_CRIT_RATIO  = 1.60;
 
+// === Anti-farm (LEVEL BRACKET) – set -1 to disable ===
+const SPY_LEVEL_DELTA_LIMIT = -1;
+
 /* -------------------------- core spy calc helpers ------------------------- */
-if (!function_exists('clamp_float')) {
-    function clamp_float($v, $min, $max){ return max($min, min($max, (float)$v)); }
+function sc_clamp_float($v, $min, $max): float { return max($min, min($max, (float)$v)); }
+function sc_turns_multiplier(int $t): float { $s = pow(max(1, $t), SPY_TURNS_SOFT_EXP); return min($s, SPY_TURNS_MAX_MULT); }
+function sc_luck_scalar(): float { $b = SPY_RANDOM_BAND; $d = (mt_rand(0, 10000) / 10000.0) * (2 * $b) - $b; return 1.0 + $d; }
+function sc_decide_success(float $a, float $d, int $t): array {
+    $r = ($d > 0) ? ($a / $d) : 100.0;
+    $e = $r * sc_turns_multiplier($t) * sc_luck_scalar();
+    return [$e >= SPY_MIN_SUCCESS_RATIO, $r, $e];
 }
-if (!function_exists('turns_multiplier')) {
-    function turns_multiplier(int $t): float { $s = pow(max(1, $t), SPY_TURNS_SOFT_EXP); return min($s, SPY_TURNS_MAX_MULT); }
-}
-if (!function_exists('luck_scalar')) {
-    function luck_scalar(): float { $b = SPY_RANDOM_BAND; $d = (mt_rand(0, 10000) / 10000.0) * (2 * $b) - $b; return 1.0 + $d; }
-}
-if (!function_exists('decide_success')) {
-    function decide_success(float $a, float $d, int $t): array {
-        $r = ($d > 0) ? ($a / $d) : 100.0;
-        $e = $r * turns_multiplier($t) * luck_scalar();
-        return [$e >= SPY_MIN_SUCCESS_RATIO, $r, $e];
-    }
-}
-if (!function_exists('bounded_rand_pct')) {
-    function bounded_rand_pct(float $min, float $max): float {
-        $min = clamp_float($min, 0, 1); $max = clamp_float($max, 0, 1);
-        if ($max < $min) $max = $min;
-        $r = mt_rand(0, 10000) / 10000.0;
-        return $min + ($max - $min) * $r;
-    }
+function sc_bounded_rand_pct(float $min, float $max): float {
+    $min = sc_clamp_float($min, 0, 1); $max = sc_clamp_float($max, 0, 1);
+    if ($max < $min) $max = $min;
+    $r = mt_rand(0, 10000) / 10000.0;
+    return $min + ($max - $min) * $r;
 }
 
 /* ----------------------- loadout hard-binding helpers --------------------- */
-if (!function_exists('ts_bucket_to_loadout_key')) {
-    function ts_bucket_to_loadout_key(string $bucket): ?string {
-        static $map = [
-            'offense' => 'soldier',
-            'defense' => 'guard',
-            'spy'     => 'spy',
-            'sentry'  => 'sentry',
-            'worker'  => 'worker',
-        ];
-        $bucket = strtolower($bucket);
-        return $map[$bucket] ?? null;
-    }
+function sc_ts_bucket_to_loadout_key(string $bucket): ?string {
+    static $map = [
+        'offense' => 'soldier',
+        'defense' => 'guard',
+        'spy'     => 'spy',
+        'sentry'  => 'sentry',
+        'worker'  => 'worker',
+    ];
+    $bucket = strtolower($bucket);
+    return $map[$bucket] ?? null;
 }
-if (!function_exists('ts_allowed_item_keys_for_bucket')) {
-    function ts_allowed_item_keys_for_bucket(string $bucket): array {
-        $ldKey = ts_bucket_to_loadout_key($bucket);
-        if (!$ldKey) return [];
-        $LD = $GLOBALS['armory_loadouts'] ?? null;
-        if (!is_array($LD) || !isset($LD[$ldKey]) || !is_array($LD[$ldKey])) return [];
-        $allowed = [];
-        $cats = $LD[$ldKey]['categories'] ?? [];
-        foreach ($cats as $slotKey => $slotDef) {
-            if (!is_array($slotDef)) continue;
-            $items = $slotDef['items'] ?? [];
-            if (is_array($items)) {
-                foreach ($items as $ik => $_) { $allowed[$ik] = true; }
+function sc_ts_allowed_item_keys_for_bucket(string $bucket): array {
+    $ldKey = sc_ts_bucket_to_loadout_key($bucket);
+    if (!$ldKey) return [];
+    $LD = $GLOBALS['armory_loadouts'] ?? null;
+    if (!is_array($LD) || !isset($LD[$ldKey]) || !is_array($LD[$ldKey])) return [];
+    $allowed = [];
+    $cats = $LD[$ldKey]['categories'] ?? [];
+    foreach ($cats as $slotDef) {
+        if (!is_array($slotDef)) continue;
+        $items = $slotDef['items'] ?? [];
+        if (is_array($items)) {
+            foreach ($items as $ik => $_) { $allowed[$ik] = true; }
+        }
+    }
+    return array_keys($allowed);
+}
+function sc_sd_item_name_by_key(string $key): string {
+    if (isset($GLOBALS['armory_items'][$key]['name'])) return (string)$GLOBALS['armory_items'][$key]['name'];
+    if (isset($GLOBALS['ARMORY_ITEMS'][$key]['name'])) return (string)$GLOBALS['ARMORY_ITEMS'][$key]['name'];
+    if (isset($GLOBALS['armory_loadouts']) && is_array($GLOBALS['armory_loadouts'])) {
+        foreach ($GLOBALS['armory_loadouts'] as $ld) {
+            foreach (($ld['categories'] ?? []) as $cat) {
+                if (isset($cat['items'][$key]['name'])) return (string)$cat['items'][$key]['name'];
             }
         }
-        return array_keys($allowed);
     }
-}
-if (!function_exists('sd_item_name_by_key')) {
-    function sd_item_name_by_key(string $key): string {
-        if (isset($GLOBALS['armory_items'][$key]['name'])) return (string)$GLOBALS['armory_items'][$key]['name'];
-        if (isset($GLOBALS['ARMORY_ITEMS'][$key]['name'])) return (string)$GLOBALS['ARMORY_ITEMS'][$key]['name'];
-        if (isset($GLOBALS['armory_loadouts']) && is_array($GLOBALS['armory_loadouts'])) {
-            foreach ($GLOBALS['armory_loadouts'] as $ld) {
-                foreach (($ld['categories'] ?? []) as $cat) {
-                    if (isset($cat['items'][$key]['name'])) return (string)$cat['items'][$key]['name'];
-                }
-            }
-        }
-        return $key;
-    }
+    return $key;
 }
 
-/* ---- XP helpers (guarded) ---- */
-if (!function_exists('xp_gain_attacker')) {
-    function xp_gain_attacker(int $turns, int $level_diff): int {
-        $base = mt_rand(
-            defined('SPY_XP_ATTACKER_MIN') ? SPY_XP_ATTACKER_MIN : 100,
-            defined('SPY_XP_ATTACKER_MAX') ? SPY_XP_ATTACKER_MAX : 160
-        );
-        $scaleTurns = max(0.75, min(1.5, sqrt(max(1, $turns)) / 2));
-        $scaleDelta = max(0.1, 1.0 + (0.05 * $level_diff));
-        return max(1, (int)floor($base * $scaleTurns * $scaleDelta));
-    }
+/* ------------------------------- XP helpers ------------------------------- */
+function sc_xp_gain_attacker(int $turns, int $level_diff): int {
+    $base = mt_rand(SPY_XP_ATTACKER_MIN, SPY_XP_ATTACKER_MAX);
+    $scaleTurns = max(0.75, min(1.5, sqrt(max(1, $turns)) / 2));
+    $scaleDelta = max(0.1, 1.0 + (0.05 * $level_diff));
+    return max(1, (int)floor($base * $scaleTurns * $scaleDelta));
 }
-if (!function_exists('xp_gain_defender')) {
-    function xp_gain_defender(int $turns, int $level_diff): int {
-        $base = mt_rand(
-            defined('SPY_XP_DEFENDER_MIN') ? SPY_XP_DEFENDER_MIN : 40,
-            defined('SPY_XP_DEFENDER_MAX') ? SPY_XP_DEFENDER_MAX : 80
-        );
-        $scaleTurns = max(0.75, min(1.25, sqrt(max(1, $turns)) / 2));
-        $scaleDelta = max(0.1, 1.0 - (0.05 * $level_diff));
-        return max(1, (int)floor($base * $scaleTurns * $scaleDelta));
-    }
+function sc_xp_gain_defender(int $turns, int $level_diff): int {
+    $base = mt_rand(SPY_XP_DEFENDER_MIN, SPY_XP_DEFENDER_MAX);
+    $scaleTurns = max(0.75, min(1.25, sqrt(max(1, $turns)) / 2));
+    $scaleDelta = max(0.1, 1.0 - (0.05 * $level_diff));
+    return max(1, (int)floor($base * $scaleTurns * $scaleDelta));
 }
 
 /* -------- structure health multiplier (dashboard-consistent) -------------- */
-if (!function_exists('sd_get_structure_output_mult')) {
-    function sd_get_structure_output_mult(mysqli $link, int $user_id, string $key): float {
-        if (function_exists('ss_structure_output_multiplier_by_key')) {
-            return (float)ss_structure_output_multiplier_by_key($link, $user_id, $key);
-        }
-        $st = mysqli_prepare($link, "SELECT health_pct, locked FROM user_structure_health WHERE user_id = ? AND structure_key = ? LIMIT 1");
-        if (!$st) return 1.0;
-        mysqli_stmt_bind_param($st, "is", $user_id, $key);
-        mysqli_stmt_execute($st);
-        $row = mysqli_fetch_assoc(mysqli_stmt_get_result($st));
-        mysqli_stmt_close($st);
-        if (!$row) return 1.0;
-        if ((int)$row['locked'] === 1) return 0.0;
-        return max(0.0, min(1.0, ((int)$row['health_pct']) / 100.0));
+function sc_get_structure_output_mult(mysqli $link, int $user_id, string $key): float {
+    return (float)ss_structure_output_multiplier_by_key($link, $user_id, $key);
+}
+
+/* ---------------------- local calculators (no fallbacks) ------------------ */
+/** Mirrors dashboard formulas used elsewhere in the app. */
+function sc_calculate_income_per_turn(mysqli $link, int $user_id, array $user_stats, array $upgrades, array $owned_items): int {
+    $workers      = (int)($user_stats['workers'] ?? 0);
+    $worker_income = $workers * 50;
+    $base_income   = 5000 + $worker_income;
+    $wealth_bonus  = 1 + ((float)($user_stats['wealth_points'] ?? 0) * 0.01);
+
+    $total_econ = 0.0;
+    for ($i = 1, $n = (int)($user_stats['economy_upgrade_level'] ?? 0); $i <= $n; $i++) {
+        $total_econ += (float)($upgrades['economy']['levels'][$i]['bonuses']['income'] ?? 0);
+    }
+    $econ_mult     = 1 + ($total_econ / 100.0);
+    $armory_income = sd_worker_armory_income_bonus($owned_items, $workers);
+
+    return (int)floor($base_income * $wealth_bonus * $econ_mult + $armory_income);
+}
+function sc_calculate_offense_power(mysqli $link, int $user_id, array $user_stats, array $upgrades, array $owned_items): int {
+    $soldiers = (int)($user_stats['soldiers'] ?? 0);
+    $str_mult = 1 + ((float)($user_stats['strength_points'] ?? 0) * 0.01);
+
+    $off_pct = 0.0;
+    for ($i = 1, $n = (int)($user_stats['offense_upgrade_level'] ?? 0); $i <= $n; $i++) {
+        $off_pct += (float)($upgrades['offense']['levels'][$i]['bonuses']['offense'] ?? 0);
+    }
+    $off_mult       = 1 + ($off_pct / 100.0);
+    $armory_attack  = sd_soldier_armory_attack_bonus($owned_items, $soldiers);
+
+    return (int)floor((($soldiers * 10) * $str_mult + $armory_attack) * $off_mult);
+}
+function sc_calculate_defense_power(mysqli $link, int $user_id, array $user_stats, array $upgrades, array $owned_items): int {
+    $guards   = (int)($user_stats['guards'] ?? 0);
+    $con_mult = 1 + ((float)($user_stats['constitution_points'] ?? 0) * 0.01);
+
+    $def_pct = 0.0;
+    for ($i = 1, $n = (int)($user_stats['defense_upgrade_level'] ?? 0); $i <= $n; $i++) {
+        $def_pct += (float)($upgrades['defense']['levels'][$i]['bonuses']['defense'] ?? 0);
+    }
+    $def_mult  = 1 + ($def_pct / 100.0);
+    $armory_def = sd_guard_armory_defense_bonus($owned_items, $guards);
+
+    return (int)floor(((($guards * 10) + $armory_def) * $con_mult) * $def_mult);
+}
+
+/* --------------------------- CSRF validation ------------------------------ */
+if ($_SERVER['REQUEST_METHOD'] === 'POST') {
+    $token  = $_POST['csrf_token']  ?? '';
+    $action = $_POST['csrf_action'] ?? 'default';
+    if (!validate_csrf_token($token, $action)) {
+        $_SESSION['spy_error'] = 'A security error occurred (Invalid Token). Please try again.';
+        header('location: /spy.php');
+        exit;
     }
 }
 
@@ -282,21 +250,23 @@ try {
     // Keep defender fresh
     process_offline_turns($link, $defender_id);
 
-    // Guardrail: ±10 level bracket for all spy offenses
-    $level_diff_abs = abs(((int)$attacker['level']) - ((int)$defender['level']));
-    if ($level_diff_abs > 10) {
-        throw new Exception('You can only perform spy actions against players within ±10 levels of you.');
+    // === Anti-farm: ±N level bracket (tunable) ===
+    if (SPY_LEVEL_DELTA_LIMIT >= 0) {
+        $level_diff_abs = abs(((int)$attacker['level']) - ((int)$defender['level']));
+        if ($level_diff_abs > SPY_LEVEL_DELTA_LIMIT) {
+            throw new Exception('You can only perform spy actions against players within ±' . (int)SPY_LEVEL_DELTA_LIMIT . ' levels of you.');
+        }
     }
 
     // === DASHBOARD-CONSISTENT ESPIONAGE POWER ===
     $spy_count    = (int)$attacker['spies'];
     $sentry_count = (int)$defender['sentries'];
 
-    $owned_att = function_exists('sd_get_owned_items') ? sd_get_owned_items($link, (int)$attacker_id) : fetch_user_armory($link, (int)$attacker_id);
-    $owned_def = function_exists('sd_get_owned_items') ? sd_get_owned_items($link, (int)$defender_id) : fetch_user_armory($link, (int)$defender_id);
+    $owned_att = sd_get_owned_items($link, (int)$attacker_id);
+    $owned_def = sd_get_owned_items($link, (int)$defender_id);
 
-    $attacker_armory_spy_bonus    = function_exists('sd_spy_armory_attack_bonus') ? sd_spy_armory_attack_bonus($owned_att, $spy_count) : 0;
-    $defender_armory_sentry_bonus = function_exists('sd_sentry_armory_defense_bonus') ? sd_sentry_armory_defense_bonus($owned_def, $sentry_count) : 0;
+    $attacker_armory_spy_bonus    = sd_spy_armory_attack_bonus($owned_att, $spy_count);
+    $defender_armory_sentry_bonus = sd_sentry_armory_defense_bonus($owned_def, $sentry_count);
 
     // Upgrade multipliers (sum %)
     $off_pct = 0.0;
@@ -311,8 +281,8 @@ try {
     $def_mult = 1.0 + ($def_pct / 100.0);
 
     // Structure multipliers
-    $offense_integrity_mult = sd_get_structure_output_mult($link, (int)$attacker_id, 'offense');
-    $defense_integrity_mult = sd_get_structure_output_mult($link, (int)$defender_id, 'defense');
+    $offense_integrity_mult = sc_get_structure_output_mult($link, (int)$attacker_id, 'offense');
+    $defense_integrity_mult = sc_get_structure_output_mult($link, (int)$defender_id, 'defense');
 
     // Base + armory, then scale by upgrades and structure integrity (match dashboard)
     $attacker_spy_power  = max(1, (int)floor(((($spy_count * 10) + $attacker_armory_spy_bonus)      * $off_mult) * $offense_integrity_mult));
@@ -321,7 +291,7 @@ try {
     /* ------------------------------- resolve -------------------------------- */
     // Decide success + ratios up front using corrected powers
     [$success_generic, $raw_ratio, $effective_ratio] =
-        decide_success((float)$attacker_spy_power, (float)$defender_sentry_pow, (int)$attack_turns);
+        sc_decide_success((float)$attacker_spy_power, (float)$defender_sentry_pow, (int)$attack_turns);
     $success = $success_generic;
 
     // Initialize derived outputs so they’re never undefined
@@ -332,8 +302,8 @@ try {
 
     // Precompute XP (scaled by relative level)
     $level_diff = (int)$defender['level'] - (int)$attacker['level'];
-    $attacker_xp_gained = xp_gain_attacker((int)$attack_turns, $level_diff);
-    $defender_xp_gained = xp_gain_defender((int)$attack_turns, $level_diff);
+    $attacker_xp_gained = sc_xp_gain_attacker((int)$attack_turns, $level_diff);
+    $defender_xp_gained = sc_xp_gain_defender((int)$attack_turns, $level_diff);
 
     if ($mission_type === 'total_sabotage') {
         // STRICT rule: underdog victories disabled; use RAW ratio only
@@ -344,14 +314,15 @@ try {
     if ($success) {
         switch ($mission_type) {
             case 'intelligence': {
-                $def_income  = calculate_income_per_turn($link, $defender_id, $defender, $upgrades, $owned_def);
-                $def_offense = calculate_offense_power($link, $defender_id, $defender, $upgrades, $owned_def);
-                $def_defense = calculate_defense_power($link, $defender_id, $defender, $upgrades, $owned_def);
+                // Use local calculators (no fallbacks to external undefined functions)
+                $def_income  = sc_calculate_income_per_turn($link, $defender_id, $defender, $upgrades, $owned_def);
+                $def_offense = sc_calculate_offense_power($link, $defender_id, $defender, $upgrades, $owned_def);
+                $def_defense = sc_calculate_defense_power($link, $defender_id, $defender, $upgrades, $owned_def);
 
                 $def_spy_count = (int)$defender['spies'];
                 $def_sentry_count = (int)$defender['sentries'];
-                $def_armory_spy_bonus = function_exists('sd_spy_armory_attack_bonus') ? sd_spy_armory_attack_bonus($owned_def, $def_spy_count) : 0;
-                $def_armory_sentry_bonus = function_exists('sd_sentry_armory_defense_bonus') ? sd_sentry_armory_defense_bonus($owned_def, $def_sentry_count) : 0;
+                $def_armory_spy_bonus = sd_spy_armory_attack_bonus($owned_def, $def_spy_count);
+                $def_armory_sentry_bonus = sd_sentry_armory_defense_bonus($owned_def, $def_sentry_count);
 
                 $def_spy_off = max(1, (($def_spy_count * 10) + $def_armory_spy_bonus));
                 $def_sentry  = max(1, (($def_sentry_count * 10) + $def_armory_sentry_bonus));
@@ -377,7 +348,7 @@ try {
             }
 
             case 'assassination': {
-                $pct = bounded_rand_pct(SPY_ASSASSINATE_KILL_MIN, SPY_ASSASSINATE_KILL_MAX)
+                $pct = sc_bounded_rand_pct(SPY_ASSASSINATE_KILL_MIN, SPY_ASSASSINATE_KILL_MAX)
                        * min(1.5, max(0.75, $effective_ratio));
 
                 $target_field = $assassination_target; // workers|soldiers|guards
@@ -407,7 +378,7 @@ try {
             case 'sabotage': {
                 $hp_now = max(0, (int)$defender['fortification_hitpoints']);
                 if ($hp_now > 0) {
-                    $pct = bounded_rand_pct(SPY_SABOTAGE_DMG_MIN, SPY_SABOTAGE_DMG_MAX)
+                    $pct = sc_bounded_rand_pct(SPY_SABOTAGE_DMG_MIN, SPY_SABOTAGE_DMG_MAX)
                            * min(1.5, max(0.75, $effective_ratio));
                     $dmg = (int)floor($hp_now * $pct);
                     if ($dmg > 0) {
@@ -425,7 +396,7 @@ try {
             case 'total_sabotage': {
                 // parameters + aliases
                 $target_mode_in = isset($_POST['target_mode']) ? (string)$_POST['target_mode'] : 'structure';
-                $target_mode    = ($target_mode_in === 'cache') ? 'loadout' : $target_mode_in; // legacy support
+                $target_mode    = ($target_mode_in === 'cache') ? 'loadout' : $target_mode_in;
                 $target_key_in  = isset($_POST['target_key']) ? strtolower((string)$_POST['target_key']) : '';
 
                 // distinct validation/mapping per mode
@@ -470,35 +441,31 @@ try {
                      WHERE attacker_id = ?
                        AND mission_type = 'total_sabotage'
                        AND mission_time >= (UTC_TIMESTAMP() - INTERVAL 24 HOUR)";
-                if ($stA = mysqli_prepare($link, $sql_att_once)) {
-                    mysqli_stmt_bind_param($stA, "i", $attacker_id);
-                    mysqli_stmt_execute($stA);
-                    $rowA = mysqli_fetch_assoc(mysqli_stmt_get_result($stA));
-                    mysqli_stmt_close($stA);
-                    if ((int)($rowA['c'] ?? 0) >= 1) {
-                        throw new Exception('You can only use Total Sabotage once every 24 hours.');
-                    }
+                $stA = mysqli_prepare($link, $sql_att_once);
+                mysqli_stmt_bind_param($stA, "i", $attacker_id);
+                mysqli_stmt_execute($stA);
+                $rowA = mysqli_fetch_assoc(mysqli_stmt_get_result($stA));
+                mysqli_stmt_close($stA);
+                if ((int)($rowA['c'] ?? 0) >= 1) {
+                    throw new Exception('You can only use Total Sabotage once every 24 hours.');
                 }
+
                 $sql_def_cap = "
                     SELECT COUNT(*) AS c
                       FROM spy_logs
                      WHERE defender_id = ?
                        AND mission_type = 'total_sabotage'
                        AND mission_time >= (UTC_TIMESTAMP() - INTERVAL 24 HOUR)";
-                if ($stD = mysqli_prepare($link, $sql_def_cap)) {
-                    mysqli_stmt_bind_param($stD, "i", $defender_id);
-                    mysqli_stmt_execute($stD);
-                    $rowD = mysqli_fetch_assoc(mysqli_stmt_get_result($stD));
-                    mysqli_stmt_close($stD);
-                    if ((int)($rowD['c'] ?? 0) >= 5) {
-                        throw new Exception('This player has already been Total Sabotaged 5 times in the last 24 hours.');
-                    }
+                $stD = mysqli_prepare($link, $sql_def_cap);
+                mysqli_stmt_bind_param($stD, "i", $defender_id);
+                mysqli_stmt_execute($stD);
+                $rowD = mysqli_fetch_assoc(mysqli_stmt_get_result($stD));
+                mysqli_stmt_close($stD);
+                if ((int)($rowD['c'] ?? 0) >= 5) {
+                    throw new Exception('This player has already been Total Sabotaged 5 times in the last 24 hours.');
                 }
 
                 // progressive cost
-                if (!function_exists('ss_total_sabotage_cost') || !function_exists('ss_register_total_sabotage_use')) {
-                    throw new Exception('Missing sabotage helpers.');
-                }
                 $cost_info = ss_total_sabotage_cost($link, (int)$attacker_id);
                 $cost      = (int)$cost_info['cost'];
                 if ((int)$attacker['credits'] < $cost) {
@@ -527,9 +494,6 @@ try {
                 ];
 
                 if ($target_mode === 'structure') {
-                    if (!function_exists('ss_ensure_structure_rows') || !function_exists('ss_apply_structure_damage')) {
-                        throw new Exception('Missing structure helpers.');
-                    }
                     ss_ensure_structure_rows($link, (int)$defender_id);
 
                     // damage percent
@@ -548,13 +512,13 @@ try {
                     // legacy UI bucket
                     $structure_damage = (int)$applied_percent;
 
-                } elseif ($target_mode === 'loadout') {
+                } else { // loadout
                     // Percent to destroy: 10–90%. Crit adds +10 but never beyond 90.
                     $destroy_percent = rand(10, 90);
                     if ($critical) { $destroy_percent = min(90, $destroy_percent + 10); }
 
                     // 1) Allowed keys strictly from GameData loadouts
-                    $allowed_keys = ts_allowed_item_keys_for_bucket($loadout_key);
+                    $allowed_keys = sc_ts_allowed_item_keys_for_bucket($loadout_key);
                     if (empty($allowed_keys)) {
                         throw new Exception("Loadout catalog missing for '$loadout_key'.");
                     }
@@ -602,7 +566,7 @@ try {
                             $destroyed_total += $delta;
                             $breakdown[] = [
                                 'item_key'  => $ik,
-                                'name'      => sd_item_name_by_key($ik),
+                                'name'      => sc_sd_item_name_by_key($ik),
                                 'before'    => $before,
                                 'destroyed' => $delta,
                                 'after'     => $after,
@@ -618,19 +582,15 @@ try {
                     $detail['items']                 = $breakdown;
 
                     $units_killed = (int)$destroyed_total;
-                } else {
-                    throw new Exception('Invalid target mode.');
                 }
 
                 $intel_gathered_json = json_encode($detail);
                 break;
             }
         }
-    } else {
-        // failure case – no branch effects; fields stay at defaults
     }
 
-    // spend turns + xp (NULL-safe for legacy data)
+    // spend turns + xp
     $sql_upA = "UPDATE users SET attack_turns = attack_turns - ?, experience = COALESCE(experience,0) + ? WHERE id = ?";
     $stmtUA = mysqli_prepare($link, $sql_upA);
     $attacker_xp_gained = (int)$attacker_xp_gained;
@@ -652,20 +612,19 @@ try {
     $mission_type = in_array($mission_type, ['intelligence','sabotage','assassination','total_sabotage'], true)
         ? $mission_type : 'intelligence';
 
-    $attacker_spy_power  = (int)($attacker_spy_power ?? 0);
-    $defender_sentry_pow = (int)($defender_sentry_pow ?? 0);
-    $attacker_xp_gained  = (int)($attacker_xp_gained ?? 0);
-    $defender_xp_gained  = (int)($defender_xp_gained ?? 0);
-    $units_killed        = (int)($units_killed ?? 0);
-    $structure_damage    = (int)($structure_damage ?? 0);
+    $attacker_spy_power  = (int)$attacker_spy_power;
+    $defender_sentry_pow = (int)$defender_sentry_pow;
+    $attacker_xp_gained  = (int)$attacker_xp_gained;
+    $defender_xp_gained  = (int)$defender_xp_gained;
+    $units_killed        = (int)$units_killed;
+    $structure_damage    = (int)$structure_damage;
 
     if ($intel_gathered_json !== null && !is_string($intel_gathered_json)) {
         $intel_gathered_json = json_encode($intel_gathered_json);
     }
 
     // Finalize outcome right before logging
-    $outcome = ($success === true) ? 'success' : 'failure';
-    if ($outcome !== 'success' && $outcome !== 'failure') { $outcome = 'failure'; }
+    $outcome = $success ? 'success' : 'failure';
 
     // log
     $sql_log = "
@@ -697,14 +656,14 @@ try {
 
     mysqli_commit($link);
 
-    // === Badge awards: do this after the log is written so counts include this mission ===
+    // === Badge awards ===
     try {
         \StellarDominion\Services\BadgeService::seed($link);
         \StellarDominion\Services\BadgeService::evaluateSpy(
             $link,
             (int)$attacker_id,
             (int)$defender_id,
-            (string)$outcome,       // 'success' | 'failure' (attacker perspective)
+            (string)$outcome,
             (string)$mission_type
         );
     } catch (\Throwable $e) { /* non-fatal */ }
