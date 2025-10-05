@@ -146,6 +146,74 @@ if (($_SERVER['REQUEST_METHOD'] === 'POST') &&
     exit; // Ensure no further routing occurs after controller handled the POST.
 }
 
+// ─────────────────────────────────────────────────────────────────────────────
+// Black Market POST API (JSON)
+// ─────────────────────────────────────────────────────────────────────────────
+if (($_SERVER['REQUEST_METHOD'] === 'POST') &&
+   ($request_uri === '/structures/black-market/convert/credits-to-gems' ||
+    $request_uri === '/structures/black-market/convert/gems-to-credits' ||
+    $request_uri === '/black-market/data-dice/start' ||
+    $request_uri === '/black-market/data-dice/claim' ||
+    $request_uri === '/black-market/data-dice/trace')) {
+
+    require_once __DIR__ . '/../config/config.php';
+    require_once __DIR__ . '/../src/Security/CSRFProtection.php';
+    require_once __DIR__ . '/../src/Services/BlackMarketService.php';
+
+    header('Content-Type: application/json');
+
+    // auth (same pattern as other authed routes)
+    if (!isset($_SESSION["loggedin"]) || $_SESSION["loggedin"] !== true) {
+        http_response_code(401);
+        echo json_encode(['ok'=>false,'error'=>'unauthenticated']); exit;
+    }
+
+    // CSRF (your implementation)
+    $token  = $_POST['csrf_token']  ?? '';
+    $action = $_POST['csrf_action'] ?? 'black_market';
+    if (!validate_csrf_token($token, $action)) {
+        http_response_code(419);
+        echo json_encode(['ok'=>false,'error'=>'invalid_csrf']); exit;
+    }
+
+    $userId = (int)($_SESSION['id'] ?? 0);
+    $svc = new BlackMarketService();
+
+    try {
+        switch ($request_uri) {
+            case '/structures/black-market/convert/credits-to-gems': {
+                $credits = (int)($_POST['credits'] ?? 0);
+                $result = $svc->convertCreditsToGems(pdo(), $userId, $credits);
+                echo json_encode(['ok'=>true,'result'=>$result]); break;
+            }
+            case '/structures/black-market/convert/gems-to-credits': {
+                $gems = (int)($_POST['gemstones'] ?? 0);
+                $result = $svc->convertGemsToCredits(pdo(), $userId, $gems);
+                echo json_encode(['ok'=>true,'result'=>$result]); break;
+            }
+            case '/black-market/data-dice/start': {
+                $state = $svc->startMatch(pdo(), $userId);
+                echo json_encode(['ok'=>true,'state'=>$state]); break;
+            }
+            case '/black-market/data-dice/claim': {
+                $matchId = (int)($_POST['match_id'] ?? 0);
+                $qty     = (int)($_POST['qty'] ?? 0);
+                $face    = (int)($_POST['face'] ?? 0);
+                $resp = $svc->playerClaim(pdo(), $userId, $matchId, $qty, $face);
+                echo json_encode(['ok'=>true,'resp'=>$resp]); break;
+            }
+            case '/black-market/data-dice/trace': {
+                $matchId = (int)($_POST['match_id'] ?? 0);
+                $resp = $svc->playerTrace(pdo(), $userId, $matchId);
+                echo json_encode(['ok'=>true,'resp'=>$resp]); break;
+            }
+        }
+    } catch (Throwable $e) {
+        http_response_code(400);
+        echo json_encode(['ok'=>false,'error'=>$e->getMessage()]);
+    }
+    exit;
+}
 
 // ─────────────────────────────────────────────────────────────────────────────
 // 5) ROUTE TABLE: PUBLIC & AUTHENTICATED VIEWS + ACTION ENDPOINTS
@@ -184,6 +252,8 @@ $routes = [
     '/structures.php'       => '../template/pages/structures.php',
     '/bank'                 => '../template/pages/bank.php',
     '/bank.php'             => '../template/pages/bank.php',
+    '/black_market'         => '../template/pages/black_market.php',
+    '/black_market.php'     => '../template/pages/black_market.php',
     '/levels'               => '../template/pages/levels.php',
     '/levels.php'           => '../template/pages/levels.php',
     '/profile'              => '../template/pages/profile.php',
@@ -290,7 +360,7 @@ $routes = [
 // • Keep this list in sync with $routes to avoid silent exposure of pages.
 // • Consider grouping by feature to simplify auditing.
 $authenticated_routes = [
-    '/dashboard', '/dashboard.php', '/attack', '/attack.php', '/battle', '/battle.php', 
+    '/dashboard', '/dashboard.php', '/black_market', '/black_market.php', '/attack', '/attack.php', '/battle', '/battle.php', 
     '/spy.php', '/spy', '/spy_history.php', '/spy_history',
     '/armory', '/armory.php', '/auto_recruit', '/auto_recruit.php', '/structures', 
     '/structures.php', '/bank', '/bank.php', '/levels', '/levels.php', '/profile', 

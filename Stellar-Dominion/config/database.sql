@@ -617,6 +617,76 @@ CREATE TABLE `wars` (
 /*!40101 SET character_set_client = @saved_cs_client */;
 /*!40103 SET TIME_ZONE=@OLD_TIME_ZONE */;
 
+-- 1) user wallet
+ALTER TABLE users
+  ADD COLUMN gemstones BIGINT UNSIGNED NOT NULL DEFAULT 0,
+  ADD COLUMN reroll_tokens INT UNSIGNED NOT NULL DEFAULT 0,
+  ADD COLUMN black_market_reputation INT UNSIGNED NOT NULL DEFAULT 0,
+  ADD CONSTRAINT chk_users_nonneg_balances
+    CHECK (credits >= 0 AND gemstones >= 0 AND reroll_tokens >= 0 AND black_market_reputation >= 0);
+
+-- 2) house ledger + conversion audit
+CREATE TABLE IF NOT EXISTS black_market_house_totals (
+  id TINYINT UNSIGNED NOT NULL PRIMARY KEY,
+  credits_collected BIGINT UNSIGNED NOT NULL DEFAULT 0,
+  gemstones_collected BIGINT UNSIGNED NOT NULL DEFAULT 0,
+  updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+) ENGINE=InnoDB;
+
+INSERT INTO black_market_house_totals (id, credits_collected, gemstones_collected)
+VALUES (1,0,0) ON DUPLICATE KEY UPDATE id=id;
+
+CREATE TABLE IF NOT EXISTS black_market_conversion_logs (
+  id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT PRIMARY KEY,
+  user_id INT NOT NULL,
+  direction ENUM('credits_to_gems','gems_to_credits') NOT NULL,
+  credits_spent BIGINT UNSIGNED NOT NULL DEFAULT 0,
+  gemstones_spent BIGINT UNSIGNED NOT NULL DEFAULT 0,
+  gemstones_received BIGINT UNSIGNED NOT NULL DEFAULT 0,
+  credits_received BIGINT UNSIGNED NOT NULL DEFAULT 0,
+  house_fee_credits BIGINT UNSIGNED NOT NULL DEFAULT 0,
+  created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  KEY idx_bmcl_user (user_id),
+  CONSTRAINT fk_bmcl_user FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+) ENGINE=InnoDB;
+
+-- 3) Data Dice
+CREATE TABLE IF NOT EXISTS data_dice_matches (
+  id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT PRIMARY KEY,
+  user_id INT NOT NULL,
+  status ENUM('active','won','lost') NOT NULL DEFAULT 'active',
+  player_dice_remaining TINYINT UNSIGNED NOT NULL DEFAULT 5,
+  ai_dice_remaining TINYINT UNSIGNED NOT NULL DEFAULT 5,
+  pot_gemstones INT UNSIGNED NOT NULL DEFAULT 50,
+  ai_name VARCHAR(32) NOT NULL DEFAULT 'Cipher',
+  payout_done TINYINT(1) NOT NULL DEFAULT 0,
+  started_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  ended_at TIMESTAMP NULL DEFAULT NULL,
+  KEY idx_ddm_user (user_id, status),
+  CONSTRAINT fk_ddm_user FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+) ENGINE=InnoDB;
+
+CREATE TABLE IF NOT EXISTS data_dice_rounds (
+  id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT PRIMARY KEY,
+  match_id BIGINT UNSIGNED NOT NULL,
+  round_no INT UNSIGNED NOT NULL,
+  last_claim_by ENUM('player','ai') DEFAULT NULL,
+  claim_qty TINYINT UNSIGNED DEFAULT NULL,
+  claim_face TINYINT UNSIGNED DEFAULT NULL,    -- 2..5 (1=wild, 6=locked)
+  trace_called_by ENUM('player','ai') DEFAULT NULL,
+  trace_was_correct TINYINT(1) DEFAULT NULL,
+  loser ENUM('player','ai') DEFAULT NULL,
+  counted_qty TINYINT UNSIGNED DEFAULT NULL,
+  player_roll JSON NOT NULL,
+  ai_roll JSON NOT NULL,
+  created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  KEY idx_ddr_match (match_id, round_no),
+  CONSTRAINT fk_ddr_match FOREIGN KEY (match_id) REFERENCES data_dice_matches(id) ON DELETE CASCADE
+) ENGINE=InnoDB;
+
+
+
+
 /*!40101 SET SQL_MODE=@OLD_SQL_MODE */;
 /*!40014 SET FOREIGN_KEY_CHECKS=@OLD_FOREIGN_KEY_CHECKS */;
 /*!40014 SET UNIQUE_CHECKS=@OLD_UNIQUE_CHECKS */;

@@ -44,7 +44,7 @@ $sub_nav_links = [
         'War' => '/war_declaration.php'
     ],
     'STRUCTURES' => [
-        // no subnav
+        'Black Market' => '/black_market.php',
     ],
     'COMMUNITY' => [
         'News' => '/community.php',
@@ -80,7 +80,7 @@ if (in_array($active_page, ['battle.php', 'attack.php', 'war_history.php', 'spy_
     'war_declaration.php', 'view_alliances.php', 'view_alliance.php', 'realm_war.php', 'alliance_war_history.php'
 ])) {
     $active_main_category = 'ALLIANCE';
-} elseif (in_array($active_page, ['structures.php'])) {
+} elseif (in_array($active_page, ['structures.php','black_market.php'])) {
     $active_main_category = 'STRUCTURES';
 } elseif (in_array($active_page, ['community.php', 'stats.php', 'war_leaderboard.php'])) {
     $active_main_category = 'COMMUNITY';
