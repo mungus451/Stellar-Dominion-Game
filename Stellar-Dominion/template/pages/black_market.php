@@ -27,74 +27,6 @@ $csrf_token  = generate_csrf_token($csrf_action);
 
 include_once __DIR__ . '/../includes/header.php'; ?>
 
-<style>
-  /* ===== Converter Facelift: neon gradient, shimmer, micro-animations ===== */
-  .converter-glow{
-    position: relative;
-    overflow: hidden;
-    background:
-      radial-gradient(1200px 600px at -10% -20%, rgba(34,197,94,0.10), transparent 60%),
-      radial-gradient(1200px 700px at 110% 120%, rgba(34,211,238,0.10), transparent 60%),
-      linear-gradient(180deg, rgba(2,6,23,0.6), rgba(2,6,23,0.3));
-  }
-  .converter-glow::before{
-    content:"";
-    position:absolute; inset:-2px;
-    background: conic-gradient(from 0deg,#22d3ee,#a78bfa,#f472b6,#22c55e,#22d3ee);
-    filter: blur(14px);
-    opacity:.18;
-    animation: swirl 14s linear infinite;
-    z-index:0;
-  }
-  @keyframes swirl{ to{ transform: rotate(360deg); } }
-  .converter-glow > *{ position: relative; z-index:1; }
-
-  .panel-neo{ position: relative; background: rgba(2,6,23,0.55); border: 1px solid rgba(75,85,99,.55); }
-  .panel-neo::before{
-    content:""; position:absolute; inset:-1px; border-radius: inherit;
-    background: linear-gradient(135deg,#22d3ee55,#a78bfa55,#f472b655,#22c55e55);
-    mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
-    -webkit-mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
-    -webkit-mask-composite: xor; mask-composite: exclude; padding:1px; pointer-events:none; opacity:.6;
-  }
-
-  .headline-spark{
-    display:inline-block; background: linear-gradient(90deg,#22d3ee,#a78bfa,#f472b6,#22c55e);
-    background-size: 200% 100%; -webkit-background-clip:text; background-clip:text; color: transparent; animation: hue 8s linear infinite;
-  }
-  @keyframes hue{ to{ background-position: 200% 0; } }
-
-  .converter-glow .btn{ position: relative; overflow: hidden; }
-  .converter-glow .btn::after{
-    content:""; position:absolute; top:-120%; left:-30%; width: 50%; height: 340%;
-    transform: rotate(25deg); background: linear-gradient(90deg, transparent, rgba(255,255,255,.25), transparent);
-    animation: sweep 2.8s ease-in-out infinite;
-  }
-  @keyframes sweep{ 0%{ transform: translateX(-120%) rotate(25deg); } 45%,100%{ transform: translateX(260%) rotate(25deg); } }
-
-  .converter-glow input[type="number"]:focus{
-    outline: none; box-shadow: 0 0 0 2px rgba(167,139,250,.35), 0 0 30px rgba(34,211,238,.25) inset; border-color: transparent !important;
-  }
-
-  .rate{
-    display:inline-block; padding: .15rem .5rem; border-radius: .375rem;
-    background: linear-gradient(90deg,rgba(34,211,238,.15),rgba(167,139,250,.15),rgba(34,197,94,.15));
-    border: 1px solid rgba(148,163,184,.25);
-  }
-
-  .fx-spark{ position:absolute; width:6px; height:6px; border-radius:9999px; opacity:0; transform: translate(-50%,-50%) scale(.7); animation: pop 650ms ease-out forwards; }
-  @keyframes pop{ 0%{ opacity:0; transform: translate(-50%,-50%) scale(.6); } 20%{ opacity:1; } 100%{ opacity:0; transform: translate(var(--tx), var(--ty)) scale(1.2); } }
-
-  #credits, #gems{ transition: text-shadow .2s ease; }
-  .bump{ text-shadow: 0 0 12px rgba(34,211,238,.6), 0 0 24px rgba(167,139,250,.35); }
-
-  /* Contrast boost for small text in converter */
-  .converter-glow .text-gray-400{ color: rgba(243,244,246,.96) !important; text-shadow: 0 1px 2px rgba(0,0,0,.6); }
-  .converter-glow .rate{ color: rgba(243,244,246,.98); text-shadow: 0 1px 2px rgba(0,0,0,.6); }
-  .converter-glow #c2g-res, .converter-glow #g2c-res{ color: rgba(248,250,252,.98); font-weight: 600; text-shadow: 0 1px 2px rgba(0,0,0,.6); }
-  .converter-glow .mt-4.grid.text-sm{ color: rgba(243,244,246,.96); text-shadow: 0 1px 2px rgba(0,0,0,.65); }
-</style>
-
 <!-- LEFT SIDEBAR -->
 <aside class="lg:col-span-1 space-y-4">
     <?php include_once __DIR__ . '/../includes/advisor.php'; ?>
@@ -104,32 +36,32 @@ include_once __DIR__ . '/../includes/header.php'; ?>
 <main class="lg:col-span-3 space-y-4">
 
     <!-- Converter -->
-    <section class="content-box rounded-lg p-4 converter-glow">
+    <section class="content-box rounded-lg p-4">
         <h2 class="text-2xl font-semibold text-center text-cyan-300">Black Market — Currency Converter</h2>
-        <p class="text-center mt-1 text-sm"><span class="headline-spark">Swap with style. Fuel your next bet.</span></p>
 
         <div class="grid md:grid-cols-2 gap-4 mt-3">
-            <div class="p-3 border border-gray-700/70 rounded-lg panel-neo">
+            <div class="p-3 border border-gray-700/70 rounded-lg">
                 <h3 class="font-semibold mb-2">Convert Credits → Gemstones</h3>
                 <form id="c2g" class="flex gap-2 items-center">
                     <input type="hidden" name="csrf_token" value="<?= htmlspecialchars($csrf_token) ?>">
                     <input type="hidden" name="csrf_action" value="<?= htmlspecialchars($csrf_action) ?>">
                     <input name="credits" type="number" min="1" class="w-full bg-gray-900/50 border border-gray-700 rounded-lg px-3 py-2 text-white" placeholder="Credits">
-                    <button class="btn" type="submit">Convert</button>
+                    <button class="btn">Convert</button>
                 </form>
-                <div class="text-sm text-gray-400 mt-1 rate">Rate: 100 : 93 (7% to house)</div>
+                <div class="text-sm text-gray-400 mt-1">Rate: 100 : 93 (7% to house)</div>
                 <div id="c2g-res" class="text-sm mt-1"></div>
             </div>
 
-            <div class="p-3 border border-gray-700/70 rounded-lg panel-neo">
+            <div class="p-3 border border-gray-700/70 rounded-lg">
                 <h3 class="font-semibold mb-2">Convert Gemstones → Credits</h3>
                 <form id="g2c" class="flex gap-2 items-center">
                     <input type="hidden" name="csrf_token" value="<?= htmlspecialchars($csrf_token) ?>">
                     <input type="hidden" name="csrf_action" value="<?= htmlspecialchars($csrf_action) ?>">
                     <input name="gemstones" type="number" min="1" class="w-full bg-gray-900/50 border border-gray-700 rounded-lg px-3 py-2 text-white" placeholder="Gemstones">
-                    <button class="btn" type="submit">Convert</button>
+                    <button class="btn">Convert</button>
                 </form>
-                <div class="text-sm text-gray-400 mt-1 rate">Rate: 1 : 98 (2% to house)</div>
+                <!-- Per-100 rate to match server -->
+                <div class="text-sm text-gray-400 mt-1">Rate: 100 : 98 (2% to house)</div>
                 <div id="g2c-res" class="text-sm mt-1"></div>
             </div>
         </div>
@@ -232,102 +164,122 @@ include_once __DIR__ . '/../includes/header.php'; ?>
 </main>
 
 <?php include_once __DIR__ . '/../includes/footer.php'; ?>
+
+<!-- Exciting styling restored (no DOM/ID/class changes) -->
+<style>
+/* Converter facelift — glass, glow, gradients; scoped to first .content-box only */
+main .content-box:first-of-type{position:relative;overflow:hidden;}
+main .content-box:first-of-type{backdrop-filter:blur(6px);}
+main .content-box:first-of-type::before{
+  content:"";position:absolute;inset:-1px;pointer-events:none;
+  background:
+    radial-gradient(120% 80% at 10% 0%, rgba(59,130,246,.30), transparent 42%),
+    radial-gradient(120% 80% at 90% 0%, rgba(250,204,21,.25), transparent 42%),
+    linear-gradient(90deg, rgba(168,85,247,.22), rgba(6,182,212,.22));
+}
+main .content-box:first-of-type h2{
+  text-shadow:0 2px 16px rgba(6,182,212,.6),0 0 2px rgba(255,255,255,.3);
+}
+/* subtle tagline under the heading without changing markup */
+main .content-box:first-of-type > h2::after{
+  content:"Swap with style. Fuel your next bet.";
+  display:block;font-size:.875rem;margin-top:.25rem;
+  color:#a78bfa;text-shadow:0 0 12px rgba(168,85,247,.45);
+}
+/* inner cards — animated rainbow glow edge + glass */
+main .content-box:first-of-type .grid > div{position:relative;background:rgba(17,24,39,.55);border-color:rgba(148,163,184,.35);}
+main .content-box:first-of-type .grid > div::before{
+  content:"";position:absolute;inset:-1px;border-radius:.5rem;z-index:0;opacity:.35;filter:blur(10px);
+  background:linear-gradient(135deg, rgba(59,130,246,.45), rgba(168,85,247,.45), rgba(34,197,94,.45), rgba(6,182,212,.45));
+  background-size:300% 300%;animation:bmGlow 8s ease infinite;
+}
+main .content-box:first-of-type .grid > div > *{position:relative;z-index:1;}
+@keyframes bmGlow{0%{background-position:0% 50%}50%{background-position:100% 50%}100%{background-position:0% 50%}}
+
+/* inputs + buttons — neon focus */
+main .content-box:first-of-type input[type="number"]{box-shadow:inset 0 0 0 1px rgba(148,163,184,.35);}
+main .content-box:first-of-type input[type="number"]:focus{outline:0;box-shadow:0 0 0 2px rgba(6,182,212,.6),0 0 20px rgba(59,130,246,.35);}
+
+main .content-box:first-of-type .btn{position:relative;}
+main .content-box:first-of-type .btn::after{
+  content:"";position:absolute;inset:-2px;border-radius:.5rem;z-index:-1;transition:opacity .2s ease;
+  background:linear-gradient(45deg, rgba(99,102,241,.7), rgba(20,184,166,.7));opacity:.5;filter:blur(8px);
+}
+main .content-box:first-of-type .btn:hover::after{opacity:.9;}
+
+/* High-contrast rate pill (addresses the contrast issue) */
+#c2g form + .text-sm.mt-1,
+#g2c form + .text-sm.mt-1{
+  display:inline-block;margin-top:.5rem;padding:.25rem .5rem;border-radius:9999px;
+  background:rgba(2,6,23,.85);border:1px solid rgba(148,163,184,.5);
+  color:#e5e7eb;font-weight:600;text-shadow:0 1px 8px rgba(0,240,255,.35);
+}
+
+/* Result messages */
+#c2g-res,#g2c-res{margin-top:.5rem;font-weight:700;color:#e2e8f0;text-shadow:0 1px 8px rgba(59,130,246,.6);}
+#c2g-res.error,#g2c-res.error{color:#fecaca;text-shadow:0 1px 8px rgba(239,68,68,.6);}
+</style>
+
 <script>
 function setCsrf(t){ document.querySelectorAll('input[name="csrf_token"]').forEach(i=>i.value=t); document.getElementById('csrf_token').value=t; }
-const bump=(id,d)=>{ const el=document.getElementById(id); if(!el) return; el.textContent=(parseInt(el.textContent,10)+Number(d)); el.classList.add('bump'); setTimeout(()=>el.classList.remove('bump'), 350); };
+const bump=(id,d)=>{ const el=document.getElementById(id); if(!el) return; el.textContent=(parseInt(el.textContent,10)+Number(d)); };
 const upd=(r)=>{
   if(typeof r.credits_delta==='number')   bump('credits', r.credits_delta);
   if(typeof r.gemstones_delta==='number') bump('gems', r.gemstones_delta);
   if(typeof r.house_gemstones_delta==='number') bump('house-gems', r.house_gemstones_delta);
 };
 
-/* Confetti */
-function celebrate(container){
-  try{
-    const host = container || document.querySelector('.converter-glow');
-    if(!host) return;
-    const rect = host.getBoundingClientRect();
-    const colors = ['#22d3ee','#a78bfa','#f472b6','#22c55e','#fde047'];
-    for(let i=0;i<16;i++){
-      const s=document.createElement('span');
-      s.className='fx-spark';
-      s.style.left = (rect.width/2)+'px';
-      s.style.top  = (rect.height/3)+'px';
-      const angle = (Math.PI*2) * (i/16);
-      const dist  = 120 + Math.random()*80;
-      s.style.setProperty('--tx', (Math.cos(angle)*dist)+'px');
-      s.style.setProperty('--ty', (Math.sin(angle)*dist)+'px');
-      s.style.background = colors[i % colors.length];
-      host.appendChild(s);
-      s.addEventListener('animationend', ()=> s.remove());
-      void s.offsetWidth; s.style.opacity = '1';
-    }
-  }catch(e){}
-}
-
-/* Live previews (approximate; backend is source of truth) */
-(function(){
-  const f1=document.getElementById('c2g');
-  const f2=document.getElementById('g2c');
-  if (f1 && f1.credits){
-    f1.credits.addEventListener('input', ()=>{
-      const v = Math.max(0, parseInt(f1.credits.value||'0',10));
-      const approx = Math.floor(v * 0.93);
-      const resEl = document.getElementById('c2g-res');
-      resEl.textContent = v>0 ? ('≈ '+approx.toLocaleString()+' Gemstones') : '';
-    });
-  }
-  if (f2 && f2.gemstones){
-    f2.gemstones.addEventListener('input', ()=>{
-      const v = Math.max(0, parseInt(f2.gemstones.value||'0',10));
-      const approx = v * 98;
-      const resEl = document.getElementById('g2c-res');
-      resEl.textContent = v>0 ? ('≈ '+approx.toLocaleString()+' Credits') : '';
-    });
-  }
-})();
-
-/* === Hardened fetch util (prevents “button does nothing” when JSON parse fails) === */
 async function post(op, data){
   const fd = new FormData();
   fd.append('op', op);
   fd.append('csrf_token', document.getElementById('csrf_token').value);
   fd.append('csrf_action', document.getElementById('csrf_action').value);
   for (const [k,v] of Object.entries(data||{})) fd.append(k,v);
-
-  try{
-    const r = await fetch('/api/black_market.php', { method:'POST', body:fd, headers:{'X-Requested-With':'fetch'}});
-    const text = await r.text();
-    let j;
-    try{
-      j = JSON.parse(text);
-    }catch(e){
-      return { ok:false, error:'Server response was not JSON', debug:text.slice(0,200) };
-    }
-    if (j && j.csrf_token) setCsrf(j.csrf_token);
-    return j || { ok:false, error:'Empty server response' };
-  }catch(err){
-    return { ok:false, error:'Network error: '+(err && err.message ? err.message : String(err)) };
-  }
+  const r=await fetch('/api/black_market.php',{method:'POST',body:fd});
+  const j=await r.json();
+  if (j.csrf_token) setCsrf(j.csrf_token);
+  return j;
 }
+
+// ---- Live previews (match server math; per-100 for Gems→Credits) ----
+(function(){
+  const cInput=document.querySelector('#c2g input[name="credits"]');
+  const gInput=document.querySelector('#g2c input[name="gemstones"]');
+  const cLabel=document.getElementById('c2g-res');
+  const gLabel=document.getElementById('g2c-res');
+  const fmt=n=>Number.isFinite(n)?n.toLocaleString('en-US'):'';
+  function update(){
+    const c=parseInt(cInput?.value||'0',10);
+    cLabel.textContent=c>0?`≈ ${fmt(Math.floor(c*93/100))} Gemstones`:''; 
+    const g=parseInt(gInput?.value||'0',10);
+    gLabel.textContent=g>0?`≈ ${fmt(Math.floor(g*98/100))} Credits`:''; // per-100
+  }
+  cInput?.addEventListener('input', update);
+  gInput?.addEventListener('input', update);
+  update();
+})();
 
 // Converter
 document.getElementById('c2g').addEventListener('submit', async (e)=>{
   e.preventDefault();
   const credits = e.target.credits.value;
   const j = await post('c2g', {credits});
-  document.getElementById('c2g-res').textContent = j.ok ? 'Converted!' : ('Error: '+j.error);
-  if (j.ok){ upd(j.result); celebrate(e.target.closest('.converter-glow')); }
+  const res = document.getElementById('c2g-res');
+  res.classList.toggle('error', !j.ok);
+  res.textContent = j.ok ? 'Converted!' : ('Error: '+j.error);
+  if (j.ok) upd(j.result);
 });
 document.getElementById('g2c').addEventListener('submit', async (e)=>{
   e.preventDefault();
   const gemstones = e.target.gemstones.value;
   const j = await post('g2c', {gemstones});
-  document.getElementById('g2c-res').textContent = j.ok ? 'Converted!' : ('Error: '+j.error);
-  if (j.ok){ upd(j.result); celebrate(e.target.closest('.converter-glow')); }
+  const res = document.getElementById('g2c-res');
+  res.classList.toggle('error', !j.ok);
+  res.textContent = j.ok ? 'Converted!' : ('Error: '+j.error);
+  if (j.ok) upd(j.result);
 });
 
-// Data Dice
+// Data Dice (unchanged)
 let MATCH_ID=null, LAST_AI_CLAIM=null, LAST_BET=0;
 const logEl=document.getElementById('log'), play=document.getElementById('play'), startBtn=document.getElementById('start');
 
@@ -349,7 +301,7 @@ startBtn.addEventListener('click', async ()=>{
                 : (j.state.pot ?? (50 + (2 * bet)));
 
   logEl.textContent='Round '+j.state.round_no+' started.\nPot: '+pot+'\nYour roll: '+j.state.player_roll.join(', ')+'\nMake a claim.';
-  upd(j.state);
+  upd(j.state); // bumps player gems and house gems
 });
 
 document.getElementById('claim').addEventListener('click', async ()=>{
@@ -364,12 +316,14 @@ document.getElementById('claim').addEventListener('click', async ()=>{
     if (s.match.status==='active'){
       line+=`Round ${s.match.next_round} started.\nYour roll: ${s.match.player_roll.join(', ')}`;
     } else if (s.match.status==='won'){
-      line+=`You WON! Pot paid.`; setEndedUI();
+      line+=`You WON! Pot paid.`;
+      setEndedUI();
     } else {
-      line+=`You lost the match.`; setEndedUI();
+      line+=`You lost the match.`;
+      setEndedUI();
     }
     logEl.textContent=line;
-    upd(s);
+    upd(s); // will bump player win and house payout (negative)
   } else {
     LAST_AI_CLAIM={qty:j.resp.ai_qty, face:j.resp.ai_face};
     logEl.textContent=`AI claims ${j.resp.ai_qty}x${j.resp.ai_face}. You can RAISE or TRACE.`;
@@ -386,9 +340,11 @@ document.getElementById('trace').addEventListener('click', async ()=>{
   if (s.match.status==='active'){
     line+=`Round ${s.match.next_round} started.\nYour roll: ${s.match.player_roll.join(', ')}`;
   } else if (s.match.status==='won'){
-    line+=`You WON! Pot paid.`; setEndedUI();
+    line+=`You WON! Pot paid.`;
+    setEndedUI();
   } else {
-    line+=`You lost the match.`; setEndedUI();
+    line+=`You lost the match.`;
+    setEndedUI();
   }
   logEl.textContent=line;
   upd(s);

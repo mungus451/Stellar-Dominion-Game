@@ -6,7 +6,9 @@ final class BlackMarketService
     // ---- Conversion rates ----
     private const CREDITS_TO_GEMS_NUM = 93;     // 100 credits -> 93 gems (7% fee)
     private const CREDITS_TO_GEMS_DEN = 100;
-    private const GEMS_TO_CREDITS_CREDIT_PER_GEM = 98; // 1 gem -> 98 credits (2 credits fee/gem)
+
+    // NOTE: this is **per 100 gems** (UI: "Rate: 1 : 98" means 100:98)
+    private const GEMS_TO_CREDITS_PER_100 = 98; // 100 gems -> 98 credits (2 credits fee per 100 gems)
 
     // Data Dice config (unchanged)
     private const DICE_PER_SIDE_START = 5;
@@ -100,12 +102,12 @@ final class BlackMarketService
     }
 
     /* ======================================================================
-       GEMSTONES -> CREDITS
-       - Player receives (gems * 98) credits.
-       - House fee = (gems * 2) credits; convert that fee to gemstones and add
-         to House gemstone pot.
+       GEMSTONES -> CREDITS  (fixed)
+       - Player receives floor(gems * 98 / 100) credits.
+       - House fee = floor(gems * 2 / 100) credits; convert to gemstones and
+         add to House gemstone pot.
        - Log still records fee in credits.
-       - Return includes house_gemstones_delta.
+       - Return includes house_gemstones_delta for the UI bump.
        ====================================================================== */
     public function convertGemsToCredits(PDO $pdo, int $userId, int $gemsInput): array
     {
@@ -120,9 +122,10 @@ final class BlackMarketService
             if (!$user) throw new RuntimeException('user not found');
             if ((int)$user['gemstones'] < $gemsInput) throw new RuntimeException('insufficient gemstones');
 
-            $creditsOut = $gemsInput * self::GEMS_TO_CREDITS_CREDIT_PER_GEM; // to player
-            $feeCredits = $gemsInput * 2;                                    // to house (credits)
-            $houseGems  = $this->creditsToGemsFloor($feeCredits);             // convert fee credits -> gems
+            // *** Correct per-100 logic (no more 98 credits per ONE gem) ***
+            $creditsOut = intdiv($gemsInput * self::GEMS_TO_CREDITS_PER_100, 100); // floor(gems * 0.98)
+            $feeCredits = intdiv($gemsInput * (100 - self::GEMS_TO_CREDITS_PER_100), 100); // floor(gems * 0.02) credits
+            $houseGems  = $this->creditsToGemsFloor($feeCredits); // convert fee credits -> gems for House pot
 
             // Apply to user
             $pdo->prepare("UPDATE users SET gemstones = gemstones - ?, credits = credits + ? WHERE id=?")
@@ -152,8 +155,7 @@ final class BlackMarketService
     }
 
     /* ============================ DATA DICE ============================ */
-    // The minigame below is exactly your original (DB-backed) flow.
-    // No behavior changes; only helper calls above were edited.
+    // Minigame: unchanged from your original DB-backed flow.
 
     public function startMatch(PDO $pdo, int $userId, int $betGemstones = 0): array
     {
