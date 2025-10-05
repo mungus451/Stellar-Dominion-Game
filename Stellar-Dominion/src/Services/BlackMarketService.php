@@ -3,371 +3,324 @@ declare(strict_types=1);
 
 final class BlackMarketService
 {
-    private const CREDITS_TO_GEMS_NUM = 93;   // 100 credits -> 93 gems (7% house)
-    private const CREDITS_TO_GEMS_DEN = 100;
-    private const GEMS_TO_CREDITS_CREDIT_PER_GEM = 98; // 1 gem -> 98 credits (2% house)
+    // ---- Conversion rates ----
+    private const C2G_NUM = 93;  // 100 credits -> 93 gems (7% fee)
+    private const C2G_DEN = 100;
+    private const G2C_PER_GEM = 98;  // 1 gem -> 98 credits (2 credits fee/gem)
 
+    // Data Dice config (kept minimal; UI-compatible)
     private const DICE_PER_SIDE_START = 5;
     private const GEM_BUYIN = 50;
 
-    private function tableHasColumn(PDO $pdo, string $table, string $column): bool
-    {
-        $st = $pdo->prepare(
-            "SELECT COUNT(*) FROM INFORMATION_SCHEMA.COLUMNS
-             WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = ? AND COLUMN_NAME = ?"
-        );
-        $st->execute([$table, $column]);
-        return (bool)$st->fetchColumn();
-    }
-
-    private function ensureHouseRow(PDO $pdo): void
-    {
-        $pdo->exec("INSERT INTO black_market_house_totals (id, credits_collected, gemstones_collected)
-                    VALUES (1,0,0) ON DUPLICATE KEY UPDATE id=id");
-    }
-
-    private function bumpHouse(PDO $pdo, string $column, int $delta): void
-    {
-        $this->ensureHouseRow($pdo);
-        $hasUpdated = $this->tableHasColumn($pdo, 'black_market_house_totals', 'updated_at');
-        $sql = $hasUpdated
-            ? "UPDATE black_market_house_totals SET {$column} = {$column} + ?, updated_at = NOW() WHERE id = 1"
-            : "UPDATE black_market_house_totals SET {$column} = {$column} + ? WHERE id = 1";
-        $st = $pdo->prepare($sql);
-        $st->execute([$delta]);
-    }
-
-    // -------- Conversions --------
+    /* ======================================================================
+       CREDITS -> GEMSTONES
+       - Player receives floor(credits * 0.93) gems.
+       - House fee (credits * 0.07) is converted into gemstones at the same rate
+         and ADDED to black_market_house_totals.gemstones_collected.
+       - We also log the fee in credits in black_market_conversion_logs.
+       ====================================================================== */
     public function convertCreditsToGems(PDO $pdo, int $userId, int $creditsInput): array
     {
-        $creditsInput = (int)$creditsInput;
-        if ($creditsInput <= 0) throw new InvalidArgumentException('amount must be > 0');
+        if ($creditsInput <= 0) {
+            throw new InvalidArgumentException('credits must be > 0');
+        }
 
         $pdo->beginTransaction();
         try {
-            $u = $pdo->prepare("SELECT id, credits FROM users WHERE id=? FOR UPDATE");
-            $u->execute([$userId]);
-            $user = $u->fetch();
+            // Lock user
+            $st = $pdo->prepare("SELECT id, credits FROM users WHERE id=? FOR UPDATE");
+            $st->execute([$userId]);
+            $user = $st->fetch(PDO::FETCH_ASSOC);
             if (!$user) throw new RuntimeException('user not found');
             if ((int)$user['credits'] < $creditsInput) throw new RuntimeException('insufficient credits');
 
-            // Gems = floor(0.93 * credits); fee (credits) = credits - gems
-            $gemsReceived = intdiv($creditsInput * self::CREDITS_TO_GEMS_NUM, self::CREDITS_TO_GEMS_DEN);
-            $feeCredits   = $creditsInput - $gemsReceived;
+            $feeCredits  = intdiv($creditsInput * 7, 100); // 7% fee in credits (floored)
+            $playerGems  = intdiv($creditsInput * self::C2G_NUM, self::C2G_DEN); // floor(credits*0.93)
+            // Convert fee credits to gemstones for House pot
+            $houseGems   = intdiv($feeCredits * self::C2G_NUM, self::C2G_DEN);
 
-            $pdo->prepare("UPDATE users SET credits = credits - ?, gemstones = gemstones + ? WHERE id=?")
-                ->execute([$creditsInput, $gemsReceived, $userId]);
+            // Apply to user
+            $upd = $pdo->prepare("UPDATE users SET credits = credits - ?, gemstones = gemstones + ? WHERE id=?");
+            $upd->execute([$creditsInput, $playerGems, $userId]);
 
-            if ($feeCredits > 0) $this->bumpHouse($pdo, 'credits_collected', $feeCredits);
+            // Ensure house row exists, then add to gemstones pot
+            $pdo->exec("INSERT INTO black_market_house_totals (id, credits_collected, gemstones_collected)
+                        VALUES (1,0,0) ON DUPLICATE KEY UPDATE id=id");
+            $pdo->prepare("UPDATE black_market_house_totals SET gemstones_collected = gemstones_collected + ?, updated_at = NOW() WHERE id=1")
+                ->execute([$houseGems]);
 
-            if ($this->tableHasColumn($pdo, 'black_market_conversion_logs', 'house_fee_credits')) {
-                $pdo->prepare("INSERT INTO black_market_conversion_logs
-                    (user_id, direction, credits_spent, gemstones_received, house_fee_credits)
-                    VALUES (?, 'credits_to_gems', ?, ?, ?)")
-                    ->execute([$userId, $creditsInput, $gemsReceived, $feeCredits]);
-            }
-
-            $pdo->commit();
-            return ['credits_delta'=>-$creditsInput,'gemstones_delta'=>$gemsReceived,'house_fee_credits'=>$feeCredits];
-        } catch (\Throwable $e) { $pdo->rollBack(); throw $e; }
-    }
-
-    public function convertGemsToCredits(PDO $pdo, int $userId, int $gemsInput): array
-    {
-        $gemsInput = (int)$gemsInput;
-        if ($gemsInput <= 0) throw new InvalidArgumentException('amount must be > 0');
-
-        $pdo->beginTransaction();
-        try {
-            $u = $pdo->prepare("SELECT id, gemstones FROM users WHERE id=? FOR UPDATE");
-            $u->execute([$userId]);
-            $user = $u->fetch();
-            if (!$user) throw new RuntimeException('user not found');
-            if ((int)$user['gemstones'] < $gemsInput) throw new RuntimeException('insufficient gemstones');
-
-            $creditsReceived = $gemsInput * self::GEMS_TO_CREDITS_CREDIT_PER_GEM;
-            $feeCredits = $gemsInput * 2;
-
-            $pdo->prepare("UPDATE users SET gemstones = gemstones - ?, credits = credits + ? WHERE id=?")
-                ->execute([$gemsInput, $creditsReceived, $userId]);
-
-            if ($feeCredits > 0) $this->bumpHouse($pdo, 'credits_collected', $feeCredits);
-
-            if ($this->tableHasColumn($pdo, 'black_market_conversion_logs', 'house_fee_credits')) {
-                $pdo->prepare("INSERT INTO black_market_conversion_logs
-                    (user_id, direction, gemstones_spent, credits_received, house_fee_credits)
-                    VALUES (?, 'gems_to_credits', ?, ?, ?)")
-                    ->execute([$userId, $gemsInput, $creditsReceived, $feeCredits]);
-            }
-
-            $pdo->commit();
-            return ['credits_delta'=>$creditsReceived,'gemstones_delta'=>-$gemsInput,'house_fee_credits'=>$feeCredits];
-        } catch (\Throwable $e) { $pdo->rollBack(); throw $e; }
-    }
-
-    // -------- Data Dice --------
-    public function startMatch(PDO $pdo, int $userId, int $betGemstones = 0): array
-    {
-        $betGemstones = max(0, (int)$betGemstones);
-
-        $pdo->beginTransaction();
-        try {
-            $u = $pdo->prepare("SELECT id, gemstones FROM users WHERE id=? FOR UPDATE");
-            $u->execute([$userId]);
-            $user = $u->fetch();
-            if (!$user) throw new RuntimeException('user not found');
-
-            $needed = self::GEM_BUYIN + $betGemstones; // debit player
-            if ((int)$user['gemstones'] < $needed) throw new RuntimeException('not enough gemstones for buy-in + bet');
-
-            $pdo->prepare("UPDATE users SET gemstones = gemstones - ? WHERE id=?")
-                ->execute([$needed, $userId]);
-
-            // House collects buy-in + player's bet up-front (house keeps it on loss)
-            $this->bumpHouse($pdo, 'gemstones_collected', $needed);
-
-            // Pot includes AI matched bet, paid by House on win
-            $totalPot = self::GEM_BUYIN + ($betGemstones * 2);
-
-            $hasBetCol = $this->tableHasColumn($pdo, 'data_dice_matches', 'bet_gemstones');
-            if ($hasBetCol) {
-                $pdo->prepare("INSERT INTO data_dice_matches (user_id, player_dice_remaining, ai_dice_remaining, pot_gemstones, bet_gemstones)
-                               VALUES (?, ?, ?, ?, ?)")
-                    ->execute([$userId, self::DICE_PER_SIDE_START, self::DICE_PER_SIDE_START, $totalPot, $betGemstones]);
-            } else {
-                $pdo->prepare("INSERT INTO data_dice_matches (user_id, player_dice_remaining, ai_dice_remaining, pot_gemstones)
-                               VALUES (?, ?, ?, ?)")
-                    ->execute([$userId, self::DICE_PER_SIDE_START, self::DICE_PER_SIDE_START, $totalPot]);
-            }
-
-            $matchId = (int)$pdo->lastInsertId();
-
-            $pRoll = $this->rollDice(self::DICE_PER_SIDE_START);
-            $aRoll = $this->rollDice(self::DICE_PER_SIDE_START);
-
-            $roundHasUser = $this->tableHasColumn($pdo, 'data_dice_rounds', 'user_id');
-            if ($roundHasUser) {
-                $pdo->prepare("INSERT INTO data_dice_rounds (match_id, user_id, round_no, player_roll, ai_roll)
-                               VALUES (?, ?, 1, ?, ?)")
-                    ->execute([$matchId, $userId, json_encode($pRoll, JSON_THROW_ON_ERROR), json_encode($aRoll, JSON_THROW_ON_ERROR)]);
-            } else {
-                $pdo->prepare("INSERT INTO data_dice_rounds (match_id, round_no, player_roll, ai_roll)
-                               VALUES (?, 1, ?, ?)")
-                    ->execute([$matchId, json_encode($pRoll, JSON_THROW_ON_ERROR), json_encode($aRoll, JSON_THROW_ON_ERROR)]);
-            }
+            // Log conversion (fee in CREDITS, as before)
+            $log = $pdo->prepare("INSERT INTO black_market_conversion_logs
+                (user_id, direction, credits_spent, gemstones_received, house_fee_credits)
+                VALUES (?, 'credits_to_gems', ?, ?, ?)");
+            $log->execute([$userId, $creditsInput, $playerGems, $feeCredits]);
 
             $pdo->commit();
             return [
-                'match_id'               => $matchId,
-                'round_no'               => 1,
-                'player_roll'            => $pRoll,
-                'ai_roll'                => null, // hidden at start
-                'player_dice'            => self::DICE_PER_SIDE_START,
-                'ai_dice'                => self::DICE_PER_SIDE_START,
-                'pot'                    => $totalPot,
-                'bet_gemstones'          => $betGemstones,
-                'gemstones_delta'        => -$needed,
-                'house_gemstones_delta'  =>  $needed, // show House growth in UI
+                'credits_delta' => -$creditsInput,
+                'gemstones_delta' => $playerGems,
+                'house_gemstones_delta' => $houseGems,
             ];
-        } catch (\Throwable $e) { $pdo->rollBack(); throw $e; }
+        } catch (\Throwable $e) {
+            $pdo->rollBack();
+            throw $e;
+        }
+    }
+
+    /* ======================================================================
+       GEMSTONES -> CREDITS
+       - Player receives (gems * 98) credits.
+       - House fee = (gems * 2) credits which we CONVERT to gemstones and add
+         to black_market_house_totals.gemstones_collected.
+       - We log the fee in credits (unchanged).
+       ====================================================================== */
+    public function convertGemsToCredits(PDO $pdo, int $userId, int $gemsInput): array
+    {
+        if ($gemsInput <= 0) {
+            throw new InvalidArgumentException('gemstones must be > 0');
+        }
+
+        $pdo->beginTransaction();
+        try {
+            // Lock user
+            $st = $pdo->prepare("SELECT id, gemstones FROM users WHERE id=? FOR UPDATE");
+            $st->execute([$userId]);
+            $user = $st->fetch(PDO::FETCH_ASSOC);
+            if (!$user) throw new RuntimeException('user not found');
+            if ((int)$user['gemstones'] < $gemsInput) throw new RuntimeException('insufficient gemstones');
+
+            $creditsOut = $gemsInput * self::G2C_PER_GEM;
+            $feeCredits = $gemsInput * 2; // 2 credits per gem
+            $houseGems  = intdiv($feeCredits * self::C2G_NUM, self::C2G_DEN);
+
+            // Apply to user
+            $upd = $pdo->prepare("UPDATE users SET gemstones = gemstones - ?, credits = credits + ? WHERE id=?");
+            $upd->execute([$gemsInput, $creditsOut, $userId]);
+
+            // Ensure house row exists, then add fee to gemstone pot
+            $pdo->exec("INSERT INTO black_market_house_totals (id, credits_collected, gemstones_collected)
+                        VALUES (1,0,0) ON DUPLICATE KEY UPDATE id=id");
+            $pdo->prepare("UPDATE black_market_house_totals SET gemstones_collected = gemstones_collected + ?, updated_at = NOW() WHERE id=1")
+                ->execute([$houseGems]);
+
+            // Log conversion (fee recorded in credits)
+            $log = $pdo->prepare("INSERT INTO black_market_conversion_logs
+                (user_id, direction, gemstones_spent, credits_received, house_fee_credits)
+                VALUES (?, 'gems_to_credits', ?, ?, ?)");
+            $log->execute([$userId, $gemsInput, $creditsOut, $feeCredits]);
+
+            $pdo->commit();
+            return [
+                'credits_delta' => $creditsOut,
+                'gemstones_delta' => -$gemsInput,
+                'house_gemstones_delta' => $houseGems,
+            ];
+        } catch (\Throwable $e) {
+            $pdo->rollBack();
+            throw $e;
+        }
+    }
+
+    // ====== Data Dice (minimal, DB-backed; compatible with current UI) ======
+
+    public function startMatch(PDO $pdo, int $userId, int $bet = 0): array
+    {
+        if ($bet < 0) $bet = 0;
+        $buyIn = self::GEM_BUYIN;
+        $takeFromPlayer = $buyIn + $bet; // what player pays up-front
+        $pot = $buyIn + (2 * $bet);      // AI matches bet; pot paid on win
+
+        $pdo->beginTransaction();
+        try {
+            // Lock user
+            $st = $pdo->prepare("SELECT gemstones FROM users WHERE id=? FOR UPDATE");
+            $st->execute([$userId]);
+            $gems = (int)($st->fetchColumn() ?: 0);
+            if ($gems < $takeFromPlayer) throw new RuntimeException('Not enough gemstones for buy-in');
+
+            // Charge player and credit House pot
+            $pdo->prepare("UPDATE users SET gemstones = gemstones - ? WHERE id=?")->execute([$takeFromPlayer, $userId]);
+            $pdo->exec("INSERT INTO black_market_house_totals (id, credits_collected, gemstones_collected)
+                        VALUES (1,0,0) ON DUPLICATE KEY UPDATE id=id");
+            $pdo->prepare("UPDATE black_market_house_totals SET gemstones_collected = gemstones_collected + ?, updated_at = NOW() WHERE id=1")
+                ->execute([$takeFromPlayer]);
+
+            // Create match
+            $pdo->prepare("INSERT INTO data_dice_matches (user_id, player_dice_remaining, ai_dice_remaining, pot_gemstones)
+                           VALUES (?, ?, ?, ?)")
+                ->execute([$userId, self::DICE_PER_SIDE_START, self::DICE_PER_SIDE_START, $pot]);
+            $matchId = (int)$pdo->lastInsertId();
+
+            // Round 1
+            $pRoll = $this->rollDice(self::DICE_PER_SIDE_START);
+            $aRoll = $this->rollDice(self::DICE_PER_SIDE_START);
+            $pdo->prepare("INSERT INTO data_dice_rounds (match_id, round_no, player_roll, ai_roll)
+                           VALUES (?, 1, ?, ?)")
+                ->execute([$matchId, json_encode($pRoll, JSON_THROW_ON_ERROR), json_encode($aRoll, JSON_THROW_ON_ERROR)]);
+
+            $pdo->commit();
+
+            return [
+                'match_id' => $matchId,
+                'round_no' => 1,
+                'player_roll' => $pRoll,
+                'pot_gemstones' => $pot,
+                // UI counters bump:
+                'gemstones_delta' => -$takeFromPlayer,
+                'house_gemstones_delta' => +$takeFromPlayer,
+            ];
+        } catch (\Throwable $e) {
+            $pdo->rollBack();
+            throw $e;
+        }
     }
 
     public function playerClaim(PDO $pdo, int $userId, int $matchId, int $qty, int $face): array
     {
-        if ($qty <= 0) throw new InvalidArgumentException('qty must be > 0');
+        if ($qty < 1) throw new InvalidArgumentException('qty must be >= 1');
         if ($face < 2 || $face > 5) throw new InvalidArgumentException('face must be 2..5');
 
         $pdo->beginTransaction();
         try {
-            $m = $pdo->prepare("SELECT * FROM data_dice_matches WHERE id=? AND user_id=? FOR UPDATE");
+            // Fetch active match
+            $m = $pdo->prepare("SELECT * FROM data_dice_matches WHERE id=? AND user_id=? AND status='active'");
             $m->execute([$matchId, $userId]);
-            $match = $m->fetch();
-            if (!$match) throw new RuntimeException('match not found');
-            if ($match['status'] !== 'active') throw new RuntimeException('match is not active');
+            $match = $m->fetch(PDO::FETCH_ASSOC);
+            if (!$match) throw new RuntimeException('No active match');
 
-            $round = $this->getActiveRound($pdo, $matchId, true);
-            if (($round['last_claim_by'] ?? null) === 'player') throw new RuntimeException('wait for AI (or TRACE)');
+            // Get latest round
+            $r = $pdo->prepare("SELECT * FROM data_dice_rounds WHERE match_id=? ORDER BY round_no DESC LIMIT 1");
+            $r->execute([$matchId]);
+            $round = $r->fetch(PDO::FETCH_ASSOC);
+            if (!$round) throw new RuntimeException('Round missing');
 
-            if ($round['claim_qty'] !== null) {
-                $lastQty  = (int)$round['claim_qty'];
-                $lastFace = (int)$round['claim_face'];
-                if (!($qty > $lastQty || ($qty === $lastQty && $face > $lastFace))) {
-                    throw new RuntimeException('claim must raise qty OR same-qty higher face');
-                }
-            }
+            $pRoll = json_decode($round['player_roll'], true, 512, JSON_THROW_ON_ERROR);
+            $aRoll = json_decode($round['ai_roll'], true, 512, JSON_THROW_ON_ERROR);
 
-            $pdo->prepare("UPDATE data_dice_rounds SET last_claim_by='player', claim_qty=?, claim_face=? WHERE id=?")
-                ->execute([$qty, $face, $round['id']]);
+            // In this minimal AI, the AI immediately TRACEs the player's claim.
+            $counted = $this->countClaim($pRoll, $aRoll, $face);
+            $wasTrue = ($counted >= $qty);
+            $loser   = $wasTrue ? 'ai' : 'player'; // tracer is AI
 
-            $aiRoll     = json_decode($round['ai_roll'], true, 512, JSON_THROW_ON_ERROR);
-            $playerRoll = json_decode($round['player_roll'], true, 512, JSON_THROW_ON_ERROR);
-            $playerDice = (int)$match['player_dice_remaining'];
-            $aiDice     = (int)$match['ai_dice_remaining'];
+            // Record resolution for the round
+            $pdo->prepare(
+                "UPDATE data_dice_rounds
+                 SET last_claim_by='player', claim_qty=?, claim_face=?, trace_called_by='ai',
+                     trace_was_correct=?, loser=?, counted_qty=?
+                 WHERE id=?"
+            )->execute([$qty, $face, $wasTrue ? 0 : 1, $loser, $counted, $round['id']]);
 
-            $aiAction = $this->aiDecide($aiRoll, $playerDice, $aiDice, $qty, $face);
-
-            if ($aiAction['type'] === 'trace') {
-                [$counted, $wasTrue] = $this->evaluateClaim($playerRoll, $aiRoll, $qty, $face);
-                $loser = $wasTrue ? 'ai' : 'player';
-                $this->finalizeRound($pdo, (int)$round['id'], 'ai', $wasTrue, $loser, $counted);
-
-                $result = $this->applyRoundLossAndMaybeNextRound($pdo, $match, $loser);
-                $pdo->commit();
-                return [
-                    'resolved'              => true,
-                    'trace_by'              => 'ai',
-                    'claim_qty'             => $qty,
-                    'claim_face'            => $face,
-                    'counted'               => $counted,
-                    'loser'                 => $loser,
-                    'match'                 => $result,
-                    'revealed_player_roll'  => $playerRoll,
-                    'revealed_ai_roll'      => $aiRoll,
-                    'gemstones_delta'       => (($result['status'] ?? '') === 'won') ? (int)$match['pot_gemstones'] : 0,
-                    'house_gemstones_delta' => (($result['status'] ?? '') === 'won') ? -(int)$match['pot_gemstones'] : 0,
-                ];
-            }
-
-            $raise = $aiAction['claim'];
-            $pdo->prepare("UPDATE data_dice_rounds SET last_claim_by='ai', claim_qty=?, claim_face=? WHERE id=?")
-                ->execute([(int)$raise['qty'], (int)$raise['face'], $round['id']]);
+            // Apply loss and maybe finish / next round
+            $result = $this->applyRoundLossAndMaybeNextRound($pdo, $match, $loser);
 
             $pdo->commit();
-            return ['resolved'=>false, 'ai_move'=>'claim', 'ai_qty'=>(int)$raise['qty'], 'ai_face'=>(int)$raise['face']];
-        } catch (\Throwable $e) { $pdo->rollBack(); throw $e; }
+
+            return [
+                'resolved' => true,
+                'claim_qty' => $qty,
+                'claim_face' => $face,
+                'counted' => $counted,
+                'loser' => $loser,
+                'revealed_player_roll' => $pRoll,
+                'revealed_ai_roll' => $aRoll,
+                'match' => $result,
+                // If match ends with a win, result contains deltas; bubble them up for UI bump:
+                'gemstones_delta' => $result['gemstones_delta'] ?? 0,
+                'house_gemstones_delta' => $result['house_gemstones_delta'] ?? 0,
+            ];
+        } catch (\Throwable $e) {
+            $pdo->rollBack();
+            throw $e;
+        }
     }
 
     public function playerTrace(PDO $pdo, int $userId, int $matchId): array
     {
-        $pdo->beginTransaction();
-        try {
-            $m = $pdo->prepare("SELECT * FROM data_dice_matches WHERE id=? AND user_id=? FOR UPDATE");
-            $m->execute([$matchId, $userId]);
-            $match = $m->fetch();
-            if (!$match) throw new RuntimeException('match not found');
-            if ($match['status'] !== 'active') throw new RuntimeException('match is not active');
-
-            $round = $this->getActiveRound($pdo, $matchId, true);
-            if (($round['last_claim_by'] ?? null) !== 'ai') throw new RuntimeException('you can trace only after an AI claim');
-
-            $qty  = (int)$round['claim_qty'];
-            $face = (int)$round['claim_face'];
-
-            $playerRoll = json_decode($round['player_roll'], true, 512, JSON_THROW_ON_ERROR);
-            $aiRoll     = json_decode($round['ai_roll'], true, 512, JSON_THROW_ON_ERROR);
-
-            [$counted, $wasTrue] = $this->evaluateClaim($playerRoll, $aiRoll, $qty, $face);
-            $loser = $wasTrue ? 'player' : 'ai';
-            $this->finalizeRound($pdo, (int)$round['id'], 'player', $wasTrue, $loser, $counted);
-
-            $result = $this->applyRoundLossAndMaybeNextRound($pdo, $match, $loser);
-
-            $pdo->commit();
-            return [
-                'resolved'              => true,
-                'trace_by'              => 'player',
-                'claim_qty'             => $qty,
-                'claim_face'            => $face,
-                'counted'               => $counted,
-                'loser'                 => $loser,
-                'match'                 => $result,
-                'revealed_player_roll'  => $playerRoll,
-                'revealed_ai_roll'      => $aiRoll,
-                'gemstones_delta'       => (($result['status'] ?? '') === 'won') ? (int)$match['pot_gemstones'] : 0,
-                'house_gemstones_delta' => (($result['status'] ?? '') === 'won') ? -(int)$match['pot_gemstones'] : 0,
-            ];
-        } catch (\Throwable $e) { $pdo->rollBack(); throw $e; }
+        // This minimal AI never raises; trace is not available.
+        throw new RuntimeException('TRACE not available at this point');
     }
 
-    // ----- internals -----
-    private function rollDice(int $count): array { $o=[]; for($i=0;$i<$count;$i++) $o[]=random_int(1,6); return $o; }
+    // ------------------- internals -------------------
 
-    private function getActiveRound(PDO $pdo, int $matchId, bool $forUpdate=false): array
+    private function rollDice(int $count): array
     {
-        $sql = "SELECT * FROM data_dice_rounds WHERE match_id=? ORDER BY round_no DESC LIMIT 1".($forUpdate?" FOR UPDATE":"");
-        $st = $pdo->prepare($sql); $st->execute([$matchId]); $round = $st->fetch(); if(!$round) throw new RuntimeException('no rounds yet'); return $round;
+        $out = [];
+        for ($i=0; $i<$count; $i++) $out[] = random_int(1,6);
+        return $out;
     }
 
-    private function evaluateClaim(array $playerRoll, array $aiRoll, int $qty, int $face): array
+    private function countClaim(array $p, array $a, int $face): int
     {
-        $count = 0;
-        foreach (array_merge($playerRoll,$aiRoll) as $d) { if ($d === 6) continue; if ($d === 1 || $d === $face) $count++; }
-        return [$count, $count >= $qty];
-    }
-
-    private function nextHigherClaim(int $qty, int $face, int $totalDice): array
-    {
-        if ($qty < $totalDice) return ['qty'=>$qty+1, 'face'=>$face];
-        if ($face < 5)         return ['qty'=>$qty,   'face'=>$face+1];
-        return ['qty'=>$qty+1, 'face'=>2];
-    }
-
-    private function aiDecide(array $aiRoll, int $playerDice, int $aiDice, int $qty, int $face): array
-    {
-        $known = 0; foreach($aiRoll as $d){ if ($d===6) continue; if($d===1||$d===$face) $known++; }
-        $expect = (int)floor($playerDice*(1/3)); // rough EV
-        if ($qty > $known + $expect + 1) return ['type'=>'trace'];
-        $raise = $this->nextHigherClaim($qty,$face,$playerDice+$aiDice);
-        if ($raise['face']===6) $raise['face']=5; if ($raise['face']<2) $raise['face']=2;
-        return ['type'=>'claim','claim'=>$raise];
-    }
-
-    private function finalizeRound(PDO $pdo, int $roundId, string $traceBy, bool $claimWasTrue, string $loser, int $counted): void
-    {
-        $pdo->prepare("UPDATE data_dice_rounds SET trace_called_by=?, trace_was_correct=?, loser=?, counted_qty=? WHERE id=?")
-            ->execute([$traceBy, $claimWasTrue ? 1 : 0, $loser, $counted, $roundId]);
+        $total = 0;
+        foreach (array_merge($p,$a) as $d) {
+            if ($d === 6) continue;       // locked
+            if ($d === 1 || $d === $face) $total++;
+        }
+        return $total;
     }
 
     private function applyRoundLossAndMaybeNextRound(PDO $pdo, array $match, string $loser): array
     {
-        $matchId    = (int)$match['id'];
-        $userId     = (int)$match['user_id'];
+        $matchId = (int)$match['id'];
         $playerDice = (int)$match['player_dice_remaining'];
         $aiDice     = (int)$match['ai_dice_remaining'];
+        $pot        = (int)$match['pot_gemstones'];
 
         if ($loser === 'player') $playerDice--; else $aiDice--;
 
+        // Update dice counts
         $pdo->prepare("UPDATE data_dice_matches SET player_dice_remaining=?, ai_dice_remaining=? WHERE id=?")
             ->execute([$playerDice, $aiDice, $matchId]);
 
-        if ($playerDice <= 0) {
-            $pdo->prepare("UPDATE data_dice_matches SET status='lost', ended_at=NOW() WHERE id=?")->execute([$matchId]);
-            return ['status'=>'lost','player_dice'=>0,'ai_dice'=>$aiDice];
-        }
-
         if ($aiDice <= 0) {
-            $this->payoutIfNeeded($pdo, $match); // House pays from gemstones_collected
-            return ['status'=>'won','player_dice'=>$playerDice,'ai_dice'=>0];
+            // Player won: pay pot from House
+            $this->payoutIfNeeded($pdo, $matchId, (int)$match['user_id'], $pot);
+            return ['status'=>'won', 'next_round'=>null, 'player_roll'=>[], 'gemstones_delta'=>$pot, 'house_gemstones_delta'=>-$pot];
         }
 
-        $st=$pdo->prepare("SELECT COALESCE(MAX(round_no),0) FROM data_dice_rounds WHERE match_id=?");
-        $st->execute([$matchId]); $nextNo = (int)$st->fetchColumn() + 1;
-
-        $pRoll = $this->rollDice($playerDice); $aRoll = $this->rollDice($aiDice);
-        $roundHasUser = $this->tableHasColumn($pdo, 'data_dice_rounds', 'user_id');
-        if ($roundHasUser) {
-            $pdo->prepare("INSERT INTO data_dice_rounds (match_id, user_id, round_no, player_roll, ai_roll) VALUES (?, ?, ?, ?, ?)")
-                ->execute([$matchId, $userId, $nextNo, json_encode($pRoll, JSON_THROW_ON_ERROR), json_encode($aRoll, JSON_THROW_ON_ERROR)]);
-        } else {
-            $pdo->prepare("INSERT INTO data_dice_rounds (match_id, round_no, player_roll, ai_roll) VALUES (?, ?, ?, ?)")
-                ->execute([$matchId, $nextNo, json_encode($pRoll, JSON_THROW_ON_ERROR), json_encode($aRoll, JSON_THROW_ON_ERROR)]);
+        if ($playerDice <= 0) {
+            // Player lost: match ends, House keeps the intake; no payout
+            $pdo->prepare("UPDATE data_dice_matches SET status='lost', ended_at=NOW() WHERE id=?")->execute([$matchId]);
+            return ['status'=>'lost'];
         }
 
-        return ['status'=>'active','next_round'=>$nextNo,'player_dice'=>$playerDice,'ai_dice'=>$aiDice,'player_roll'=>$pRoll,'ai_roll'=>null];
+        // Next round
+        $st = $pdo->prepare("SELECT COALESCE(MAX(round_no),0) FROM data_dice_rounds WHERE match_id=?");
+        $st->execute([$matchId]);
+        $nextNo = ((int)$st->fetchColumn()) + 1;
+
+        $pRoll = $this->rollDice($playerDice);
+        $aRoll = $this->rollDice($aiDice);
+        $pdo->prepare("INSERT INTO data_dice_rounds (match_id, round_no, player_roll, ai_roll)
+                       VALUES (?,?,?,?)")->execute([
+            $matchId,
+            $nextNo,
+            json_encode($pRoll, JSON_THROW_ON_ERROR),
+            json_encode($aRoll, JSON_THROW_ON_ERROR)
+        ]);
+
+        return ['status'=>'active', 'next_round'=>$nextNo, 'player_roll'=>$pRoll];
     }
 
-    private function payoutIfNeeded(PDO $pdo, array $match): void
+    private function payoutIfNeeded(PDO $pdo, int $matchId, int $userId, int $pot): void
     {
-        if ((int)$match['payout_done'] === 1) return;
+        // idempotent guard
+        $st = $pdo->prepare("SELECT payout_done FROM data_dice_matches WHERE id=?");
+        $st->execute([$matchId]);
+        $done = (int)($st->fetchColumn() ?: 0);
+        if ($done === 1) return;
 
-        $pdo->prepare("UPDATE data_dice_matches SET status='won', payout_done=1, ended_at=NOW() WHERE id=?")
-            ->execute([(int)$match['id']]);
+        // mark paid
+        $pdo->prepare("UPDATE data_dice_matches SET status='won', payout_done=1, ended_at=NOW() WHERE id=?")->execute([$matchId]);
 
-        $pot = (int)$match['pot_gemstones'];
+        // pay player
         $pdo->prepare("UPDATE users SET gemstones = gemstones + ?, black_market_reputation = black_market_reputation + 1 WHERE id=?")
-            ->execute([$pot, (int)$match['user_id']]);
+            ->execute([$pot, $userId]);
 
-        // House pays the pot (gemstones)
-        $this->bumpHouse($pdo, 'gemstones_collected', -$pot);
+        // deduct from House pot
+        $pdo->exec("INSERT INTO black_market_house_totals (id, credits_collected, gemstones_collected)
+                    VALUES (1,0,0) ON DUPLICATE KEY UPDATE id=id");
+        $pdo->prepare("UPDATE black_market_house_totals SET gemstones_collected = gemstones_collected - ?, updated_at = NOW() WHERE id=1")
+            ->execute([$pot]);
     }
 }
