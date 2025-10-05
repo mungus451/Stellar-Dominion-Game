@@ -148,14 +148,14 @@ const RANDOM_NOISE_MAX            = 1.02; // Widen (e.g., 0.95–1.05) for chaos
 // How it works: steal_pct = min(CAP, BASE + GROWTH * clamp(R-1, 0..1))
 //                              R≤1 → BASE
 //                              R≥2 → BASE + GROWTH (capped by CAP)
-const CREDITS_STEAL_CAP_PCT       = 0.2;  // Lower (e.g., 0.15) to protect defenders; raise cautiously if late-game feels cash-starved.
+const CREDITS_STEAL_CAP_PCT       = 0.3;  // Lower (e.g., 0.15) to protect defenders; raise cautiously if late-game feels cash-starved.
 const CREDITS_STEAL_BASE_PCT      = 0.08; // Raise to make average wins more lucrative.
 const CREDITS_STEAL_GROWTH        = 0.1;  // Raise to reward big mismatches; lower to keep gains flatter.
 
 // Guards casualties
 // loss_frac = BASE + ADV_GAIN * clamp(R-1,0..1) then × small turns boost, ×0.5 if attacker loses. Guard floor prevents dropping below GUARD_FLOOR total.
 const GUARD_KILL_BASE_FRAC        = 0.001; // Raise to speed attrition in fair fights.
-const GUARD_KILL_ADVANTAGE_GAIN   = 0.02;  // Raise to let strong attackers chew guards faster.
+const GUARD_KILL_ADVANTAGE_GAIN   = 0.01;  // Raise to let strong attackers chew guards faster.
 const GUARD_FLOOR                 = 5000; // Raise to extend defensive longevity; lower to allow full wipeouts.
 
 // Structure damage (on defender fortifications)
@@ -201,7 +201,7 @@ const XP_DEF_LOSE_MIN                 = 75;
 const XP_DEF_LOSE_MAX                 = 125;
 // Level-gap scaling (Δ = target.level - self.level). Positive means you hit higher level.
 const XP_LEVEL_SLOPE_VS_HIGHER        = 0.07; // per level when target is higher level
-const XP_LEVEL_SLOPE_VS_LOWER         = 0.10; // per level when target is lower level
+const XP_LEVEL_SLOPE_VS_LOWER         = 0.05; // per level when target is lower level
 const XP_LEVEL_MIN_MULT               = 0.10; // clamp for extreme gaps
 // Turns influence (exponent). Defender default 0.0 preserves legacy behavior.
 const XP_ATK_TURNS_EXP                = 1.0;  // 1.0 = linear by turns; <1 softens, >1 amplifies
