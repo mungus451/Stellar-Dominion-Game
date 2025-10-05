@@ -37,7 +37,9 @@ try {
             echo json_encode(['ok'=>true,'result'=>$result,'csrf_token'=>$new_token]); break;
         }
         case 'start': {
-            $state = $svc->startMatch($pdo, $userId);
+            $bet = isset($_POST['bet_gemstones']) ? (int)$_POST['bet_gemstones'] : 0;
+            if ($bet < 0) $bet = 0;
+            $state = $svc->startMatch($pdo, $userId, $bet);
             echo json_encode(['ok'=>true,'state'=>$state,'csrf_token'=>$new_token]); break;
         }
         case 'claim': {
