@@ -14,6 +14,18 @@ final class BlackMarketService
     private const DICE_PER_SIDE_START = 5;
     private const GEM_BUYIN = 50;
 
+    // -------- Cosmic Roll config (NEW) --------
+    private const COSMIC_ROLL_BASE = 50;              // pot base
+    private const COSMIC_ROLL_MIN_BET = 1;
+    private const COSMIC_ROLL_MAX_BET = 100000000;    // hard ceiling
+    private const COSMIC_ROLL_SYMBOLS = [             // weights sum to 100
+        'Star'     => ['icon' => '★', 'weight' => 42],
+        'Planet'   => ['icon' => '🪐', 'weight' => 30],
+        'Comet'    => ['icon' => '☄️', 'weight' => 15],
+        'Galaxy'   => ['icon' => '🌌', 'weight' => 9],
+        'Artifact' => ['icon' => '💎', 'weight' => 4],
+    ];
+
     /* --------------------------- UTILITIES --------------------------- */
 
     private function tableHasColumn(PDO $pdo, string $table, string $column): bool
@@ -24,6 +36,26 @@ final class BlackMarketService
         );
         $st->execute([$table, $column]);
         return (bool)$st->fetchColumn();
+    }
+
+    private function tableExists(PDO $pdo, string $table): bool
+    {
+        $st = $pdo->prepare(
+            "SELECT COUNT(*) FROM INFORMATION_SCHEMA.TABLES
+             WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = ?"
+        );
+        $st->execute([$table]);
+        return (bool)$st->fetchColumn();
+    }
+
+    private function getTableColumns(PDO $pdo, string $table): array
+    {
+        $st = $pdo->prepare(
+            "SELECT COLUMN_NAME FROM INFORMATION_SCHEMA.COLUMNS
+             WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = ?"
+        );
+        $st->execute([$table]);
+        return array_map(static fn($r) => $r['COLUMN_NAME'], $st->fetchAll(PDO::FETCH_ASSOC));
     }
 
     private function ensureHouseRow(PDO $pdo): void
@@ -330,6 +362,123 @@ final class BlackMarketService
         } catch (\Throwable $e) { $pdo->rollBack(); throw $e; }
     }
 
+    /* ============================ COSMIC ROLL (NEW) ============================ */
+
+    /**
+     * Server-authoritative Cosmic Roll.
+     * - Debits player's bet.
+     * - Rolls 3 weighted reels.
+     * - Win only on triple match of the selected symbol.
+     * - Pot = 50 + (2 × bet). On win, House pays pot; on loss, House keeps bet.
+     *
+     * Returns payload including user/house deltas for UI bumping.
+     */
+    public function cosmicRollPlay(PDO $pdo, int $userId, int $betGemstones, string $selectedSymbol): array
+    {
+        $betGemstones = (int)$betGemstones;
+        if ($betGemstones < self::COSMIC_ROLL_MIN_BET || $betGemstones > self::COSMIC_ROLL_MAX_BET) {
+            throw new InvalidArgumentException('invalid bet amount');
+        }
+        if (!isset(self::COSMIC_ROLL_SYMBOLS[$selectedSymbol])) {
+            throw new InvalidArgumentException('invalid symbol');
+        }
+
+        $pdo->beginTransaction();
+        try {
+            // Lock user gems
+            $u = $pdo->prepare("SELECT id, gemstones FROM users WHERE id=? FOR UPDATE");
+            $u->execute([$userId]);
+            $user = $u->fetch(PDO::FETCH_ASSOC);
+            if (!$user) throw new RuntimeException('user not found');
+            $beforeGems = (int)$user['gemstones'];
+            if ($beforeGems < $betGemstones) throw new RuntimeException('insufficient gemstones');
+
+            // Debit bet
+            $afterGems = $beforeGems - $betGemstones;
+            $pdo->prepare("UPDATE users SET gemstones = ? WHERE id=?")
+                ->execute([$afterGems, $userId]);
+
+            // Roll 3 reels
+            $reel1 = $this->weightedPick(self::COSMIC_ROLL_SYMBOLS);
+            $reel2 = $this->weightedPick(self::COSMIC_ROLL_SYMBOLS);
+            $reel3 = $this->weightedPick(self::COSMIC_ROLL_SYMBOLS);
+
+            $matches = 0;
+            if ($reel1 === $selectedSymbol) $matches++;
+            if ($reel2 === $selectedSymbol) $matches++;
+            if ($reel3 === $selectedSymbol) $matches++;
+
+            $pot = self::COSMIC_ROLL_BASE + (2 * $betGemstones);
+
+            $result = 'loss';
+            $payout = 0;
+            $houseDelta = $betGemstones; // default: House keeps bet
+
+            if ($matches === 3) {
+                // Win: pay pot from House
+                $result = 'win';
+                $payout = $pot;
+                $afterGems += $payout;
+                $pdo->prepare("UPDATE users SET gemstones = ? WHERE id=?")
+                    ->execute([$afterGems, $userId]);
+                $houseDelta = -$payout;
+            }
+
+            // Apply House ledger delta
+            $this->bumpHouse($pdo, 'gemstones_collected', $houseDelta);
+
+            // Optional logging (only if table exists; columns may vary)
+            if ($this->tableExists($pdo, 'black_market_cosmic_rolls')) {
+                $colsAvail = $this->getTableColumns($pdo, 'black_market_cosmic_rolls');
+                $log = [
+                    'user_id'            => $userId,
+                    'selected_symbol'    => $selectedSymbol,
+                    'bet_gemstones'      => $betGemstones,
+                    'pot_gemstones'      => $pot,
+                    'result'             => $result,
+                    'reel1'              => $reel1,
+                    'reel2'              => $reel2,
+                    'reel3'              => $reel3,
+                    'matches'            => $matches,
+                    'house_gems_delta'   => $houseDelta,
+                    'user_gems_before'   => $beforeGems,
+                    'user_gems_after'    => $afterGems,
+                    'created_at'         => date('Y-m-d H:i:s'),
+                ];
+                // Keep only columns that exist
+                $log = array_intersect_key($log, array_flip($colsAvail));
+                if (!empty($log)) {
+                    $fields = implode(',', array_keys($log));
+                    $qs = implode(',', array_fill(0, count($log), '?'));
+                    $st = $pdo->prepare("INSERT INTO black_market_cosmic_rolls ($fields) VALUES ($qs)");
+                    $st->execute(array_values($log));
+                }
+            }
+
+            $pdo->commit();
+
+            // Net delta to player (after including the initial bet debit)
+            $playerDelta = -$betGemstones + $payout;
+
+            return [
+                'ok'                   => true,
+                'result'               => $result,
+                'selected_symbol'      => $selectedSymbol,
+                'reels'                => [$reel1, $reel2, $reel3],
+                'matches'              => $matches,
+                'bet'                  => $betGemstones,
+                'pot'                  => $pot,
+                'payout'               => $payout,
+                'gemstones_delta'      => $playerDelta,
+                'house_gemstones_delta'=> $houseDelta,
+                'user_gems_after'      => $afterGems,
+            ];
+        } catch (\Throwable $e) {
+            $pdo->rollBack();
+            throw $e;
+        }
+    }
+
     /* ------------------------ Internals (unchanged) ------------------------ */
 
     private function rollDice(int $count): array { $o=[]; for($i=0;$i<$count;$i++) $o[]=random_int(1,6); return $o; }
@@ -425,5 +574,18 @@ final class BlackMarketService
 
         // House pays the pot (gemstones)
         $this->bumpHouse($pdo, 'gemstones_collected', -$pot);
+    }
+
+    /* --------------------------- Helpers (NEW) --------------------------- */
+
+    private function weightedPick(array $symbolConfig): string
+    {
+        $total = 0; foreach ($symbolConfig as $s) { $total += (int)$s['weight']; }
+        $roll = random_int(1, $total);
+        foreach ($symbolConfig as $name => $s) {
+            $roll -= (int)$s['weight'];
+            if ($roll <= 0) return $name;
+        }
+        return array_key_first($symbolConfig); // fallback
     }
 }
