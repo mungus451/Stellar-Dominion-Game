@@ -14,16 +14,16 @@ final class BlackMarketService
     private const DICE_PER_SIDE_START = 5;
     private const GEM_BUYIN = 50;
 
-    // -------- Cosmic Roll config (NEW) --------
-    private const COSMIC_ROLL_BASE = 50;              // pot base
+    // -------- Cosmic Roll config (payouts now align with UI labels) --------
+    // weights ≈ odds, payout = bet * payout_mult * matches (for 1, 2 or 3 matches)
     private const COSMIC_ROLL_MIN_BET = 1;
-    private const COSMIC_ROLL_MAX_BET = 100000000;    // hard ceiling
-    private const COSMIC_ROLL_SYMBOLS = [             // weights sum to 100
-        'Star'     => ['icon' => '★', 'weight' => 42],
-        'Planet'   => ['icon' => '🪐', 'weight' => 30],
-        'Comet'    => ['icon' => '☄️', 'weight' => 15],
-        'Galaxy'   => ['icon' => '🌌', 'weight' => 9],
-        'Artifact' => ['icon' => '💎', 'weight' => 4],
+    private const COSMIC_ROLL_MAX_BET = 100000000;
+    private const COSMIC_ROLL_SYMBOLS = [
+        'Star'     => ['icon' => '★', 'weight' => 42, 'payout_mult' => 2],
+        'Planet'   => ['icon' => '🪐', 'weight' => 30, 'payout_mult' => 3],
+        'Comet'    => ['icon' => '☄️', 'weight' => 15, 'payout_mult' => 5],
+        'Galaxy'   => ['icon' => '🌌', 'weight' => 9,  'payout_mult' => 10],
+        'Artifact' => ['icon' => '💎', 'weight' => 4,  'payout_mult' => 25],
     ];
 
     /* --------------------------- UTILITIES --------------------------- */
@@ -83,11 +83,6 @@ final class BlackMarketService
 
     /* ======================================================================
        CREDITS -> GEMSTONES
-       - Player receives floor(credits * 0.93) gems.
-       - House fee = floor(credits * 0.07) **in credits**; convert that fee to
-         gemstones with the same 0.93 rate and add to House gemstone pot.
-       - Log still records fee in credits (unchanged schema).
-       - Return includes house_gemstones_delta for UI bump.
        ====================================================================== */
     public function convertCreditsToGems(PDO $pdo, int $userId, int $creditsInput): array
     {
@@ -102,18 +97,15 @@ final class BlackMarketService
             if (!$user) throw new RuntimeException('user not found');
             if ((int)$user['credits'] < $creditsInput) throw new RuntimeException('insufficient credits');
 
-            $playerGems = $this->creditsToGemsFloor($creditsInput);     // floor(0.93 * credits)
-            $feeCredits = intdiv($creditsInput * 7, 100);                // 7% fee in credits (floored)
-            $houseGems  = $this->creditsToGemsFloor($feeCredits);        // convert fee credits -> gems
+            $playerGems = $this->creditsToGemsFloor($creditsInput);
+            $feeCredits = intdiv($creditsInput * 7, 100);
+            $houseGems  = $this->creditsToGemsFloor($feeCredits);
 
-            // Apply to user
             $pdo->prepare("UPDATE users SET credits = credits - ?, gemstones = gemstones + ? WHERE id=?")
                 ->execute([$creditsInput, $playerGems, $userId]);
 
-            // Bump House gemstone pot
             $this->bumpHouse($pdo, 'gemstones_collected', $houseGems);
 
-            // Log (fee in credits preserved)
             if ($this->tableHasColumn($pdo, 'black_market_conversion_logs', 'house_fee_credits')) {
                 $pdo->prepare("INSERT INTO black_market_conversion_logs
                     (user_id, direction, credits_spent, gemstones_received, house_fee_credits)
@@ -127,19 +119,11 @@ final class BlackMarketService
                 'gemstones_delta'       =>  $playerGems,
                 'house_gemstones_delta' =>  $houseGems,
             ];
-        } catch (\Throwable $e) {
-            $pdo->rollBack();
-            throw $e;
-        }
+        } catch (\Throwable $e) { $pdo->rollBack(); throw $e; }
     }
 
     /* ======================================================================
-       GEMSTONES -> CREDITS  (fixed)
-       - Player receives floor(gems * 98 / 100) credits.
-       - House fee = floor(gems * 2 / 100) credits; convert to gemstones and
-         add to House gemstone pot.
-       - Log still records fee in credits.
-       - Return includes house_gemstones_delta for the UI bump.
+       GEMSTONES -> CREDITS
        ====================================================================== */
     public function convertGemsToCredits(PDO $pdo, int $userId, int $gemsInput): array
     {
@@ -154,19 +138,15 @@ final class BlackMarketService
             if (!$user) throw new RuntimeException('user not found');
             if ((int)$user['gemstones'] < $gemsInput) throw new RuntimeException('insufficient gemstones');
 
-            // *** Correct per-100 logic (no more 98 credits per ONE gem) ***
-            $creditsOut = intdiv($gemsInput * self::GEMS_TO_CREDITS_PER_100, 100); // floor(gems * 0.98)
-            $feeCredits = intdiv($gemsInput * (100 - self::GEMS_TO_CREDITS_PER_100), 100); // floor(gems * 0.02) credits
-            $houseGems  = $this->creditsToGemsFloor($feeCredits); // convert fee credits -> gems for House pot
+            $creditsOut = intdiv($gemsInput * self::GEMS_TO_CREDITS_PER_100, 100);
+            $feeCredits = intdiv($gemsInput * (100 - self::GEMS_TO_CREDITS_PER_100), 100);
+            $houseGems  = $this->creditsToGemsFloor($feeCredits);
 
-            // Apply to user
             $pdo->prepare("UPDATE users SET gemstones = gemstones - ?, credits = credits + ? WHERE id=?")
                 ->execute([$gemsInput, $creditsOut, $userId]);
 
-            // Bump House gemstone pot
             $this->bumpHouse($pdo, 'gemstones_collected', $houseGems);
 
-            // Log (fee in credits preserved)
             if ($this->tableHasColumn($pdo, 'black_market_conversion_logs', 'house_fee_credits')) {
                 $pdo->prepare("INSERT INTO black_market_conversion_logs
                     (user_id, direction, gemstones_spent, credits_received, house_fee_credits)
@@ -180,14 +160,10 @@ final class BlackMarketService
                 'gemstones_delta'       => -$gemsInput,
                 'house_gemstones_delta' =>  $houseGems,
             ];
-        } catch (\Throwable $e) {
-            $pdo->rollBack();
-            throw $e;
-        }
+        } catch (\Throwable $e) { $pdo->rollBack(); throw $e; }
     }
 
-    /* ============================ DATA DICE ============================ */
-    // Minigame: unchanged from your original DB-backed flow.
+    /* ============================ DATA DICE (unchanged) ============================ */
 
     public function startMatch(PDO $pdo, int $userId, int $betGemstones = 0): array
     {
@@ -206,10 +182,8 @@ final class BlackMarketService
             $pdo->prepare("UPDATE users SET gemstones = gemstones - ? WHERE id=?")
                 ->execute([$needed, $userId]);
 
-            // House collects buy-in + player's bet up-front (house keeps it on loss)
             $this->bumpHouse($pdo, 'gemstones_collected', $needed);
 
-            // Pot includes AI matched bet, paid by House on win
             $totalPot = self::GEM_BUYIN + ($betGemstones * 2);
 
             $hasBetCol = $this->tableHasColumn($pdo, 'data_dice_matches', 'bet_gemstones');
@@ -244,7 +218,7 @@ final class BlackMarketService
                 'match_id'               => $matchId,
                 'round_no'               => 1,
                 'player_roll'            => $pRoll,
-                'ai_roll'                => null, // hidden at start
+                'ai_roll'                => null,
                 'player_dice'            => self::DICE_PER_SIDE_START,
                 'ai_dice'                => self::DICE_PER_SIDE_START,
                 'pot'                    => $totalPot,
@@ -362,16 +336,14 @@ final class BlackMarketService
         } catch (\Throwable $e) { $pdo->rollBack(); throw $e; }
     }
 
-    /* ============================ COSMIC ROLL (NEW) ============================ */
+    /* ============================ COSMIC ROLL (fixed payouts) ============================ */
 
     /**
-     * Server-authoritative Cosmic Roll.
-     * - Debits player's bet.
-     * - Rolls 3 weighted reels.
-     * - Win only on triple match of the selected symbol.
-     * - Pot = 50 + (2 × bet). On win, House pays pot; on loss, House keeps bet.
-     *
-     * Returns payload including user/house deltas for UI bumping.
+     * - Debits bet from user
+     * - Rolls 3 weighted reels
+     * - WIN if the selected symbol appears 1, 2, or 3 times:
+     *      payout = bet * payout_mult(symbol) * matches
+     *   (House pays the payout; on loss House keeps the bet)
      */
     public function cosmicRollPlay(PDO $pdo, int $userId, int $betGemstones, string $selectedSymbol): array
     {
@@ -385,7 +357,7 @@ final class BlackMarketService
 
         $pdo->beginTransaction();
         try {
-            // Lock user gems
+            // 1) Lock and check balance
             $u = $pdo->prepare("SELECT id, gemstones FROM users WHERE id=? FOR UPDATE");
             $u->execute([$userId]);
             $user = $u->fetch(PDO::FETCH_ASSOC);
@@ -393,12 +365,12 @@ final class BlackMarketService
             $beforeGems = (int)$user['gemstones'];
             if ($beforeGems < $betGemstones) throw new RuntimeException('insufficient gemstones');
 
-            // Debit bet
+            // 2) Debit bet
             $afterGems = $beforeGems - $betGemstones;
             $pdo->prepare("UPDATE users SET gemstones = ? WHERE id=?")
                 ->execute([$afterGems, $userId]);
 
-            // Roll 3 reels
+            // 3) Spin 3 reels (weighted)
             $reel1 = $this->weightedPick(self::COSMIC_ROLL_SYMBOLS);
             $reel2 = $this->weightedPick(self::COSMIC_ROLL_SYMBOLS);
             $reel3 = $this->weightedPick(self::COSMIC_ROLL_SYMBOLS);
@@ -408,33 +380,33 @@ final class BlackMarketService
             if ($reel2 === $selectedSymbol) $matches++;
             if ($reel3 === $selectedSymbol) $matches++;
 
-            $pot = self::COSMIC_ROLL_BASE + (2 * $betGemstones);
+            $baseMult = (int) self::COSMIC_ROLL_SYMBOLS[$selectedSymbol]['payout_mult'];
 
-            $result = 'loss';
-            $payout = 0;
-            $houseDelta = $betGemstones; // default: House keeps bet
+            // 4) Compute payout per UI: bet * baseMult * matches (0,1,2,3)
+            $payout = ($matches > 0) ? (int) floor($betGemstones * $baseMult * $matches) : 0;
 
-            if ($matches === 3) {
-                // Win: pay pot from House
-                $result = 'win';
-                $payout = $pot;
+            // 5) Apply payout and house ledger
+            $result = ($matches > 0) ? 'win' : 'loss';
+
+            // House ledger: on loss it keeps +bet; on win it pays -payout
+            $houseDelta = ($matches > 0) ? (-$payout) : ($betGemstones);
+
+            if ($payout > 0) {
                 $afterGems += $payout;
                 $pdo->prepare("UPDATE users SET gemstones = ? WHERE id=?")
                     ->execute([$afterGems, $userId]);
-                $houseDelta = -$payout;
             }
 
-            // Apply House ledger delta
             $this->bumpHouse($pdo, 'gemstones_collected', $houseDelta);
 
-            // Optional logging (only if table exists; columns may vary)
+            // 6) Optional logging
             if ($this->tableExists($pdo, 'black_market_cosmic_rolls')) {
                 $colsAvail = $this->getTableColumns($pdo, 'black_market_cosmic_rolls');
                 $log = [
                     'user_id'            => $userId,
                     'selected_symbol'    => $selectedSymbol,
                     'bet_gemstones'      => $betGemstones,
-                    'pot_gemstones'      => $pot,
+                    'pot_gemstones'      => $payout, // historical column; store actual payout for transparency
                     'result'             => $result,
                     'reel1'              => $reel1,
                     'reel2'              => $reel2,
@@ -445,7 +417,6 @@ final class BlackMarketService
                     'user_gems_after'    => $afterGems,
                     'created_at'         => date('Y-m-d H:i:s'),
                 ];
-                // Keep only columns that exist
                 $log = array_intersect_key($log, array_flip($colsAvail));
                 if (!empty($log)) {
                     $fields = implode(',', array_keys($log));
@@ -457,21 +428,17 @@ final class BlackMarketService
 
             $pdo->commit();
 
-            // Net delta to player (after including the initial bet debit)
-            $playerDelta = -$betGemstones + $payout;
-
             return [
-                'ok'                   => true,
-                'result'               => $result,
-                'selected_symbol'      => $selectedSymbol,
-                'reels'                => [$reel1, $reel2, $reel3],
-                'matches'              => $matches,
-                'bet'                  => $betGemstones,
-                'pot'                  => $pot,
-                'payout'               => $payout,
-                'gemstones_delta'      => $playerDelta,
-                'house_gemstones_delta'=> $houseDelta,
-                'user_gems_after'      => $afterGems,
+                'ok'                    => true,
+                'result'                => $result,
+                'selected_symbol'       => $selectedSymbol,
+                'reels'                 => [$reel1, $reel2, $reel3],
+                'matches'               => $matches,
+                'bet'                   => $betGemstones,
+                'payout'                => $payout,
+                'gemstones_delta'       => (-$betGemstones + $payout),
+                'house_gemstones_delta' => $houseDelta,
+                'user_gems_after'       => $afterGems,
             ];
         } catch (\Throwable $e) {
             $pdo->rollBack();
@@ -572,11 +539,10 @@ final class BlackMarketService
         $pdo->prepare("UPDATE users SET gemstones = gemstones + ?, black_market_reputation = black_market_reputation + 1 WHERE id=?")
             ->execute([$pot, (int)$match['user_id']]);
 
-        // House pays the pot (gemstones)
         $this->bumpHouse($pdo, 'gemstones_collected', -$pot);
     }
 
-    /* --------------------------- Helpers (NEW) --------------------------- */
+    /* --------------------------- Helpers --------------------------- */
 
     private function weightedPick(array $symbolConfig): string
     {
@@ -586,6 +552,6 @@ final class BlackMarketService
             $roll -= (int)$s['weight'];
             if ($roll <= 0) return $name;
         }
-        return array_key_first($symbolConfig); // fallback
+        return array_key_first($symbolConfig);
     }
 }
