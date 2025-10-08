@@ -19,11 +19,12 @@ if (!function_exists('sd_num')) {
 if (!function_exists('sd_render_chips')) {
     function sd_render_chips(array $chips): string {
         if (empty($chips)) return '';
-        $html = '<span class="ml-0 md:ml-2 block md:inline-flex flex-wrap gap-1 align-middle mt-1 md:mt-0">';
+        // Container takes available width so chips wrap; chips themselves don't break mid-word.
+        $html = '<span class="ml-0 md:ml-2 block md:inline-flex w-full flex-wrap gap-1 align-middle mt-1 md:mt-0">';
         foreach ($chips as $c) {
             $label = is_array($c) ? (string)($c['label'] ?? '') : (string)$c;
             if ($label === '') continue;
-            $html .= '<span class="text-[10px] px-1.5 py-0.5 rounded bg-cyan-900/40 text-cyan-300 border border-cyan-800/60">'
+            $html .= '<span class="text-[10px] whitespace-nowrap px-1.5 py-0.5 rounded bg-cyan-900/40 text-cyan-300 border border-cyan-800/60">'
                    . sd_h($label) . '</span>';
         }
         return $html . '</span>';
@@ -95,26 +96,29 @@ $wars_declared_by      = is_array($wars_declared_by ?? null)      ? $wars_declar
             <?php endif; ?>
           </div>
 
+          <!-- Stats row: 4-col grid on md+, citizens spans 3 cols; col 1 stacks 3 metrics -->
           <div class="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-2 md:gap-3 text-sm bg-gray-900/40 p-3 rounded-lg border border-gray-700">
-            <div>
-              <div class="text-gray-400">Total Pop</div>
-              <div class="text-white font-semibold"><?= sd_num($total_population) ?></div>
+            <!-- Column 1: stack Total Pop, Untrained, Workers -->
+            <div class="flex flex-col gap-4">
+              <div>
+                <div class="text-gray-400">Total Pop</div>
+                <div class="text-white font-semibold"><?= sd_num($total_population) ?></div>
+              </div>
+              <div>
+                <div class="text-gray-400">Untrained</div>
+                <div class="text-white font-semibold"><?= sd_num($untrained) ?></div>
+              </div>
+              <div>
+                <div class="text-gray-400">Workers</div>
+                <div class="text-white font-semibold"><?= sd_num($workers) ?></div>
+              </div>
             </div>
 
-            <div>
+            <!-- Citizens/Turn: span remaining columns (full width on sm, 3 columns on md+) -->
+            <div class="sm:col-span-2 md:col-span-3">
               <div class="text-gray-400">Citizens/Turn</div>
               <div class="text-green-400 font-semibold"><?= ($citizens_per_turn >= 0 ? '+' : '') . sd_num($citizens_per_turn) ?></div>
               <?= sd_render_chips($chips['population']) ?>
-            </div>
-
-            <div>
-              <div class="text-gray-400">Untrained</div>
-              <div class="text-white font-semibold"><?= sd_num($untrained) ?></div>
-            </div>
-
-            <div>
-              <div class="text-gray-400">Workers</div>
-              <div class="text-white font-semibold"><?= sd_num($workers) ?></div>
             </div>
           </div>
         </div>
