@@ -121,16 +121,45 @@ function sd_get_owned_items(mysqli $link, int $user_id): array {
     return $owned;
 }
 
+/**
+ * Collapse alliance percent multipliers to ONE per category (max),
+ * while summing additive bonuses. ALSO returns the sources used so the UI
+ * can show only the active buffs (no confusion).
+ *
+ * Percent categories (keep MAX): income, resources, offense, defense
+ * Additive categories (SUM): credits, citizens
+ *
+ * Returns:
+ * [
+ *   'income' => float, 'resources' => float, 'offense' => float, 'defense' => float,
+ *   'credits' => int, 'citizens' => int,
+ *   '__sources' => [
+ *     'income'    => ['key'=>'...', 'name'=>'...', 'value'=>float],
+ *     'resources' => ['key'=>'...', 'name'=>'...', 'value'=>float],
+ *     'offense'   => ['key'=>'...', 'name'=>'...', 'value'=>float],
+ *     'defense'   => ['key'=>'...', 'name'=>'...', 'value'=>float],
+ *     // additive sources are not listed (they sum), but the base alliance flat is implied
+ *   ]
+ * ]
+ */
 function sd_compute_alliance_bonuses(mysqli $link, array $user_stats): array {
     $bonuses = [
-        'income'    => 0.0,   // % multiplier
-        'resources' => 0.0,   // % multiplier
-        'citizens'  => 0,     // + citizens per turn
-        'credits'   => 0,     // + flat credits per turn
+        'income'    => 0.0,
+        'resources' => 0.0,
+        'citizens'  => 0,
+        'credits'   => 0,
         'offense'   => 0.0,
         'defense'   => 0.0,
+        '__sources' => [
+            'income'    => null,
+            'resources' => null,
+            'offense'   => null,
+            'defense'   => null,
+        ],
     ];
+
     if (!empty($user_stats['alliance_id'])) {
+        // Base alliance stipend (flat)
         $bonuses['credits']  = 5000;
         $bonuses['citizens'] = 2;
 
@@ -143,12 +172,35 @@ function sd_compute_alliance_bonuses(mysqli $link, array $user_stats): array {
             global $alliance_structures_definitions;
             while ($row = mysqli_fetch_assoc($res)) {
                 $key = $row['structure_key'];
-                if (isset($alliance_structures_definitions[$key])) {
-                    $json = json_decode($alliance_structures_definitions[$key]['bonuses'] ?? "{}", true);
-                    if (is_array($json)) {
-                        foreach ($json as $k => $v) {
-                            if (array_key_exists($k, $bonuses)) { $bonuses[$k] += $v; }
-                        }
+                if (!isset($alliance_structures_definitions[$key])) continue;
+
+                $def  = $alliance_structures_definitions[$key];
+                $name = $def['name'] ?? $key;
+                $json = json_decode($def['bonuses'] ?? "{}", true);
+                if (!is_array($json)) continue;
+
+                foreach ($json as $k => $v) {
+                    if (is_string($v) && is_numeric($v)) { $v = $v + 0; }
+                    switch ($k) {
+                        case 'income':
+                        case 'resources':
+                        case 'offense':
+                        case 'defense':
+                            $v = (float)$v;
+                            if ($v > (float)$bonuses[$k]) {
+                                $bonuses[$k] = $v;
+                                $bonuses['__sources'][$k] = ['key'=>$key, 'name'=>$name, 'value'=>$v];
+                            }
+                            break;
+                        case 'credits':
+                            $bonuses['credits'] += (int)$v;
+                            break;
+                        case 'citizens':
+                            $bonuses['citizens'] += (int)$v;
+                            break;
+                        default:
+                            // ignore unknown keys
+                            break;
                     }
                 }
             }
@@ -165,6 +217,7 @@ function sd_worker_armory_income_bonus(array $owned_items, int $worker_count): i
 
 /**
  * Full breakdown + totals (preferred).
+ * Adds 'active_pills_economy' containing ONLY the buffs actually used.
  */
 function calculate_income_summary(mysqli $link, int $user_id, array $user_stats): array {
     // constants
@@ -177,7 +230,7 @@ function calculate_income_summary(mysqli $link, int $user_id, array $user_stats)
     $owned_items      = sd_get_owned_items($link, $user_id);
     $alliance_bonuses = sd_compute_alliance_bonuses($link, $user_stats);
 
-    // upgrades
+    // upgrades (economy)
     $economy_pct = 0.0;
     for ($i = 1, $n = (int)($user_stats['economy_upgrade_level'] ?? 0); $i <= $n; $i++) {
         $economy_pct += (float)($upgrades['economy']['levels'][$i]['bonuses']['income'] ?? 0);
@@ -210,7 +263,7 @@ function calculate_income_summary(mysqli $link, int $user_id, array $user_stats)
     $worker_armory_bonus = sd_worker_armory_income_bonus($owned_items, $workers);
     $worker_income = ($workers * $CREDITS_PER_WORKER) + $worker_armory_bonus;
 
-    // alliance multipliers
+    // alliance multipliers (already collapsed to "one per category")
     $alli_income_mult   = 1.0 + ((float)$alliance_bonuses['income']    / 100.0);
     $alli_resource_mult = 1.0 + ((float)$alliance_bonuses['resources'] / 100.0);
 
@@ -250,6 +303,63 @@ function calculate_income_summary(mysqli $link, int $user_id, array $user_stats)
 
     $income_per_turn = $income_pre_maintenance - $maintenance_per_turn;
 
+    // ---------------- UI helpers: ONLY the buffs used (for pills) ----------------
+    $active_pills_economy = [];
+
+    // alliance flat (credits)
+    if ((int)$alliance_bonuses['credits'] > 0) {
+        $active_pills_economy[] = [
+            'type'     => 'flat',
+            'category' => 'alliance',
+            'label'    => '+' . number_format((int)$alliance_bonuses['credits']) . ' alliance (flat)',
+            'value'    => (int)$alliance_bonuses['credits'],
+        ];
+    }
+
+    // armory flat (workers)
+    if ($worker_armory_bonus > 0) {
+        $active_pills_economy[] = [
+            'type'     => 'flat',
+            'category' => 'armory',
+            'label'    => '+' . number_format($worker_armory_bonus) . ' armory (flat)',
+            'value'    => (int)$worker_armory_bonus,
+        ];
+    }
+
+    // highest alliance income %
+    if (!empty($alliance_bonuses['__sources']['income']) && $alliance_bonuses['__sources']['income']['value'] > 0) {
+        $src = $alliance_bonuses['__sources']['income'];
+        $active_pills_economy[] = [
+            'type'     => 'pct',
+            'category' => 'alliance_income',
+            'label'    => '+' . (int)$src['value'] . '% ' . $src['name'],
+            'value'    => (float)$src['value'],
+            'key'      => $src['key'],
+        ];
+    }
+
+    // highest alliance resources %
+    if (!empty($alliance_bonuses['__sources']['resources']) && $alliance_bonuses['__sources']['resources']['value'] > 0) {
+        $src = $alliance_bonuses['__sources']['resources'];
+        $active_pills_economy[] = [
+            'type'     => 'pct',
+            'category' => 'alliance_resources',
+            'label'    => '+' . (int)$src['value'] . '% ' . $src['name'],
+            'value'    => (float)$src['value'],
+            'key'      => $src['key'],
+        ];
+    }
+
+    // economy upgrades % (total)
+    if ($economy_pct > 0) {
+        $active_pills_economy[] = [
+            'type'     => 'pct',
+            'category' => 'upgrades',
+            'label'    => '+' . (int)$economy_pct . '% upgrades',
+            'value'    => (float)$economy_pct,
+        ];
+    }
+
     return [
         'income_per_turn'           => (int)$income_per_turn,         // includes structure + maintenance
         'citizens_per_turn'         => (int)$citizens_per_turn,       // includes structure
@@ -272,6 +382,17 @@ function calculate_income_summary(mysqli $link, int $user_id, array $user_stats)
             'alliance_resources' => $alli_resource_mult,
         ],
         'alliance_additive_credits' => (int)$alliance_bonuses['credits'],
+
+        // NEW: explicitly expose the alliance sources chosen for percent categories
+        'alliance_sources' => [
+            'income'    => $alliance_bonuses['__sources']['income']    ?? null,
+            'resources' => $alliance_bonuses['__sources']['resources'] ?? null,
+            'offense'   => $alliance_bonuses['__sources']['offense']   ?? null,
+            'defense'   => $alliance_bonuses['__sources']['defense']   ?? null,
+        ],
+
+        // NEW: pills you can render directly on the Economic Overview card
+        'active_pills_economy' => $active_pills_economy,
     ];
 }
 
@@ -291,7 +412,7 @@ function process_offline_turns(mysqli $link, int $user_id): void {
     release_untrained_units($link, $user_id);
 
     $sql_check = "SELECT id, last_updated, credits, workers, wealth_points, economy_upgrade_level, population_level, alliance_id,
-+                         soldiers, guards, sentries, spies
+                         soldiers, guards, sentries, spies
                   FROM users WHERE id = ?";
     if ($stmt_check = mysqli_prepare($link, $sql_check)) {
         mysqli_stmt_bind_param($stmt_check, "i", $user_id);

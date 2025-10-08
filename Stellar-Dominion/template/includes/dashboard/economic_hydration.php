@@ -7,6 +7,8 @@ declare(strict_types=1);
  * - Computes economy upgrade % correctly (e.g., +65% upgrades)
  * - Builds income chips, maintenance, net_worth
  * - Robust credits/turn fallback and sane base display
+ * - REFAC: chips now show ONLY active buffs from canonical summary,
+ *          with a full fallback to legacy enumeration if unavailable.
  */
 
 if (!function_exists('sd_fmt_pct')) {
@@ -139,52 +141,73 @@ if (!empty($upgrades['economy']['levels']) && is_array($upgrades['economy']['lev
 $mult_econ_upgrades = 1.0 + ($economy_upgrades_pct / 100.0);
 
 /* -------------------------------------------------------------
-   5) Income chips (same set as before)
+   5) Income chips
+      REFAC: Prefer canonical summary's active pills; otherwise fallback.
 -------------------------------------------------------------- */
 $collected = [];
 $add = static function(string $label, int $order) use (&$collected): void {
     if ($label !== '') $collected[] = ['order'=>$order, 'label'=>$label];
 };
 
-/* Alliance structures -> % income/resources (+ flat credits if present) */
-if ($aid > 0) {
-    if ($st = mysqli_prepare($link, "SELECT structure_key FROM alliance_structures WHERE alliance_id=? ORDER BY id ASC")) {
-        mysqli_stmt_bind_param($st, "i", $aid);
-        mysqli_stmt_execute($st);
-        if ($res = mysqli_stmt_get_result($st)) {
-            if (!isset($alliance_structures_definitions)) {
-                @include_once __DIR__ . '/../../src/Game/AllianceData.php';
-            }
-            while ($row = mysqli_fetch_assoc($res)) {
-                $k    = (string)$row['structure_key'];
-                $def  = $alliance_structures_definitions[$k] ?? null;
-                if (!$def) continue;
+/* Preferred: use active pills directly from summary (already de-duplicated and filtered) */
+if (!empty($summary['active_pills_economy']) && is_array($summary['active_pills_economy'])) {
+    foreach ($summary['active_pills_economy'] as $pill) {
+        // Preserve readable labels produced by canonical math
+        $label = (string)($pill['label'] ?? '');
+        if ($label === '') continue;
 
-                $name  = (string)($def['name'] ?? ucfirst(str_replace('_',' ',$k)));
-                $bonus = json_decode((string)($def['bonuses'] ?? '{}'), true) ?: [];
-
-                if (isset($bonus['income'])    && is_numeric($bonus['income'])    && (float)$bonus['income']    != 0.0) $add(sd_fmt_pct((float)$bonus['income']).' '.$name, 40);
-                if (isset($bonus['resources']) && is_numeric($bonus['resources']) && (float)$bonus['resources'] != 0.0) $add(sd_fmt_pct((float)$bonus['resources']).' resources', 41);
-                if (isset($bonus['credits'])   && is_numeric($bonus['credits'])   && (int)$bonus['credits']      > 0)   $add('+'.number_format((int)$bonus['credits']).' '.$name.' (flat)', 26);
-            }
-            mysqli_free_result($res);
+        // Map categories to the same ordering buckets used previously
+        $cat = (string)($pill['category'] ?? '');
+        $order = 60; // default / stable tail
+        switch ($cat) {
+            case 'alliance':           $order = 27; break;  // alliance (flat)
+            case 'armory':             $order = 28; break;  // armory (flat)
+            case 'alliance_income':    $order = 45; break;  // % income (kept one)
+            case 'alliance_resources': $order = 46; break;  // % resources (kept one)
+            case 'upgrades':           $order = 50; break;  // % upgrades (total)
         }
-        mysqli_stmt_close($st);
+        $add($label, $order);
+    }
+} else {
+    /* Fallback to legacy enumeration (kept intact to avoid losing functionality) */
+    if ($aid > 0) {
+        if ($st = mysqli_prepare($link, "SELECT structure_key FROM alliance_structures WHERE alliance_id=? ORDER BY id ASC")) {
+            mysqli_stmt_bind_param($st, "i", $aid);
+            mysqli_stmt_execute($st);
+            if ($res = mysqli_stmt_get_result($st)) {
+                if (!isset($alliance_structures_definitions)) {
+                    @include_once __DIR__ . '/../../src/Game/AllianceData.php';
+                }
+                while ($row = mysqli_fetch_assoc($res)) {
+                    $k    = (string)$row['structure_key'];
+                    $def  = $alliance_structures_definitions[$k] ?? null;
+                    if (!$def) continue;
+
+                    $name  = (string)($def['name'] ?? ucfirst(str_replace('_',' ',$k)));
+                    $bonus = json_decode((string)($def['bonuses'] ?? '{}'), true) ?: [];
+
+                    if (isset($bonus['income'])    && is_numeric($bonus['income'])    && (float)$bonus['income']    != 0.0) $add(sd_fmt_pct((float)$bonus['income']).' '.$name, 40);
+                    if (isset($bonus['resources']) && is_numeric($bonus['resources']) && (float)$bonus['resources'] != 0.0) $add(sd_fmt_pct((float)$bonus['resources']).' resources', 41);
+                    if (isset($bonus['credits'])   && is_numeric($bonus['credits'])   && (int)$bonus['credits']      > 0)   $add('+'.number_format((int)$bonus['credits']).' '.$name.' (flat)', 26);
+                }
+                mysqli_free_result($res);
+            }
+            mysqli_stmt_close($st);
+        }
+    }
+
+    $alliance_bonuses = isset($alliance_bonuses) && is_array($alliance_bonuses)
+        ? $alliance_bonuses
+        : (function_exists('sd_compute_alliance_bonuses') ? sd_compute_alliance_bonuses($link, $user_stats) : []);
+
+    if (!empty($alliance_bonuses)) {
+        if (!empty($alliance_bonuses['income']))       $add(sd_fmt_pct((float)$alliance_bonuses['income']).' alliance', 45);
+        if (!empty($alliance_bonuses['resources']))    $add(sd_fmt_pct((float)$alliance_bonuses['resources']).' resources', 46);
+        if (!empty($alliance_bonuses['credits_flat'])) $add('+'.number_format((int)$alliance_bonuses['credits_flat']).' alliance (flat)', 25);
     }
 }
 
-/* Base alliance bonuses */
-$alliance_bonuses = isset($alliance_bonuses) && is_array($alliance_bonuses)
-    ? $alliance_bonuses
-    : (function_exists('sd_compute_alliance_bonuses') ? sd_compute_alliance_bonuses($link, $user_stats) : []);
-
-if (!empty($alliance_bonuses)) {
-    if (!empty($alliance_bonuses['income']))       $add(sd_fmt_pct((float)$alliance_bonuses['income']).' alliance', 45);
-    if (!empty($alliance_bonuses['resources']))    $add(sd_fmt_pct((float)$alliance_bonuses['resources']).' resources', 46);
-    if (!empty($alliance_bonuses['credits_flat'])) $add('+'.number_format((int)$alliance_bonuses['credits_flat']).' alliance (flat)', 25);
-}
-
-/* Upgrades chip */
+/* Upgrades chip (still shown; dedupe will handle overlap with summary pills) */
 if ($economy_upgrades_pct != 0.0) $add(sd_fmt_pct($economy_upgrades_pct) . ' upgrades', 50);
 
 /* Wealth % chip */
@@ -198,7 +221,7 @@ if ($mult_struct_econ < 1.0) $add(sd_fmt_pct(($mult_struct_econ - 1.0) * 100.0) 
 if (($alli_flat_credits ?? 0) > 0)      $add('+' . number_format($alli_flat_credits) . ' alliance (flat)', 27);
 if (($worker_armory_bonus ?? 0) > 0)    $add('+' . number_format($worker_armory_bonus) . ' armory (flat)', 28);
 
-/* Merge & de-dupe */
+/* Merge & de-dupe (preserve any pre-seeded chips from caller) */
 $seen = [];
 foreach ($chips['income'] as $c) {
     $lbl = is_array($c) ? (string)($c['label'] ?? '') : (string)$c;

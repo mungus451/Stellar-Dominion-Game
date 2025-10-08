@@ -2,7 +2,7 @@
 declare(strict_types=1);
 
 /**
- * Military hydration (complete)
+ * Military hydration (complete + "only active buffs" chips)
  * - Offense/Defense numbers + chips
  * - Combat record (W/L) and recent battles for the card
  *
@@ -27,9 +27,40 @@ $chips = is_array($chips ?? null) ? $chips : [];
 $chips['offense'] = is_array($chips['offense'] ?? null) ? $chips['offense'] : [];
 $chips['defense'] = is_array($chips['defense'] ?? null) ? $chips['defense'] : [];
 
-/* ---------- base stats & counts ---------- */
+/* ---------- base stats & counts (hydrate like econ if needed) ---------- */
 $user_stats = is_array($user_stats ?? null) ? $user_stats : [];
 $user_id    = (int)($_SESSION['id'] ?? $_SESSION['user_id'] ?? 0);
+
+$needCols = ['soldiers','guards','sentries','spies','strength_points','constitution_points','attack_turns'];
+$upgradeLevelCols = [];
+if (!empty($upgrades) && is_array($upgrades)) {
+    foreach (['offense','defense','spy'] as $k) {
+        $col = $upgrades[$k]['db_column'] ?? null;
+        if ($col && (!array_key_exists($col,$user_stats) || $user_stats[$col] === null)) {
+            $upgradeLevelCols[] = $col;
+        }
+    }
+}
+$selectCols = implode(',', array_unique(array_merge(['id'], $needCols, $upgradeLevelCols)));
+
+if ($user_id > 0 && isset($link) && $link instanceof mysqli) {
+    if ($st = mysqli_prepare($link, "SELECT $selectCols FROM users WHERE id=? LIMIT 1")) {
+        mysqli_stmt_bind_param($st, "i", $user_id);
+        mysqli_stmt_execute($st);
+        if ($res = mysqli_stmt_get_result($st)) {
+            if ($row = mysqli_fetch_assoc($res)) {
+                foreach ($needCols as $c) {
+                    if (isset($row[$c])) $user_stats[$c] = (int)$row[$c];
+                }
+                foreach ($upgradeLevelCols as $col) {
+                    $user_stats[$col] = (int)($row[$col] ?? (int)($user_stats[$col] ?? 0));
+                }
+            }
+            mysqli_free_result($res);
+        }
+        mysqli_stmt_close($st);
+    }
+}
 
 $soldier_count = (int)($user_stats['soldiers']  ?? 0);
 $guard_count   = (int)($user_stats['guards']    ?? 0);
@@ -60,7 +91,7 @@ if (!empty($upgrades) && is_array($upgrades)) {
         $lvl = (int)($user_stats[$col] ?? 0);
         for ($i = 1; $i <= $lvl; $i++) {
             $b = $upgrades['offense']['levels'][$i]['bonuses'] ?? [];
-            if (isset($b['offense'])) $total_offense_bonus_pct += (float)$b['offense'];
+            if (isset($b['offense']) && is_numeric($b['offense'])) $total_offense_bonus_pct += (float)$b['offense'];
         }
     }
     // defense
@@ -69,7 +100,7 @@ if (!empty($upgrades) && is_array($upgrades)) {
         $lvl = (int)($user_stats[$col] ?? 0);
         for ($i = 1; $i <= $lvl; $i++) {
             $b = $upgrades['defense']['levels'][$i]['bonuses'] ?? [];
-            if (isset($b['defense'])) $total_defense_bonus_pct += (float)$b['defense'];
+            if (isset($b['defense']) && is_numeric($b['defense'])) $total_defense_bonus_pct += (float)$b['defense'];
         }
     }
 }
@@ -89,23 +120,26 @@ if (!isset($defense_integrity_mult)) {
         : 1.0;
 }
 
-/* ---------- alliance combat multipliers ---------- */
+/* ---------- alliance combat multipliers (ONLY one per category) ---------- */
 if (!isset($alliance_bonuses) || !is_array($alliance_bonuses)) {
     $alliance_bonuses = function_exists('sd_compute_alliance_bonuses') ? sd_compute_alliance_bonuses($link, $user_stats) : [];
 }
+
 $alli_offense_mult = 1.0;
 $alli_defense_mult = 1.0;
+
+// Selected (max) structure multipliers
+$alli_off_pct = (float)($alliance_bonuses['offense'] ?? 0.0);
+$alli_def_pct = (float)($alliance_bonuses['defense'] ?? 0.0);
+
+$alli_offense_mult *= 1.0 + ($alli_off_pct / 100.0);
+$alli_defense_mult *= 1.0 + ($alli_def_pct / 100.0);
+
+// Global base combat bonus (applies to both)
+$alli_base = defined('ALLIANCE_BASE_COMBAT_BONUS') ? (float)ALLIANCE_BASE_COMBAT_BONUS : 0.10;
 if (!empty($user_stats['alliance_id'])) {
-    $alli_offense_mult *= 1.0 + ((float)($alliance_bonuses['offense'] ?? 0)) / 100.0;
-    $alli_defense_mult *= 1.0 + ((float)($alliance_bonuses['defense'] ?? 0)) / 100.0;
-
-    $base = defined('ALLIANCE_BASE_COMBAT_BONUS') ? (float)ALLIANCE_BASE_COMBAT_BONUS : 0.10;
-    $alli_offense_mult *= (1.0 + $base);
-    $alli_defense_mult *= (1.0 + $base);
-
-    $alli_pct = (int)round($base * 100);
-    $chips['offense'][] = ['label' => '+' . $alli_pct . '% alliance'];
-    $chips['defense'][] = ['label' => '+' . $alli_pct . '% alliance'];
+    $alli_offense_mult *= (1.0 + $alli_base);
+    $alli_defense_mult *= (1.0 + $alli_base);
 }
 
 /* ---------- bases and finals ---------- */
@@ -120,15 +154,57 @@ $defense_rating_base = (($defense_units_base * $constitution_bonus) + $armory_de
 $offense_power  = (int)floor($offense_power_base  * (float)$offense_integrity_mult * (float)$alli_offense_mult);
 $defense_rating = (int)floor($defense_rating_base * (float)$defense_integrity_mult * (float)$alli_defense_mult);
 
-/* ---------- chips ---------- */
+/* ---------- chips (ONLY active buffs used) ---------- */
+if (!empty($user_stats['alliance_id'])) {
+    // Base alliance combat bonus (global) — always applied
+    $alli_base_pct = (int)round($alli_base * 100);
+    if ($alli_base_pct !== 0) {
+        $chips['offense'][] = ['label' => '+' . $alli_base_pct . '% alliance'];
+        $chips['defense'][] = ['label' => '+' . $alli_base_pct . '% alliance'];
+    }
+
+    // Single selected structure per category
+    $srcOff = $alliance_bonuses['__sources']['offense'] ?? null;
+    if (is_array($srcOff) && !empty($srcOff['value']) && (float)$srcOff['value'] > 0) {
+        $chips['offense'][] = ['label' => sd_fmt_pct((float)$srcOff['value']) . ' ' . (string)($srcOff['name'] ?? 'alliance')];
+    }
+
+    $srcDef = $alliance_bonuses['__sources']['defense'] ?? null;
+    if (is_array($srcDef) && !empty($srcDef['value']) && (float)$srcDef['value'] > 0) {
+        $chips['defense'][] = ['label' => sd_fmt_pct((float)$srcDef['value']) . ' ' . (string)($srcDef['name'] ?? 'alliance')];
+    }
+}
+
+// Upgrades (totals)
 if ($total_offense_bonus_pct > 0)   $chips['offense'][] = ['label' => sd_fmt_pct($total_offense_bonus_pct) . ' upgrades'];
 if ($total_defense_bonus_pct > 0)   $chips['defense'][] = ['label' => sd_fmt_pct($total_defense_bonus_pct) . ' upgrades'];
-if ($str_pts > 0)                   $chips['offense'][] = ['label' => sd_fmt_pct($str_pts) . ' STR'];
-if ($con_pts > 0)                   $chips['defense'][] = ['label' => sd_fmt_pct($con_pts) . ' CON'];
-if ($armory_attack_bonus  > 0)      $chips['offense'][] = ['label' => '+' . number_format($armory_attack_bonus)  . ' armory (flat)'];
-if ($armory_defense_bonus > 0)      $chips['defense'][] = ['label' => '+' . number_format($armory_defense_bonus) . ' armory (flat)'];
+
+// STR / CON
+if ($str_pts > 0) $chips['offense'][] = ['label' => sd_fmt_pct($str_pts) . ' STR'];
+if ($con_pts > 0) $chips['defense'][] = ['label' => sd_fmt_pct($con_pts) . ' CON'];
+
+// Armory flats
+if ($armory_attack_bonus  > 0) $chips['offense'][] = ['label' => '+' . number_format($armory_attack_bonus)  . ' armory (flat)'];
+if ($armory_defense_bonus > 0) $chips['defense'][] = ['label' => '+' . number_format($armory_defense_bonus) . ' armory (flat)'];
+
+// Integrity if < 1
 if ((float)$offense_integrity_mult < 1.0) $chips['offense'][] = ['label' => sd_fmt_pct(((float)$offense_integrity_mult - 1.0) * 100.0) . ' integrity'];
 if ((float)$defense_integrity_mult < 1.0) $chips['defense'][] = ['label' => sd_fmt_pct(((float)$defense_integrity_mult - 1.0) * 100.0) . ' integrity'];
+
+/* De-duplicate labels while preserving order */
+$dedupe = static function(array $arr): array {
+    $seen = [];
+    $out  = [];
+    foreach ($arr as $c) {
+        $lbl = is_array($c) ? (string)($c['label'] ?? '') : (string)$c;
+        if ($lbl === '' || isset($seen[$lbl])) continue;
+        $seen[$lbl] = true;
+        $out[] = ['label' => $lbl];
+    }
+    return $out;
+};
+$chips['offense'] = $dedupe($chips['offense']);
+$chips['defense'] = $dedupe($chips['defense']);
 
 /* ---------- Combat record (W/L) ---------- */
 $wins = 0; $losses_as_attacker = 0; $losses_as_defender = 0; $total_losses = 0;
