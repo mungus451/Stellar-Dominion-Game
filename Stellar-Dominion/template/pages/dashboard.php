@@ -13,15 +13,15 @@ require_once __DIR__ . '/../../src/Game/GameFunctions.php';
 
 // Data Hydrators
 require_once __DIR__ . '/../includes/advisor_hydration.php';
-require_once __DIR__ . '/../includes/identity_hydration.php';
-require_once __DIR__ . '/../includes/structures_hydration.php';
-require_once __DIR__ . '/../includes/economic_hydration.php';
-require_once __DIR__ . '/../includes/military_hydration.php';
-require_once __DIR__ . '/../includes/battles_hydration.php';
-require_once __DIR__ . '/../includes/fleet_hydration.php';
-require_once __DIR__ . '/../includes/espionage_hydration.php';
-require_once __DIR__ . '/../includes/security_hydration.php';
-require_once __DIR__ . '/../includes/population_hydration.php';
+require_once __DIR__ . '/../includes/dashboard/identity_hydration.php';
+require_once __DIR__ . '/../includes/dashboard/structures_hydration.php';
+require_once __DIR__ . '/../includes/dashboard/economic_hydration.php';
+require_once __DIR__ . '/../includes/dashboard/military_hydration.php';
+require_once __DIR__ . '/../includes/dashboard/battles_hydration.php';
+require_once __DIR__ . '/../includes/dashboard/fleet_hydration.php';
+require_once __DIR__ . '/../includes/dashboard/espionage_hydration.php';
+require_once __DIR__ . '/../includes/dashboard/security_hydration.php';
+require_once __DIR__ . '/../includes/dashboard/population_hydration.php';
 
 // Start of Page
 include_once __DIR__ . '/../includes/header.php';
@@ -62,7 +62,7 @@ include_once __DIR__ . '/../includes/header.php';
 
     <!-- Security (right column) -->
     <?php include __DIR__ . '/../includes/dashboard/security_info.php'; ?>
-
+    
 </div> <!-- /two-column grid -->
 
 <?php include_once __DIR__ . '/../includes/footer.php'; ?>

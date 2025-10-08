@@ -750,56 +750,56 @@ $alliance_structures_definitions = [
         'warlords_throne' => [
             'name' => 'Warlord\'s Throne',
             'description' => 'An ultimate symbol of power, boosting all other bonuses.',
-            'cost' => 2000000000,
+            'cost' => 100000000,
             'bonus_text' => '+15% to all bonuses',
             'bonuses' => json_encode(['income' => 15, 'defense' => 15, 'offense' => 15, 'citizens' => 15, 'resources' => 15])
         ],
         'supreme_command_bastion' => [
             'name' => 'Supreme Command Bastion',
             'description' => 'Centralizes all military, economic, and social policy.',
-            'cost' => 22000000000,
+            'cost' => 234000000,
             'bonus_text' => '+18% to all bonuses',
             'bonuses' => json_encode(['income' => 18, 'defense' => 18, 'offense' => 18, 'citizens' => 18, 'resources' => 18])
         ],
         'unity_spire' => [
             'name' => 'Unity Spire',
             'description' => 'Symbol of alliance unity and prosperity.',
-            'cost' => 2500000000,
+            'cost' => 546000000,
             'bonus_text' => '+20% to all bonuses',
             'bonuses' => json_encode(['income' => 20, 'defense' => 20, 'offense' => 20, 'citizens' => 20, 'resources' => 20])
         ],
         'galactic_congress' => [
             'name' => 'Galactic Congress',
             'description' => 'Legislates policies that strengthen all alliance efforts.',
-            'cost' => 2700000000,
+            'cost' => 1275000000,
             'bonus_text' => '+22% to all bonuses',
             'bonuses' => json_encode(['income' => 22, 'defense' => 22, 'offense' => 22, 'citizens' => 22, 'resources' => 22])
         ],
         'ascendant_core' => [
             'name' => 'Ascendant Core',
             'description' => 'Harnesses cosmic energy to empower the alliance.',
-            'cost' => 3000000000,
+            'cost' => 2980000000,
             'bonus_text' => '+25% to all bonuses',
             'bonuses' => json_encode(['income' => 25, 'defense' => 25, 'offense' => 25, 'citizens' => 25, 'resources' => 25])
         ],
         'cosmic_unity_forge' => [
             'name' => 'Cosmic Unity Forge',
             'description' => 'Combines the strengths of all structures into one.',
-            'cost' => 3500000000,
+            'cost' => 6950000000,
             'bonus_text' => '+28% to all bonuses',
             'bonuses' => json_encode(['income' => 28, 'defense' => 28, 'offense' => 28, 'citizens' => 28, 'resources' => 28])
         ],
         'eternal_empire_palace' => [
             'name' => 'Eternal Empire Palace',
             'description' => 'Seat of ultimate authority, guiding all members.',
-            'cost' => 4000000000,
+            'cost' => 16237000000,
             'bonus_text' => '+30% to all bonuses',
             'bonuses' => json_encode(['income' => 30, 'defense' => 30, 'offense' => 30, 'citizens' => 30, 'resources' => 30])
         ],
         'alpha_ascendancy' => [
             'name' => 'Alpha Ascendancy',
             'description' => 'The pinnacle of alliance achievement and dominance.',
-            'cost' => 5000000000,
+            'cost' => 37926000000,
             'bonus_text' => '+35% to all bonuses',
             'bonuses' => json_encode(['income' => 35, 'defense' => 35, 'offense' => 35, 'citizens' => 35, 'resources' => 35])
         ],
@@ -810,84 +810,84 @@ $alliance_structures_definitions = [
         'imperial_coordination_nexus' => [
             'name' => 'Imperial Coordination Nexus',
             'description' => 'Synchronizes sector commands and logistics, boosting empire-wide response time.',
-            'cost' => 10000000000,
+            'cost' => 88586000000,
             'bonus_text' => '+40% to all bonuses',
             'bonuses' => json_encode(['income' => 40, 'defense' => 40, 'offense' => 40, 'citizens' => 40, 'resources' => 40])
         ],
         'sovereign_directive_citadel' => [
             'name' => 'Soveriegn Directive Citadel',
             'description' => 'Issues binding edicts and emergency powers to accelerate policy execution.',
-            'cost' => 20000000000,
+            'cost' => 206913000000,
             'bonus_text' => '+50% to all bonuses',
             'bonuses' => json_encode(['income' => 50, 'defense' => 50, 'offense' => 50, 'citizens' => 50, 'resources' => 50])
         ],
         'dominion_council_forum' => [
             'name' => 'Dominion Council Forum',
             'description' => 'Representative chamber that dampens unrest and unlocks diplomatic leverage.',
-            'cost' => 30000000000,
+            'cost' => 483293000000,
             'bonus_text' => '+55% to all bonuses',
             'bonuses' => json_encode(['income' => 55, 'defense' => 55, 'offense' => 55, 'citizens' => 55, 'resources' => 55])
         ],
         'stellar_mandate_sanctum' => [
             'name' => 'Stellar Mandate Sanctum',
             'description' => 'Sanctifies executive authority, raising loyalty and leader effectiveness.',
-            'cost' => 40000000000,
+            'cost' => 1128837000000,
             'bonus_text' => '+60% to all bonuses',
             'bonuses' => json_encode(['income' => 60, 'defense' => 60, 'offense' => 60, 'citizens' => 60, 'resources' => 60])
         ],
         'overlord_strategy_vault' => [
             'name' => 'Overlord Strategy Vault',
             'description' => 'Secure wargame center refining fleet tactics and long-term war planning.',
-            'cost' => 50000000000,
+            'cost' => 2636650000000,
             'bonus_text' => '+65% to all bonuses',
             'bonuses' => json_encode(['income' => 65, 'defense' => 65, 'offense' => 65, 'citizens' => 65, 'resources' => 65])
         ],
         'triumvirate_command_spire' => [
             'name' => 'Triumvirate Command Spire',
             'description' => 'Three-branch command harmonizer that clears bureaucratic bottlenecks.',
-            'cost' => 60000000000,
+            'cost' => 6158482000000,
             'bonus_text' => '+70% to all bonuses',
             'bonuses' => json_encode(['income' => 70, 'defense' => 70, 'offense' => 70, 'citizens' => 70, 'resources' => 70])
         ],
         'hegemony_unity_chamber' => [
             'name' => 'Hegemony Unity Chamber',
             'description' => 'Mass-morale amphitheater lifting stability and ideological alignment.',
-            'cost' => 70000000000,
+            'cost' => 14384498000000,
             'bonus_text' => '+75% to all bonuses',
             'bonuses' => json_encode(['income' => 75, 'defense' => 75, 'offense' => 75, 'citizens' => 75, 'resources' => 75])
         ],
         'grand_strategium' => [
             'name' => 'Grand Strategium',
             'description' => 'High-command nerve center optimizing multi-front operations and supply lines.',
-            'cost' => 80000000000,
+            'cost' => 33598182000000,
             'bonus_text' => '+80% to all bonuses',
             'bonuses' => json_encode(['income' => 80, 'defense' => 80, 'offense' => 80, 'citizens' => 80, 'resources' => 80])
         ],
         'celestial_edict_bureau' => [
             'name' => 'Celestial Edict Bureau',
             'description' => 'Administrative engine that automates decrees and lowers policy upkeep.',
-            'cost' => 90000000000,
+            'cost' => 78475997000000,
             'bonus_text' => '+85% to all bonuses',
             'bonuses' => json_encode(['income' => 85, 'defense' => 85, 'offense' => 85, 'citizens' => 85, 'resources' => 85])
         ],
         'pan_galactic_coalition_hall' => [
             'name' => 'Pan Galactic Coalition Hall',
             'description' => 'Alliance hub strengthening treaties, aid pacts, and joint ops.',
-            'cost' => 100000000000,
+            'cost' => 183298071000000,
             'bonus_text' => '+90% to all bonuses',
             'bonuses' => json_encode(['income' => 90, 'defense' => 90, 'offense' => 90, 'citizens' => 90, 'resources' => 90])
         ],
         'omni_authority_matrix' => [
             'name' => 'Omni Authority Matrix',
             'description' => 'AI oversight lattice enforcing compliance and curbing corruption empire-wide.',
-            'cost' => 110000000000,
+            'cost' => 428133239000000,
             'bonus_text' => '+95% to all bonuses',
             'bonuses' => json_encode(['income' => 95, 'defense' =>95, 'offense' => 95, 'citizens' => 95, 'resources' => 95])
         ],
         'primarchs_conclave' => [
             'name' => 'Primarchs Conclave',
             'description' => 'Elite leader summit that grants powerful empire-wide buffs when convened.',
-            'cost' => 120000000000,
+            'cost' => 750000000000000,
             'bonus_text' => '+100% to all bonuses',
             'bonuses' => json_encode(['income' => 100, 'defense' => 100, 'offense' => 100, 'citizens' => 100, 'resources' => 100])
         ]
