@@ -65,6 +65,25 @@ if (!$log) {
             ? 'You successfully defended against an attack from ' . htmlspecialchars($opponent_name, ENT_QUOTES, 'UTF-8') . '.'
             : 'Your defenses were breached by ' . htmlspecialchars($opponent_name, ENT_QUOTES, 'UTF-8') . '.';
     }
+
+    // ─────────────────────────────────────────────────────────────────────────
+    // Armory Attrition (display-only)
+    // Pull constants if defined elsewhere; otherwise use sensible defaults that
+    // match AttackController. We only compute a display value here.
+    // ─────────────────────────────────────────────────────────────────────────
+    if (!defined('ARMORY_ATTRITION_ENABLED'))    define('ARMORY_ATTRITION_ENABLED', true);
+    if (!defined('ARMORY_ATTRITION_MULTIPLIER')) define('ARMORY_ATTRITION_MULTIPLIER', 10);
+    if (!defined('ARMORY_ATTRITION_CATEGORIES')) define('ARMORY_ATTRITION_CATEGORIES', 'main_weapon,sidearm,melee,headgear,explosives');
+
+    $attacker_soldiers_lost = (int)($log['attacker_soldiers_lost'] ?? 0);
+    $armory_attrition_per_category = (ARMORY_ATTRITION_ENABLED && $attacker_soldiers_lost > 0)
+        ? (int)ARMORY_ATTRITION_MULTIPLIER * $attacker_soldiers_lost
+        : 0;
+    // (We display per-category loss; total across categories would be per-category × count(categories))
+    $armory_attrition_categories_count = 0;
+    if (ARMORY_ATTRITION_ENABLED) {
+        $armory_attrition_categories_count = count(array_filter(array_map('trim', explode(',', (string)ARMORY_ATTRITION_CATEGORIES))));
+    }
 }
 
 // ---- HEADER / NAVBAR ----
@@ -114,7 +133,13 @@ include_once __DIR__ . '/../includes/header.php';
                             <li class="flex justify-between"><span>Attack Strength:</span> <span class="font-semibold text-white"><?php echo number_format((int)$log['attacker_damage']); ?></span></li>
                             <li class="flex justify-between"><span>XP Gained:</span> <span class="font-semibold text-yellow-400">+<?php echo number_format((int)$log['attacker_xp_gained']); ?></span></li>
                             <?php if (isset($log['attacker_soldiers_lost'])): ?>
-                                <li class="flex justify-between"><span>Soldiers Lost (Fatigue):</span> <span class="font-semibold text-red-400">-<?php echo number_format((int)$log['attacker_soldiers_lost']); ?></span></li>
+                                <li class="flex justify-between"><span>Soldiers Lost (Fatigue/Combat):</span> <span class="font-semibold text-red-400">-<?php echo number_format((int)$log['attacker_soldiers_lost']); ?></span></li>
+                            <?php endif; ?>
+                            <?php if ($armory_attrition_per_category > 0): ?>
+                                <li class="flex justify-between">
+                                    <span>Armory Attrition (Sets of Loadouts) <span class="text-xs text-gray-400">(per soldier ×<?php echo (int)$armory_attrition_categories_count; ?>)</span>:</span>
+                                    <span class="font-semibold text-red-300">-<?php echo number_format($armory_attrition_per_category); ?></span>
+                                </li>
                             <?php endif; ?>
                             <?php if ($is_attacker && $log['outcome'] === 'victory' && (int)$log['credits_stolen'] > 0): ?>
                                 <li class="flex justify-between"><span>Credits Plundered:</span> <span class="font-semibold text-green-400">+<?php echo number_format((int)$log['credits_stolen']); ?></span></li>

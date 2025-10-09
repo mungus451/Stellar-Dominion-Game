@@ -215,12 +215,12 @@ const HOURLY_REDUCED_LOOT_FACTOR      = 0.25;  // 25% of normal credits
 const DAILY_STRUCT_ONLY_THRESHOLD     = 200;    // 11th+ attack in last 24h => structure-only
 
 // Attacker soldier combat casualties (adds to existing fatigue losses)
-const ATK_SOLDIER_LOSS_BASE_FRAC = 0.001;
-const ATK_SOLDIER_LOSS_MAX_FRAC  = 0.005;
+const ATK_SOLDIER_LOSS_BASE_FRAC = 0.005;
+const ATK_SOLDIER_LOSS_MAX_FRAC  = 0.01;
 const ATK_SOLDIER_LOSS_ADV_GAIN  = 0.80;
 const ATK_SOLDIER_LOSS_TURNS_EXP = 0.2;
-const ATK_SOLDIER_LOSS_WIN_MULT  = 0.5;
-const ATK_SOLDIER_LOSS_LOSE_MULT = 1.25;
+const ATK_SOLDIER_LOSS_WIN_MULT  = 0.75;
+const ATK_SOLDIER_LOSS_LOSE_MULT = 1.75;
 const ATK_SOLDIER_LOSS_MIN       = 0;
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -248,6 +248,16 @@ if (!defined('STRUCTURE_DAMAGE_NO_FOUNDATION_WIN_MIN_PERCENT'))  define('STRUCTU
 if (!defined('STRUCTURE_DAMAGE_NO_FOUNDATION_WIN_MAX_PERCENT'))  define('STRUCTURE_DAMAGE_NO_FOUNDATION_WIN_MAX_PERCENT',  STRUCT_NOFOUND_WIN_MAX_PCT);
 if (!defined('STRUCTURE_DAMAGE_NO_FOUNDATION_LOSE_MIN_PERCENT')) define('STRUCTURE_DAMAGE_NO_FOUNDATION_LOSE_MIN_PERCENT', STRUCT_NOFOUND_LOSE_MIN_PCT);
 if (!defined('STRUCTURE_DAMAGE_NO_FOUNDATION_LOSE_MAX_PERCENT')) define('STRUCTURE_DAMAGE_NO_FOUNDATION_LOSE_MAX_PERCENT', STRUCT_NOFOUND_LOSE_MAX_PCT);
+
+// ─────────────────────────────────────────────────────────────────────────────
+// ARMORY ATTRITION (ATTACKER) — TUNING KNOBS
+// ─────────────────────────────────────────────────────────────────────────────
+// Enabled flag so you can live-toggle without code changes.
+const ARMORY_ATTRITION_ENABLED     = true;
+// Multiplier: items lost PER soldier lost, applied to EACH offensive category.
+const ARMORY_ATTRITION_MULTIPLIER  = 10;
+// Offensive loadout categories to consume from (CSV for easy runtime tweak)
+const ARMORY_ATTRITION_CATEGORIES  = 'main_weapon,sidearm,melee,headgear,explosives';
 
 // ─────────────────────────────────────────────────────────────────────────────
 /** INPUT VALIDATION */
@@ -312,6 +322,10 @@ $COMBAT_TUNING = [
     'FORT_HIGH_DEF_BONUS_MAX'           => FORT_HIGH_DEF_BONUS_MAX,
     'FORT_HIGH_GUARD_KILL_REDUCTION_MAX'=> FORT_HIGH_GUARD_KILL_REDUCTION_MAX,
     'FORT_HIGH_CREDITS_PLUNDER_REDUCTION_MAX'=> FORT_HIGH_CREDITS_PLUNDER_REDUCTION_MAX,
+    // Expose attrition knobs too (so services/UI can read them if needed)
+    'ARMORY_ATTRITION_ENABLED'          => ARMORY_ATTRITION_ENABLED,
+    'ARMORY_ATTRITION_MULTIPLIER'       => ARMORY_ATTRITION_MULTIPLIER,
+    'ARMORY_ATTRITION_CATEGORIES'       => ARMORY_ATTRITION_CATEGORIES,
 ];
 
 if ($defender_id <= 0 || $attack_turns < 1 || $attack_turns > 10) {
@@ -801,6 +815,16 @@ try {
         // non-fatal: do not block battle flow
     }
 
+    // ─────────────────────────────────────────────────────────────────────────
+    // ARMORY ATTRITION (Attacker Only) — applied inside the same transaction
+    // ─────────────────────────────────────────────────────────────────────────
+    if (ARMORY_ATTRITION_ENABLED) {
+        $attacker_soldiers_lost = max(0, (int)$fatigue_casualties);
+        if ($attacker_soldiers_lost > 0) {
+            sd_apply_armory_attrition($link, (int)$attacker_id, (int)$attacker_soldiers_lost, $owned_items);
+        }
+    }
+
     // Commit + redirect to battle report
     mysqli_commit($link);
     header("location: /battle_report.php?id=" . $battle_log_id);
@@ -811,4 +835,70 @@ try {
     $_SESSION['attack_error'] = "Attack failed: " . $e->getMessage();
     header("location: /attack.php");
     exit;
+}
+
+/**
+ * Armory Attrition Helper (attacker only)
+ * Removes offensive loadout items when soldiers are lost in battle.
+ * Rule: For EACH category in ARMORY_ATTRITION_CATEGORIES,
+ *       remove (ARMORY_ATTRITION_MULTIPLIER × soldiers_lost) items,
+ *       consuming highest-tier first (by 'attack' stat from GameData).
+ * - Runs inside the main transaction.
+ * - Uses prepared UPDATEs with GREATEST(0, ...) to avoid negatives.
+ * - $owned_items can be provided to avoid re-fetch; falls back to DB if null.
+ */
+function sd_apply_armory_attrition(mysqli $link, int $user_id, int $soldiers_lost, ?array $owned_items = null): void {
+    global $armory_loadouts;
+
+    $mult = (int)ARMORY_ATTRITION_MULTIPLIER;
+    if ($soldiers_lost <= 0 || $mult <= 0) return;
+
+    $per_category = $soldiers_lost * $mult;
+
+    // Categories are provided as CSV (runtime-tunable without code changes)
+    $cats_csv = (string)ARMORY_ATTRITION_CATEGORIES;
+    $cat_keys = array_filter(array_map('trim', explode(',', $cats_csv)));
+
+    if (!$cat_keys) return;
+
+    if ($owned_items === null) {
+        $owned_items = fetch_user_armory($link, $user_id);
+    }
+
+    // Prepare update once
+    $sql_update = "UPDATE user_armory SET quantity = GREATEST(0, quantity - ?) WHERE user_id = ? AND item_key = ?";
+    $stmt_update = mysqli_prepare($link, $sql_update);
+
+    foreach ($cat_keys as $cat_key) {
+        // Validate category is in GameData
+        if (!isset($armory_loadouts['soldier']['categories'][$cat_key])) continue;
+        $cat = $armory_loadouts['soldier']['categories'][$cat_key];
+        $items = $cat['items'] ?? [];
+        if (!$items) continue;
+
+        // Build list of owned items in this category with their 'attack' stat
+        $rows = [];
+        foreach ($items as $item_key => $def) {
+            $qty = (int)($owned_items[$item_key] ?? 0);
+            if ($qty <= 0) continue;
+            $atk = (int)($def['attack'] ?? 0);
+            $rows[] = ['key' => $item_key, 'atk' => $atk, 'qty' => $qty];
+        }
+        if (!$rows) continue;
+
+        // Highest-tier first by 'attack' stat
+        usort($rows, function($a, $b) { return $b['atk'] <=> $a['atk']; });
+
+        $remain = $per_category;
+        foreach ($rows as $r) {
+            if ($remain <= 0) break;
+            $take = min($remain, (int)$r['qty']);
+            if ($take <= 0) continue;
+            mysqli_stmt_bind_param($stmt_update, "iis", $take, $user_id, $r['key']);
+            mysqli_stmt_execute($stmt_update);
+            $remain -= $take;
+        }
+    }
+
+    if ($stmt_update) { mysqli_stmt_close($stmt_update); }
 }
