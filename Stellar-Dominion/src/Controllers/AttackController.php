@@ -155,7 +155,7 @@ const CREDITS_STEAL_GROWTH        = 0.1;  // Raise to reward big mismatches; low
 // NEW: Turn-based hard cap vs defender on-hand credits (post-scaling).
 // Example: 1 turn => 9%, 5 turns => 45%, 10 turns => 90% (max).
 const CREDITS_TURNS_CAP_PER_TURN  = 0.09;
-const CREDITS_TURNS_CAP_MAX       = 0.90;
+const CREDITS_TURNS_CAP_MAX       = 0.30;
 
 // Guards casualties
 const GUARD_KILL_BASE_FRAC        = 0.001;
