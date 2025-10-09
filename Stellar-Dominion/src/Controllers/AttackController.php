@@ -37,7 +37,7 @@ if (($_POST['action'] ?? '') === 'alliance_invite') {
         if (($_POST['csrf_action'] ?? '') !== 'invite') {
             throw new Exception('Invalid CSRF context.');
         }
-        $inviter_id = (int)$_SESSION['id'];
+        $inviter_id = (int)($_SESSION['id'] ?? 0);
         $invitee_id = (int)($_POST['invitee_id'] ?? 0);
         if ($inviter_id <= 0 || $invitee_id <= 0) {
             throw new Exception('Invalid request.');
@@ -148,71 +148,62 @@ const RANDOM_NOISE_MAX            = 1.02; // Widen (e.g., 0.95–1.05) for chaos
 // How it works: steal_pct = min(CAP, BASE + GROWTH * clamp(R-1, 0..1))
 //                              R≤1 → BASE
 //                              R≥2 → BASE + GROWTH (capped by CAP)
-const CREDITS_STEAL_CAP_PCT       = 0.3;  // Lower (e.g., 0.15) to protect defenders; raise cautiously if late-game feels cash-starved.
+const CREDITS_STEAL_CAP_PCT       = 0.3;  // Base per-battle cap BEFORE turns scaling.
 const CREDITS_STEAL_BASE_PCT      = 0.08; // Raise to make average wins more lucrative.
 const CREDITS_STEAL_GROWTH        = 0.1;  // Raise to reward big mismatches; lower to keep gains flatter.
 
+// NEW: Turn-based hard cap vs defender on-hand credits (post-scaling).
+// Example: 1 turn => 9%, 5 turns => 45%, 10 turns => 90% (max).
+const CREDITS_TURNS_CAP_PER_TURN  = 0.09;
+const CREDITS_TURNS_CAP_MAX       = 0.90;
+
 // Guards casualties
-// loss_frac = BASE + ADV_GAIN * clamp(R-1,0..1) then × small turns boost, ×0.5 if attacker loses. Guard floor prevents dropping below GUARD_FLOOR total.
-const GUARD_KILL_BASE_FRAC        = 0.001; // Raise to speed attrition in fair fights.
-const GUARD_KILL_ADVANTAGE_GAIN   = 0.01;  // Raise to let strong attackers chew guards faster.
-const GUARD_FLOOR                 = 5000; // Raise to extend defensive longevity; lower to allow full wipeouts.
+const GUARD_KILL_BASE_FRAC        = 0.001;
+const GUARD_KILL_ADVANTAGE_GAIN   = 0.01;
+const GUARD_FLOOR                 = 5000;
 
 // Structure damage (on defender fortifications)
-// Pipeline: Raw = STRUCT_BASE_DMG * R^STRUCT_ADVANTAGE_EXP * Turns^STRUCT_TURNS_EXP * (1 - guardShield)
-// then clamped between STRUCT_MIN_DMG_IF_WIN and STRUCT_MAX_DMG_IF_WIN of current HP (on victory)
-const STRUCT_BASE_DMG             = 1500; // Baseline scalar; raise/lower for overall structure damage feel.
-const STRUCT_GUARD_PROTECT_FACTOR = 0.50; // Strength of guard shielding. Higher = more shielding (less structure damage).
-const STRUCT_ADVANTAGE_EXP        = 0.75; // Sensitivity to advantage R.
-const STRUCT_TURNS_EXP            = 0.40; // Turn-based scaling for structure damage.
+const STRUCT_BASE_DMG             = 1500;
+const STRUCT_GUARD_PROTECT_FACTOR = 0.50;
+const STRUCT_ADVANTAGE_EXP        = 0.75;
+const STRUCT_TURNS_EXP            = 0.40;
 
 // Floor/ceiling as % of current HP on victory.
-const STRUCT_MIN_DMG_IF_WIN       = 0.05; // Raise min to guarantee noticeable chip.
-const STRUCT_MAX_DMG_IF_WIN       = 0.25; // Lower max to prevent chunking.
+const STRUCT_MIN_DMG_IF_WIN       = 0.05;
+const STRUCT_MAX_DMG_IF_WIN       = 0.25;
 
 // Prestige
-const BASE_PRESTIGE_GAIN          = 10; // Flat baseline per battle.
+const BASE_PRESTIGE_GAIN          = 10;
 
 // ─────────────────────────────────────────────────────────────────────────────
 // ALLIANCE BONUSES / TRIBUTE (TUNING KNOBS)
 // ─────────────────────────────────────────────────────────────────────────────
-// Flat combat bonus granted to a combatant's base strength if they are in ANY alliance.
-// Keep small; this multiplies into the main strength pipeline before noise/turns.
 const ALLIANCE_BASE_COMBAT_BONUS      = 0.10; // +10%
-// Portion of the victor's actual credits winnings that are paid to the loser's alliance bank.
-// Applied on attacker win with credits stolen; comes out of the victor's net.
 const LOSING_ALLIANCE_TRIBUTE_PCT     = 0.05; // 5%
-
 
 // ─────────────────────────────────────────────────────────────────────────────
 // EXPERIENCE (XP) TUNING
 // ─────────────────────────────────────────────────────────────────────────────
-// Global multiplier applied to both sides at the very end
 const XP_GLOBAL_MULT                  = 1.0;
-// Attacker base ranges
 const XP_ATK_WIN_MIN                  = 150;
 const XP_ATK_WIN_MAX                  = 300;
 const XP_ATK_LOSE_MIN                 = 100;
 const XP_ATK_LOSE_MAX                 = 200;
-// Defender base ranges
 const XP_DEF_WIN_MIN                  = 100;
 const XP_DEF_WIN_MAX                  = 150;
 const XP_DEF_LOSE_MIN                 = 75;
 const XP_DEF_LOSE_MAX                 = 125;
-// Level-gap scaling (Δ = target.level - self.level). Positive means you hit higher level.
-const XP_LEVEL_SLOPE_VS_HIGHER        = 0.07; // per level when target is higher level
-const XP_LEVEL_SLOPE_VS_LOWER         = 0.05; // per level when target is lower level
-const XP_LEVEL_MIN_MULT               = 0.10; // clamp for extreme gaps
-// Turns influence (exponent). Defender default 0.0 preserves legacy behavior.
+const XP_LEVEL_SLOPE_VS_HIGHER        = 0.07;
+const XP_LEVEL_SLOPE_VS_LOWER         = 0.05;
+const XP_LEVEL_MIN_MULT               = 0.10;
 const XP_ATK_TURNS_EXP                = 1.0;  // 1.0 = linear by turns; <1 softens, >1 amplifies
 const XP_DEF_TURNS_EXP                = 0.0;  // 0.0 = ignore turns for defender (legacy)
 
-
 // Anti-farm limits
-const HOURLY_FULL_LOOT_CAP            = 5;     // first 5 attacks in last hour = full loot
-const HOURLY_REDUCED_LOOT_MAX         = 50;    // attacks 6..10 in last hour = reduced
-const HOURLY_REDUCED_LOOT_FACTOR      = 0.25;  // 25% of normal credits
-const DAILY_STRUCT_ONLY_THRESHOLD     = 200;    // 11th+ attack in last 24h => structure-only
+const HOURLY_FULL_LOOT_CAP            = 5;
+const HOURLY_REDUCED_LOOT_MAX         = 50;
+const HOURLY_REDUCED_LOOT_FACTOR      = 0.25;
+const DAILY_STRUCT_ONLY_THRESHOLD     = 200;
 
 // Attacker soldier combat casualties (adds to existing fatigue losses)
 const ATK_SOLDIER_LOSS_BASE_FRAC = 0.001;
@@ -223,24 +214,21 @@ const ATK_SOLDIER_LOSS_WIN_MULT  = 0.5;
 const ATK_SOLDIER_LOSS_LOSE_MULT = 1.25;
 const ATK_SOLDIER_LOSS_MIN       = 0;
 
-// ─────────────────────────────────────────────────────────────────────────────
 // Fortification health influence (tunable)
-const STRUCT_FULL_HP_DEFAULT = 100000;  // set to your game's fort max HP if not in DB
-// Curve shaping (separate low/high to taste)
-const FORT_CURVE_EXP_LOW  = 1.0; // curvature below 50% HP (1.0 = linear)
-const FORT_CURVE_EXP_HIGH = 1.0; // curvature above 50% HP (1.0 = linear)
-// Multipliers at the extremes (applied smoothly from 50% → 0% / 50% → 100%)
-const FORT_LOW_GUARD_KILL_BOOST_MAX          = 0.30; // up to +30% guards killed at 0%
-const FORT_LOW_CREDITS_PLUNDER_BOOST_MAX     = 0.35; // up to +35% credits plundered at 0%
-const FORT_LOW_DEF_PENALTY_MAX               = 0.00; // up to -X% defense at 0% (0 disables penalty)
-const FORT_HIGH_DEF_BONUS_MAX                = 0.15; // up to +15% defense at 100%
-const FORT_HIGH_GUARD_KILL_REDUCTION_MAX     = 0.25; // up to -25% guards killed at 100%
-const FORT_HIGH_CREDITS_PLUNDER_REDUCTION_MAX= 0.25; // up to -25% plunder at 100%
+const STRUCT_FULL_HP_DEFAULT = 100000;
+const FORT_CURVE_EXP_LOW  = 1.0;
+const FORT_CURVE_EXP_HIGH = 1.0;
+const FORT_LOW_GUARD_KILL_BOOST_MAX           = 0.30;
+const FORT_LOW_CREDITS_PLUNDER_BOOST_MAX      = 0.35;
+const FORT_LOW_DEF_PENALTY_MAX                = 0.00;
+const FORT_HIGH_DEF_BONUS_MAX                 = 0.15;
+const FORT_HIGH_GUARD_KILL_REDUCTION_MAX      = 0.25;
+const FORT_HIGH_CREDITS_PLUNDER_REDUCTION_MAX = 0.25;
 
 // When foundations are depleted (HP=0), apply percent damage across structures:
-const STRUCT_NOFOUND_WIN_MIN_PCT  = 5;   // 5..15% total distributed on victory
+const STRUCT_NOFOUND_WIN_MIN_PCT  = 5;
 const STRUCT_NOFOUND_WIN_MAX_PCT  = 15;
-const STRUCT_NOFOUND_LOSE_MIN_PCT = 1;   // 1..3% on defeat
+const STRUCT_NOFOUND_LOSE_MIN_PCT = 1;
 const STRUCT_NOFOUND_LOSE_MAX_PCT = 3;
 
 // Back-compat constants
@@ -252,11 +240,8 @@ if (!defined('STRUCTURE_DAMAGE_NO_FOUNDATION_LOSE_MAX_PERCENT')) define('STRUCTU
 // ─────────────────────────────────────────────────────────────────────────────
 // ARMORY ATTRITION (ATTACKER) — TUNING KNOBS
 // ─────────────────────────────────────────────────────────────────────────────
-// Enabled flag so you can live-toggle without code changes.
 const ARMORY_ATTRITION_ENABLED     = true;
-// Multiplier: items lost PER soldier lost, applied to EACH offensive category.
 const ARMORY_ATTRITION_MULTIPLIER  = 10;
-// Offensive loadout categories to consume from (CSV for easy runtime tweak)
 const ARMORY_ATTRITION_CATEGORIES  = 'main_weapon,sidearm,melee,headgear,explosives';
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -322,10 +307,13 @@ $COMBAT_TUNING = [
     'FORT_HIGH_DEF_BONUS_MAX'           => FORT_HIGH_DEF_BONUS_MAX,
     'FORT_HIGH_GUARD_KILL_REDUCTION_MAX'=> FORT_HIGH_GUARD_KILL_REDUCTION_MAX,
     'FORT_HIGH_CREDITS_PLUNDER_REDUCTION_MAX'=> FORT_HIGH_CREDITS_PLUNDER_REDUCTION_MAX,
-    // Expose attrition knobs too (so services/UI can read them if needed)
+    // Attrition knobs
     'ARMORY_ATTRITION_ENABLED'          => ARMORY_ATTRITION_ENABLED,
     'ARMORY_ATTRITION_MULTIPLIER'       => ARMORY_ATTRITION_MULTIPLIER,
     'ARMORY_ATTRITION_CATEGORIES'       => ARMORY_ATTRITION_CATEGORIES,
+    // Turn-cap knobs (exposed in case services/UI need them)
+    'CREDITS_TURNS_CAP_PER_TURN'        => CREDITS_TURNS_CAP_PER_TURN,
+    'CREDITS_TURNS_CAP_MAX'             => CREDITS_TURNS_CAP_MAX,
 ];
 
 if ($defender_id <= 0 || $attack_turns < 1 || $attack_turns > 10) {
@@ -388,9 +376,6 @@ try {
     // ─────────────────────────────────────────────────────────────────────────
     // RATE LIMIT COUNTS (per-target, **OFFENSE-ONLY**)
     // ─────────────────────────────────────────────────────────────────────────
-    // We intentionally do NOT call StateService::attackWindowCounters() here,
-    // because some implementations count both offensive and defensive events.
-    // Policy: count ONLY rows where current user is the attacker.
     $hour_count = 0;
     $day_count  = 0;
 
@@ -427,7 +412,6 @@ try {
     if (method_exists($state, 'computeLootFactor')) {
         $loot_factor = $state->computeLootFactor(['hour' => $hour_count, 'day' => $day_count]);
     } else {
-        // Default: local calculation (unchanged)
         $loot_factor = 1.0;
         if ($day_count >= DAILY_STRUCT_ONLY_THRESHOLD) {
             $loot_factor = 0.0;
@@ -442,8 +426,7 @@ try {
 
     // -------------------------------------------------------------------------
     // BATTLE FATIGUE CHECK (kept as-is; stacks with above rules)
-    // Also scale fatigue casualties by attack turns using the same exponent knob
-    // used for combat deaths (ATK_SOLDIER_LOSS_TURNS_EXP).
+    // Also scale fatigue casualties by attack turns using the same exponent knob.
     // -------------------------------------------------------------------------
     $fatigue_casualties = 0;
     if ($hour_count >= 10) {
@@ -451,7 +434,7 @@ try {
         $penalty_percentage = 0.01 * $attacks_over_limit;
         $fatigue_casualties = (int)floor((int)$attacker['soldiers'] * $penalty_percentage);
 
-        // NEW: scale by turns (same knob as combat casualty turns scaling)
+        // scale by turns (same knob as combat casualty turns scaling)
         $fatigue_turns_mult = pow(max(1, (int)$attack_turns), ATK_SOLDIER_LOSS_TURNS_EXP);
         if ($fatigue_turns_mult > 0) {
             $fatigue_casualties = (int)floor($fatigue_casualties * $fatigue_turns_mult);
@@ -510,7 +493,7 @@ try {
     $RawAttack  *= $OFFENSE_STRUCT_MULT;
     $RawDefense *= $DEFENSE_STRUCT_MULT;
 
-    // Alliance **structure** bonuses (+5% OTG, +8% Starfighter, +10% Citadel, etc.)
+    // Alliance **structure** bonuses
     $alli_attacker = sd_compute_alliance_bonuses($link, ['alliance_id' => (int)($attacker['alliance_id'] ?? 0)]);
     $alli_defender = sd_compute_alliance_bonuses($link, ['alliance_id' => (int)($defender['alliance_id'] ?? 0)]);
     $alli_offense_mult = 1.0 + ((float)($alli_attacker['offense'] ?? 0) / 100.0);
@@ -518,11 +501,11 @@ try {
     $RawAttack  *= $alli_offense_mult;
     $RawDefense *= $alli_defense_mult;
 
-    // Flat +10% if in any alliance (same as dashboard does, multiplicative)
+    // Flat +10% if in any alliance
     if (!empty($attacker['alliance_id'])) { $RawAttack  *= (1.0 + ALLIANCE_BASE_COMBAT_BONUS); }
     if (!empty($defender['alliance_id'])) { $RawDefense *= (1.0 + ALLIANCE_BASE_COMBAT_BONUS); }
 
-    // Fortification health → multipliers (unchanged)
+    // Fortification health → multipliers
     {
         $fort_hp      = max(0, (int)($defender['fortification_hitpoints'] ?? 0));
         $fort_full_hp = (int)STRUCT_FULL_HP_DEFAULT;
@@ -597,24 +580,36 @@ try {
     }
 
     // ─────────────────────────────────────────────────────────────────────────
-    // PLUNDER (CREDITS STOLEN) WITH CAP + NEW LOOT FACTOR
+    // PLUNDER (CREDITS STOLEN) WITH CAP + NEW LOOT FACTOR + TURN-BASED HARD CAP
     // ─────────────────────────────────────────────────────────────────────────
     $credits_stolen = 0;
     if ($attacker_wins) {
         $steal_pct_raw = CREDITS_STEAL_BASE_PCT + CREDITS_STEAL_GROWTH * max(0.0, min(1.0, $R - 1.0));
         $defender_credits_before = max(0, (int)$defender['credits']);
-        $base_plunder = (int)floor($defender_credits_before * min($steal_pct_raw, CREDITS_STEAL_CAP_PCT));
 
-        // Apply anti-farm factor + fort multiplier + TURNS SCALING (same exponent as XP)
+        // Base % capped by legacy per-battle cap (pre-turns)
+        $base_pct = min($steal_pct_raw, CREDITS_STEAL_CAP_PCT);
+        $base_plunder = (int)floor($defender_credits_before * $base_pct);
+
+        // Apply anti-farm + fort multiplier + TURNS SCALING (same exponent as XP)
         $plunder_turns_mult = pow(max(1, (int)$attack_turns), XP_ATK_TURNS_EXP);
-        $credits_stolen = (int)floor(
+        $scaled_plunder = (int)floor(
             $base_plunder
             * $plunder_turns_mult
             * (isset($FORT_PLUNDER_MULT) ? $FORT_PLUNDER_MULT : 1.0)
             * $loot_factor
         );
+
+        // NEW: Turn-based hard cap vs on-hand credits (prevents 100% wipes).
+        // 1 turn => 9%, 10 turns => 90% (max).
+        $turn_cap_pct = min(CREDITS_TURNS_CAP_PER_TURN * max(1, (int)$attack_turns), CREDITS_TURNS_CAP_MAX);
+        $turn_cap_credits = (int)floor($defender_credits_before * $turn_cap_pct);
+
+        // Enforce the turn-based cap
+        $credits_stolen = min($scaled_plunder, $turn_cap_credits);
     }
-    $actual_stolen = min($credits_stolen, max(0, (int)$defender['credits'])); // final clamp
+    // Final clamp to current on-hand credits (race-safe)
+    $actual_stolen = min($credits_stolen, max(0, (int)$defender['credits']));
 
     // ─────────────────────────────────────────────────────────────────────────
     // STRUCTURE (FOUNDATION) DAMAGE + STRUCTURE DISTRIBUTION WHEN HP=0
@@ -731,7 +726,7 @@ try {
             }
         }
 
-        // NEW: Losing alliance tribute (5% of victor's actual winnings), paid to LOSER's alliance bank.
+        // Losing alliance tribute (5% of victor's actual winnings)
         $losing_alliance_tribute = 0;
         if (!empty($defender['alliance_id'])) {
             $losing_alliance_tribute = (int)floor($actual_stolen * LOSING_ALLIANCE_TRIBUTE_PCT);
