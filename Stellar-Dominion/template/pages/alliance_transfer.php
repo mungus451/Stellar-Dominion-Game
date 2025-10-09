@@ -60,6 +60,8 @@ $unit_costs = ['workers' => 100, 'soldiers' => 250, 'guards' => 250, 'sentries' 
     <link rel="stylesheet" href="/assets/css/style.css">
     <script src="https://cdn.tailwindcss.com"></script>
     <link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@700&family=Roboto:wght@400;500;700&display=swap" rel="stylesheet">
+        <!-- Google Adsense Code -->
+<?php include __DIR__ . '/../includes/adsense.php'; ?>
 </head>
 <body class="text-gray-400 antialiased">
 <div class="min-h-screen bg-cover bg-center bg-fixed" style="background-image: url('/assets/img/backgroundAlt.avif');">

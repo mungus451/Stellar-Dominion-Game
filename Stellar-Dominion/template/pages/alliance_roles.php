@@ -63,6 +63,8 @@ $all_permission_keys = [
     <title>Starlight Dominion - Manage Alliance Roles</title>
     <link rel="stylesheet" href="/assets/css/style.css">
     <script src="https://cdn.tailwindcss.com"></script>
+        <!-- Google Adsense Code -->
+<?php include __DIR__ . '/../includes/adsense.php'; ?>
 </head>
 <body class="text-gray-400 antialiased">
 <div class="min-h-screen bg-cover bg-center bg-fixed" style="background-image: url('/assets/img/backgroundAlt.avif');">

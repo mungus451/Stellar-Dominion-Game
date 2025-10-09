@@ -280,7 +280,12 @@ include_once __DIR__ . '/../includes/header.php';
         return Array.from(document.querySelectorAll(`.armory-item[data-category-key="${esc(catKey)}"]`));
     }
 
-    // ---------- T1 helpers (never count T2+ here) ----------
+    // ---------- Tier-1 helpers ----------
+    function sumOwnedT1InCategory(catKey){
+        return getCategoryRows(catKey)
+            .filter(row => row.getAttribute('data-is-t1') === '1')
+            .reduce((s,row)=> s + num(row.getAttribute('data-owned-quantity')), 0);
+    }
     function sumCartT1InCategory(catKey, excludeKey){
         const t1Keys = getCategoryRows(catKey)
             .filter(row => row.getAttribute('data-is-t1') === '1')
@@ -295,7 +300,7 @@ include_once __DIR__ . '/../includes/header.php';
         return row ? num(row.getAttribute('data-units-total')) : 0;
     }
 
-    // (kept for completeness, though T2+ no longer subtracts same-tier)
+    // (kept for completeness for non-Tier-1)
     function getRowsRequiring(reqKey){
         return Array.from(document.querySelectorAll(`.armory-item[data-requires-key="${esc(reqKey)}"]`));
     }
@@ -364,28 +369,28 @@ include_once __DIR__ . '/../includes/header.php';
         rebuildSummary();
     }
 
-    // ---- Max button: T1 unchanged; T2+/T3+ = min(OwnedPrev, floor(credits / cost)) ----
+    // ---- Max button: Tier-1 uses (eligible units − SUM(T1 owned in category) − T1 planned), also credit-capped.
+    // Non-Tier-1 unchanged.
     function computeMaxQtyForRow(row){
         const key   = row.getAttribute('data-item-key');
         const isT1  = row.getAttribute('data-is-t1') === '1';
         const cost  = num(getRowCosts(row).disc);
 
         if (isT1){
-            // T1: unitsTotal − ownedThisT1 − cartOtherT1, then cap by credits remaining for this row
-            const catKey       = row.getAttribute('data-category-key');
-            const unitsTotal   = getUnitsForCategory(catKey);
-            const ownedThisT1  = num(row.getAttribute('data-owned-quantity'));
-            const cartOtherT1  = sumCartT1InCategory(catKey, key);
-            const unitSlots    = Math.max(0, unitsTotal - ownedThisT1 - cartOtherT1);
+            const catKey        = row.getAttribute('data-category-key');
+            const unitsTotal    = getUnitsForCategory(catKey);           // eligible units
+            const ownedT1Cat    = sumOwnedT1InCategory(catKey);          // SUM of T1 owned in category
+            const cartOtherT1   = sumCartT1InCategory(catKey, key);      // T1 already planned (excluding this row)
+            const remainingSlot = Math.max(0, unitsTotal - ownedT1Cat - cartOtherT1);
 
-            if (cost <= 0) return unitSlots;
+            if (cost <= 0) return remainingSlot;
 
-            const creditsLeft  = Math.max(0, creditsAvail - getCartTotalExcluding(key));
-            const creditsCap   = Math.floor(creditsLeft / cost);
-            return Math.max(0, Math.min(creditsCap, unitSlots));
+            const creditsLeft = Math.max(0, creditsAvail - getCartTotalExcluding(key));
+            const creditsCap  = Math.floor(creditsLeft / cost);
+            return Math.max(0, Math.min(remainingSlot, creditsCap));
         }
 
-        // T2+/T3+: cap by previous tier *owned* and by wallet credits (no same-tier subtraction)
+        // T2+/T3+: cap by previous tier *owned* and by wallet credits (unchanged)
         const reqKey    = row.getAttribute('data-requires-key') || '';
         const reqRow    = reqKey ? getItemRow(reqKey) : null;
         const ownedPrev = reqRow ? num(reqRow.getAttribute('data-owned-quantity')) : 0;
@@ -393,11 +398,9 @@ include_once __DIR__ . '/../includes/header.php';
         const prevCap = Math.max(0, ownedPrev);
 
         if (cost <= 0){
-            // free T2+/T3+: just cap by previous tier owned
             return prevCap;
         }
-
-        const creditsCap = Math.floor(creditsAvail / cost); // wallet credits only
+        const creditsCap = Math.floor(creditsAvail / cost);
         return Math.max(0, Math.min(prevCap, creditsCap));
     }
 
@@ -424,4 +427,3 @@ include_once __DIR__ . '/../includes/header.php';
     qtyInputs.forEach(inp => onQtyChange(inp));
 })();
 </script>
-

@@ -100,6 +100,10 @@ $og_image_url = $base_url . $og_image;
             border-bottom-color: #06b6d4;
         }
     </style>
+
+    <!-- Google Adsense Code -->
+<?php include __DIR__ . '/adsense.php'; ?>
+
 </head>
 <body class="text-gray-300 antialiased">
     <header class="fixed top-0 left-0 right-0 z-50 bg-dark-translucent border-b border-cyan-400/20">
