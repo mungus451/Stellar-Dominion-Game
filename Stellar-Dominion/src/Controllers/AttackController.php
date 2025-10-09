@@ -37,7 +37,7 @@ if (($_POST['action'] ?? '') === 'alliance_invite') {
         if (($_POST['csrf_action'] ?? '') !== 'invite') {
             throw new Exception('Invalid CSRF context.');
         }
-        $inviter_id = (int)($_SESSION['id'] ?? 0);
+        $inviter_id = (int)$_SESSION['id'];
         $invitee_id = (int)($_POST['invitee_id'] ?? 0);
         if ($inviter_id <= 0 || $invitee_id <= 0) {
             throw new Exception('Invalid request.');
@@ -215,12 +215,12 @@ const HOURLY_REDUCED_LOOT_FACTOR      = 0.25;  // 25% of normal credits
 const DAILY_STRUCT_ONLY_THRESHOLD     = 200;    // 11th+ attack in last 24h => structure-only
 
 // Attacker soldier combat casualties (adds to existing fatigue losses)
-const ATK_SOLDIER_LOSS_BASE_FRAC = 0.005;
-const ATK_SOLDIER_LOSS_MAX_FRAC  = 0.01;
+const ATK_SOLDIER_LOSS_BASE_FRAC = 0.001;
+const ATK_SOLDIER_LOSS_MAX_FRAC  = 0.005;
 const ATK_SOLDIER_LOSS_ADV_GAIN  = 0.80;
 const ATK_SOLDIER_LOSS_TURNS_EXP = 0.2;
-const ATK_SOLDIER_LOSS_WIN_MULT  = 0.75;
-const ATK_SOLDIER_LOSS_LOSE_MULT = 1.75;
+const ATK_SOLDIER_LOSS_WIN_MULT  = 0.5;
+const ATK_SOLDIER_LOSS_LOSE_MULT = 1.25;
 const ATK_SOLDIER_LOSS_MIN       = 0;
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -442,12 +442,20 @@ try {
 
     // -------------------------------------------------------------------------
     // BATTLE FATIGUE CHECK (kept as-is; stacks with above rules)
+    // Also scale fatigue casualties by attack turns using the same exponent knob
+    // used for combat deaths (ATK_SOLDIER_LOSS_TURNS_EXP).
     // -------------------------------------------------------------------------
     $fatigue_casualties = 0;
     if ($hour_count >= 10) {
         $attacks_over_limit = $hour_count - 9; // 11th attack (count 10) is 1 over
         $penalty_percentage = 0.01 * $attacks_over_limit;
         $fatigue_casualties = (int)floor((int)$attacker['soldiers'] * $penalty_percentage);
+
+        // NEW: scale by turns (same knob as combat casualty turns scaling)
+        $fatigue_turns_mult = pow(max(1, (int)$attack_turns), ATK_SOLDIER_LOSS_TURNS_EXP);
+        if ($fatigue_turns_mult > 0) {
+            $fatigue_casualties = (int)floor($fatigue_casualties * $fatigue_turns_mult);
+        }
     }
     $fatigue_casualties = max(0, min((int)$fatigue_casualties, (int)$attacker['soldiers']));
 
@@ -597,8 +605,14 @@ try {
         $defender_credits_before = max(0, (int)$defender['credits']);
         $base_plunder = (int)floor($defender_credits_before * min($steal_pct_raw, CREDITS_STEAL_CAP_PCT));
 
-        // Apply anti-farm factor + fort multiplier
-        $credits_stolen = (int)floor($base_plunder * (isset($FORT_PLUNDER_MULT) ? $FORT_PLUNDER_MULT : 1.0) * $loot_factor);
+        // Apply anti-farm factor + fort multiplier + TURNS SCALING (same exponent as XP)
+        $plunder_turns_mult = pow(max(1, (int)$attack_turns), XP_ATK_TURNS_EXP);
+        $credits_stolen = (int)floor(
+            $base_plunder
+            * $plunder_turns_mult
+            * (isset($FORT_PLUNDER_MULT) ? $FORT_PLUNDER_MULT : 1.0)
+            * $loot_factor
+        );
     }
     $actual_stolen = min($credits_stolen, max(0, (int)$defender['credits'])); // final clamp
 
