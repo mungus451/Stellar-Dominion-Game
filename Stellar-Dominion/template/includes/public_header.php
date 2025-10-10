@@ -69,6 +69,10 @@ $og_image_url = $base_url . $og_image;
     <meta name="twitter:description" content="<?php echo htmlspecialchars($meta_description); ?>">
     <meta name="twitter:image" content="<?php echo htmlspecialchars($og_image_url); ?>">
 
+    <!-- Favicon Attachments -->
+    <link rel="icon" type="image/avif" href="/assets/img/favicon.avif">
+    <link rel="icon" type="image/png" href="/assets/img/favicon.png" sizes="32x32">
+
     <script src="https://cdn.tailwindcss.com"></script>
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -114,6 +118,9 @@ $og_image_url = $base_url . $og_image;
                     <a href="/gameplay.php" class="nav-link-public <?php if($active_page === 'gameplay.php') echo 'active'; ?>">Gameplay</a>
                     <a href="/community.php" class="nav-link-public <?php if($active_page === 'community.php') echo 'active'; ?>">Community</a>
                     <a href="/stats.php" class="nav-link-public <?php if($active_page === 'stats.php') echo 'active'; ?>">Leaderboards</a>
+                    <a href="/contact_dev.php" class="nav-link-public <?php if($active_page === 'contact_dev.php') echo 'active'; ?>"> Contact Developer </a>
+                    <a href="/terms.php" class="nav-link-public <?php if($active_page === 'terms.php') echo 'active'; ?>">Terms</a>
+                    <a href="/privacy.php" class="nav-link-public <?php if($active_page === 'privacy.php') echo 'active'; ?>">Privacy</a>
                 </nav>
                 <button id="mobile-menu-button" class="md:hidden focus:outline-none">
                     <i data-lucide="menu" class="text-white"></i>
@@ -125,6 +132,9 @@ $og_image_url = $base_url . $og_image;
                 <a href="/gameplay.php" class="hover:text-cyan-300 transition-colors">Gameplay</a>
                 <a href="/community.php" class="hover:text-cyan-300 transition-colors">Community</a>
                 <a href="/stats.php" class="hover:text-cyan-300 transition-colors">Leaderboards</a>
+                <a href="/contact_dev.php" class="hover:text-cyan-300 transition-colors">Contact Developer</a>
+                <a href="/terms.php" class="hover:text-cyan-300 transition-colors">Terms</a>
+                <a href="/privacy.php" class="hover:text-cyan-300 transition-colors">Privacy</a>
             </nav>
         </div>
     </header>

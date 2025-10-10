@@ -283,18 +283,24 @@ $routes = [
     '/verify.php'           => '../template/pages/verify.php',
     '/forgot_password'      => '../template/pages/forgot_password.php',
     '/forgot_password.php'  => '../template/pages/forgot_password.php',
-    '/reset_password'       => '../template/pages/reset_password.php',
-    '/reset_password.php'   => '../template/pages/reset_password.php',
-    '/war_declaration'         => '../template/pages/war_declaration.php',
-    '/war_declaration.php'     => '../template/pages/war_declaration.php',
-    '/war_leaderboard'      => '../template/pages/war_leaderboard.php',
-    '/war_leaderboard.php'  => '../template/pages/war_leaderboard.php',
-    '/realm_war'               => '../template/pages/realm_war.php',
-    '/realm_war.php'           => '../template/pages/realm_war.php',
-    '/alliance_war_history'    => '../template/pages/alliance_war_history.php', // NEW
-    '/alliance_war_history.php'=> '../template/pages/alliance_war_history.php', // NEW
-    '/diplomacy'               => '../template/pages/diplomacy.php',
-    '/diplomacy.php'           => '../template/pages/diplomacy.php',
+    '/reset_password'           => '../template/pages/reset_password.php',
+    '/reset_password.php'       => '../template/pages/reset_password.php',
+    '/war_declaration'          => '../template/pages/war_declaration.php',
+    '/war_declaration.php'      => '../template/pages/war_declaration.php',
+    '/war_leaderboard'          => '../template/pages/war_leaderboard.php',
+    '/war_leaderboard.php'      => '../template/pages/war_leaderboard.php',
+    '/realm_war'                => '../template/pages/realm_war.php',
+    '/realm_war.php'            => '../template/pages/realm_war.php',
+    '/alliance_war_history'     => '../template/pages/alliance_war_history.php', // NEW
+    '/alliance_war_history.php' => '../template/pages/alliance_war_history.php', // NEW
+    '/diplomacy'                => '../template/pages/diplomacy.php',
+    '/diplomacy.php'            => '../template/pages/diplomacy.php',
+    '/contact_dev.php'          => '../template/pages/contact_dev.php',
+    '/contact_dev'              => '../template/pages/contact_dev.php',
+    '/terms.php'                => '../template/pages/terms.php',
+    '/terms'                    => '../template/pages/terms.php',
+    '/privacy.php'              => '../template/pages/privacy.php',
+    '/privacy'                  => '../template/pages/privacy.php',
 
 
     // Alliance Page Views
