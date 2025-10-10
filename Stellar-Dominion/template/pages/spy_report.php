@@ -3,7 +3,7 @@
  * spy_report.php
  *
  * Displays a detailed report of a spy mission with different layouts per mission type.
- * This version is updated to show detailed assassination and sabotage results.
+ * This version is updated to show detailed assassination and sabotage results, including the structure integrity scan.
  */
 
 if (session_status() == PHP_SESSION_NONE) {
@@ -166,7 +166,7 @@ include_once __DIR__ . '/../includes/header.php';
                             </div>
                         <?php endif; ?>
                         
-                         <?php if ($log['mission_type'] === 'sabotage' && $player_won && !empty($detail_raw)): ?>
+                        <?php if ($log['mission_type'] === 'sabotage' && $player_won && !empty($detail_raw)): ?>
                             <div class="md:col-span-2 bg-gray-800/50 p-3 rounded-lg">
                                 <h5 class="font-bold border-b border-gray-600 pb-1 mb-2">Sabotage Results</h5>
                                 <?php
@@ -204,7 +204,7 @@ include_once __DIR__ . '/../includes/header.php';
                                     </ul>
                                 <?php endif; ?>
 
-                                <?php // This block now displays the scan data if it exists for either scenario
+                                <?php // This block now displays the scan data if it exists
                                 if (!empty($structure_scan)): ?>
                                 <div class="mt-3 pt-3 border-t border-gray-700">
                                     <h6 class="font-semibold text-cyan-300 mb-1 text-center">Structure Integrity Scan</h6>
@@ -227,6 +227,7 @@ include_once __DIR__ . '/../includes/header.php';
                                 <?php endif; ?>
                             </div>
                         <?php endif; ?>
+
                     </div>
                 </div>
             </div>

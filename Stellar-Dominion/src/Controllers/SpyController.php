@@ -425,7 +425,6 @@ try {
                     $dmg = (int)floor($hp_now * $pct);
 
                     if ($dmg > 0) {
-                        // Meaningful damage can be dealt. Apply it and conclude the mission here.
                         $sql_dmg = "UPDATE users SET fortification_hitpoints = GREATEST(0, fortification_hitpoints - ?) WHERE id = ?";
                         $stmtS = mysqli_prepare($link, $sql_dmg);
                         mysqli_stmt_bind_param($stmtS, "ii", $dmg, $defender_id);
@@ -444,40 +443,41 @@ try {
 
                 // --- STAGE 2: If foundation was not damaged, attack a structure instead ---
                 if (!$foundation_was_damaged) {
-                    // This runs if HP was already 0 OR was too low to calculate damage.
-                    $structures = ['offense', 'defense', 'armory', 'economy', 'population'];
-                    $target_key = $structures[array_rand($structures)];
-                    ss_ensure_structure_rows($link, (int)$defender_id);
-
-                    $pct_raw = sc_bounded_rand_pct(SPY_SABOTAGE_DMG_MIN, SPY_SABOTAGE_DMG_MAX)
-                               * min(1.5, max(0.75, $effective_ratio));
-                    $damage_percent = (int)floor($pct_raw * 100);
-                    
+                    $target_key = '';
+                    $damage_percent = 0;
                     $new_health = null;
                     $downgraded = false;
+                    
+                    ss_ensure_structure_rows($link, (int)$defender_id);
 
-                    if ($damage_percent > 0) {
-                        // Check current health before applying damage to avoid acting on a 0% structure
-                        $current_health_sql = "SELECT health_pct FROM user_structure_health WHERE user_id = ? AND structure_key = ?";
-                        if($stmt_ch = mysqli_prepare($link, $current_health_sql)) {
-                            mysqli_stmt_bind_param($stmt_ch, "is", $defender_id, $target_key);
-                            mysqli_stmt_execute($stmt_ch);
-                            $ch_res = mysqli_stmt_get_result($stmt_ch);
-                            $ch_row = mysqli_fetch_assoc($ch_res);
-                            mysqli_stmt_close($stmt_ch);
-
-                            if ($ch_row && (int)$ch_row['health_pct'] > 0) {
-                                // Apply damage BEFORE the scan
-                                [$new_health, $downgraded] = ss_apply_structure_damage(
-                                    $link, (int)$defender_id, (string)$target_key, (int)$damage_percent
-                                );
-                            } else {
-                                $damage_percent = 0; // Don't apply damage to an already destroyed structure
-                            }
+                    // Find a random, non-destroyed structure to target
+                    $valid_targets_sql = "SELECT structure_key FROM user_structure_health WHERE user_id = ? AND health_pct > 0";
+                    $valid_targets = [];
+                    if ($stmt_vt = mysqli_prepare($link, $valid_targets_sql)) {
+                        mysqli_stmt_bind_param($stmt_vt, "i", $defender_id);
+                        mysqli_stmt_execute($stmt_vt);
+                        $vt_res = mysqli_stmt_get_result($stmt_vt);
+                        while($vt_row = mysqli_fetch_assoc($vt_res)) {
+                            $valid_targets[] = $vt_row['structure_key'];
                         }
+                        mysqli_stmt_close($stmt_vt);
                     }
 
-                    // Perform a structure scan AFTER damage has been applied
+                    if (!empty($valid_targets)) {
+                        $target_key = $valid_targets[array_rand($valid_targets)];
+                        $pct_raw = sc_bounded_rand_pct(SPY_SABOTAGE_DMG_MIN, SPY_SABOTAGE_DMG_MAX) * min(1.5, max(0.75, $effective_ratio));
+                        $damage_percent = (int)floor($pct_raw * 100);
+
+                        if ($damage_percent > 0) {
+                            [$new_health, $downgraded] = ss_apply_structure_damage($link, (int)$defender_id, (string)$target_key, (int)$damage_percent);
+                        }
+                    } else {
+                        $structures = ['offense', 'defense', 'armory', 'economy', 'population'];
+                        $target_key = $structures[array_rand($structures)];
+                        $damage_percent = 0;
+                    }
+
+                    // Always perform the scan AFTER damage has been resolved
                     $structure_scan = [];
                     $sql_scan = "SELECT structure_key, health_pct FROM user_structure_health WHERE user_id = ?";
                     if ($stmt_scan = mysqli_prepare($link, $sql_scan)) {
@@ -488,6 +488,17 @@ try {
                             $structure_scan[$row['structure_key']] = $row['health_pct'];
                         }
                         mysqli_stmt_close($stmt_scan);
+                    }
+
+                    // *** FAILSAFE *** If scan is empty, generate a default 100% health report.
+                    if (empty($structure_scan)) {
+                        $structure_scan = [
+                            'offense'    => 0,
+                            'defense'    => 0,
+                            'armory'     => 0,
+                            'economy'    => 0,
+                            'population' => 0,
+                        ];
                     }
 
                     $sabotage_details = [
