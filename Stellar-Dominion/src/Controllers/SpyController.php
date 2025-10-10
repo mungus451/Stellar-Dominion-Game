@@ -2,11 +2,11 @@
 /**
  * src/Controllers/SpyController.php
  * Total Sabotage (Loadout) – hard bound to GameData loadouts, no heuristics:
- *  - Uses $armory_loadouts (GameData.php) only for item inclusion.
- *  - Offense = soldier, Defense = guard, Spy = spy, Sentry = sentry, Worker = worker.
- *  - Always includes proper slot items (e.g., helmets in offense).
- *  - Total Sabotage success = raw spy:sentry >= 1.0 (no underdog wins, no luck).
- *  - Loadout destruction = 10–90% (crit adds +10, still max 90%).
+ * - Uses $armory_loadouts (GameData.php) only for item inclusion.
+ * - Offense = soldier, Defense = guard, Spy = spy, Sentry = sentry, Worker = worker.
+ * - Always includes proper slot items (e.g., helmets in offense).
+ * - Total Sabotage success = raw spy:sentry >= 1.0 (no underdog wins, no luck).
+ * - Loadout destruction = 10–90% (crit adds +10, still max 90%).
  */
 
 if (session_status() === PHP_SESSION_NONE) {
@@ -36,11 +36,7 @@ const SPY_RANDOM_BAND         = 0.01; //Luck scalar in [1−band, 1+band]. Defau
 const SPY_MIN_SUCCESS_RATIO   = 1.02; //Needed effective_ratio to pass. Lower (toward 1.00) to make borderline attempts succeed more; raise to bias toward defenders.
 
 // Assassination
-//Kill percent of chosen unit group (workers/soldiers/guards), then queued as untrained for 30 minutes. Actual applied percent is also multiplied by min(1.5, max(0.75, effective_ratio)).
-//Raise for bloodier assassinations; lower if snowballing is too fast.
-
-const SPY_ASSASSINATE_KILL_MIN = 0.02;
-const SPY_ASSASSINATE_KILL_MAX = 0.06;
+const SPY_ASSASSINATE_BASE_KILL_PCT = 0.20; // NEW: Base 20% of army killed.
 
 // Sabotage
 //Raise if structures feel immortal; lower to make forts more resilient. Consider the meta with offense/defense structure multipliers.
@@ -55,6 +51,12 @@ const SPY_XP_ATTACKER_MAX     = 160;
 
 const SPY_XP_DEFENDER_MIN     = 40;
 const SPY_XP_DEFENDER_MAX     = 80;
+
+// NEW XP SCALING FACTORS
+const SPY_XP_TURN_SCALING_FACTOR = 0.25; // +25% XP per turn after the first.
+const SPY_XP_POWER_SCALING_MIN = 0.5;   // Min XP multiplier for being weaker.
+const SPY_XP_POWER_SCALING_MAX = 2.0;   // Max XP multiplier for being stronger.
+
 
 // Intel
 //Number of defender stats sampled from the intel pool (income, powers, unit counts, etc.). Increase to reveal more; keep ≤7 to preserve fog-of-war.
@@ -130,17 +132,24 @@ function sc_sd_item_name_by_key(string $key): string {
 }
 
 /* ------------------------------- XP helpers ------------------------------- */
-function sc_xp_gain_attacker(int $turns, int $level_diff): int {
+function sc_xp_gain_attacker(int $turns, int $level_diff, float $raw_ratio): int {
     $base = mt_rand(SPY_XP_ATTACKER_MIN, SPY_XP_ATTACKER_MAX);
-    $scaleTurns = max(0.75, min(1.5, sqrt(max(1, $turns)) / 2));
+    // New Scaling: More aggressive bonus for using more turns.
+    $scaleTurns = 1 + ((max(1, $turns) - 1) * SPY_XP_TURN_SCALING_FACTOR);
+    // New Scaling: Bonus based on power difference.
+    $scalePower = max(SPY_XP_POWER_SCALING_MIN, min(SPY_XP_POWER_SCALING_MAX, log10(max(1, $raw_ratio * 10))));
+    // Standard level difference scaling.
     $scaleDelta = max(0.1, 1.0 + (0.05 * $level_diff));
-    return max(1, (int)floor($base * $scaleTurns * $scaleDelta));
+    return max(1, (int)floor($base * $scaleTurns * $scaleDelta * $scalePower));
 }
-function sc_xp_gain_defender(int $turns, int $level_diff): int {
+function sc_xp_gain_defender(int $turns, int $level_diff, float $raw_ratio): int {
     $base = mt_rand(SPY_XP_DEFENDER_MIN, SPY_XP_DEFENDER_MAX);
-    $scaleTurns = max(0.75, min(1.25, sqrt(max(1, $turns)) / 2));
+    $scaleTurns = 1 + ((max(1, $turns) - 1) * SPY_XP_TURN_SCALING_FACTOR);
+    // Defender gets bonus if they were stronger than the attacker.
+    $scalePower = max(SPY_XP_POWER_SCALING_MIN, min(SPY_XP_POWER_SCALING_MAX, log10(max(1, (1 / max(0.1, $raw_ratio)) * 10))));
+    // Standard level difference scaling.
     $scaleDelta = max(0.1, 1.0 - (0.05 * $level_diff));
-    return max(1, (int)floor($base * $scaleTurns * $scaleDelta));
+    return max(1, (int)floor($base * $scaleTurns * $scaleDelta * $scalePower));
 }
 
 /* -------- structure health multiplier (dashboard-consistent) -------------- */
@@ -208,18 +217,14 @@ $attacker_id          = (int)$_SESSION['id'];
 $defender_id          = isset($_POST['defender_id'])    ? (int)$_POST['defender_id'] : 0;
 $attack_turns         = isset($_POST['attack_turns'])   ? (int)$_POST['attack_turns'] : 0;
 $mission_type         = $_POST['mission_type']         ?? '';
-$assassination_target = $_POST['assassination_target'] ?? '';
+$assassination_target = $_POST['assassination_target'] ?? ''; // Note: No longer used by assassination logic but kept for other missions.
 
 if ($defender_id <= 0 || $attack_turns < 1 || $attack_turns > 10 || $mission_type === '') {
     $_SESSION['spy_error'] = 'Invalid mission parameters.';
     header('location: /spy.php');
     exit;
 }
-if ($mission_type === 'assassination' && !in_array($assassination_target, ['workers','soldiers','guards'], true)) {
-    $_SESSION['spy_error'] = 'Invalid assassination target.';
-    header('location: /spy.php');
-    exit;
-}
+// Note: Validation for assassination_target is removed as it's no longer mission-critical for this attack type.
 
 /* --------------------------- transaction & logic -------------------------- */
 mysqli_begin_transaction($link);
@@ -300,10 +305,10 @@ try {
     $intel_gathered_json = null;
     $critical            = false;
 
-    // Precompute XP (scaled by relative level)
+    // Precompute XP (scaled by relative level, turns, and power ratio)
     $level_diff = (int)$defender['level'] - (int)$attacker['level'];
-    $attacker_xp_gained = sc_xp_gain_attacker((int)$attack_turns, $level_diff);
-    $defender_xp_gained = sc_xp_gain_defender((int)$attack_turns, $level_diff);
+    $attacker_xp_gained = sc_xp_gain_attacker((int)$attack_turns, $level_diff, (float)$raw_ratio);
+    $defender_xp_gained = sc_xp_gain_defender((int)$attack_turns, $level_diff, (float)$raw_ratio);
 
     if ($mission_type === 'total_sabotage') {
         // STRICT rule: underdog victories disabled; use RAW ratio only
@@ -348,48 +353,155 @@ try {
             }
 
             case 'assassination': {
-                $pct = sc_bounded_rand_pct(SPY_ASSASSINATE_KILL_MIN, SPY_ASSASSINATE_KILL_MAX)
-                       * min(1.5, max(0.75, $effective_ratio));
+                // New logic: Kills a % of the defender's whole army (soldiers and guards).
+                $kill_pct = SPY_ASSASSINATE_BASE_KILL_PCT * min(1.5, max(0.75, $effective_ratio));
 
-                $target_field = $assassination_target; // workers|soldiers|guards
-                $current      = max(0, (int)$defender[$target_field]);
-                $converted    = (int)floor($current * $pct);
+                $current_soldiers = max(0, (int)$defender['soldiers']);
+                $current_guards   = max(0, (int)$defender['guards']);
 
-                if ($converted > 0) {
-                    $sql_dec = "UPDATE users SET {$target_field} = GREATEST(0, {$target_field} - ?) WHERE id = ?";
+                $soldiers_killed = (int)floor($current_soldiers * $kill_pct);
+                $guards_killed   = (int)floor($current_guards * $kill_pct);
+
+                $total_units_killed = $soldiers_killed + $guards_killed;
+
+                if ($total_units_killed > 0) {
+                    // Decrease army size in one query. This happens regardless of the outcome.
+                    $sql_dec = "UPDATE users SET soldiers = GREATEST(0, soldiers - ?), guards = GREATEST(0, guards - ?) WHERE id = ?";
                     $stmtDec = mysqli_prepare($link, $sql_dec);
-                    mysqli_stmt_bind_param($stmtDec, "ii", $converted, $defender_id);
+                    mysqli_stmt_bind_param($stmtDec, "iii", $soldiers_killed, $guards_killed, $defender_id);
                     mysqli_stmt_execute($stmtDec);
                     mysqli_stmt_close($stmtDec);
 
-                    $sql_queue = "INSERT INTO untrained_units (user_id, unit_type, quantity, penalty_ends, available_at)
-                                  VALUES (?, ?, ?, UNIX_TIMESTAMP(UTC_TIMESTAMP() + INTERVAL 30 MINUTE),
-                                              UTC_TIMESTAMP() + INTERVAL 30 MINUTE)";
-                    $stmtQ = mysqli_prepare($link, $sql_queue);
-                    mysqli_stmt_bind_param($stmtQ, "isi", $defender_id, $target_field, $converted);
-                    mysqli_stmt_execute($stmtQ);
-                    mysqli_stmt_close($stmtQ);
+                    // NEW: Check defender's level to determine fate of killed units.
+                    if ((int)$defender['level'] < 30) {
+                        // Defender is BELOW level 30: Units are sent to the untrained queue.
+                        // Add killed soldiers to untrained queue
+                        if ($soldiers_killed > 0) {
+                            $penalty_timestamp = time() + (30 * 60);
+                            $available_datetime = gmdate('Y-m-d H:i:s', $penalty_timestamp);
+                            $sql_q_sol = "INSERT INTO untrained_units (user_id, unit_type, quantity, penalty_ends, available_at) VALUES (?, 'soldiers', ?, ?, ?)";
+                            $stmtQ_sol = mysqli_prepare($link, $sql_q_sol);
+                            mysqli_stmt_bind_param($stmtQ_sol, "iiis", $defender_id, $soldiers_killed, $penalty_timestamp, $available_datetime);
+                            mysqli_stmt_execute($stmtQ_sol);
+                            mysqli_stmt_close($stmtQ_sol);
+                        }
 
-                    $units_killed = $converted;
+                        // Add killed guards to untrained queue
+                        if ($guards_killed > 0) {
+                            $penalty_timestamp = time() + (30 * 60);
+                            $available_datetime = gmdate('Y-m-d H:i:s', $penalty_timestamp);
+                            $sql_q_gua = "INSERT INTO untrained_units (user_id, unit_type, quantity, penalty_ends, available_at) VALUES (?, 'guards', ?, ?, ?)";
+                            $stmtQ_gua = mysqli_prepare($link, $sql_q_gua);
+                            mysqli_stmt_bind_param($stmtQ_gua, "iiis", $defender_id, $guards_killed, $penalty_timestamp, $available_datetime);
+                            mysqli_stmt_execute($stmtQ_gua);
+                            mysqli_stmt_close($stmtQ_gua);
+                        }
+                    }
+                    // If defender is level 30 or higher, we do nothing else.
+                    // The units are already removed from their army, making the loss permanent.
                 }
+                
+                // Set final numbers for logging
+                $units_killed = $total_units_killed;
+                // Add the outcome type to the log for the spy report
+                $kill_outcome_type = ((int)$defender['level'] >= 30) ? 'casualties' : 'untrained';
+                $intel_gathered_json = json_encode([
+                    'soldiers_killed' => $soldiers_killed,
+                    'guards_killed' => $guards_killed,
+                    'kill_outcome' => $kill_outcome_type
+                ]);
                 break;
             }
 
             case 'sabotage': {
                 $hp_now = max(0, (int)$defender['fortification_hitpoints']);
+                $sabotage_details = [];
+                $foundation_was_damaged = false;
+
+                // --- ATTEMPT STAGE 1: Damage Foundation HP ---
                 if ($hp_now > 0) {
                     $pct = sc_bounded_rand_pct(SPY_SABOTAGE_DMG_MIN, SPY_SABOTAGE_DMG_MAX)
                            * min(1.5, max(0.75, $effective_ratio));
                     $dmg = (int)floor($hp_now * $pct);
+
                     if ($dmg > 0) {
+                        // Meaningful damage can be dealt. Apply it and conclude the mission here.
                         $sql_dmg = "UPDATE users SET fortification_hitpoints = GREATEST(0, fortification_hitpoints - ?) WHERE id = ?";
                         $stmtS = mysqli_prepare($link, $sql_dmg);
                         mysqli_stmt_bind_param($stmtS, "ii", $dmg, $defender_id);
                         mysqli_stmt_execute($stmtS);
                         mysqli_stmt_close($stmtS);
+                        
+                        $sabotage_details = [
+                            'type' => 'foundation', 
+                            'damage' => $dmg,
+                            'new_hp' => max(0, $hp_now - $dmg)
+                        ];
                         $structure_damage = $dmg;
+                        $foundation_was_damaged = true;
                     }
                 }
+
+                // --- STAGE 2: If foundation was not damaged, attack a structure instead ---
+                if (!$foundation_was_damaged) {
+                    // This runs if HP was already 0 OR was too low to calculate damage.
+                    $structures = ['offense', 'defense', 'armory', 'economy', 'population'];
+                    $target_key = $structures[array_rand($structures)];
+                    ss_ensure_structure_rows($link, (int)$defender_id);
+
+                    $pct_raw = sc_bounded_rand_pct(SPY_SABOTAGE_DMG_MIN, SPY_SABOTAGE_DMG_MAX)
+                               * min(1.5, max(0.75, $effective_ratio));
+                    $damage_percent = (int)floor($pct_raw * 100);
+                    
+                    $new_health = null;
+                    $downgraded = false;
+
+                    if ($damage_percent > 0) {
+                        // Check current health before applying damage to avoid acting on a 0% structure
+                        $current_health_sql = "SELECT health_pct FROM user_structure_health WHERE user_id = ? AND structure_key = ?";
+                        if($stmt_ch = mysqli_prepare($link, $current_health_sql)) {
+                            mysqli_stmt_bind_param($stmt_ch, "is", $defender_id, $target_key);
+                            mysqli_stmt_execute($stmt_ch);
+                            $ch_res = mysqli_stmt_get_result($stmt_ch);
+                            $ch_row = mysqli_fetch_assoc($ch_res);
+                            mysqli_stmt_close($stmt_ch);
+
+                            if ($ch_row && (int)$ch_row['health_pct'] > 0) {
+                                // Apply damage BEFORE the scan
+                                [$new_health, $downgraded] = ss_apply_structure_damage(
+                                    $link, (int)$defender_id, (string)$target_key, (int)$damage_percent
+                                );
+                            } else {
+                                $damage_percent = 0; // Don't apply damage to an already destroyed structure
+                            }
+                        }
+                    }
+
+                    // Perform a structure scan AFTER damage has been applied
+                    $structure_scan = [];
+                    $sql_scan = "SELECT structure_key, health_pct FROM user_structure_health WHERE user_id = ?";
+                    if ($stmt_scan = mysqli_prepare($link, $sql_scan)) {
+                        mysqli_stmt_bind_param($stmt_scan, "i", $defender_id);
+                        mysqli_stmt_execute($stmt_scan);
+                        $result_scan = mysqli_stmt_get_result($stmt_scan);
+                        while ($row = mysqli_fetch_assoc($result_scan)) {
+                            $structure_scan[$row['structure_key']] = $row['health_pct'];
+                        }
+                        mysqli_stmt_close($stmt_scan);
+                    }
+
+                    $sabotage_details = [
+                        'type'           => 'structure',
+                        'target'         => $target_key,
+                        'damage_pct'     => $damage_percent,
+                        'new_health'     => $new_health,
+                        'downgraded'     => $downgraded,
+                        'structure_scan' => $structure_scan
+                    ];
+                    $structure_damage = $damage_percent;
+                }
+
+                $intel_gathered_json = json_encode($sabotage_details);
                 break;
             }
 
@@ -434,20 +546,20 @@ try {
                     throw new Exception('Invalid target mode.');
                 }
 
-                // Guardrail: TS frequency limits (rolling 24h)
-                $sql_att_once = "
+                // Guardrail: TS frequency limits (rolling 3h)
+                $sql_att_limit = "
                     SELECT COUNT(*) AS c
                       FROM spy_logs
                      WHERE attacker_id = ?
                        AND mission_type = 'total_sabotage'
-                       AND mission_time >= (UTC_TIMESTAMP() - INTERVAL 24 HOUR)";
-                $stA = mysqli_prepare($link, $sql_att_once);
+                       AND mission_time >= (UTC_TIMESTAMP() - INTERVAL 3 HOUR)";
+                $stA = mysqli_prepare($link, $sql_att_limit);
                 mysqli_stmt_bind_param($stA, "i", $attacker_id);
                 mysqli_stmt_execute($stA);
                 $rowA = mysqli_fetch_assoc(mysqli_stmt_get_result($stA));
                 mysqli_stmt_close($stA);
-                if ((int)($rowA['c'] ?? 0) >= 1) {
-                    throw new Exception('You can only use Total Sabotage once every 24 hours.');
+                if ((int)($rowA['c'] ?? 0) >= 5) {
+                    throw new Exception('You can only use Total Sabotage 5 times every 3 hours.');
                 }
 
                 $sql_def_cap = "
@@ -455,14 +567,14 @@ try {
                       FROM spy_logs
                      WHERE defender_id = ?
                        AND mission_type = 'total_sabotage'
-                       AND mission_time >= (UTC_TIMESTAMP() - INTERVAL 24 HOUR)";
+                       AND mission_time >= (UTC_TIMESTAMP() - INTERVAL 3 HOUR)";
                 $stD = mysqli_prepare($link, $sql_def_cap);
                 mysqli_stmt_bind_param($stD, "i", $defender_id);
                 mysqli_stmt_execute($stD);
                 $rowD = mysqli_fetch_assoc(mysqli_stmt_get_result($stD));
                 mysqli_stmt_close($stD);
                 if ((int)($rowD['c'] ?? 0) >= 5) {
-                    throw new Exception('This player has already been Total Sabotaged 5 times in the last 24 hours.');
+                    throw new Exception('This player has already been Total Sabotaged 5 times in the last 3 hours.');
                 }
 
                 // progressive cost
