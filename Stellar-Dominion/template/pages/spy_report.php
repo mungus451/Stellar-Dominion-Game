@@ -144,16 +144,22 @@ include_once __DIR__ . '/../includes/header.php';
                             <div class="md:col-span-2 bg-gray-800/50 p-3 rounded-lg">
                                 <h5 class="font-bold border-b border-gray-600 pb-1 mb-2">Assassination Results</h5>
                                 <?php
-                                $soldiers_killed = (int)($detail_raw['soldiers_killed'] ?? 0);
-                                $guards_killed   = (int)($detail_raw['guards_killed'] ?? 0);
-                                $total_killed    = $soldiers_killed + $guards_killed;
-                                $kill_outcome    = (string)($detail_raw['kill_outcome'] ?? 'untrained');
+                                // New generic logic for displaying assassination results
+                                $target_unit  = (string)($detail_raw['target_unit'] ?? 'units');
+                                $units_killed = (int)($detail_raw['units_killed'] ?? 0);
+                                $kill_outcome = (string)($detail_raw['kill_outcome'] ?? 'untrained');
+                                $target_label = htmlspecialchars(ucfirst($target_unit)) . ' Killed';
                                 ?>
-                                <?php if ($total_killed > 0): ?>
+                                <?php if ($units_killed > 0): ?>
                                     <ul class="space-y-1 mb-3">
-                                        <li class="flex justify-between"><span>Soldiers Killed:</span> <span class="font-semibold text-red-400">-<?php echo number_format($soldiers_killed); ?></span></li>
-                                        <li class="flex justify-between"><span>Guards Killed:</span> <span class="font-semibold text-red-400">-<?php echo number_format($guards_killed); ?></span></li>
-                                        <li class="flex justify-between border-t border-gray-700 mt-2 pt-2"><strong>Total Units Lost:</strong> <strong class="text-red-300">-<?php echo number_format($total_killed); ?></strong></li>
+                                        <li class="flex justify-between">
+                                            <span><?php echo $target_label; ?>:</span> 
+                                            <span class="font-semibold text-red-400">-<?php echo number_format($units_killed); ?></span>
+                                        </li>
+                                        <li class="flex justify-between border-t border-gray-700 mt-2 pt-2">
+                                            <strong>Total Units Lost:</strong> 
+                                            <strong class="text-red-300">-<?php echo number_format($units_killed); ?></strong>
+                                        </li>
                                     </ul>
                                     <?php if ($kill_outcome === 'casualties'): ?>
                                         <p class="text-center text-sm font-semibold text-orange-400 p-2 bg-red-900/40 rounded">Losses are permanent casualties.</p>

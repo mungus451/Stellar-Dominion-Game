@@ -353,61 +353,51 @@ try {
             }
 
             case 'assassination': {
-                // New logic: Kills a % of the defender's whole army (soldiers and guards).
+                // Logic now respects the user's selected target unit.
+                $target_unit_col = $assassination_target; // This is 'workers', 'soldiers', or 'guards' from the form
+                
+                // Failsafe validation
+                if (!in_array($target_unit_col, ['workers', 'soldiers', 'guards'])) {
+                    throw new Exception('Invalid assassination target specified.');
+                }
+
                 $kill_pct = SPY_ASSASSINATE_BASE_KILL_PCT * min(1.5, max(0.75, $effective_ratio));
+                $current_units = max(0, (int)$defender[$target_unit_col]);
+                $units_to_kill = (int)floor($current_units * $kill_pct);
+                
+                // Determine the fate of killed units
+                $kill_outcome_type = ((int)$defender['level'] >= 30) ? 'casualties' : 'untrained';
+                // Workers are always permanent casualties
+                if ($target_unit_col === 'workers') {
+                    $kill_outcome_type = 'casualties';
+                }
 
-                $current_soldiers = max(0, (int)$defender['soldiers']);
-                $current_guards   = max(0, (int)$defender['guards']);
-
-                $soldiers_killed = (int)floor($current_soldiers * $kill_pct);
-                $guards_killed   = (int)floor($current_guards * $kill_pct);
-
-                $total_units_killed = $soldiers_killed + $guards_killed;
-
-                if ($total_units_killed > 0) {
-                    // Decrease army size in one query. This happens regardless of the outcome.
-                    $sql_dec = "UPDATE users SET soldiers = GREATEST(0, soldiers - ?), guards = GREATEST(0, guards - ?) WHERE id = ?";
+                if ($units_to_kill > 0) {
+                    // Use backticks to safely use the variable as a column name
+                    $sql_dec = "UPDATE users SET `{$target_unit_col}` = GREATEST(0, `{$target_unit_col}` - ?) WHERE id = ?";
                     $stmtDec = mysqli_prepare($link, $sql_dec);
-                    mysqli_stmt_bind_param($stmtDec, "iii", $soldiers_killed, $guards_killed, $defender_id);
+                    mysqli_stmt_bind_param($stmtDec, "ii", $units_to_kill, $defender_id);
                     mysqli_stmt_execute($stmtDec);
                     mysqli_stmt_close($stmtDec);
 
-                    // NEW: Check defender's level to determine fate of killed units.
-                    if ((int)$defender['level'] < 30) {
-                        // Defender is BELOW level 30: Units are sent to the untrained queue.
-                        // Add killed soldiers to untrained queue
-                        if ($soldiers_killed > 0) {
-                            $penalty_timestamp = time() + (30 * 60);
-                            $available_datetime = gmdate('Y-m-d H:i:s', $penalty_timestamp);
-                            $sql_q_sol = "INSERT INTO untrained_units (user_id, unit_type, quantity, penalty_ends, available_at) VALUES (?, 'soldiers', ?, ?, ?)";
-                            $stmtQ_sol = mysqli_prepare($link, $sql_q_sol);
-                            mysqli_stmt_bind_param($stmtQ_sol, "iiis", $defender_id, $soldiers_killed, $penalty_timestamp, $available_datetime);
-                            mysqli_stmt_execute($stmtQ_sol);
-                            mysqli_stmt_close($stmtQ_sol);
-                        }
-
-                        // Add killed guards to untrained queue
-                        if ($guards_killed > 0) {
-                            $penalty_timestamp = time() + (30 * 60);
-                            $available_datetime = gmdate('Y-m-d H:i:s', $penalty_timestamp);
-                            $sql_q_gua = "INSERT INTO untrained_units (user_id, unit_type, quantity, penalty_ends, available_at) VALUES (?, 'guards', ?, ?, ?)";
-                            $stmtQ_gua = mysqli_prepare($link, $sql_q_gua);
-                            mysqli_stmt_bind_param($stmtQ_gua, "iiis", $defender_id, $guards_killed, $penalty_timestamp, $available_datetime);
-                            mysqli_stmt_execute($stmtQ_gua);
-                            mysqli_stmt_close($stmtQ_gua);
-                        }
+                    // If defender is low level, move military units to the untrained queue
+                    if ($kill_outcome_type === 'untrained' && in_array($target_unit_col, ['soldiers', 'guards'])) {
+                        $penalty_timestamp = time() + (30 * 60);
+                        $available_datetime = gmdate('Y-m-d H:i:s', $penalty_timestamp);
+                        $sql_q = "INSERT INTO untrained_units (user_id, unit_type, quantity, penalty_ends, available_at) VALUES (?, ?, ?, ?, ?)";
+                        $stmtQ = mysqli_prepare($link, $sql_q);
+                        // The unit_type column in untrained_units is a string and can accept 'soldiers' or 'guards'
+                        mysqli_stmt_bind_param($stmtQ, "isiis", $defender_id, $target_unit_col, $units_to_kill, $penalty_timestamp, $available_datetime);
+                        mysqli_stmt_execute($stmtQ);
+                        mysqli_stmt_close($stmtQ);
                     }
-                    // If defender is level 30 or higher, we do nothing else.
-                    // The units are already removed from their army, making the loss permanent.
                 }
                 
-                // Set final numbers for logging
-                $units_killed = $total_units_killed;
-                // Add the outcome type to the log for the spy report
-                $kill_outcome_type = ((int)$defender['level'] >= 30) ? 'casualties' : 'untrained';
+                // Set final numbers for logging using a new, generic format
+                $units_killed = $units_to_kill;
                 $intel_gathered_json = json_encode([
-                    'soldiers_killed' => $soldiers_killed,
-                    'guards_killed' => $guards_killed,
+                    'target_unit'  => $target_unit_col,
+                    'units_killed' => $units_to_kill,
                     'kill_outcome' => $kill_outcome_type
                 ]);
                 break;
