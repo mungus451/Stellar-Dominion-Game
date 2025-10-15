@@ -44,7 +44,7 @@ include_once __DIR__ . '/../includes/header.php';
 <!-- This is a special announcement box to tell players about game updates. -->
 <div class="lg:col-span-4">
     <div class="rounded-xl border border-yellow-500/50 bg-yellow-900/60 p-3 md:p-4 shadow text-yellow-200 text-sm md:text-base text-center">
-        Econonomic and Military Power rebalance 10-08-2025. Due to the runaway economy we were experiencing a economic rebalance has been implemented. You now only recieve the highest singular bonus from your structures and alliance structures. This is unfortunately an unavoidable part of development and will be done as little as possible to maintain playability! Thankyou for your support, feel free to contact the Dev on discord!
+        ATTENTION! Hard Reset Performed! 10-15-2025. All alliances have been deleted, all records wiped. We now have Vaults. They limit your on-hand credit capacity. Each vault grants 3 billion in on hand capacity, and each vault after the initial will cost 1 billion+ and 10 million/ turn in maintenance. Any credits produced that ovcerflows beyond your cap is burned. There is no cap on the balance for your bank.  This is unfortunately an unavoidable part of development and will be done as little as possible to maintain playability! Thankyou for your support, feel free to contact the Dev on discord!
     </div>
 </div>
 
