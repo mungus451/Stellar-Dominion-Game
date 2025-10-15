@@ -16,6 +16,12 @@ require_once __DIR__ . '/../Game/GameData.php';
 require_once __DIR__ . '/../Game/GameFunctions.php';
 require_once __DIR__ . '/../Services/StateService.php';
 require_once __DIR__ . '/../Services/BadgeService.php';
+// Optional: used only to read BASE_VAULT_CAPACITY if present; safe if missing.
+$__vault_service_path = __DIR__ . '/../Services/VaultService.php';
+if (file_exists($__vault_service_path)) {
+    require_once $__vault_service_path;
+}
+unset($__vault_service_path);
 
 // --- CSRF TOKEN VALIDATION ---
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
@@ -138,22 +144,18 @@ function sd_struct_mult_from_pct(int $pct): float {
 // ─────────────────────────────────────────────────────────────────────────────
 
 // Attack turns & win threshold
-const ATK_TURNS_SOFT_EXP          = 0.50; // Lower = gentler curve (more benefit spreads across 1–10 turns), Higher = steeper early benefit then flat.
-const ATK_TURNS_MAX_MULT          = 1.45; // Raise (e.g., 1.5) if multi-turns should feel stronger; lower (e.g., 1.25) to compress power creep.
-const UNDERDOG_MIN_RATIO_TO_WIN   = 0.985; // Raise (→1.00–1.02) to reduce upsets; lower (→0.97–0.98) to allow more underdog wins.
-const RANDOM_NOISE_MIN            = 1.00; // Narrow (e.g., 0.99–1.01) for more deterministic outcomes; 
-const RANDOM_NOISE_MAX            = 1.02; // Widen (e.g., 0.95–1.05) for chaos.
+const ATK_TURNS_SOFT_EXP          = 0.50;
+const ATK_TURNS_MAX_MULT          = 1.45;
+const UNDERDOG_MIN_RATIO_TO_WIN   = 0.985;
+const RANDOM_NOISE_MIN            = 1.00;
+const RANDOM_NOISE_MAX            = 1.02;
 
 // Credits plunder
-// How it works: steal_pct = min(CAP, BASE + GROWTH * clamp(R-1, 0..1))
-//                              R≤1 → BASE
-//                              R≥2 → BASE + GROWTH (capped by CAP)
-const CREDITS_STEAL_CAP_PCT       = 0.3;  // Base per-battle cap BEFORE turns scaling.
-const CREDITS_STEAL_BASE_PCT      = 0.08; // Raise to make average wins more lucrative.
-const CREDITS_STEAL_GROWTH        = 0.1;  // Raise to reward big mismatches; lower to keep gains flatter.
+const CREDITS_STEAL_CAP_PCT       = 0.3;
+const CREDITS_STEAL_BASE_PCT      = 0.08;
+const CREDITS_STEAL_GROWTH        = 0.1;
 
 // NEW: Turn-based hard cap vs defender on-hand credits (post-scaling).
-// Example: 1 turn => 9%, 5 turns => 45%, 10 turns => 90% (max).
 const CREDITS_TURNS_CAP_PER_TURN  = 0.09;
 const CREDITS_TURNS_CAP_MAX       = 0.30;
 
@@ -178,7 +180,10 @@ const BASE_PRESTIGE_GAIN          = 10;
 // ─────────────────────────────────────────────────────────────────────────────
 // ALLIANCE BONUSES / TRIBUTE (TUNING KNOBS)
 // ─────────────────────────────────────────────────────────────────────────────
-const ALLIANCE_BASE_COMBAT_BONUS      = 0.10; // +10%
+// NOTE: config/balance.php may define this; guard to avoid "already defined" warning.
+if (!defined('ALLIANCE_BASE_COMBAT_BONUS')) {
+    define('ALLIANCE_BASE_COMBAT_BONUS', 0.10); // +10%
+}
 const LOSING_ALLIANCE_TRIBUTE_PCT     = 0.05; // 5%
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -196,8 +201,8 @@ const XP_DEF_LOSE_MAX                 = 125;
 const XP_LEVEL_SLOPE_VS_HIGHER        = 0.07;
 const XP_LEVEL_SLOPE_VS_LOWER         = 0.05;
 const XP_LEVEL_MIN_MULT               = 0.10;
-const XP_ATK_TURNS_EXP                = 1.0;  // 1.0 = linear by turns; <1 softens, >1 amplifies
-const XP_DEF_TURNS_EXP                = 0.0;  // 0.0 = ignore turns for defender (legacy)
+const XP_ATK_TURNS_EXP                = 1.0;
+const XP_DEF_TURNS_EXP                = 0.0;
 
 // Anti-farm limits
 const HOURLY_FULL_LOOT_CAP            = 5;
@@ -339,7 +344,7 @@ try {
     // ─────────────────────────────────────────────────────────────────────────
     // DATA FETCHING WITH ROW-LEVEL LOCKS
     // ─────────────────────────────────────────────────────────────────────────
-    $sql_attacker = "SELECT level, character_name, attack_turns, soldiers, credits, strength_points, offense_upgrade_level, alliance_id 
+    $sql_attacker = "SELECT level, character_name, attack_turns, soldiers, credits, banked_credits, gemstones, strength_points, offense_upgrade_level, alliance_id 
                      FROM users WHERE id = ? FOR UPDATE";
     $stmt_attacker = mysqli_prepare($link, $sql_attacker);
     mysqli_stmt_bind_param($stmt_attacker, "i", $attacker_id);
@@ -361,7 +366,7 @@ try {
 
     // Guardrail 2: ±25 level bracket for all battle attacks
     $level_diff_abs = abs(((int)$attacker['level']) - ((int)$defender['level']));
-    if ($level_diff_abs > 25) {
+    if ($level_diff_abs > 50) {
         throw new Exception("You can only attack players within ±25 levels of you.");
     }
 
@@ -425,16 +430,14 @@ try {
     }
 
     // -------------------------------------------------------------------------
-    // BATTLE FATIGUE CHECK (kept as-is; stacks with above rules)
-    // Also scale fatigue casualties by attack turns using the same exponent knob.
+    // BATTLE FATIGUE CHECK
     // -------------------------------------------------------------------------
     $fatigue_casualties = 0;
     if ($hour_count >= 10) {
-        $attacks_over_limit = $hour_count - 9; // 11th attack (count 10) is 1 over
+        $attacks_over_limit = $hour_count - 9;
         $penalty_percentage = 0.01 * $attacks_over_limit;
         $fatigue_casualties = (int)floor((int)$attacker['soldiers'] * $penalty_percentage);
 
-        // scale by turns (same knob as combat casualty turns scaling)
         $fatigue_turns_mult = pow(max(1, (int)$attack_turns), ATK_SOLDIER_LOSS_TURNS_EXP);
         if ($fatigue_turns_mult > 0) {
             $fatigue_casualties = (int)floor($fatigue_casualties * $fatigue_turns_mult);
@@ -442,12 +445,7 @@ try {
     }
     $fatigue_casualties = max(0, min((int)$fatigue_casualties, (int)$attacker['soldiers']));
 
-    // ─────────────────────────────────────────────────────────────────────────
-    // TREATY ENFORCEMENT CHECK
-    // ─────────────────────────────────────────────────────────────────────────
-    if (!empty($attacker['alliance_id']) && !empty($defender['alliance_id'])) {
-        // Peace/ceasefire no longer enforced; attacks always allowed.
-    }
+    // TREATY ENFORCEMENT no-op (attacks allowed)
 
     // ─────────────────────────────────────────────────────────────────────────
     // BATTLE CALCULATION
@@ -560,7 +558,7 @@ try {
     }
 
     // ─────────────────────────────────────────────────────────────────────────
-    // ATTACKER SOLDIER COMBAT CASUALTIES (adds to fatigue_casualties)
+    // ATTACKER SOLDIER COMBAT CASUALTIES
     // ─────────────────────────────────────────────────────────────────────────
     $S0_att = max(0, (int)$attacker['soldiers']);
     if ($S0_att > 0) {
@@ -580,7 +578,7 @@ try {
     }
 
     // ─────────────────────────────────────────────────────────────────────────
-    // PLUNDER (CREDITS STOLEN) WITH CAP + NEW LOOT FACTOR + TURN-BASED HARD CAP
+    // PLUNDER (CREDITS STOLEN)
     // ─────────────────────────────────────────────────────────────────────────
     $credits_stolen = 0;
     if ($attacker_wins) {
@@ -600,25 +598,22 @@ try {
             * $loot_factor
         );
 
-        // NEW: Turn-based hard cap vs on-hand credits (prevents 100% wipes).
-        // 1 turn => 9%, 10 turns => 90% (max).
+        // Turn-based hard cap vs on-hand credits.
         $turn_cap_pct = min(CREDITS_TURNS_CAP_PER_TURN * max(1, (int)$attack_turns), CREDITS_TURNS_CAP_MAX);
         $turn_cap_credits = (int)floor($defender_credits_before * $turn_cap_pct);
 
-        // Enforce the turn-based cap
         $credits_stolen = min($scaled_plunder, $turn_cap_credits);
     }
     // Final clamp to current on-hand credits (race-safe)
     $actual_stolen = min($credits_stolen, max(0, (int)$defender['credits']));
 
     // ─────────────────────────────────────────────────────────────────────────
-    // STRUCTURE (FOUNDATION) DAMAGE + STRUCTURE DISTRIBUTION WHEN HP=0
+    // STRUCTURE DAMAGE
     // ─────────────────────────────────────────────────────────────────────────
     $structure_damage = 0;
     $hp0 = max(0, (int)($defender['fortification_hitpoints'] ?? 0));
     if ($hp0 > 0) {
         if ($attacker_wins) {
-            // Guard shielding (proportional, capped)
             $ratio_after = ($G_after > 0 && $G0 > 0) ? ($G_after / $G0) : 0.0;
             $guardShield = 1.0 - min(STRUCT_GUARD_PROTECT_FACTOR, STRUCT_GUARD_PROTECT_FACTOR * $ratio_after);
 
@@ -648,22 +643,21 @@ try {
                 (int)$total_structure_percent_damage
             );
         }
-        // Keep $structure_damage at 0 (this field represents foundation HP damage only)
         $structure_damage = 0;
     }
 
     // ─────────────────────────────────────────────────────────────────────────
-    // EXPERIENCE (XP) GAINS — Tunable
+    // EXPERIENCE (XP) GAINS
     // ─────────────────────────────────────────────────────────────────────────
     // Attacker
-    $level_diff_attacker   = ((int)$defender['level']) - ((int)$attacker['level']); // + if target higher
+    $level_diff_attacker   = ((int)$defender['level']) - ((int)$attacker['level']);
     $atk_base              = $attacker_wins ? mt_rand(XP_ATK_WIN_MIN, XP_ATK_WIN_MAX) : mt_rand(XP_ATK_LOSE_MIN, XP_ATK_LOSE_MAX);
     $atk_level_mult        = max(XP_LEVEL_MIN_MULT, 1 + ($level_diff_attacker * ($level_diff_attacker > 0 ? XP_LEVEL_SLOPE_VS_HIGHER : XP_LEVEL_SLOPE_VS_LOWER)));
     $atk_turns_mult        = pow(max(1, (int)$attack_turns), XP_ATK_TURNS_EXP);
     $attacker_xp_gained    = max(1, (int)floor($atk_base * $atk_turns_mult * $atk_level_mult * XP_GLOBAL_MULT));
 
     // Defender
-    $level_diff_defender   = ((int)$attacker['level']) - ((int)$defender['level']); // + if attacker higher
+    $level_diff_defender   = ((int)$attacker['level']) - ((int)$defender['level']);
     $def_base              = $attacker_wins ? mt_rand(XP_DEF_WIN_MIN, XP_DEF_WIN_MAX) : mt_rand(XP_DEF_LOSE_MIN, XP_DEF_LOSE_MAX);
     $def_level_mult        = max(XP_LEVEL_MIN_MULT, 1 + ($level_diff_defender * ($level_diff_defender > 0 ? XP_LEVEL_SLOPE_VS_HIGHER : XP_LEVEL_SLOPE_VS_LOWER)));
     $def_turns_mult        = pow(max(1, (int)$attack_turns), XP_DEF_TURNS_EXP);
@@ -672,10 +666,12 @@ try {
     // ─────────────────────────────────────────────────────────────────────────
     // POST-BATTLE ECON/STATE UPDATES
     // ─────────────────────────────────────────────────────────────────────────
-    if ($attacker_wins) {
-        $loan_repayment = 0;
-        $alliance_tax   = 0;
+    $attacker_net_gain = 0;
+    $alliance_tax = 0;
+    $losing_alliance_tribute = 0;
+    $loan_repayment = 0;
 
+    if ($attacker_wins) {
         if ($attacker['alliance_id'] !== NULL) {
             // Loan auto-repayment from plunder
             $sql_loan = "SELECT id, amount_to_repay FROM alliance_loans WHERE user_id = ? AND status = 'active' FOR UPDATE";
@@ -727,7 +723,6 @@ try {
         }
 
         // Losing alliance tribute (5% of victor's actual winnings)
-        $losing_alliance_tribute = 0;
         if (!empty($defender['alliance_id'])) {
             $losing_alliance_tribute = (int)floor($actual_stolen * LOSING_ALLIANCE_TRIBUTE_PCT);
             if ($losing_alliance_tribute > 0) {
@@ -747,9 +742,40 @@ try {
         // Net to attacker after loan, tax, and losing alliance tribute
         $attacker_net_gain = max(0, $actual_stolen - $alliance_tax - $loan_repayment - $losing_alliance_tribute);
 
+        // ─────────────────────────────────────────────────────────────────────
+        // VAULT CAP ENFORCEMENT (burn overage) + ATTACKER/DEFENDER UPDATES
+        // ─────────────────────────────────────────────────────────────────────
+        // Read attacker's vaults (row-level lock; inside same transaction)
+        $active_vaults = 1;
+        $stmt_v = mysqli_prepare($link, "SELECT active_vaults FROM user_vaults WHERE user_id = ? FOR UPDATE");
+        mysqli_stmt_bind_param($stmt_v, "i", $attacker_id);
+        mysqli_stmt_execute($stmt_v);
+        $row_v = mysqli_fetch_assoc(mysqli_stmt_get_result($stmt_v));
+        mysqli_stmt_close($stmt_v);
+        if ($row_v && isset($row_v['active_vaults'])) {
+            $active_vaults = max(1, (int)$row_v['active_vaults']);
+        }
+
+        // Determine per-vault capacity
+        $cap_per_vault = 3000000000; // safe fallback
+        if (class_exists('\\StellarDominion\\Services\\VaultService') && defined('\\StellarDominion\\Services\\VaultService::BASE_VAULT_CAPACITY')) {
+            /** @noinspection PhpUndefinedClassConstantInspection */
+            $cap_per_vault = (int)\StellarDominion\Services\VaultService::BASE_VAULT_CAPACITY;
+        }
+
+        $on_hand_before = (int)$attacker['credits'];
+        $banked_before  = (int)$attacker['banked_credits'];
+        $gems_before    = (int)$attacker['gemstones'];
+
+        $vault_cap      = (int)$cap_per_vault * max(1, (int)$active_vaults);
+        $headroom       = max(0, $vault_cap - $on_hand_before);
+
+        $granted_credits = min($attacker_net_gain, $headroom);
+        $burned_over_cap = max(0, $attacker_net_gain - $granted_credits);
+
         // Apply deltas
         $stmt_att_update = mysqli_prepare($link, "UPDATE users SET credits = credits + ?, experience = experience + ?, soldiers = GREATEST(0, soldiers - ?) WHERE id = ?");
-        mysqli_stmt_bind_param($stmt_att_update, "iiii", $attacker_net_gain, $attacker_xp_gained, $fatigue_casualties, $attacker_id);
+        mysqli_stmt_bind_param($stmt_att_update, "iiii", $granted_credits, $attacker_xp_gained, $fatigue_casualties, $attacker_id);
         mysqli_stmt_execute($stmt_att_update);
         mysqli_stmt_close($stmt_att_update);
 
@@ -757,6 +783,10 @@ try {
         mysqli_stmt_bind_param($stmt_def_update, "iiiii", $actual_stolen, $defender_xp_gained, $G_after, $structure_damage, $defender_id);
         mysqli_stmt_execute($stmt_def_update);
         mysqli_stmt_close($stmt_def_update);
+
+        $on_hand_after = $on_hand_before + $granted_credits;
+        $banked_after  = $banked_before;
+        $gems_after    = $gems_before;
 
     } else {
         // Defeat: XP and fatigue casualties only
@@ -769,6 +799,16 @@ try {
         mysqli_stmt_bind_param($stmt_def_update, "ii", $defender_xp_gained, $defender_id);
         mysqli_stmt_execute($stmt_def_update);
         mysqli_stmt_close($stmt_def_update);
+
+        // For logging continuity
+        $granted_credits = 0;
+        $burned_over_cap = 0;
+        $on_hand_before  = (int)$attacker['credits'];
+        $banked_before   = (int)$attacker['banked_credits'];
+        $gems_before     = (int)$attacker['gemstones'];
+        $on_hand_after   = $on_hand_before;
+        $banked_after    = $banked_before;
+        $gems_after      = $gems_before;
     }
 
     // Spend turns
@@ -816,16 +856,14 @@ try {
     $battle_log_id = mysqli_insert_id($link);
     mysqli_stmt_close($stmt_log);
 
-    // ── Badges: warmonger / plunderer / heist / nemesis / defense tiers (+XP checks)
+    // Badges (non-blocking)
     try {
         \StellarDominion\Services\BadgeService::seed($link);
         \StellarDominion\Services\BadgeService::evaluateAttack($link, (int)$attacker_id, (int)$defender_id, (string)$outcome);
-    } catch (\Throwable $e) {
-        // non-fatal: do not block battle flow
-    }
+    } catch (\Throwable $e) { /* swallow */ }
 
     // ─────────────────────────────────────────────────────────────────────────
-    // ARMORY ATTRITION (Attacker Only) — applied inside the same transaction
+    // ARMORY ATTRITION (Attacker Only)
     // ─────────────────────────────────────────────────────────────────────────
     if (ARMORY_ATTRITION_ENABLED) {
         $attacker_soldiers_lost = max(0, (int)$fatigue_casualties);
@@ -833,6 +871,46 @@ try {
             sd_apply_armory_attrition($link, (int)$attacker_id, (int)$attacker_soldiers_lost, $owned_items);
         }
     }
+
+    // ─────────────────────────────────────────────────────────────────────────
+    // ECONOMIC LOG (battle_reward with burned_amount over vault cap)
+    // ─────────────────────────────────────────────────────────────────────────
+    // Only log on explicit battle attempt (always; burned can be 0)
+    $metadata = json_encode([
+        'defender_id' => (int)$defender_id,
+        'battle_outcome' => $outcome,
+        'gross_attacker_award' => (int)$attacker_net_gain,
+        'alliance_tax' => (int)$alliance_tax,
+        'loan_repayment' => (int)$loan_repayment,
+        'losing_alliance_tribute' => (int)$losing_alliance_tribute,
+        'burn_reason' => 'vault_cap',
+        'battle_log_id' => (int)$battle_log_id
+    ], JSON_UNESCAPED_SLASHES);
+
+    $stmt_econ = mysqli_prepare(
+        $link,
+        "INSERT INTO economic_log 
+            (user_id, event_type, amount, burned_amount, on_hand_before, on_hand_after, banked_before, banked_after, gems_before, gems_after, reference_id, metadata)
+         VALUES (?, 'battle_reward', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"
+    );
+    // Types: 10 ints + 1 string => "iiiiiiiiiis"
+    mysqli_stmt_bind_param(
+        $stmt_econ,
+        "iiiiiiiiiis",
+        $attacker_id,
+        $granted_credits,      // amount actually granted (post-burn)
+        $burned_over_cap,      // burned_amount
+        $on_hand_before,
+        $on_hand_after,
+        $banked_before,
+        $banked_after,
+        $gems_before,
+        $gems_after,
+        $battle_log_id,
+        $metadata
+    );
+    mysqli_stmt_execute($stmt_econ);
+    mysqli_stmt_close($stmt_econ);
 
     // Commit + redirect to battle report
     mysqli_commit($link);
@@ -849,12 +927,6 @@ try {
 /**
  * Armory Attrition Helper (attacker only)
  * Removes offensive loadout items when soldiers are lost in battle.
- * Rule: For EACH category in ARMORY_ATTRITION_CATEGORIES,
- *       remove (ARMORY_ATTRITION_MULTIPLIER × soldiers_lost) items,
- *       consuming highest-tier first (by 'attack' stat from GameData).
- * - Runs inside the main transaction.
- * - Uses prepared UPDATEs with GREATEST(0, ...) to avoid negatives.
- * - $owned_items can be provided to avoid re-fetch; falls back to DB if null.
  */
 function sd_apply_armory_attrition(mysqli $link, int $user_id, int $soldiers_lost, ?array $owned_items = null): void {
     global $armory_loadouts;
@@ -864,7 +936,6 @@ function sd_apply_armory_attrition(mysqli $link, int $user_id, int $soldiers_los
 
     $per_category = $soldiers_lost * $mult;
 
-    // Categories are provided as CSV (runtime-tunable without code changes)
     $cats_csv = (string)ARMORY_ATTRITION_CATEGORIES;
     $cat_keys = array_filter(array_map('trim', explode(',', $cats_csv)));
 
@@ -874,18 +945,15 @@ function sd_apply_armory_attrition(mysqli $link, int $user_id, int $soldiers_los
         $owned_items = fetch_user_armory($link, $user_id);
     }
 
-    // Prepare update once
     $sql_update = "UPDATE user_armory SET quantity = GREATEST(0, quantity - ?) WHERE user_id = ? AND item_key = ?";
     $stmt_update = mysqli_prepare($link, $sql_update);
 
     foreach ($cat_keys as $cat_key) {
-        // Validate category is in GameData
         if (!isset($armory_loadouts['soldier']['categories'][$cat_key])) continue;
         $cat = $armory_loadouts['soldier']['categories'][$cat_key];
         $items = $cat['items'] ?? [];
         if (!$items) continue;
 
-        // Build list of owned items in this category with their 'attack' stat
         $rows = [];
         foreach ($items as $item_key => $def) {
             $qty = (int)($owned_items[$item_key] ?? 0);
@@ -895,7 +963,6 @@ function sd_apply_armory_attrition(mysqli $link, int $user_id, int $soldiers_los
         }
         if (!$rows) continue;
 
-        // Highest-tier first by 'attack' stat
         usort($rows, function($a, $b) { return $b['atk'] <=> $a['atk']; });
 
         $remain = $per_category;

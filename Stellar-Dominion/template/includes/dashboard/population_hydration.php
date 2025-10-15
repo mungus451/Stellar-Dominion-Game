@@ -2,14 +2,17 @@
 declare(strict_types=1);
 
 /**
- * Population hydrator (complete)
- * - Hydrates unit counts (workers, untrained, soldiers, guards, sentries, spies)
- * - Publishes $total_population for the profile card
- * - Builds $chips['population'] (flat + %) from alliance structures, alliance base, upgrades
- * - Computes $citizens_per_turn from those same pieces so headline and chips agree
+ * Population hydrator (6-source model with alliance categories, fixed Slot 5 classification)
+ * Sources used (display + math):
+ *   1) base (flat)
+ *   2) alliance membership flat (flat)
+ *   3) your current population upgrade (current tier only; can have flat and/or %)
+ *   4) alliance Slot 4 = Population Boosters (pick ONE best; flat citizens)
+ *   5) alliance Slot 5 = Resource Boosters (pick ONE best; flat citizens)
+ *   6) alliance Slot 6 = All-Stat Boosters (pick ONE best; % to citizens)
  *
  * Inputs (required): $link (mysqli), $user_stats (array), $upgrades (GameData.php)
- * Optional        :  $alliance_bonuses (array from sd_compute_alliance_bonuses), $summary (array)
+ * Optional        :  $summary (array)
  * Outputs         :  $total_population (int), $citizens_per_turn (int),
  *                    $chips['population'] = [['label'=>string], ...],
  *                    $summary['citizens_per_turn'] (if $summary exists)
@@ -21,21 +24,26 @@ if (!function_exists('sd_fmt_pct')) {
         return ($v >= 0 ? '+' : '') . $s . '%';
     }
 }
+if (!function_exists('sd_h')) {
+    function sd_h($s): string { return htmlspecialchars((string)$s, ENT_QUOTES, 'UTF-8'); }
+}
 
+/* ---------- chip bucket (overwrite) ---------- */
 $chips = is_array($chips ?? null) ? $chips : [];
-$chips['population'] = is_array($chips['population'] ?? null) ? $chips['population'] : [];
+$chips['population'] = [];
 
+/* ---------- basics ---------- */
 $user_stats = is_array($user_stats ?? null) ? $user_stats : [];
 $user_id    = (int)($_SESSION['id'] ?? $_SESSION['user_id'] ?? 0);
 $aid        = (int)($user_stats['alliance_id'] ?? 0);
 
-/* ---------------- Ensure unit counts exist in $user_stats ---------------- */
+/* ---------- ensure unit counts for total pop ---------- */
 $needCols = ['workers','untrained_citizens','soldiers','guards','sentries','spies'];
 $needFetch = [];
 foreach ($needCols as $c) {
     if (!array_key_exists($c, $user_stats) || $user_stats[$c] === null) $needFetch[] = $c;
 }
-if ($user_id > 0 && $needFetch) {
+if ($user_id > 0 && $needFetch && isset($link) && $link instanceof mysqli) {
     $cols = implode(',', array_unique(array_merge(['id'], $needCols)));
     if ($st = mysqli_prepare($link, "SELECT $cols FROM users WHERE id=? LIMIT 1")) {
         mysqli_stmt_bind_param($st, "i", $user_id);
@@ -48,6 +56,7 @@ if ($user_id > 0 && $needFetch) {
                     }
                 }
             }
+            mysqli_free_result($res);
         }
         mysqli_stmt_close($st);
     }
@@ -55,7 +64,7 @@ if ($user_id > 0 && $needFetch) {
 /* normalize ints */
 foreach ($needCols as $c) { $user_stats[$c] = (int)($user_stats[$c] ?? 0); }
 
-/* ---------------- Publish total population for the card ---------------- */
+/* ---------- total population for the card ---------- */
 $total_population =
     (int)$user_stats['workers'] +
     (int)$user_stats['untrained_citizens'] +
@@ -64,20 +73,62 @@ $total_population =
     (int)$user_stats['sentries'] +
     (int)$user_stats['spies'];
 
-/* ---------------- Build Citizens/Turn chips & compute headline ---------------- */
-$collected = [];
-$add = static function (string $label, int $order) use (&$collected): void {
-    if ($label !== '') $collected[] = ['order'=>$order, 'label'=>$label];
-};
+/* ---------- 6-source calculation ---------- */
+/* Sum all flat citizens; then multiply by combined % multipliers. */
+$flat_total = 0;
+$pct_mult   = 1.0;
 
-/* Totals used for headline */
-$flat_total = 0;     // +citizens flat
-$pct_list   = [];    // e.g., [15, 2.0] -> multiply at end
+/* (1) Base citizens/turn (global) */
+$base_flat = defined('BASE_CITIZENS_PER_TURN') ? (int)BASE_CITIZENS_PER_TURN : 1;
+if ($base_flat !== 0) {
+    $flat_total += $base_flat;
+    $chips['population'][] = ['label' => '+' . number_format($base_flat) . ' base'];
+}
 
-/* Alliance structures (current) */
-$alli_struct_flat_sum = 0;
-if ($aid > 0) {
-    if ($st = mysqli_prepare($link, "SELECT structure_key FROM alliance_structures WHERE alliance_id=? ORDER BY id ASC")) {
+/* (2) Alliance membership flat (always-on while in alliance) */
+$alli_membership_flat = defined('ALLIANCE_BASE_CITIZENS_PER_TURN') ? (int)ALLIANCE_BASE_CITIZENS_PER_TURN : 2;
+if ($aid > 0 && $alli_membership_flat !== 0) {
+    $flat_total += $alli_membership_flat;
+    $chips['population'][] = ['label' => '+' . number_format($alli_membership_flat) . ' alliance'];
+}
+
+/* (3) Your population upgrade — ONLY current tier (no stacking past tiers) */
+$upgrade_name = 'upgrade';
+$u_flat = 0; $u_pct = 0.0;
+if (!empty($upgrades['population']['levels']) && is_array($upgrades['population']['levels'])) {
+    $dbCol = (string)($upgrades['population']['db_column'] ?? 'population_level');
+    $lvl   = (int)($user_stats[$dbCol] ?? 0);
+    $def   = $upgrades['population']['levels'][$lvl] ?? null;
+    if (is_array($def)) {
+        $upgrade_name = (string)($def['name'] ?? $upgrade_name);
+        $b = $def['bonuses'] ?? [];
+        if (isset($b['citizens'])       && is_numeric($b['citizens']))       $u_flat += (int)$b['citizens'];
+        if (isset($b['population'])     && is_numeric($b['population']))     $u_pct  += (float)$b['population'];
+        if (isset($b['population_pct']) && is_numeric($b['population_pct'])) $u_pct  += (float)$b['population_pct'];
+    }
+}
+if ($u_flat !== 0) $flat_total += $u_flat;
+if ($u_pct  != 0.0) $pct_mult  *= (1.0 + $u_pct / 100.0);
+/* Chip for your upgrade (compact if both present) */
+if ($u_flat !== 0 && $u_pct != 0.0) {
+    $chips['population'][] = ['label' => '+' . number_format($u_flat) . ' & ' . sd_fmt_pct($u_pct) . ' ' . sd_h($upgrade_name)];
+} elseif ($u_flat !== 0) {
+    $chips['population'][] = ['label' => '+' . number_format($u_flat) . ' ' . sd_h($upgrade_name)];
+} elseif ($u_pct != 0.0) {
+    $chips['population'][] = ['label' => sd_fmt_pct($u_pct) . ' ' . sd_h($upgrade_name)];
+}
+
+/* ---------- Alliance structures: categorize by bonuses keys ----------
+ * Slot 4 (Population Boosters):     bonuses has 'citizens' ONLY (no resources/offense/defense/income)
+ * Slot 5 (Resource Boosters):       bonuses has BOTH 'resources' and 'citizens' and NO offense/defense/income
+ * Slot 6 (All-Stat Boosters):       bonuses has 'citizens' AND (offense OR defense OR income) — treat citizens as %
+ */
+$slot4_best = ['flat'=>0,   'name'=>null];
+$slot5_best = ['flat'=>0,   'name'=>null];
+$slot6_best = ['pct'=>0.0,  'name'=>null];
+
+if ($aid > 0 && isset($link) && $link instanceof mysqli) {
+    if ($st = mysqli_prepare($link, "SELECT structure_key FROM alliance_structures WHERE alliance_id=?")) {
         mysqli_stmt_bind_param($st, "i", $aid);
         mysqli_stmt_execute($st);
         if ($res = mysqli_stmt_get_result($st)) {
@@ -85,33 +136,48 @@ if ($aid > 0) {
                 @include_once __DIR__ . '/../../src/Game/AllianceData.php';
             }
             while ($row = mysqli_fetch_assoc($res)) {
-                $k    = (string)$row['structure_key'];
-                $def  = $alliance_structures_definitions[$k] ?? null;
+                $k   = (string)$row['structure_key'];
+                $def = $alliance_structures_definitions[$k] ?? null;
                 if (!$def) continue;
 
                 $name  = (string)($def['name'] ?? ucfirst(str_replace('_',' ',$k)));
                 $bonus = json_decode((string)($def['bonuses'] ?? '{}'), true) ?: [];
 
-                // percent modifiers that should affect citizens (population/_pct or global all_bonuses/_pct)
-                foreach (['population','population_pct','all_bonuses','all_bonuses_pct'] as $pk) {
-                    if (isset($bonus[$pk]) && is_numeric($bonus[$pk])) {
-                        $p = (float)$bonus[$pk];
-                        if ($p != 0.0) {
-                            $pct_list[] = $p;
-                            $add(sd_fmt_pct($p) . ' ' . $name, 40);
-                            break;
-                        }
+                $hasCit = array_key_exists('citizens', $bonus);
+                $hasRes = array_key_exists('resources', $bonus);
+                $hasAtk = array_key_exists('offense',  $bonus);
+                $hasDef = array_key_exists('defense',  $bonus);
+                $hasInc = array_key_exists('income',   $bonus);
+
+                // ---- IMPORTANT: classify in strict order to avoid swallowing Slot 5 into Slot 6 ----
+                // Slot 4: citizens only (flat)
+                if ($hasCit && !$hasRes && !$hasAtk && !$hasDef && !$hasInc) {
+                    $flat = (int)$bonus['citizens'];
+                    if ($flat > (int)$slot4_best['flat']) {
+                        $slot4_best = ['flat'=>$flat, 'name'=>$name];
                     }
+                    continue;
                 }
-                // flat citizens
-                if (isset($bonus['citizens']) && is_numeric($bonus['citizens'])) {
-                    $v = (int)$bonus['citizens'];
-                    if ($v !== 0) {
-                        $flat_total += $v;
-                        $alli_struct_flat_sum += $v;
-                        $add('+' . number_format($v) . ' ' . $name, 30);
+
+                // Slot 5: resources + citizens (flat citizens), but NO atk/def/inc
+                if ($hasCit && $hasRes && !$hasAtk && !$hasDef && !$hasInc) {
+                    $flat = (int)$bonus['citizens'];
+                    if ($flat > (int)$slot5_best['flat']) {
+                        $slot5_best = ['flat'=>$flat, 'name'=>$name];
                     }
+                    continue;
                 }
+
+                // Slot 6: all-stat boosters (citizens % because paired with atk/def/inc)
+                if ($hasCit && ($hasAtk || $hasDef || $hasInc)) {
+                    $p = (float)$bonus['citizens']; // treat as percent
+                    if (abs($p) > abs((float)$slot6_best['pct'])) {
+                        $slot6_best = ['pct'=>$p, 'name'=>$name];
+                    }
+                    continue;
+                }
+
+                // everything else: irrelevant to citizens/turn
             }
             mysqli_free_result($res);
         }
@@ -119,81 +185,28 @@ if ($aid > 0) {
     }
 }
 
-/* Base alliance bonuses (not tied to a single structure) */
-if (!isset($alliance_bonuses) || !is_array($alliance_bonuses)) {
-    $alliance_bonuses = function_exists('sd_compute_alliance_bonuses')
-        ? sd_compute_alliance_bonuses($link, $user_stats)
-        : [];
-}
-if (!empty($alliance_bonuses)) {
-    if (!empty($alliance_bonuses['population'])) {
-        $p = (float)$alliance_bonuses['population'];
-        $pct_list[] = $p;
-        $add(sd_fmt_pct($p) . ' alliance', 45);
-    }
-    if (isset($alliance_bonuses['citizens'])) {
-        $base_only = (int)$alliance_bonuses['citizens'] - $alli_struct_flat_sum; // don’t double-count
-        if ($base_only > 0) {
-            $flat_total += $base_only;
-            $add('+' . number_format($base_only) . ' alliance', 25);
-        }
-    }
+/* Apply slot 4 (flat) */
+if (!empty($slot4_best['name']) && (int)$slot4_best['flat'] !== 0) {
+    $flat_total += (int)$slot4_best['flat'];
+    $chips['population'][] = ['label' => '+' . number_format((int)$slot4_best['flat']) . ' ' . sd_h((string)$slot4_best['name'])];
 }
 
-/* Population upgrades (sum from level 1..current) */
-$pop_flat_sum = 0;
-$pop_pct_sum  = 0.0;
-if (!empty($upgrades['population']['levels']) && is_array($upgrades['population']['levels'])) {
-    $dbCol = (string)($upgrades['population']['db_column'] ?? 'population_level');
-    $lvl   = (int)($user_stats[$dbCol] ?? 0);
-    for ($i = 1; $i <= $lvl; $i++) {
-        $b = $upgrades['population']['levels'][$i]['bonuses'] ?? [];
-        if (isset($b['citizens'])       && is_numeric($b['citizens']))       $pop_flat_sum += (int)$b['citizens'];
-        if (isset($b['population'])     && is_numeric($b['population']))     $pop_pct_sum  += (float)$b['population'];
-        if (isset($b['population_pct']) && is_numeric($b['population_pct'])) $pop_pct_sum  += (float)$b['population_pct'];
-    }
-}
-if ($pop_flat_sum > 0) {
-    $flat_total += $pop_flat_sum;
-    $add('+' . number_format($pop_flat_sum) . ' upgrades', 35);
-}
-if ($pop_pct_sum != 0.0) {
-    $pct_list[] = $pop_pct_sum;
-    $add(sd_fmt_pct($pop_pct_sum) . ' upgrades', 50);
+/* Apply slot 5 (flat) */
+if (!empty($slot5_best['name']) && (int)$slot5_best['flat'] !== 0) {
+    $flat_total += (int)$slot5_best['flat'];
+    $chips['population'][] = ['label' => '+' . number_format((int)$slot5_best['flat']) . ' ' . sd_h((string)$slot5_best['name'])];
 }
 
-/* Optional race/class trait % (if you model them) */
-if (isset($race_class_modifiers) && is_array($race_class_modifiers)) {
-    $race  = strtolower((string)($user_stats['race']  ?? ''));
-    $class = strtolower((string)($user_stats['class'] ?? ''));
-    $p = 0.0;
-    if ($race  && !empty($race_class_modifiers['race'][$race]['population']))  $p += (float)$race_class_modifiers['race'][$race]['population'];
-    if ($class && !empty($race_class_modifiers['class'][$class]['population'])) $p += (float)$race_class_modifiers['class'][$class]['population'];
-    if ($p != 0.0) {
-        $pct_list[] = $p;
-        $add(sd_fmt_pct($p) . ' traits', 46);
-    }
+/* Apply slot 6 (percent) */
+if (!empty($slot6_best['name']) && (float)$slot6_best['pct'] != 0.0) {
+    $pct_mult *= (1.0 + ((float)$slot6_best['pct']) / 100.0);
+    $chips['population'][] = ['label' => sd_fmt_pct((float)$slot6_best['pct']) . ' ' . sd_h((string)$slot6_best['name'])];
 }
 
-/* De-dupe and publish chips */
-$seen = [];
-foreach ($chips['population'] as $c) {
-    $lbl = is_array($c) ? (string)($c['label'] ?? '') : (string)$c;
-    if ($lbl !== '') $seen[$lbl] = true;
-}
-foreach ($collected as $c) {
-    if (!isset($seen[$c['label']])) {
-        $seen[$c['label']] = true;
-        $chips['population'][] = ['label' => $c['label']];
-    }
-}
+/* ---------- final headline ---------- */
+$citizens_per_turn = (int)floor(max(0, $flat_total) * $pct_mult);
 
-/* Compute headline citizens/turn from the same sources (flat × % multipliers) */
-$mult = 1.0;
-foreach ($pct_list as $p) { $mult *= (1.0 + ((float)$p)/100.0); }
-$citizens_per_turn = (int)floor(max(0, $flat_total) * $mult);
-
-/* Reflect into $summary if the rest of the dashboard uses it */
+/* ---------- reflect into $summary ---------- */
 if (isset($summary) && is_array($summary)) {
     $summary['citizens_per_turn'] = $citizens_per_turn;
 }

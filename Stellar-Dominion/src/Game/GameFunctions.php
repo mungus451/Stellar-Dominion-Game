@@ -405,15 +405,17 @@ function calculate_income_per_turn(mysqli $link, int $user_id, array $user_stats
 }
 
 /* ────────────────────────────────────────────────────────────────────────────
- * OFFLINE TURN PROCESSOR (page load)
+ * OFFLINE TURN PROCESSOR (page load) — now vault-cap aware with burn + logging
  * ──────────────────────────────────────────────────────────────────────────*/
 function process_offline_turns(mysqli $link, int $user_id): void {
     // release any completed 30m conversions
     release_untrained_units($link, $user_id);
 
-    $sql_check = "SELECT id, last_updated, credits, workers, wealth_points, economy_upgrade_level, population_level, alliance_id,
+    // Pull balances we need for logging too (banked + gems)
+    $sql_check = "SELECT id, last_updated, credits, banked_credits, gemstones,
+                         workers, wealth_points, economy_upgrade_level, population_level, alliance_id,
                          soldiers, guards, sentries, spies
-                  FROM users WHERE id = ?";
+                    FROM users WHERE id = ?";
     if ($stmt_check = mysqli_prepare($link, $sql_check)) {
         mysqli_stmt_bind_param($stmt_check, "i", $user_id);
         mysqli_stmt_execute($stmt_check);
@@ -423,6 +425,7 @@ function process_offline_turns(mysqli $link, int $user_id): void {
         if (!$user) return;
 
         $turn_interval_minutes = 10;
+        // `last_updated` in DB is UTC; make a UTC DateTime for "now"
         $last_updated = new DateTime($user['last_updated']);
         $now = new DateTime('now', new DateTimeZone('UTC'));
         $minutes_since = ($now->getTimestamp() - $last_updated->getTimestamp()) / 60;
@@ -435,37 +438,117 @@ function process_offline_turns(mysqli $link, int $user_id): void {
         $income_per_turn   = (int)$summary['income_per_turn'];
         $citizens_per_turn = (int)$summary['citizens_per_turn'];
 
-        $gained_credits      = $income_per_turn   * $turns_to_process;
+        $gained_credits      = $income_per_turn   * $turns_to_process; // non-negative
         $gained_citizens     = $citizens_per_turn * $turns_to_process;
         $gained_attack_turns = $turns_to_process * 2;
 
+        // ── vault-cap computation (read active_vaults; constant from VaultService if present)
+        $active_vaults = 1;
+        if ($stmt_v = mysqli_prepare($link, "SELECT active_vaults FROM user_vaults WHERE user_id = ?")) {
+            mysqli_stmt_bind_param($stmt_v, "i", $user_id);
+            mysqli_stmt_execute($stmt_v);
+            $row_v = mysqli_fetch_assoc(mysqli_stmt_get_result($stmt_v));
+            mysqli_stmt_close($stmt_v);
+            if ($row_v && isset($row_v['active_vaults'])) {
+                $active_vaults = max(1, (int)$row_v['active_vaults']);
+            }
+        }
+
+        // Try to read VaultService capacity, else fallback
+        $cap_per_vault = 3000000000; // fallback: 3B credits per vault
+        $vaultServicePath = __DIR__ . '/../Services/VaultService.php';
+        if (!class_exists('\\StellarDominion\\Services\\VaultService') && file_exists($vaultServicePath)) {
+            require_once $vaultServicePath;
+        }
+        if (class_exists('\\StellarDominion\\Services\\VaultService') &&
+            defined('\\StellarDominion\\Services\\VaultService::BASE_VAULT_CAPACITY')) {
+            /** @noinspection PhpUndefinedClassConstantInspection */
+            $cap_per_vault = (int)\StellarDominion\Services\VaultService::BASE_VAULT_CAPACITY;
+        }
+
+        $vault_cap       = (int)$cap_per_vault * max(1, $active_vaults);
+        $on_hand_before  = (int)$user['credits'];
+        $banked_before   = (int)$user['banked_credits'];
+        $gems_before     = (int)$user['gemstones'];
+        $headroom        = max(0, $vault_cap - $on_hand_before);
+
+        // Cap-aware grant + burn
+        $granted_credits = (int)min($gained_credits, $headroom);
+        $burned_over_cap = (int)max(0, $gained_credits - $granted_credits);
+
         $utc_now = gmdate('Y-m-d H:i:s');
+        // UPDATE: we add only the *granted* amount (not full gained_credits)
         $sql_upd = "UPDATE users
-           SET attack_turns = attack_turns + ?,
-               untrained_citizens = untrained_citizens + ?,
-               credits = GREATEST(0, credits + ?),
-               last_updated = ?
-         WHERE id = ?";
+               SET attack_turns = attack_turns + ?,
+                   untrained_citizens = untrained_citizens + ?,
+                   credits = credits + ?,
+                   last_updated = ?
+             WHERE id = ?";
         if ($stmt_upd = mysqli_prepare($link, $sql_upd)) {
-            // Compute fatigue using the same summary math as cron
+            // Compute maintenance/fatigue math (unchanged)
             $summary = calculate_income_summary($link, (int)$user['id'], $user);
-            $income_per_turn   = (int)($summary['income_per_turn']   ?? 0);
-            $maint_per_turn    = (int)($summary['maintenance_per_turn'] ?? 0);
-            $income_pre_maint  = $income_per_turn + $maint_per_turn;
-            $T                 = (int)$turns_to_process;
+            $income_per_turn    = (int)($summary['income_per_turn']    ?? 0);
+            $maintenance_per_turn = (int)($summary['maintenance_per_turn'] ?? 0);
+            $income_pre_maint   = $income_per_turn + $maintenance_per_turn;
+            $T                  = (int)$turns_to_process;
 
-            $credits_before  = (int)$user['credits'];
-            $maint_total     = max(0, $maint_per_turn * $T);
-            $funds_available = $credits_before + ($income_pre_maint * $T);
+            $credits_before   = (int)$user['credits'];
+            $maint_total      = max(0, $maintenance_per_turn * $T);
+            $funds_available  = $credits_before + ($income_pre_maint * $T);
 
-            // 1) apply credits/citizens/turns update
+            // 1) apply capped credits/citizens/turns update
             mysqli_stmt_bind_param($stmt_upd, "iiisi",
-                $gained_attack_turns, $gained_citizens, $gained_credits, $utc_now, $user_id
+                $gained_attack_turns, $gained_citizens, $granted_credits, $utc_now, $user_id
             );
             mysqli_stmt_execute($stmt_upd);
             mysqli_stmt_close($stmt_upd);
 
-            // 2) fatigue purge if unpaid maintenance remains
+            // 1b) log the idle income + any burn (one compact row)
+            // on_hand_after = before + granted_credits
+            $on_hand_after = $on_hand_before + $granted_credits;
+            $banked_after  = $banked_before; // unchanged here
+            $gems_after    = $gems_before;   // unchanged here
+
+            if ($gained_credits > 0) {
+                $metadata = json_encode([
+                    'turns_processed'   => $T,
+                    'income_per_turn'   => $income_per_turn,
+                    'active_vaults'     => $active_vaults,
+                    'cap_per_vault'     => $cap_per_vault,
+                    'vault_cap_total'   => $vault_cap,
+                    'headroom_before'   => $headroom,
+                    'gross_gain'        => $gained_credits,
+                    'granted'           => $granted_credits,
+                    'burned'            => $burned_over_cap,
+                    'burn_reason'       => 'vault_cap'
+                ], JSON_UNESCAPED_SLASHES);
+
+                $stmt_econ = mysqli_prepare(
+                    $link,
+                    "INSERT INTO economic_log
+                        (user_id, event_type, amount, burned_amount, on_hand_before, on_hand_after, banked_before, banked_after, gems_before, gems_after, reference_id, metadata)
+                     VALUES (?, 'idle_income', ?, ?, ?, ?, ?, ?, ?, ?, NULL, ?)"
+                );
+                // 9 ints + 1 string => "iiiiiiiiis"
+                mysqli_stmt_bind_param(
+                    $stmt_econ,
+                    "iiiiiiiiis",
+                    $user_id,
+                    $granted_credits,
+                    $burned_over_cap,
+                    $on_hand_before,
+                    $on_hand_after,
+                    $banked_before,
+                    $banked_after,
+                    $gems_before,
+                    $gems_after,
+                    $metadata
+                );
+                mysqli_stmt_execute($stmt_econ);
+                mysqli_stmt_close($stmt_econ);
+            }
+
+            // 2) fatigue purge if unpaid maintenance remains (unchanged logic)
             if ($maint_total > 0 && $funds_available < $maint_total) {
                 $unpaid_ratio = ($maint_total - $funds_available) / $maint_total; // 0..1
                 if ($unpaid_ratio > 0) {
@@ -490,17 +573,17 @@ function process_offline_turns(mysqli $link, int $user_id): void {
                             case 'guards':   $purge_guards   = min(1, $guards);   break;
                             case 'sentries': $purge_sentries = min(1, $sentries); break;
                             case 'spies':    $purge_spies    = min(1, $spies);    break;
-                            default:         $purge_soldiers = min(1, $soldiers); break;
+                            default:         $purge_soldiers = min(1, $soldiers);  break;
                         }
                     }
 
                     if ($purge_soldiers + $purge_guards + $purge_sentries + $purge_spies > 0) {
                         $sql_purge = "UPDATE users
-                                       SET soldiers = GREATEST(0, soldiers - ?),
-                                           guards   = GREATEST(0, guards   - ?),
-                                           sentries = GREATEST(0, sentries - ?),
-                                           spies    = GREATEST(0, spies    - ?)
-                                     WHERE id = ?";
+                                         SET soldiers = GREATEST(0, soldiers - ?),
+                                             guards   = GREATEST(0, guards   - ?),
+                                             sentries = GREATEST(0, sentries - ?),
+                                             spies    = GREATEST(0, spies    - ?)
+                                       WHERE id = ?";
                         if ($stmt_purge = mysqli_prepare($link, $sql_purge)) {
                             mysqli_stmt_bind_param($stmt_purge, "iiiii",
                                 $purge_soldiers, $purge_guards, $purge_sentries, $purge_spies, $user_id
@@ -596,4 +679,48 @@ function fetch_user_armory(mysqli $link, int $user_id): array {
     }
     mysqli_stmt_close($stmt);
     return $armory;
+}
+
+/* ────────────────────────────────────────────────────────────────────────────
+ * Utility: format_big_number (used by vault card)
+ * ──────────────────────────────────────────────────────────────────────────*/
+if (!function_exists('format_big_number')) {
+    /**
+     * Format large numbers using K/M/B/T suffixes.
+     *  - Keeps integers when possible (e.g., 12K not 12.0K)
+     *  - Shows one decimal only for values < 100 of a given suffix (e.g., 1.2K, 3.4M)
+     *  - Safe for negative values.
+     */
+    function format_big_number($value): string {
+        $num = (float)$value;
+        $abs = abs($num);
+        $suffix = '';
+
+        if ($abs >= 1000000000000) {
+            $num /= 1000000000000; $suffix = 'T';
+        } elseif ($abs >= 1000000000) {
+            $num /= 1000000000; $suffix = 'B';
+        } elseif ($abs >= 1000000) {
+            $num /= 1000000; $suffix = 'M';
+        } elseif ($abs >= 1000) {
+            $num /= 1000; $suffix = 'K';
+        }
+
+        // Decide decimals after scaling
+        $shown = abs($num);
+        $has_fraction = fmod($num, 1.0) !== 0.0;
+        $decimals = ($suffix !== '' && $shown < 100 && $has_fraction) ? 1 : 0;
+
+        if ($decimals === 0) {
+            // Avoid "-0"
+            $num = (float)round($num);
+            if ($num == 0.0) { $num = 0.0; }
+        }
+
+        $formatted = number_format($num, $decimals, '.', ',');
+        if ($formatted === '-0') { $formatted = '0'; }
+        if ($formatted === '-0.0') { $formatted = '0.0'; }
+
+        return $formatted . $suffix;
+    }
 }

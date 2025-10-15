@@ -11,3 +11,5 @@ cron_log.txt
 *.zip
 *.log
 adsense.php
+schema_checker.php
+schema_diff.php

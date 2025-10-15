@@ -18,6 +18,13 @@ if (!isset($_SESSION['loggedin']) || $_SESSION['loggedin'] !== true) {
 require_once __DIR__ . '/../../config/config.php';
 date_default_timezone_set('UTC');
 
+// Optional: vault capacity constant
+$__vault_service_path = __DIR__ . '/../Services/VaultService.php';
+if (file_exists($__vault_service_path)) {
+    require_once $__vault_service_path;
+}
+unset($__vault_service_path);
+
 $user_id = (int)($_SESSION['id'] ?? 0);
 
 // Guard: only accept POST
@@ -100,24 +107,60 @@ try {
         if ($amount <= 0)                               throw new Exception("Invalid withdrawal amount.");
         if ($amount > (int)$user['banked_credits'])     throw new Exception("You cannot withdraw more credits than you have in the bank.");
 
+        // ── Vault cap enforcement: do not allow on-hand to exceed cap
+        // Read active vaults
+        $active_vaults = 1;
+        if ($stmt_v = mysqli_prepare($link, "SELECT active_vaults FROM user_vaults WHERE user_id = ? FOR UPDATE")) {
+            mysqli_stmt_bind_param($stmt_v, "i", $user_id);
+            mysqli_stmt_execute($stmt_v);
+            $row_v = mysqli_fetch_assoc(mysqli_stmt_get_result($stmt_v));
+            mysqli_stmt_close($stmt_v);
+            if ($row_v && isset($row_v['active_vaults'])) {
+                $active_vaults = max(1, (int)$row_v['active_vaults']);
+            }
+        }
+
+        // Determine per-vault capacity
+        $cap_per_vault = 3000000000; // fallback (3B)
+        if (class_exists('\\StellarDominion\\Services\\VaultService') &&
+            defined('\\StellarDominion\\Services\\VaultService::BASE_VAULT_CAPACITY')) {
+            /** @noinspection PhpUndefinedClassConstantInspection */
+            $cap_per_vault = (int)\StellarDominion\Services\VaultService::BASE_VAULT_CAPACITY;
+        }
+
+        $vault_cap      = (int)$cap_per_vault * max(1, $active_vaults);
+        $on_hand_before = (int)$user['credits'];
+        $headroom       = max(0, $vault_cap - $on_hand_before);
+
+        if ($headroom <= 0) {
+            throw new Exception("You are at your on-hand vault cap (" . number_format($vault_cap) . "). Increase capacity or spend credits before withdrawing.");
+        }
+
+        $amount_allowed = min($amount, $headroom);
+
+        // Apply the (possibly reduced) withdrawal
         $sql_update = "UPDATE users
                        SET credits = credits + ?,
                            banked_credits = banked_credits - ?
                        WHERE id = ?";
         $stmt_update = mysqli_prepare($link, $sql_update);
-        mysqli_stmt_bind_param($stmt_update, "iii", $amount, $amount, $user_id);
+        mysqli_stmt_bind_param($stmt_update, "iii", $amount_allowed, $amount_allowed, $user_id);
         mysqli_stmt_execute($stmt_update);
         mysqli_stmt_close($stmt_update);
 
-        // Log bank transaction
+        // Log bank transaction with the actual amount moved
         $sql_log = "INSERT INTO bank_transactions (user_id, transaction_type, amount)
                     VALUES (?, 'withdraw', ?)";
         $stmt_log = mysqli_prepare($link, $sql_log);
-        mysqli_stmt_bind_param($stmt_log, "ii", $user_id, $amount);
+        mysqli_stmt_bind_param($stmt_log, "ii", $user_id, $amount_allowed);
         mysqli_stmt_execute($stmt_log);
         mysqli_stmt_close($stmt_log);
 
-        $_SESSION['bank_message'] = "Successfully withdrew " . number_format($amount) . " credits.";
+        if ($amount_allowed < $amount) {
+            $_SESSION['bank_message'] = "Withdrew " . number_format($amount_allowed) . " credits (limited by vault cap: " . number_format($vault_cap) . ").";
+        } else {
+            $_SESSION['bank_message'] = "Successfully withdrew " . number_format($amount_allowed) . " credits.";
+        }
 
     } elseif ($action === 'transfer') {
 
@@ -144,7 +187,7 @@ try {
         mysqli_stmt_execute($stmt_debit);
         mysqli_stmt_close($stmt_debit);
 
-        // Credit recipient
+        // Credit recipient (no cap enforcement requested here)
         $sql_credit = "UPDATE users SET credits = credits + ? WHERE id = ?";
         $stmt_credit = mysqli_prepare($link, $sql_credit);
         mysqli_stmt_bind_param($stmt_credit, "ii", $amount, $target_id);

@@ -2,13 +2,18 @@
 /**
  * src/Controllers/WarController.php
  *
- * Handles the declaration of wars, rivalries, and peace treaties.
- * Updated: remove Economic Vassalage; enforce credits-only war goal;
- * allow optional custom badge metadata on custom casus belli.
+ * Timed wars controller (Skirmish 24h / War 48h), AvA and PvP.
+ * Fixes:
+ *  - Robust scope resolution (explicit > inferred; infer from posted IDs, prefer PvP if both present without explicit scope).
+ *  - PvP was being treated as AvA when scope missing; now fixed.
+ *  - Always sets required NOT NULLs per schema: goal_metric='composite', goal_threshold=0.
+ *  - PvP always sets alliance ids (users' alliance_id or 0) to satisfy NOT NULL.
+ *  - Duplicate-prevention strengthened: check+insert wrapped in transactions with FOR UPDATE guards.
+ *  - AvA cost deduction + bank log preserved.
  */
 
-if (session_status() == PHP_SESSION_NONE) { session_start(); }
-if (!isset($_SESSION["loggedin"]) || $_SESSION["loggedin"] !== true) { header("location: /index.html"); exit; }
+if (session_status() === PHP_SESSION_NONE) { session_start(); }
+if (!isset($_SESSION['loggedin']) || $_SESSION['loggedin'] !== true) { header('Location: /index.html'); exit; }
 
 require_once __DIR__ . '/../../config/config.php';
 require_once __DIR__ . '/../../src/Security/CSRFProtection.php';
@@ -22,238 +27,361 @@ class WarController extends BaseController
         parent::__construct();
     }
 
-    private function columnExists(string $table, string $column): bool
+    /** Front-controller entry point */
+    public function dispatch(string $action): void
     {
-        $sql = "SHOW COLUMNS FROM `$table` LIKE ?";
-        if ($stmt = $this->db->prepare($sql)) {
-            $stmt->bind_param("s", $column);
-            if ($stmt->execute() && ($res = $stmt->get_result())) {
-                $ok = (bool)$res->fetch_assoc();
-                $stmt->close();
-                return $ok;
+        $action = trim(strtolower($action));
+        try {
+            switch ($action) {
+                case 'declare_war':     $this->declareWarTimed();  return;
+                case 'declare_rivalry': $this->declareRivalry();   return;
+                case 'propose_treaty':  $this->proposeTreaty();    return;
+                case 'accept_treaty':   $this->acceptTreaty();     return;
+                case 'decline_treaty':  $this->declineTreaty();    return;
+                case 'cancel_treaty':   $this->cancelTreaty();     return;
+                default:
+                    throw new Exception('Invalid war action specified.');
             }
-            $stmt->close();
+        } catch (\Throwable $e) {
+            $_SESSION['war_error'] = $e->getMessage();
+            $this->safeRedirect('/realm_war.php');
         }
-        return false;
     }
 
-    public function handle(): void
+    /** Ensure redirect even if output buffers exist */
+    private function safeRedirect(string $path): void
     {
-        $action = $_POST['war_action'] ?? null;
-        if (!$action) {
-            throw new Exception("Invalid request method.");
-        }
+        while (ob_get_level() > 0) { @ob_end_clean(); }
+        header('Location: ' . $path);
+        exit;
+    }
 
-        // Validate CSRF with action key if provided by the form
-        $token  = $_POST['csrf_token']  ?? '';
-        $csa    = $_POST['csrf_action'] ?? '';
-        if (!validate_csrf_token($token, $csa ?: 'default')) {
-            throw new Exception("A security error occurred (Invalid Token). Please try again.");
-        }
+    /** Helpers */
+    private function hasActiveAllianceWar(int $a, int $b, bool $forUpdate = false): bool
+    {
+        $sql = "SELECT id FROM wars
+                WHERE status='active' AND scope='alliance'
+                  AND ((declarer_alliance_id=? AND declared_against_alliance_id=?)
+                    OR (declarer_alliance_id=? AND declared_against_alliance_id=?))
+                LIMIT 1" . ($forUpdate ? " FOR UPDATE" : "");
+        $st = $this->db->prepare($sql);
+        $st->bind_param('iiii', $a, $b, $b, $a);
+        $st->execute();
+        $ok = (bool)$st->get_result()->fetch_row();
+        $st->close();
+        return $ok;
+    }
 
-        switch ($action) {
-            case 'declare_war':      $this->declareWar();      break;
-            case 'declare_rivalry':  $this->declareRivalry();  break;
-            case 'propose_treaty':   $this->proposeTreaty();   break;
-            case 'accept_treaty':    $this->acceptTreaty();    break;
-            case 'decline_treaty':   $this->declineTreaty();   break;
-            case 'cancel_treaty':    $this->cancelTreaty();    break;
-            default: throw new Exception("Invalid war action specified.");
-        }
+    private function hasActivePlayerWar(int $u1, int $u2, bool $forUpdate = false): bool
+    {
+        $sql = "SELECT id FROM wars
+                WHERE status='active' AND scope='player'
+                  AND ((declarer_user_id=? AND declared_against_user_id=?)
+                    OR (declarer_user_id=? AND declared_against_user_id=?))
+                LIMIT 1" . ($forUpdate ? " FOR UPDATE" : "");
+        $st = $this->db->prepare($sql);
+        $st->bind_param('iiii', $u1, $u2, $u2, $u1);
+        $st->execute();
+        $ok = (bool)$st->get_result()->fetch_row();
+        $st->close();
+        return $ok;
+    }
+
+    private function getAlliance(int $id): ?array
+    {
+        $st = $this->db->prepare("SELECT id, name, tag, leader_id, bank_credits FROM alliances WHERE id=?");
+        $st->bind_param('i', $id);
+        $st->execute();
+        $row = $st->get_result()->fetch_assoc();
+        $st->close();
+        return $row ?: null;
+    }
+
+    private function getUserSummary(int $userId): ?array
+    {
+        $sql = "SELECT u.id, u.character_name, u.alliance_id, ar.`order` AS hierarchy
+                FROM users u
+                LEFT JOIN alliance_roles ar ON u.alliance_role_id = ar.id
+                WHERE u.id=?";
+        $st = $this->db->prepare($sql);
+        $st->bind_param('i', $userId);
+        $st->execute();
+        $row = $st->get_result()->fetch_assoc();
+        $st->close();
+        return $row ?: null;
+    }
+
+    private function getUserAllianceId(int $userId): int
+    {
+        $st = $this->db->prepare("SELECT COALESCE(alliance_id, 0) AS aid FROM users WHERE id=?");
+        $st->bind_param('i', $userId);
+        $st->execute();
+        $row = $st->get_result()->fetch_assoc();
+        $st->close();
+        return (int)($row['aid'] ?? 0);
+    }
+
+    /** New: robust scope resolution */
+    private function resolveScopeFromPost(): string
+    {
+        $explicit = strtolower(trim((string)($_POST['scope'] ?? '')));
+        if (in_array($explicit, ['player','pvp'], true))   { return 'player'; }
+        if (in_array($explicit, ['alliance','ava'], true)) { return 'alliance'; }
+
+        $targetUserId = (int)($_POST['target_user_id'] ?? ($_POST['user_id'] ?? 0));
+        $targetAllianceId = (int)($_POST['alliance_id'] ?? ($_POST['target_alliance_id'] ?? ($_POST['declared_against_alliance_id'] ?? 0)));
+
+        if ($targetUserId > 0 && $targetAllianceId <= 0) { return 'player'; }
+        if ($targetAllianceId > 0 && $targetUserId <= 0) { return 'alliance'; }
+
+        // If both are present without explicit scope, prefer PvP to avoid misclassifying a PvP submit.
+        if ($targetUserId > 0 && $targetAllianceId > 0)  { return 'player'; }
+
+        // Fallback
+        return 'alliance';
     }
 
     /**
-     * Declare a war between the invoker's alliance and a target alliance.
-     *
-     * Enforced constraints:
-     * - Casus Belli allowed: humiliation, dignity, revolution, custom.
-     * - War goal: credits_plundered only, min threshold 100,000,000.
-     * - Optional custom badge metadata stored if columns exist.
+     * Timed war declaration (Skirmish 24h / War 48h).
+     * Satisfies NOT NULL columns in `wars` and fixes PvP → AvA misclassification.
      */
-    public function declareWar(): void
+    private function declareWarTimed(): void
     {
-        $allowed_cb = ['humiliation','dignity','revolution','custom'];
+        $userId = (int)($_SESSION['id'] ?? 0);
+        $me = $this->getUserSummary($userId);
+        if (!$me) { throw new Exception('User not found.'); }
 
-        $user_id = (int)$_SESSION['id'];
-
-        // Permission (hierarchy 1 or 2)
-        $sql_perms = "SELECT u.alliance_id, ar.`order` as hierarchy
-                      FROM users u
-                      JOIN alliance_roles ar ON u.alliance_role_id = ar.id
-                      WHERE u.id = ?";
-        $stmt = $this->db->prepare($sql_perms);
-        $stmt->bind_param("i", $user_id);
-        $stmt->execute();
-        $user = $stmt->get_result()->fetch_assoc();
-        $stmt->close();
-
-        if (!$user || !in_array((int)$user['hierarchy'], [1,2], true)) {
-            throw new Exception("You do not have the authority to declare war.");
+        // CSRF
+        $csrfToken  = $_POST['csrf_token']  ?? '';
+        $csrfAction = $_POST['csrf_action'] ?? ($_POST['action'] ?? 'declare_war');
+        $csrfAction = strtolower(trim((string)$csrfAction));
+        $csrfAliases = array_unique([$csrfAction, 'declare_war', 'war_declare', 'war']);
+        $csrfOk = false;
+        foreach ($csrfAliases as $a) {
+            if ($a !== '' && validate_csrf_token($csrfToken, $a)) { $csrfOk = true; break; }
         }
+        if (!$csrfOk) { throw new Exception('Security check failed. Please refresh and try again.'); }
 
-        $declarer_alliance_id = (int)$user['alliance_id'];
-        $declared_against_id  = (int)($_POST['alliance_id'] ?? 0);
-
+        // Inputs
         $war_name = trim((string)($_POST['war_name'] ?? ''));
-        if ($war_name === '') $war_name = 'Unnamed War';
-        if (mb_strlen($war_name) > 100) $war_name = mb_substr($war_name, 0, 100);
+        if ($war_name === '') { $war_name = 'Unnamed Conflict'; }
+        if (mb_strlen($war_name) > 100) { $war_name = mb_substr($war_name, 0, 100); }
 
-        $casus_belli_key     = (string)($_POST['casus_belli'] ?? '');
-        $custom_casus_belli  = trim((string)($_POST['custom_casus_belli'] ?? ''));
+        $scope = $this->resolveScopeFromPost(); // <-- fixed
+        $war_type = strtolower(trim((string)($_POST['war_type'] ?? 'skirmish')));
+        if (!in_array($war_type, ['skirmish','war'], true)) { throw new Exception('Invalid war type.'); }
+        $durationHours = ($war_type === 'skirmish') ? 24 : 48;
 
-        if ($declared_against_id <= 0 || $declared_against_id === $declarer_alliance_id) {
-            throw new Exception("Invalid target alliance.");
-        }
-        if (!in_array($casus_belli_key, $allowed_cb, true)) {
-            throw new Exception("Invalid reason for war selected.");
-        }
-        if ($casus_belli_key === 'custom') {
-            $len = strlen($custom_casus_belli);
-            if ($len < 5 || $len > 244) {
-                throw new Exception("Custom reason must be between 5 and 244 characters.");
-            }
+        $cb_key = strtolower(trim((string)($_POST['casus_belli'] ?? 'humiliation')));
+        if (!in_array($cb_key, ['humiliation','dignity','custom'], true)) { $cb_key = 'humiliation'; }
+        $cb_custom = null;
+        if ($cb_key === 'custom') {
+            $cb_custom = trim((string)($_POST['casus_belli_custom'] ?? ''));
+            if ($cb_custom === '') { throw new Exception('Provide a custom casus belli description.'); }
+            if (mb_strlen($cb_custom) > 244) { $cb_custom = mb_substr($cb_custom, 0, 244); }
         }
 
-        // Enforce credits-only goal; accept posted number but clamp min 100M.
-        $goal_credits_plundered = (int)($_POST['goal_credits_plundered'] ?? ($_POST['goal_threshold'] ?? 0));
-        $goal_credits_plundered = max(100000000, $goal_credits_plundered);
-        $goal_units_killed = 0;
-        $goal_units_assassinated = 0;
-        $goal_structure_damage = 0;
-        $goal_prestige_change = 0;
-
-        // Prevent duplicate active wars
-        $hasActive = false;
-        if ($st = $this->db->prepare("SELECT 1 FROM wars WHERE status='active' AND ((declarer_alliance_id=? AND declared_against_alliance_id=?) OR (declarer_alliance_id=? AND declared_against_alliance_id=?)) LIMIT 1")) {
-            $st->bind_param('iiii', $declarer_alliance_id, $declared_against_id, $declared_against_id, $declarer_alliance_id);
-            $st->execute();
-            $hasActive = (bool)$st->get_result()->fetch_row();
-            $st->close();
-        }
-        if ($hasActive) {
-            throw new Exception("There is already an active war between these alliances.");
-        }
-
-        // War cost: max(30M, 10% of bank)
-        $bank = 0;
-        if ($st = $this->db->prepare("SELECT bank_credits FROM alliances WHERE id=?")) {
-            $st->bind_param('i', $declarer_alliance_id);
-            $st->execute();
-            $row = $st->get_result()->fetch_assoc();
-            $bank = (int)($row['bank_credits'] ?? 0);
-            $st->close();
-        }
-        $war_cost = max(30000000, (int)floor($bank * 0.10));
-        if ($bank < $war_cost) { throw new Exception("Insufficient alliance bank to declare war."); }
-
-        // Derive final goal meta (credits only)
-        $final_goal_metric    = 'credits_plundered';
-        $final_goal_threshold = max(100000000, (int)$goal_credits_plundered);
-        $has_goal_metric      = $this->columnExists('wars','goal_metric');
-        $has_goal_threshold   = $this->columnExists('wars','goal_threshold');
-
-        // Build dynamic INSERT respecting available columns
-        $cols = ['name','declarer_alliance_id','declared_against_alliance_id','casus_belli_key','casus_belli_custom'];
-        $vals = [];
-        $types= '';
-
-        // name
-        $vals[] = $war_name;             $types .= 's';
-        // ids
-        $vals[] = $declarer_alliance_id; $types .= 'i';
-        $vals[] = $declared_against_id;  $types .= 'i';
-        // casus belli
-        $vals[] = ($casus_belli_key === 'custom') ? null : $casus_belli_key; $types .= 's';
-        $vals[] = ($casus_belli_key === 'custom') ? $custom_casus_belli : null; $types .= 's';
-
-        // Optional goal meta
-        if ($has_goal_metric)    { $cols[] = 'goal_metric';    $vals[] = $final_goal_metric;    $types .= 's'; }
-        if ($has_goal_threshold) { $cols[] = 'goal_threshold'; $vals[] = (int)$final_goal_threshold; $types .= 'i'; }
-
-        // Standard numeric goal columns (credits only, others zero)
-        if ($this->columnExists('wars','goal_credits_plundered')) {
-            $cols[]='goal_credits_plundered'; $vals[]=$final_goal_threshold; $types.='i';
-        }
-        if ($this->columnExists('wars','goal_units_killed')) {
-            $cols[]='goal_units_killed'; $vals[]=0; $types.='i';
-        }
-        if ($this->columnExists('wars','goal_structure_damage')) {
-            $cols[]='goal_structure_damage'; $vals[]=0; $types.='i';
-        }
-        if ($this->columnExists('wars','goal_prestige_change')) {
-            $cols[]='goal_prestige_change'; $vals[]=0; $types.='i';
-        }
-        if ($this->columnExists('wars','goal_units_assassinated')) {
-            $cols[]='goal_units_assassinated'; $vals[]=0; $types.='i';
-        }
-
-        // Custom war badge metadata (if schema supports it)
-        $hasCustomBadgeCols = $this->columnExists('wars','custom_badge_name') || $this->columnExists('wars','custom_badge_description') || $this->columnExists('wars','custom_badge_icon_path');
-        if ($casus_belli_key === 'custom' && $hasCustomBadgeCols) {
-            $custom_badge_name = trim((string)($_POST['custom_badge_name'] ?? ''));
-            $custom_badge_description = trim((string)($_POST['custom_badge_description'] ?? ''));
-            $custom_badge_icon_path = null;
-
+        // Optional custom badge (only when casus=custom)
+        $customBadgeName = null;
+        $customBadgeDesc = null;
+        $customBadgePath = null;
+        if ($cb_key === 'custom') {
+            $customBadgeName = trim((string)($_POST['custom_badge_name'] ?? ''));
+            $customBadgeDesc = trim((string)($_POST['custom_badge_description'] ?? ''));
+            if ($customBadgeName !== '' && mb_strlen($customBadgeName) > 100) { $customBadgeName = mb_substr($customBadgeName, 0, 100); }
+            if ($customBadgeDesc !== '' && mb_strlen($customBadgeDesc) > 255) { $customBadgeDesc = mb_substr($customBadgeDesc, 0, 255); }
             if (!empty($_FILES['custom_badge_icon']['name'] ?? '')) {
                 $allowed = ['png','jpg','jpeg','gif','avif','webp'];
-                $maxSize = 256 * 1024;
-                if (($_FILES['custom_badge_icon']['error'] ?? UPLOAD_ERR_OK) !== UPLOAD_ERR_OK) {
-                    throw new \Exception('Badge icon upload failed.');
-                }
-                if (($_FILES['custom_badge_icon']['size'] ?? 0) > $maxSize) {
-                    throw new \Exception('Badge icon too large (max 256KB).');
-                }
+                $maxSize = 256 * 1024; // 256KB
+                $err = (int)($_FILES['custom_badge_icon']['error'] ?? UPLOAD_ERR_OK);
+                if ($err !== UPLOAD_ERR_OK) { throw new Exception('Badge icon upload failed.'); }
+                if (($_FILES['custom_badge_icon']['size'] ?? 0) > $maxSize) { throw new Exception('Badge icon too large (max 256KB).'); }
                 $ext = strtolower(pathinfo($_FILES['custom_badge_icon']['name'], PATHINFO_EXTENSION));
-                if (!in_array($ext, $allowed, true)) {
-                    throw new \Exception('Invalid badge icon type.');
-                }
-                $safeBase = preg_replace('/[^a-z0-9_-]+/i', '-', $custom_badge_name ?: 'custom');
+                if (!in_array($ext, $allowed, true)) { throw new Exception('Invalid badge icon type.'); }
                 $uploadDir = __DIR__ . '/../../public/uploads/war_badges/';
                 if (!is_dir($uploadDir)) { @mkdir($uploadDir, 0775, true); }
-                $fileName = sprintf('war_%d_%s_%d.%s', $declarer_alliance_id, strtolower($safeBase), time(), $ext);
+                $safeBase = preg_replace('/[^a-z0-9_-]+/i', '-', $customBadgeName ?: 'custom');
+                $fileName = sprintf('war_%d_%s_%d.%s', (int)($me['alliance_id'] ?? 0), strtolower($safeBase), time(), $ext);
                 $destFs   = $uploadDir . $fileName;
                 if (!move_uploaded_file($_FILES['custom_badge_icon']['tmp_name'], $destFs)) {
-                    throw new \Exception('Could not save badge icon.');
+                    throw new Exception('Could not save badge icon.');
                 }
-                $custom_badge_icon_path = '/uploads/war_badges/' . $fileName;
+                $customBadgePath = '/uploads/war_badges/' . $fileName;
             }
-
-            if ($this->columnExists('wars','custom_badge_name'))        { $cols[]='custom_badge_name';        $vals[]=$custom_badge_name; $types.='s'; }
-            if ($this->columnExists('wars','custom_badge_description')) { $cols[]='custom_badge_description'; $vals[]=$custom_badge_description; $types.='s'; }
-            if ($this->columnExists('wars','custom_badge_icon_path'))   { $cols[]='custom_badge_icon_path';   $vals[]=$custom_badge_icon_path; $types.='s'; }
         }
 
-        // Start & status
-        if ($this->columnExists('wars','status'))      { $cols[]='status'; $vals[]='active'; $types.='s'; }
-        if ($this->columnExists('wars','start_date'))  { $cols[]='start_date'; $vals[]=date('Y-m-d H:i:s'); $types.='s'; }
+        $now = date('Y-m-d H:i:s');
+        $end = date('Y-m-d H:i:s', time() + ($durationHours * 3600));
 
-        // Optional war_cost
-        if ($this->columnExists('wars','war_cost'))    { $cols[]='war_cost'; $vals[]=$war_cost; $types.='i'; }
+        // Common, schema-required columns
+        $cols  = [
+            'scope','name','war_type',
+            'declarer_alliance_id','declarer_user_id',
+            'declared_against_alliance_id','declared_against_user_id',
+            'casus_belli_key','casus_belli_custom',
+            'custom_badge_name','custom_badge_description','custom_badge_icon_path',
+            'start_date','end_date','status','defense_bonus_pct',
+            'goal_metric','goal_threshold'
+        ];
+        $vals  = [];
+        $types = '';
 
-        // Deduct cost, then insert
-        $this->db->begin_transaction();
-        try {
-            if ($st = $this->db->prepare("UPDATE alliances SET bank_credits = bank_credits - ? WHERE id=?")) {
-                $st->bind_param('ii', $war_cost, $declarer_alliance_id);
-                $st->execute(); $st->close();
-            }
+        $vals[] = $scope;      $types .= 's';
+        $vals[] = $war_name;   $types .= 's';
+        $vals[] = $war_type;   $types .= 's';
 
-            $placeholders = implode(',', array_fill(0, count($cols), '?'));
-            $sql = "INSERT INTO wars (".implode(',', $cols).") VALUES ($placeholders)";
-            if ($st = $this->db->prepare($sql)) {
+        if ($scope === 'alliance') {
+            $myAllianceId = (int)($me['alliance_id'] ?? 0);
+            if ($myAllianceId <= 0) { throw new Exception('You must belong to an alliance to declare alliance wars.'); }
+            $ally = $this->getAlliance($myAllianceId);
+            if (!$ally) { throw new Exception('Alliance not found.'); }
+            if ((int)$ally['leader_id'] !== $userId) { throw new Exception('Only the alliance leader may declare alliance wars.'); }
+
+            $targetAllianceId = (int)($_POST['alliance_id'] ?? ($_POST['target_alliance_id'] ?? ($_POST['declared_against_alliance_id'] ?? 0)));
+            if ($targetAllianceId <= 0) { throw new Exception('Please choose a target alliance.'); }
+            if ($targetAllianceId === $myAllianceId) { throw new Exception('You cannot declare war on your own alliance.'); }
+            if (!$this->getAlliance($targetAllianceId)) { throw new Exception('Target alliance not found.'); }
+
+            // Begin transaction early to guard duplicate race & handle bank deduction atomically
+            $this->db->begin_transaction();
+            try {
+                // Guard: prevent duplicate active AvA (locks a matching row-set)
+                if ($this->hasActiveAllianceWar($myAllianceId, $targetAllianceId, true)) {
+                    $this->db->rollback();
+                    throw new Exception('There is already an active alliance war between these alliances.');
+                }
+
+                // Lock & compute war cost
+                $st = $this->db->prepare("SELECT bank_credits FROM alliances WHERE id=? FOR UPDATE");
+                $st->bind_param('i', $myAllianceId);
+                $st->execute();
+                $row = $st->get_result()->fetch_assoc();
+                $st->close();
+
+                $bank = (int)($row['bank_credits'] ?? 0);
+                $warCost = max(30000000, (int)ceil($bank * 0.10));
+                if ($bank < $warCost) {
+                    $this->db->rollback();
+                    throw new Exception('Insufficient alliance funds to declare war.');
+                }
+
+                // Deduct
+                $st = $this->db->prepare("UPDATE alliances SET bank_credits = bank_credits - ? WHERE id=?");
+                $st->bind_param('ii', $warCost, $myAllianceId);
+                $st->execute();
+                $st->close();
+
+                // Participants
+                $vals[] = $myAllianceId;       $types .= 'i'; // declarer_alliance_id
+                $vals[] = $userId;             $types .= 'i'; // declarer_user_id
+                $vals[] = $targetAllianceId;   $types .= 'i'; // declared_against_alliance_id
+                $vals[] = null;                $types .= 's'; // declared_against_user_id (AvA)
+
+                // Rest of values
+                $vals[] = ($cb_key === 'custom') ? null : $cb_key;     $types .= 's';
+                $vals[] = ($cb_key === 'custom') ? $cb_custom : null;  $types .= 's';
+                $vals[] = $customBadgeName;        $types .= 's';
+                $vals[] = $customBadgeDesc;        $types .= 's';
+                $vals[] = $customBadgePath;        $types .= 's';
+                $vals[] = $now;                    $types .= 's';
+                $vals[] = $end;                    $types .= 's';
+                $vals[] = 'active';                $types .= 's';
+                $vals[] = 3;                       $types .= 'i';
+                $vals[] = 'composite';             $types .= 's';
+                $vals[] = 0;                       $types .= 'i';
+
+                // Insert war
+                $placeholders = implode(',', array_fill(0, count($cols), '?'));
+                $sql = "INSERT INTO wars (".implode(',', $cols).") VALUES ($placeholders)";
+                $st = $this->db->prepare($sql);
                 $st->bind_param($types, ...$vals);
                 $st->execute();
                 $st->close();
-            }
 
-            $this->db->commit();
-        } catch (\Throwable $e) {
-            $this->db->rollback();
-            throw $e;
+                // Bank log
+                $desc = 'War declaration';
+                $type = 'purchase';
+                $sqlLog = "INSERT INTO alliance_bank_logs (alliance_id, user_id, type, amount, description)
+                           VALUES (?, ?, ?, ?, ?)";
+                $stl = $this->db->prepare($sqlLog);
+                $stl->bind_param('iisis', $myAllianceId, $userId, $type, $warCost, $desc);
+                $stl->execute();
+                $stl->close();
+
+                $this->db->commit();
+            } catch (\Throwable $e) {
+                $this->db->rollback();
+                throw $e;
+            }
+        } else {
+            // PvP — must still provide NOT NULL alliance ids
+            $targetUserId = (int)($_POST['target_user_id'] ?? ($_POST['user_id'] ?? 0));
+            if ($targetUserId <= 0) { throw new Exception('Please enter a target player ID.'); }
+            if ($targetUserId === $userId) { throw new Exception('You cannot declare war on yourself.'); }
+
+            // Ensure target exists
+            $st = $this->db->prepare("SELECT id FROM users WHERE id=?");
+            $st->bind_param('i', $targetUserId);
+            $st->execute();
+            $exists = (bool)$st->get_result()->fetch_row();
+            $st->close();
+            if (!$exists) { throw new Exception('Target player not found.'); }
+
+            $decAllianceId = $this->getUserAllianceId($userId);       // may be 0
+            $defAllianceId = $this->getUserAllianceId($targetUserId); // may be 0
+
+            // Transaction guard to prevent duplicate active PvP wars
+            $this->db->begin_transaction();
+            try {
+                if ($this->hasActivePlayerWar($userId, $targetUserId, true)) {
+                    $this->db->rollback();
+                    throw new Exception('There is already an active war between these players.');
+                }
+
+                // Participants (NOT NULL alliance ids; 0 means no alliance)
+                $vals[] = $decAllianceId;  $types .= 'i'; // declarer_alliance_id
+                $vals[] = $userId;         $types .= 'i'; // declarer_user_id
+                $vals[] = $defAllianceId;  $types .= 'i'; // declared_against_alliance_id
+                $vals[] = $targetUserId;   $types .= 'i'; // declared_against_user_id
+
+                // Rest of values
+                $vals[] = ($cb_key === 'custom') ? null : $cb_key;     $types .= 's';
+                $vals[] = ($cb_key === 'custom') ? $cb_custom : null;  $types .= 's';
+                $vals[] = $customBadgeName;        $types .= 's';
+                $vals[] = $customBadgeDesc;        $types .= 's';
+                $vals[] = $customBadgePath;        $types .= 's';
+                $vals[] = $now;                    $types .= 's';
+                $vals[] = $end;                    $types .= 's';
+                $vals[] = 'active';                $types .= 's';
+                $vals[] = 3;                       $types .= 'i';
+                $vals[] = 'composite';             $types .= 's';
+                $vals[] = 0;                       $types .= 'i';
+
+                $placeholders = implode(',', array_fill(0, count($cols), '?'));
+                $sql = "INSERT INTO wars (".implode(',', $cols).") VALUES ($placeholders)";
+                $st = $this->db->prepare($sql);
+                $st->bind_param($types, ...$vals);
+                $st->execute();
+                $st->close();
+
+                $this->db->commit();
+            } catch (\Throwable $e) {
+                $this->db->rollback();
+                throw $e;
+            }
         }
+
+        $_SESSION['war_message'] = 'War declared';
+        $this->safeRedirect('/realm_war.php');
     }
 
-    /** Declare a rivalry (unchanged behavior; now CSRF uses 'rivalry_declare') */
+    /** Legacy disabled */
+    public function declareWar(): void
+    {
+        throw new Exception('Legacy declareWar() is disabled in the timed-war flow.');
+    }
+
+    /** Diplomacy (unchanged except safe redirects) */
     private function declareRivalry()
     {
         $user_id = (int)$_SESSION['id'];
@@ -285,8 +413,7 @@ class WarController extends BaseController
         $stmt2->close();
 
         $_SESSION['war_message'] = "Rivalry declared successfully!";
-        header("Location: /realm_war.php");
-        exit;
+        $this->safeRedirect('/realm_war.php');
     }
 
     private function proposeTreaty()
@@ -312,8 +439,6 @@ class WarController extends BaseController
             throw new Exception("You must select an opponent and propose terms.");
         }
 
-        $_SESSION['war_message'] = "Peace treaty proposed to the opponent.";
-
         $alliance1_id = (int)$user['alliance_id'];
         $sql = "INSERT INTO treaties (alliance1_id, alliance2_id, treaty_type, proposer_id, status, terms, expiration_date)
                 VALUES (?, ?, 'peace', ?, 'proposed', ?, NOW() + INTERVAL 10 MINUTE)";
@@ -323,8 +448,7 @@ class WarController extends BaseController
         $stmt2->close();
 
         $_SESSION['war_message'] = "Peace treaty proposed successfully.";
-        header("Location: /diplomacy.php");
-        exit;
+        $this->safeRedirect('/diplomacy.php');
     }
 
     private function acceptTreaty()
@@ -354,9 +478,7 @@ class WarController extends BaseController
         $treaty = $stmt_t->get_result()->fetch_assoc();
         $stmt_t->close();
 
-        if (!$treaty) {
-            throw new Exception("Treaty not found or you are not authorized to accept it.");
-        }
+        if (!$treaty) { throw new Exception("Treaty not found or you are not authorized to accept it."); }
 
         $stmt_u = $this->db->prepare("UPDATE treaties SET status = 'active', expiration_date = NOW() + INTERVAL 15 MINUTE WHERE id = ?");
         $stmt_u->bind_param("i", $treaty_id);
@@ -378,16 +500,13 @@ class WarController extends BaseController
         }
 
         $_SESSION['war_message'] = "Treaty accepted. The war is over.";
-        header("Location: /diplomacy.php");
-        exit;
+        $this->safeRedirect('/diplomacy.php');
     }
 
     private function declineTreaty()
     {
-        $treaty_id = (int)($_POST['treaty_id'] ?? 0);
         $_SESSION['war_message'] = "Treaty declined.";
-        header("Location: /diplomacy.php");
-        exit;
+        $this->safeRedirect('/diplomacy.php');
     }
 
     private function cancelTreaty()
@@ -417,9 +536,7 @@ class WarController extends BaseController
         $treaty = $stmt_find->get_result()->fetch_assoc();
         $stmt_find->close();
 
-        if (!$treaty) {
-            throw new Exception("Treaty not found or you do not have permission to cancel it.");
-        }
+        if (!$treaty) { throw new Exception("Treaty not found or you do not have permission to cancel it."); }
 
         $stmt_del = $this->db->prepare("DELETE FROM treaties WHERE id = ?");
         $stmt_del->bind_param("i", $treaty_id);
@@ -427,31 +544,21 @@ class WarController extends BaseController
         $stmt_del->close();
 
         $_SESSION['war_message'] = "Treaty proposal has been canceled.";
-        header("Location: /diplomacy.php");
-        exit;
+        $this->safeRedirect('/diplomacy.php');
     }
 
-    /**
-     * End an active war and archive it.
-     */
+    /** End war + archive (unchanged core) */
     public function endWar(int $war_id, string $outcome_reason)
     {
         $war_id = (int)$war_id;
         $res = $this->db->query("SELECT * FROM wars WHERE id = {$war_id}");
         $war = $res ? $res->fetch_assoc() : null;
-        if ($res) $res->free();
-        if (!$war || ($war['status'] ?? 'active') !== 'active') return;
+        if ($res) { $res->free(); }
+        if (!$war || ($war['status'] ?? 'active') !== 'active') { return; }
 
         $safe_reason = $this->db->real_escape_string($outcome_reason);
         $this->db->query("UPDATE wars SET status = 'concluded', outcome = '{$safe_reason}', end_date = NOW() WHERE id = {$war_id}");
 
-        // TODOs for Casus Belli consequences (implement when schema/hooks are ready):
-        // - humiliation: add/remove public profile badge
-        // - dignity: erase humiliation on win; add extra loss on defeat
-        // - economic_vassal: set tax forwarding until a Revolution war ends in victory
-        // - revolution: clear economic vassalage if victorious
-
-        // Archive snapshot
         $dec = $this->db->query("SELECT name FROM alliances WHERE id = ".(int)$war['declarer_alliance_id'])->fetch_assoc();
         $aga = $this->db->query("SELECT name FROM alliances WHERE id = ".(int)$war['declared_against_alliance_id'])->fetch_assoc();
         $declarer          = $dec['name'] ?? 'Unknown';
@@ -466,9 +573,10 @@ class WarController extends BaseController
             $goal_text = $war['goal_metric'];
         }
 
-        // MVP rollup (optional table)
-        $mvp_user_id = null; $mvp_category = null; $mvp_value = 0; $mvp_character_name = null;
+        // Optional MVP rollup if table exists
         if ($this->db->query("SHOW TABLES LIKE 'war_battle_logs'")->num_rows > 0) {
+            $mvp_user_id = null; $mvp_category = null; $mvp_value = 0; $mvp_character_name = null;
+
             $sql_mvp = "SELECT user_id,
                                SUM(prestige_gained)  as total_prestige,
                                SUM(units_killed)     as total_kills,
@@ -502,7 +610,7 @@ class WarController extends BaseController
                         $mvp_category = $cat;
                     }
                 }
-                if ($mvp_user_id) {
+                if (!empty($mvp_user_id)) {
                     $stmt = $this->db->prepare("SELECT character_name FROM users WHERE id = ?");
                     $stmt->bind_param("i", $mvp_user_id);
                     $stmt->execute();
@@ -510,38 +618,37 @@ class WarController extends BaseController
                     $stmt->close();
                     $mvp_character_name = $nm['character_name'] ?? null;
                 }
-            }
-        }
 
-        // Insert history if table exists
-        if ($this->db->query("SHOW TABLES LIKE 'war_history'")->num_rows > 0) {
-            $stmt = $this->db->prepare(
-                "INSERT INTO war_history
-                 (war_id, declarer_alliance_name, declared_against_alliance_name, start_date, end_date, outcome, casus_belli_text, goal_text, mvp_user_id, mvp_category, mvp_value, mvp_character_name)
-                 VALUES (?, ?, ?, ?, NOW(), ?, ?, ?, ?, ?, ?, ?)"
-            );
-            $start_date = $war['start_date'] ?? null;
-            $stmt->bind_param(
-                "isssssssiis",
-                $war_id,
-                $declarer,
-                $declared_against,
-                $start_date,
-                $outcome_reason,
-                $cb_text,
-                $goal_text,
-                $mvp_user_id,
-                $mvp_category,
-                $mvp_value,
-                $mvp_character_name
-            );
-            $stmt->execute();
-            $stmt->close();
+                if ($this->db->query("SHOW TABLES LIKE 'war_history'")->num_rows > 0) {
+                    $stmt = $this->db->prepare(
+                        "INSERT INTO war_history
+                         (war_id, declarer_alliance_name, declared_against_alliance_name, start_date, end_date, outcome, casus_belli_text, goal_text, mvp_user_id, mvp_category, mvp_value, mvp_character_name)
+                         VALUES (?, ?, ?, ?, NOW(), ?, ?, ?, ?, ?, ?, ?)"
+                    );
+                    $start_date = $war['start_date'] ?? null;
+                    $stmt->bind_param(
+                        "isssssssiis",
+                        $war_id,
+                        $declarer,
+                        $declared_against,
+                        $start_date,
+                        $outcome_reason,
+                        $cb_text,
+                        $goal_text,
+                        $mvp_user_id,
+                        $mvp_category,
+                        $mvp_value,
+                        $mvp_character_name
+                    );
+                    $stmt->execute();
+                    $stmt->close();
+                }
+            }
         }
     }
 }
 
-// Optional tiny front controller if this file is hit directly.
+// Allow direct POST access (optional tiny front controller)
 if (php_sapi_name() !== 'cli' && basename($_SERVER['SCRIPT_NAME']) === 'WarController.php') {
     try {
         $action = $_POST['action'] ?? '';

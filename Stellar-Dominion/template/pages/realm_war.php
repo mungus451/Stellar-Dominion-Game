@@ -1,7 +1,15 @@
 <?php
 // template/pages/realm_war.php
-// Shows all active realm wars with alliances, casus belli, goals and progress.
-// Uses RealmWarController::getWars(), which refreshes progress first.
+// Shows all active realm wars with alliances/players, casus belli, RAW totals,
+// and the War Name. If provided by the controller, splits structure damage
+// into Battle vs Spy. Falls back to single Structure Damage row otherwise.
+//
+// Expects per-war fields (with safe fallbacks):
+//   name
+//   dec_credits, aga_credits
+//   dec_units, aga_units
+//   dec_structure_battle, dec_structure_spy, aga_structure_battle, aga_structure_spy
+//   (fallback to dec_structure / aga_structure if split fields are absent)
 
 if (session_status() === PHP_SESSION_NONE) {
     session_start();
@@ -16,12 +24,6 @@ require_once $ROOT . '/src/Controllers/RealmWarController.php';
 $controller = new RealmWarController();
 $wars       = $controller->getWars();
 $rivalries  = $controller->getRivalries();
-
-$metric_labels = [
-    'credits_plundered'  => 'Credits Plundered',
-    'structure_damage'   => 'Structure Damage',
-    'units_killed'       => 'Units Killed',
-];
 
 function sd_h($s) { return htmlspecialchars((string)$s, ENT_QUOTES, 'UTF-8'); }
 
@@ -58,16 +60,25 @@ include $ROOT . '/template/includes/header.php';
       <div class="space-y-4">
       <?php foreach ($wars as $war): ?>
         <?php
-          $goal_metric  = $war['goal_metric'] ?? 'credits_plundered';
-          $threshold    = (int)($war['goal_threshold'] ?? 0);
-          $dec_prog     = (int)($war['goal_progress_declarer'] ?? 0);
-          $aga_prog     = (int)($war['goal_progress_declared_against'] ?? 0);
+          // Raw totals with safe fallbacks
+          $decCredits = (int)($war['dec_credits']   ?? 0);
+          $agaCredits = (int)($war['aga_credits']   ?? 0);
+          $decUnits   = (int)($war['dec_units']     ?? 0);
+          $agaUnits   = (int)($war['aga_units']     ?? 0);
 
-          // Defender’s denominator is half of attacker’s
-          $defender_threshold = max(1, intdiv(max(1, $threshold), 2));
+          // Preferred split fields (battle vs spy). If missing, fall back to totals.
+          $decStructBattle = isset($war['dec_structure_battle'])
+              ? (int)$war['dec_structure_battle']
+              : (int)($war['dec_structure'] ?? 0);
+          $agaStructBattle = isset($war['aga_structure_battle'])
+              ? (int)$war['aga_structure_battle']
+              : (int)($war['aga_structure'] ?? 0);
 
-          $pct_dec = $threshold > 0 ? min(100, ($dec_prog / $threshold) * 100) : 0;
-          $pct_aga = $defender_threshold > 0 ? min(100, ($aga_prog / $defender_threshold) * 100) : 0;
+          $decStructSpy = (int)($war['dec_structure_spy'] ?? 0);
+          $agaStructSpy = (int)($war['aga_structure_spy'] ?? 0);
+
+          // If only totals exist and no explicit spy numbers, show 0 for spy row to avoid double-counting.
+          $hasSplitStruct = isset($war['dec_structure_battle']) || isset($war['dec_structure_spy']) || isset($war['aga_structure_battle']) || isset($war['aga_structure_spy']);
         ?>
         <div class="bg-gray-800/60 p-4 rounded-lg border border-gray-700">
           <div class="flex items-center justify-between gap-2 mb-2">
@@ -82,6 +93,12 @@ include $ROOT . '/template/includes/header.php';
             </div>
           </div>
 
+          <?php if (!empty($war['name'])): ?>
+            <div class="text-center text-sm font-medium opacity-90 mb-2">
+              <?= sd_h($war['name']); ?>
+            </div>
+          <?php endif; ?>
+
           <div class="grid grid-cols-1 md:grid-cols-3 gap-3 text-sm">
             <div>
               <div class="opacity-70">Casus Belli</div>
@@ -90,8 +107,7 @@ include $ROOT . '/template/includes/header.php';
             <div>
               <div class="opacity-70">War Goal</div>
               <div class="font-medium">
-                <?= sd_h($metric_labels[$goal_metric] ?? ucfirst(str_replace('_',' ',$goal_metric))); ?>:
-                <?= number_format($threshold); ?>
+                Totals (credits, units, structure<?= $hasSplitStruct ? ': battle vs spy' : '' ?>)
               </div>
             </div>
             <div>
@@ -100,26 +116,50 @@ include $ROOT . '/template/includes/header.php';
             </div>
           </div>
 
-          <div class="mt-3 grid grid-cols-1 md:grid-cols-2 gap-4">
-            <div>
-              <div class="flex justify-between text-xs mb-1">
-                <span><?= sd_h($war['declarer_name'] ?? 'Declarer'); ?></span>
-                <span><?= number_format($dec_prog) ?> / <?= number_format($threshold) ?> (<?= number_format($pct_dec, 1) ?>%)</span>
-              </div>
-              <div class="w-full h-3 bg-gray-700 rounded">
-                <div class="h-3 bg-cyan-500 rounded" style="width: <?= $pct_dec ?>%;"></div>
-              </div>
-            </div>
-            <div>
-              <div class="flex justify-between text-xs mb-1">
-                <span><?= sd_h($war['declared_against_name'] ?? 'Defender'); ?></span>
-                <span><?= number_format($aga_prog) ?> / <?= number_format($defender_threshold) ?> (<?= number_format($pct_aga, 1) ?>%)</span>
-              </div>
-              <div class="w-full h-3 bg-gray-700 rounded">
-                <div class="h-3 bg-red-500 rounded" style="width: <?= $pct_aga ?>%;"></div>
-              </div>
-            </div>
+          <!-- RAW totals breakdown -->
+          <div class="mt-3 overflow-x-auto">
+            <table class="w-full text-sm">
+              <thead>
+                <tr class="text-left opacity-70">
+                  <th class="p-2"><?= sd_h($war['declarer_name'] ?? 'Declarer'); ?></th>
+                  <th class="p-2 text-center">Metric</th>
+                  <th class="p-2 text-right"><?= sd_h($war['declared_against_name'] ?? 'Defender'); ?></th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr class="border-t border-gray-700/70">
+                  <td class="p-2"><?= number_format($decCredits) ?></td>
+                  <td class="p-2 text-center">Credits Plundered</td>
+                  <td class="p-2 text-right"><?= number_format($agaCredits) ?></td>
+                </tr>
+                <tr class="border-t border-gray-700/70">
+                  <td class="p-2"><?= number_format($decUnits) ?></td>
+                  <td class="p-2 text-center">Units Assassinated</td>
+                  <td class="p-2 text-right"><?= number_format($agaUnits) ?></td>
+                </tr>
+
+                <?php if ($hasSplitStruct): ?>
+                  <tr class="border-t border-gray-700/70">
+                    <td class="p-2"><?= number_format($decStructBattle) ?></td>
+                    <td class="p-2 text-center">Structure Damage (Battle)</td>
+                    <td class="p-2 text-right"><?= number_format($agaStructBattle) ?></td>
+                  </tr>
+                  <tr class="border-t border-gray-700/70">
+                    <td class="p-2"><?= number_format($decStructSpy) ?></td>
+                    <td class="p-2 text-center">Structure Damage (Spy)</td>
+                    <td class="p-2 text-right"><?= number_format($agaStructSpy) ?></td>
+                  </tr>
+                <?php else: ?>
+                  <tr class="border-t border-gray-700/70">
+                    <td class="p-2"><?= number_format($decStructBattle) ?></td>
+                    <td class="p-2 text-center">Structure Damage</td>
+                    <td class="p-2 text-right"><?= number_format($agaStructBattle) ?></td>
+                  </tr>
+                <?php endif; ?>
+              </tbody>
+            </table>
           </div>
+          <!-- /RAW totals breakdown -->
         </div>
       <?php endforeach; ?>
       </div>

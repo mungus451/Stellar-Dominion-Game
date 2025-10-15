@@ -84,6 +84,56 @@ if (!$log) {
     if (ARMORY_ATTRITION_ENABLED) {
         $armory_attrition_categories_count = count(array_filter(array_map('trim', explode(',', (string)ARMORY_ATTRITION_CATEGORIES))));
     }
+
+    // ─────────────────────────────────────────────────────────────────────────
+    // Credits Burned (display-only)
+    // Source: economic_log(event_type='battle_reward') with reference to this battle
+    // ─────────────────────────────────────────────────────────────────────────
+    $credits_burned_found = false;
+    $credits_burned_display = 'Data Not Available';
+
+    // Primary lookup by reference_id (preferred schema)
+    $sql_burn = "SELECT burned_amount 
+                 FROM economic_log 
+                 WHERE user_id = ? 
+                   AND event_type = 'battle_reward' 
+                   AND reference_id = ? 
+                 ORDER BY id DESC 
+                 LIMIT 1";
+    if ($stmt_b = mysqli_prepare($link, $sql_burn)) {
+        mysqli_stmt_bind_param($stmt_b, 'ii', $_SESSION['id'], $battle_id);
+        mysqli_stmt_execute($stmt_b);
+        $res_b = mysqli_stmt_get_result($stmt_b);
+        if ($row_b = mysqli_fetch_assoc($res_b)) {
+            $credits_burned_found = true;
+            $burn_val = (int)$row_b['burned_amount'];
+            $credits_burned_display = $burn_val > 0 ? ('-' . number_format($burn_val)) : '0';
+        }
+        mysqli_stmt_close($stmt_b);
+    }
+
+    // Fallback: some rows may reference the battle only in JSON metadata
+    if (!$credits_burned_found) {
+        $sql_burn_fallback = "SELECT burned_amount 
+                              FROM economic_log 
+                              WHERE user_id = ? 
+                                AND event_type = 'battle_reward' 
+                                AND metadata LIKE ? 
+                              ORDER BY id DESC 
+                              LIMIT 1";
+        if ($stmt_b2 = mysqli_prepare($link, $sql_burn_fallback)) {
+            $needle = '%"battle_log_id":' . $battle_id . '%';
+            mysqli_stmt_bind_param($stmt_b2, 'is', $_SESSION['id'], $needle);
+            mysqli_stmt_execute($stmt_b2);
+            $res_b2 = mysqli_stmt_get_result($stmt_b2);
+            if ($row_b2 = mysqli_fetch_assoc($res_b2)) {
+                $credits_burned_found = true;
+                $burn_val = (int)$row_b2['burned_amount'];
+                $credits_burned_display = $burn_val > 0 ? ('-' . number_format($burn_val)) : '0';
+            }
+            mysqli_stmt_close($stmt_b2);
+        }
+    }
 }
 
 // ---- HEADER / NAVBAR ----
@@ -144,6 +194,14 @@ include_once __DIR__ . '/../includes/header.php';
                             <?php if ($is_attacker && $log['outcome'] === 'victory' && (int)$log['credits_stolen'] > 0): ?>
                                 <li class="flex justify-between"><span>Credits Plundered:</span> <span class="font-semibold text-green-400">+<?php echo number_format((int)$log['credits_stolen']); ?></span></li>
                             <?php endif; ?>
+
+                            <!-- NEW: Credits Burned (from economic_log) -->
+                            <li class="flex justify-between">
+                                <span>Credits Burned:</span>
+                                <span class="font-semibold <?php echo $credits_burned_found ? 'text-red-300' : 'text-gray-400'; ?>">
+                                    <?php echo htmlspecialchars($credits_burned_display, ENT_QUOTES, 'UTF-8'); ?>
+                                </span>
+                            </li>
                         </ul>
                     </div>
                     <div class="bg-gray-800/50 p-3 rounded-lg">

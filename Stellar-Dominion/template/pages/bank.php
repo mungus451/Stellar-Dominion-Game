@@ -20,6 +20,7 @@ require_once __DIR__ . '/../../src/Services/StateService.php'; // centralized re
 // Data hydrators
 require_once __DIR__ . '/../includes/advisor_hydration.php';
 require_once __DIR__ . '/../includes/bank/bank_hydration.php';
+require_once __DIR__ . '/../includes/bank/hydrate_vaults_bank.php'; 
 
 // --- POST HANDLING (delegates to controller) ---
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
@@ -44,6 +45,8 @@ include_once __DIR__ . '/../includes/header.php';
         <?php include __DIR__ . '/../includes/bank/form_deposit.php'; ?>
         <?php include __DIR__ . '/../includes/bank/form_withdraw.php'; ?>
     </div>
+
+    <?php include __DIR__ . '/../includes/bank/vault_card_bank.php';?>
 
     <?php include __DIR__ . '/../includes/bank/transfer.php'; ?>
 
