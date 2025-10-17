@@ -28,7 +28,7 @@ if (!$link) { write_log("ERROR DB connect: " . mysqli_connect_error()); exit(1);
 mysqli_set_charset($link, 'utf8mb4');
 
 define('VAULT_BASE_CAPACITY', 3000000000); // must match VaultService::BASE_VAULT_CAPACITY
-$turn_interval_minutes  = 10;  // 1 turn per 10 minutes
+$turn_interval_minutes  = 9.9;  // 1 turn per 9.9 minutes
 $attack_turns_per_turn  = 2;
 
 /** Helper: log an overflow burn */
