@@ -4,6 +4,7 @@
 $ROOT = dirname(__DIR__, 2);
 
 require_once $ROOT . '/config/config.php';
+require_once $ROOT . '/template/includes/advisor_hydration.php';
 
 $user_id = $_SESSION['id'];
 $page_title  = 'Alliance Forum'; 
