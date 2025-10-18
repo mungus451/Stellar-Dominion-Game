@@ -13,3 +13,5 @@ cron_log.txt
 adsense.php
 schema_checker.php
 schema_diff.php
+cron_log.txt
+ads.txt
