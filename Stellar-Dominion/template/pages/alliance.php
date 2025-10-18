@@ -16,31 +16,9 @@ require_once $ROOT . '/src/Game/GameFunctions.php';
 require_once $ROOT . '/src/Controllers/BaseAllianceController.php';
 require_once $ROOT . '/src/Controllers/AllianceManagementController.php';
 
-if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
-    $csrf_action = isset($_POST['csrf_action']) ? (string)$_POST['csrf_action'] : 'alliance_hub';
-    if (!isset($_POST['csrf_token']) || !validate_csrf_token($_POST['csrf_token'], $csrf_action)) {
-        $_SESSION['alliance_error'] = 'Invalid session token.';
-        header('Location: /alliance.php'); exit;
-    }
+/* POST HANDLER */
 
-    $map = [
-        'apply'   => 'apply_to_alliance',
-        'cancel'  => 'cancel_application',
-        'approve' => 'accept_application',
-        'reject'  => 'deny_application',
-        'kick'    => 'kick',
-        // invitations flow posts with actions: accept_invite / decline_invite (no map needed)
-    ];
-    $dispatchAction = $map[$_POST['action']] ?? $_POST['action'];
-
-    try {
-        $controller = new AllianceManagementController($link);
-        $controller->dispatch($dispatchAction); // controller handles redirect+exit
-    } catch (Throwable $e) {
-        $_SESSION['alliance_error'] = 'Action failed: ' . $e->getMessage();
-        header('Location: /alliance.php'); exit;
-    }
-}
+require_once $ROOT . '/template/includes/alliance/alliance_post_handler.php' ;
 
 date_default_timezone_set('UTC');
 if (function_exists('process_offline_turns') && isset($_SESSION['id'])) {
@@ -48,326 +26,40 @@ if (function_exists('process_offline_turns') && isset($_SESSION['id'])) {
 }
 
 /* helpers */
-function column_exists(mysqli $link, string $table, string $column): bool {
-    $table  = preg_replace('/[^a-z0-9_]/i', '', $table);
-    $column = preg_replace('/[^a-z0-9_]/i', '', $column);
-    $res = mysqli_query($link, "SHOW COLUMNS FROM `$table` LIKE '$column'");
-    if (!$res) return false;
-    $ok = mysqli_num_rows($res) > 0; mysqli_free_result($res); return $ok;
-}
-function table_exists(mysqli $link, string $table): bool {
-    $table = preg_replace('/[^a-z0-9_]/i', '', $table);
-    $res = mysqli_query($link, "SHOW TABLES LIKE '$table'");
-    if (!$res) return false;
-    $ok = mysqli_num_rows($res) > 0; mysqli_free_result($res); return $ok;
-}
-function e($v): string { return htmlspecialchars((string)($v ?? ''), ENT_QUOTES, 'UTF-8'); }
-function normalize_avatar(string $candidate, string $default, string $root): string {
-    if ($candidate === '') return $default;
-    $url = preg_match('#^(https?://|/)#i', $candidate) ? $candidate : ('/' . ltrim($candidate, '/'));
-    $path = parse_url($url, PHP_URL_PATH);
-    $fs   = $root . '/public' . $path;
-    return (is_string($path) && is_file($fs)) ? $url : $default;
-}
-/* Prefer an existing avatar column on users (dynamic, no guessing at runtime) */
-function users_avatar_column(mysqli $link): ?string {
-    foreach (['avatar_path','avatar','profile_image','profile_pic','picture','image_path','portrait'] as $c) {
-        if (column_exists($link, 'users', $c)) return $c;
-    }
-    return null;
-}
-/* Initial letter for placeholder avatar */
-function initial_letter(string $name): string {
-    $name = trim($name);
-    $ch = function_exists('mb_substr') ? mb_substr($name, 0, 1, 'UTF-8') : substr($name, 0, 1);
-    return strtoupper($ch ?: '?');
-}
+require_once $ROOT . '/template/includes/alliance/alliance_helpers.php'; 
 
 /**
  * Render Join/Cancel button(s) for a public alliance row (not Scout tab).
  * Returns HTML (or empty if applications table missing).
  */
-function render_join_action_button(array $row, ?int $viewer_alliance_id, bool $has_app_table, ?int $pending_app_id, ?int $pending_alliance_id, string $csrf_token): string {
-    if (!$has_app_table) return '';
-    $aid = (int)($row['id'] ?? 0);
-    ob_start();
-    if ($viewer_alliance_id !== null) { ?>
-        <button class="text-white font-bold py-1 px-3 rounded-md text-xs opacity-50 cursor-not-allowed"
-                title="Leave your current alliance before you can join another"
-                style="background:#4b5563">Join alliance</button>
-    <?php } elseif ($pending_app_id !== null && $pending_alliance_id === $aid) { ?>
-        <form action="/alliance.php" method="post" class="inline-block">
-            <input type="hidden" name="csrf_token" value="<?= e($csrf_token) ?>">
-            <input type="hidden" name="csrf_action" value="alliance_hub">
-            <input type="hidden" name="application_id" value="<?= (int)$pending_app_id ?>">
-            <input type="hidden" name="action" value="cancel">
-            <button class="text-white font-bold py-1 px-3 rounded-md text-xs" style="background:#991b1b">Cancel application</button>
-        </form>
-    <?php } elseif ($pending_app_id !== null) { ?>
-        <button class="text-white font-bold py-1 px-3 rounded-md text-xs opacity-50 cursor-not-allowed"
-                title="You already have a pending application"
-                style="background:#4b5563">Join alliance</button>
-    <?php } else { ?>
-        <form action="/alliance.php" method="post" class="inline-block">
-            <input type="hidden" name="csrf_token" value="<?= e($csrf_token) ?>">
-            <input type="hidden" name="csrf_action" value="alliance_hub">
-            <input type="hidden" name="action" value="apply">
-            <input type="hidden" name="alliance_id" value="<?= $aid ?>">
-            <input type="hidden" name="reason" value="">
-            <button class="text-white font-bold py-1 px-3 rounded-md text-xs" style="background:#0ea5e9">Join alliance</button>
-        </form>
-    <?php }
-    return trim(ob_get_clean());
-}
+require_once $ROOT . '/template/includes/alliance/join_cancel.php';
 
 /* viewer + alliance */
-$user_id = (int)($_SESSION['id'] ?? 0);
-$viewer_alliance_id = null;
-
-if ($st = $link->prepare("SELECT alliance_id FROM users WHERE id = ? LIMIT 1")) {
-    $st->bind_param('i', $user_id);
-    $st->execute(); $st->bind_result($aid_tmp);
-    if ($st->fetch()) $viewer_alliance_id = $aid_tmp !== null ? (int)$aid_tmp : null;
-    $st->close();
-}
-
-$userNameCol = column_exists($link, 'users', 'username')
-    ? 'username'
-    : (column_exists($link, 'users', 'character_name') ? 'character_name' : 'email');
-
-$alliance = null;
-$alliance_avatar = '/assets/img/alliance-badge.webp';
-
-if ($viewer_alliance_id !== null) {
-    $cols = "id, name, tag, description, created_at, leader_id";
-    if (column_exists($link, 'alliances', 'avatar_path')) $cols .= ", avatar_path";
-
-    if ($st = $link->prepare("SELECT $cols FROM alliances WHERE id = ? LIMIT 1")) {
-        $st->bind_param('i', $viewer_alliance_id);
-        $st->execute(); $res = $st->get_result();
-        $alliance = $res ? $res->fetch_assoc() : null;
-        $st->close();
-    }
-
-    if ($alliance && !empty($alliance['leader_id'])) {
-        if ($st = $link->prepare("SELECT $userNameCol FROM users WHERE id = ? LIMIT 1")) {
-            $x = (int)$alliance['leader_id'];
-            $st->bind_param('i', $x);
-            $st->execute(); $st->bind_result($leader_name);
-            if ($st->fetch()) $alliance['leader_name'] = $leader_name;
-            $st->close();
-        }
-    }
-
-    if (!empty($alliance['avatar_path'])) {
-        $alliance_avatar = normalize_avatar((string)$alliance['avatar_path'], $alliance_avatar, $ROOT);
-    }
-
-    // optional credits
-    $alliance['bank_credits'] = 0;
-    if (column_exists($link, 'alliances', 'bank_credits')) {
-        if ($st = $link->prepare("SELECT bank_credits FROM alliances WHERE id = ? LIMIT 1")) {
-            $x = (int)$alliance['id'];
-            $st->bind_param('i', $x);
-            $st->execute(); $st->bind_result($credits);
-            if ($st->fetch()) $alliance['bank_credits'] = (int)$credits;
-            $st->close();
-        }
-    }
-}
+require_once $ROOT . '/template/includes/alliance/viewer.php' ;
 
 /* viewer permissions (for Approve/Kick buttons) */
-$viewer_perms = ['can_approve_membership'=>false,'can_kick_members'=>false];
-if ($viewer_alliance_id !== null) {
-    $sql = "SELECT ar.can_approve_membership, ar.can_kick_members
-            FROM users u
-            LEFT JOIN alliance_roles ar
-              ON ar.id = u.alliance_role_id AND ar.alliance_id = u.alliance_id
-            WHERE u.id = ? LIMIT 1";
-    if ($st = $link->prepare($sql)) {
-        $st->bind_param('i', $user_id);
-        $st->execute(); $st->bind_result($p1, $p2);
-        if ($st->fetch()) $viewer_perms = [
-            'can_approve_membership' => (bool)$p1,
-            'can_kick_members'       => (bool)$p2
-        ];
-        $st->close();
-    }
-}
+require_once $ROOT . '/template/includes/alliance/viewer_permissions.php' ;
 
 /* charter (optional) */
-$alliance_charter = '';
-if ($alliance) {
-    $alliance_charter = (string)($alliance['description'] ?? '');
-
-    if (trim($alliance_charter) === '') {
-        $alliance_charter = 'No charter has been set yet.';
-    }
-}
+include_once $ROOT . '/template/includes/alliance/charter.php' ;
 
 /* rivalries (for RIVAL badge) */
-$rivalries = []; $rivalIds = [];
-if ($alliance && table_exists($link, 'alliance_rivalries')) {
-    $sql = "SELECT ar.opponent_alliance_id, ar.status, ar.created_at, a.name, a.tag
-            FROM alliance_rivalries ar
-            JOIN alliances a ON a.id = ar.opponent_alliance_id
-            WHERE ar.alliance_id = ?
-            ORDER BY ar.created_at DESC LIMIT 20";
-    if ($st = $link->prepare($sql)) {
-        $x = (int)$alliance['id'];
-        $st->bind_param('i', $x);
-        $st->execute(); $res = $st->get_result();
-        while ($row = $res->fetch_assoc()) { $rivalries[] = $row; $rivalIds[(int)$row['opponent_alliance_id']] = true; }
-        $st->close();
-    }
-} elseif ($alliance && table_exists($link, 'rivalries')) {
-    $sql = "SELECT
-                CASE WHEN r.alliance1_id = ? THEN r.alliance2_id ELSE r.alliance1_id END AS opponent_alliance_id,
-                r.heat_level, r.created_at, a.name, a.tag
-            FROM rivalries r
-            JOIN alliances a
-              ON a.id = CASE WHEN r.alliance1_id = ? THEN r.alliance2_id ELSE r.alliance1_id END
-            WHERE r.alliance1_id = ? OR r.alliance2_id = ?
-            ORDER BY r.created_at DESC LIMIT 20";
-    if ($st = $link->prepare($sql)) {
-        $aid = (int)$alliance['id'];
-        $st->bind_param('iiii', $aid, $aid, $aid, $aid);
-        $st->execute(); $res = $st->get_result();
-        while ($row = $res->fetch_assoc()) { $rivalries[] = $row; $rivalIds[(int)$row['opponent_alliance_id']] = true; }
-        $st->close();
-    }
-}
+require_once $ROOT . '/template/includes/alliance/rivalries.php' ;
 
 /* roster — include role and avatar */
-$members = [];
-if ($alliance) {
-    $cols = "u.id, u.$userNameCol AS username";
-    $hasLevel = column_exists($link, 'users', 'level');
-    $hasNet   = column_exists($link, 'users', 'net_worth');
-    if ($hasLevel) $cols .= ", u.level";
-    if ($hasNet)   $cols .= ", u.net_worth";
+require_once $ROOT . '/template/includes/alliance/roster.php' ;
 
-    $avatarCol = users_avatar_column($link);
-    if ($avatarCol) $cols .= ", u.$avatarCol AS avatar_path";
-
-    $sql = "SELECT $cols, COALESCE(r.name,'Member') AS role_name, u.alliance_role_id
-            FROM users u
-            LEFT JOIN alliance_roles r
-              ON r.id = u.alliance_role_id AND r.alliance_id = ?
-            WHERE u.alliance_id = ?
-            ORDER BY " . ($hasLevel ? "u.level DESC" : "u.id ASC");
-
-    if ($st = $link->prepare($sql)) {
-        $aid = (int)$alliance['id'];
-        $st->bind_param('ii', $aid, $aid);
-        $st->execute(); $res = $st->get_result();
-        while ($row = $res->fetch_assoc()) {
-            // Avatar URL if present; else empty string for placeholder
-            $row['avatar_url'] = isset($row['avatar_path']) && $row['avatar_path'] !== ''
-                ? normalize_avatar((string)$row['avatar_path'], '', $ROOT)
-                : '';
-            $members[] = $row;
-        }
-        $st->close();
-    }
-}
-
-/* applications (optional, for leaders to review) */
-$applications = [];
-if ($alliance && table_exists($link, 'alliance_applications')) {
-    $appCols = "aa.id, aa.user_id, aa.status, u.$userNameCol AS username";
-    if (column_exists($link, 'users', 'level')) $appCols .= ", u.level";
-    if (column_exists($link, 'alliance_applications', 'reason')) $appCols .= ", aa.reason";
-    $sql = "SELECT $appCols
-            FROM alliance_applications aa
-            JOIN users u ON u.id = aa.user_id
-            WHERE aa.alliance_id = ? AND aa.status = 'pending'
-            ORDER BY aa.id DESC LIMIT 100";
-    if ($st = $link->prepare($sql)) {
-        $x = (int)$alliance['id'];
-        $st->bind_param('i', $x);
-        $st->execute(); $res = $st->get_result();
-        while ($row = $res->fetch_assoc()) $applications[] = $row;
-        $st->close();
-    }
-}
+/* applications for leaders to review */
+require_once $ROOT . '/template/includes/alliance/applications.php' ;
 
 /* player-side apply/cancel state (when NOT in an alliance) */
-$csrf_token = generate_csrf_token('alliance_hub');
-$has_app_table = table_exists($link, 'alliance_applications');
-$pending_app_id = null; $pending_alliance_id = null;
-if ($has_app_table && $viewer_alliance_id === null) {
-    if ($st = $link->prepare("SELECT id, alliance_id FROM alliance_applications WHERE user_id = ? AND status = 'pending' ORDER BY id DESC LIMIT 1")) {
-        $st->bind_param('i', $user_id);
-        $st->execute(); $st->bind_result($aid, $alid);
-        if ($st->fetch()) { $pending_app_id = (int)$aid; $pending_alliance_id = (int)$alid; }
-        $st->close();
-    }
-}
+require_once $ROOT . '/template/includes/alliance/apply_cancel.php' ;
 
 /* pending invitations for the viewer (when NOT in an alliance) */
-$invitations = [];
-$has_invite_table = table_exists($link, 'alliance_invitations');
-if ($viewer_alliance_id === null && $has_invite_table) {
-    $invCols = "ai.id, ai.alliance_id, ai.inviter_id, ai.created_at, a.name AS alliance_name, a.tag AS alliance_tag";
-    $invCols .= ", u.$userNameCol AS inviter_name";
-    $sql = "SELECT $invCols
-            FROM alliance_invitations ai
-            JOIN alliances a ON a.id = ai.alliance_id
-            LEFT JOIN users u ON u.id = ai.inviter_id
-            WHERE ai.invitee_id = ? AND ai.status = 'pending'
-            ORDER BY ai.id DESC
-            LIMIT 50";
-    if ($st = $link->prepare($sql)) {
-        $st->bind_param('i', $user_id);
-        $st->execute(); $res = $st->get_result();
-        while ($row = $res->fetch_assoc()) { $invitations[] = $row; }
-        $st->close();
-    }
-}
+
 
 /* ---------------- Scout list (always available) ---------------- */
-$opp_page   = isset($_GET['opp_page']) ? max(1, (int)$_GET['opp_page']) : 1;
-$opp_limit  = 20;
-$opp_offset = ($opp_page - 1) * $opp_limit;
-$term_raw   = isset($_GET['opp_search']) ? (string)$_GET['opp_search'] : '';
-$opp_term   = trim($term_raw);
-$opp_term   = function_exists('mb_substr') ? mb_substr($opp_term, 0, 64, 'UTF-8') : substr($opp_term, 0, 64);
-$opp_like   = '%' . $opp_term . '%';
-
-$opp_list = []; $opp_total = 0;
-$aid_for_exclude = $viewer_alliance_id ?? 0;
-
-$oppCols = "a.id, a.name, a.tag";
-if (column_exists($link, 'alliances', 'avatar_path')) $oppCols .= ", a.avatar_path";
-
-$sql = "SELECT $oppCols,
-               (SELECT COUNT(*) FROM users u WHERE u.alliance_id = a.id) AS member_count
-        FROM alliances a
-        WHERE a.id <> ? AND (? = '' OR a.name LIKE ? OR a.tag LIKE ?)
-        ORDER BY member_count DESC, a.id ASC
-        LIMIT ? OFFSET ?";
-if ($st = $link->prepare($sql)) {
-    $st->bind_param('isssii', $aid_for_exclude, $opp_term, $opp_like, $opp_like, $opp_limit, $opp_offset);
-    $st->execute(); $res = $st->get_result();
-    while ($row = $res->fetch_assoc()) {
-        $row['avatar_url'] = normalize_avatar((string)($row['avatar_path'] ?? ''), '/assets/img/alliance-badge.webp', $ROOT);
-        $opp_list[] = $row;
-    }
-    $st->close();
-}
-$sql = "SELECT COUNT(*) FROM alliances a WHERE a.id <> ? AND (? = '' OR a.name LIKE ? OR a.tag LIKE ?)";
-if ($st = $link->prepare($sql)) {
-    $st->bind_param('isss', $aid_for_exclude, $opp_term, $opp_like, $opp_like);
-    $st->execute(); $st->bind_result($cnt);
-    if ($st->fetch()) $opp_total = (int)$cnt;
-    $st->close();
-}
-$opp_pages = max(1, (int)ceil($opp_total / $opp_limit));
-$base_scout = '/alliance.php?tab=scout';
-if ($opp_term !== '') $base_scout .= '&opp_search=' . rawurlencode($opp_term);
-$base_public = '/alliance.php';
-if ($opp_term !== '') $base_public .= '?opp_search=' . rawurlencode($opp_term);
+include_once $ROOT . '/template/includes/alliance/scout_list.php' ;
 
 /* page chrome */
 $active_page = 'alliance.php';
