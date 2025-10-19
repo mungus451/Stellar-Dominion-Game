@@ -1,0 +1,156 @@
+<?php 
+// /template/includes/alliance_structures/tracks.php
+
+// Slot 1: ECONOMY (20 tiers)
+$structure_tracks = [
+    [
+        'command_nexus',
+        'trade_federation_center',
+        'mercantile_exchange',
+        'stellar_bank',
+        'cosmic_trade_hub',
+        'interstellar_stock_exchange',
+        'economic_command_hub',
+        'galactic_treasury',
+        'quantum_finance_directive',
+        'intergalactic_mercantile_consortium',
+        'celestial_bourse',
+        'void_commerce_syndicate',
+        'nebula_credit_union',
+        'pulsar_profit_engine',
+        'omega_trade_cartel',
+        'galaxywide_fiscal_network',
+        'hyperlane_tax_authority',
+        'stellar_dividend_fund',
+        'cosmos_bank_of_banks',
+        'infinite_economy_matrix',
+    ],
+    // Slot 2: DEFENSE (8)
+    [
+        'citadel_shield_array',
+        'planetary_defense_grid',
+        'orbital_shield_generator',
+        'aegis_command_post',
+        'bulwark_citadels',
+        'iron_sky_defense_network',
+        'fortress_planet',
+        'eternal_shield_complex',
+        'skywall_interdiction_field',
+        'orbital_point_defense_web',
+        'planetary_ion_cannon_array',
+        'gravitic_well_projector',
+        'hyperlane_denial_matrix',
+        'quantum_barrier_spire',
+        'sentinel_missile_bastion',
+        'void_interceptor_screen',
+        'starshield_harmonics_core',
+        'antimatter_flak_network',
+        'celestial_bulwark_ring',
+        'omega_guardian_aegis',
+    ],
+    // Slot 3: OFFENSE (8)
+    [
+        'orbital_training_grounds',
+        'starfighter_academy',
+        'warforge_arsenal',
+        'battle_command_station',
+        'dreadnought_shipyard',
+        'planet_cracker_cannon',
+        'onslaught_control_hub',
+        'apex_war_forge',
+        'void_spear_platform',
+        'nebula_bombardment_array',
+        'tyrant_command_core',
+        'raider_fleet_dock',
+        'stormbreaker_artillery',
+        'vengeance_strike_foundry',
+        'quantum_tactical_matrix',
+        'harbinger_war_spire',
+        'ironclad_legion_barracks',
+        'hellfire_missile_battery',
+        'raptor_assault_bay',
+        'overlord_siege_engine',
+    ],
+    // Slot 4: POPULATION (8)
+    [
+        'population_habitat',
+        'colonist_resettlement_center',
+        'orbital_habitation_ring',
+        'terraforming_array',
+        'galactic_resort_world',
+        'mega_arcology',
+        'population_command_center',
+        'world_cluster_network',
+        'planetary_settlement_grid',
+        'migration_gateway_station',
+        'orbital_biosphere_dome',
+        'terraforming_control_spire',
+        'stellar_cradle_habitat',
+        'galactic_census_bureau',
+        'cryostasis_nursery_vault',
+        'worldseed_colony_forge',
+        'residential_megasprawl',
+        'civic_harmony_complex',
+        'ecumenopolis_expansion_zone',
+        'habitation_lattice_array',
+    ],
+    // Slot 5: RESOURCES/INDUSTRY (8)
+    [
+        'galactic_research_hub',
+        'deep_space_mining_facility',
+        'asteroid_processing_station',
+        'quantum_resource_labs',
+        'fusion_reactor_array',
+        'stellar_refinery',
+        'dimension_harvester',
+        'cosmic_forge',
+        'singularity_extraction_array',
+        'dark_matter_siphon',
+        'antimatter_catalysis_plant',
+        'hyperore_smelting_foundry',
+        'subspace_drilling_platform',
+        'quantum_fabrication_nexus',
+        'plasma_cracking_facility',
+        'voidstone_enrichment_lab',
+        'graviton_pressurization_chamber',
+        'nanoassembly_manufactorium',
+        'psionic_crystal_mine',
+        'tachyon_distillation_tower',
+    ],
+    // Slot 6: COMMAND/UNITY (8)
+    [
+        'warlords_throne',
+        'supreme_command_bastion',
+        'unity_spire',
+        'galactic_congress',
+        'ascendant_core',
+        'cosmic_unity_forge',
+        'eternal_empire_palace',
+        'alpha_ascendancy',
+        'imperial_coordination_nexus',
+        'sovereign_directive_citadel',
+        'dominion_council_forum',
+        'stellar_mandate_sanctum',
+        'overlord_strategy_vault',
+        'triumvirate_command_spire',
+        'hegemony_unity_chamber',
+        'grand_strategium',
+        'celestial_edict_bureau',
+        'pan_galactic_coalition_hall',
+        'omni_authority_matrix',
+        'primarchs_conclave',
+    ],
+];
+
+/* -------------------------------- Helper -------------------------------- */
+function sd_track_progress(array $track, array $owned, int $MAX): array {
+    $tiers = min(count($track), $MAX);
+    $level = 0; $current_key = null;
+    for ($i = 0; $i < $tiers; $i++) {
+        $k = $track[$i];
+        if (isset($owned[$k])) { $level = $i + 1; $current_key = $k; } else { break; }
+    }
+    $next_key = ($level < $tiers) ? $track[$level] : null;
+    return ['tiers'=>$tiers,'level'=>$level,'current_key'=>$current_key,'next_key'=>$next_key];
+}
+?>
