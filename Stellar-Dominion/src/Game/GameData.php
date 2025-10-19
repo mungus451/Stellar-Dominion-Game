@@ -4,6 +4,7 @@
  *
  * Central repository for all static game data
  */
+$unit_costs = ['workers' => 10000, 'soldiers' => 25000, 'guards' => 25000, 'sentries' => 50000, 'spies' => 100000];
 
 $soldier_tiers = [
     'soldiers' => ['name' => 'Soldier', 'hp' => 3, 'cost' => 1000, 'requires' => null],
