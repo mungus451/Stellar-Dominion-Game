@@ -41,4 +41,5 @@ include_once $ROOT .'/template/includes/header.php'; ?>
                 <!-- === TAB LEADERSHIP === -->
                 <?php include_once $ROOT. '/template/includes/alliance_roles/leaders_card.php'; ?>
         </main>
+<!-- FOOTER -->
 <?php include_once $ROOT . '/template/includes/footer.php'; ?>
