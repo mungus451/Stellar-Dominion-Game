@@ -23,7 +23,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
     if (!validate_csrf_token($token, $action)) {
         $_SESSION['spy_error'] = "A security error occurred (Invalid Token). Please try again.";
-        header("location: /spy.php");
+        header("location: /battle.php");
         exit;
     }
 }
@@ -32,13 +32,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 date_default_timezone_set('UTC');
 
 // --- SHARED DEFINITIONS ---
-$base_unit_costs = [
-    'workers'  => 1000,
-    'soldiers' => 2500,
-    'guards'   => 2500,
-    'sentries' => 5000,
-    'spies'    => 10000,
-];
+
 $action = $_POST['action'] ?? '';
 
 // --- TRANSACTIONAL DATABASE UPDATE ---
@@ -48,7 +42,7 @@ try {
     if ($action === 'train') {
         // --- TRAINING LOGIC ---
         $units_to_train = [];
-        foreach (array_keys($base_unit_costs) as $unit) {
+        foreach (array_keys($unit_costs) as $unit) {
             $units_to_train[$unit] = isset($_POST[$unit]) ? max(0, (int)$_POST[$unit]) : 0;
         }
 
@@ -73,7 +67,7 @@ try {
         $total_credits_needed = 0;
         foreach ($units_to_train as $unit => $amount) {
             if ($amount > 0) {
-                $total_credits_needed += $amount * floor($base_unit_costs[$unit] * $charisma_discount);
+                $total_credits_needed += $amount * floor($unit_costs[$unit] * $charisma_discount);
             }
         }
 
@@ -84,8 +78,8 @@ try {
             throw new Exception("Not enough credits.");
         }
 
-        // --- XP GATE: No XP from training at level >= 45 ---
-        if ((int)$user['level'] >= 45) {
+        // --- XP GATE: No XP from training at level >= 25 ---
+        if ((int)$user['level'] >= 25) {
             $experience_gained = 0;
         } else {
             $experience_gained = rand(2 * $total_citizens_needed, 5 * $total_citizens_needed);
@@ -136,7 +130,7 @@ try {
         $refund_rate = 0.0;
         $units_to_disband = [];
         $total_citizens_to_return = 0;
-        foreach (array_keys($base_unit_costs) as $unit) {
+        foreach (array_keys($unit_costs) as $unit) {
             $amount = isset($_POST[$unit]) ? max(0, (int)$_POST[$unit]) : 0;
             if ($amount > 0) {
                 $units_to_disband[$unit] = $amount;
@@ -158,7 +152,7 @@ try {
             if ($user_units[$unit] < $amount) {
                 throw new Exception("You do not have enough " . ucfirst($unit) . "s to disband.");
             }
-            $total_refund += floor($amount * $base_unit_costs[$unit] * $refund_rate);
+            $total_refund += floor($amount * $unit_costs[$unit] * $refund_rate);
         }
 
         $disband_workers  = $units_to_disband['workers']  ?? 0;

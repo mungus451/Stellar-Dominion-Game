@@ -4,16 +4,7 @@
 
 $ROOT = dirname(__DIR__, 2);
 
-// We check if you're logged in. If not, we send you to the front page.
-if (session_status() == PHP_SESSION_NONE) {
-    session_start();
-}
-if (!isset($_SESSION["loggedin"]) || $_SESSION["loggedin"] !== true) {
-    header("location: /index.php");
-    exit;
-}
-
-// These variables help us know which page we're on.
+// NAV CONTEXT
 $page_title = $page_title ?? 'Dashboard';
 $active_page = $active_page ?? 'dashboard.php';
 

@@ -1,7 +1,6 @@
 <?php
 /**
- * STEP 1: Create the CSRF Protection Class
- * File: src/Security/CSRFProtection.php
+ * src/Security/CSRFProtection.php
  */
 
 class CSRFProtection {

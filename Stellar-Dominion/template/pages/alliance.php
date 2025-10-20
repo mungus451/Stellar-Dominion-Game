@@ -3,10 +3,6 @@
  * template/pages/alliance.php — Alliance Hub (+Scout Alliances tab)
  * Uses header/footer, renders in main column, themed with /assets/css/style.css.
  */
-
-if (session_status() === PHP_SESSION_NONE) session_start();
-if (!isset($_SESSION['loggedin']) || $_SESSION['loggedin'] !== true) { header('Location: /index.html'); exit; }
-
 $ROOT = dirname(__DIR__, 2);
 require_once $ROOT . '/config/config.php';      // $link (mysqli)
 require_once $ROOT . '/src/Game/GameData.php';
@@ -17,10 +13,9 @@ require_once $ROOT . '/src/Controllers/BaseAllianceController.php';
 require_once $ROOT . '/src/Controllers/AllianceManagementController.php';
 
 /* POST HANDLER */
-
 require_once $ROOT . '/template/includes/alliance/alliance_post_handler.php' ;
 
-date_default_timezone_set('UTC');
+
 if (function_exists('process_offline_turns') && isset($_SESSION['id'])) {
     process_offline_turns($link, (int)$_SESSION['id']);
 }

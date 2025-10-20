@@ -4,9 +4,13 @@ ini_set('display_errors', 1);
 ini_set('display_startup_errors', 1);
 error_reporting(E_ALL);
 
-// Start the session if it's not already started. This is crucial for CSRF protection.
+// Start the session if it's not already started. This is crucial for CSRF protection. If user is not logged in, redirect to front controller.
 if (session_status() == PHP_SESSION_NONE) {
     session_start();
+}
+if (!isset($_SESSION["loggedin"]) || $_SESSION["loggedin"] !== true) {
+    header("location: /index.php");
+    exit;
 }
 
 // --- Database Credentials ---
@@ -106,6 +110,5 @@ if (!function_exists('pdo')) {
         return $pdo;
     }
 }
-
 
 ?>

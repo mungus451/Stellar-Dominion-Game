@@ -4,6 +4,10 @@
  *
  * Central repository for all static game data
  */
+
+
+// battle.php
+
 $unit_costs = ['workers' => 10000, 'soldiers' => 25000, 'guards' => 25000, 'sentries' => 50000, 'spies' => 100000];
 
 $soldier_tiers = [
@@ -13,6 +17,8 @@ $soldier_tiers = [
     'rage_cyborgs' => ['name' => 'Rage Cyborg', 'hp' => 100, 'cost' => 45000, 'requires' => 'warp_barons'],
 ];
 
+$unit_names = ['workers' => 'Worker', 'soldiers' => 'Soldier', 'guards' => 'Guard', 'sentries' => 'Sentry', 'spies' => 'Spy'];
+$unit_descriptions = ['workers' => '+50 Credits per turn', 'soldiers' => '+8-12 Offense Power', 'guards' => '+8-12 Defense Power', 'sentries' => '+10 Fortification', 'spies' => '+10 Infiltration'];
 
 // -- NEW: Structure Ugrade Definitions
 

@@ -1,7 +1,6 @@
 <?php
-/**
- * STEP 7: Error Handling and Logging
- * File: src/Security/CSRFLogger.php
+/*
+ * src/Security/CSRFLogger.php
  */
 
 class CSRFLogger {

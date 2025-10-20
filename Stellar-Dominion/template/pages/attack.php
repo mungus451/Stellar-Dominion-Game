@@ -1,17 +1,14 @@
 <?php
-declare(strict_types=1);
-
+$ROOT = dirname(__DIR__, 2);
 // --- PAGE CONFIGURATION ---
 $page_title  = 'Battle – Targets';
 $active_page = 'attack.php';
 
-// --- BOOTSTRAP (router already started session + auth) ---
-date_default_timezone_set('UTC');
 
-require_once __DIR__ . '/../../config/config.php';
-require_once __DIR__ . '/../../src/Services/StateService.php';
+require_once $ROOT . '/config/config.php';
+require_once $ROOT . '/src/Services/StateService.php';
 // optional helper (won't fatal if missing)
-@include_once __DIR__ . '/../includes/advisor_hydration.php';
+@include_once $ROOT . '/template/includes/advisor_hydration.php';
 
 // Always define $user_id before any usage
 $user_id = isset($_SESSION['id']) ? (int)$_SESSION['id'] : 0;
@@ -26,7 +23,7 @@ if (
     && isset($_POST['action'])
     && (string)$_POST['action'] === 'attack'
 ) {
-    require_once __DIR__ . '/../../src/Controllers/AttackController.php';
+    require_once $ROOT . '/src/Controllers/AttackController.php';
     exit;
 }
 
@@ -58,10 +55,10 @@ $ctx = [
 ];
 
 // --- LAYOUT: header ---
-include_once __DIR__ . '/../includes/header.php';
+include_once $ROOT . '/template/includes/header.php';
 
 // --- MODULE HANDOFF ---
-include_once __DIR__ . '/../modules/attack/entry.php';
+include_once $ROOT . '/template/modules/attack/entry.php';
 
 // --- LAYOUT: footer ---
-include_once __DIR__ . '/../includes/footer.php';
+include_once $ROOT . '/template/includes/footer.php';
