@@ -110,25 +110,9 @@ require_once __DIR__ . '/../template/includes/auth_touch_last_seen.php';
 $request_uri = parse_url($_SERVER['REQUEST_URI'], PHP_URL_PATH);
 
 // ─────────────────────────────────────────────────────────────────────────────
-// 4) SPECIAL-CASE: POST HANDLING FOR WAR DECLARATION
+// 4.A) SPECIAL-CASE: POST HANDLING FOR WAR DECLARATION
 // ─────────────────────────────────────────────────────────────────────────────
-//
-// WHY A SPECIAL CASE?
-// • This action (declaring war) modifies game state and requires controller
-//   logic (permissions, CSRF checks, invariants) rather than a simple include.
-// • It is intentionally isolated so that GET to /war_declaration.php still
-//   renders the form (via the standard route include), while POST executes the
-//   action (via controller dispatch).
-//
-// FLOW:
-// • On POST to /war_declaration.php, instantiate WarController and call dispatch
-//   with the posted action (e.g., "declare_war"). Any thrown Exception
-//   becomes a user-visible error message, then redirect back to the form page.
-//
-// ERROR CHANNEL:
-// • Errors are stored in $_SESSION['alliance_error'] to be displayed by the
-//   included template (war_declaration.php). This prevents exposing stack
-//   traces and preserves UX with a clean redirect.
+
 if (($_SERVER['REQUEST_METHOD'] === 'POST') &&
     ($request_uri === '/war_declaration' || $request_uri === '/war_declaration.php')) {
     try {
@@ -147,7 +131,7 @@ if (($_SERVER['REQUEST_METHOD'] === 'POST') &&
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Black Market POST API (JSON)
+// 4.B) Black Market POST API (JSON)
 // ─────────────────────────────────────────────────────────────────────────────
 if (($_SERVER['REQUEST_METHOD'] === 'POST') &&
    ($request_uri === '/structures/black-market/convert/credits-to-gems' ||
@@ -216,7 +200,7 @@ if (($_SERVER['REQUEST_METHOD'] === 'POST') &&
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// 4.B) SPECIAL-CASE: TRAINING CONTROLLER (GET/POST)
+// 4.C) SPECIAL-CASE: TRAINING CONTROLLER (GET/POST)
 // ─────────────────────────────────────────────────────────────────────────────
 //
 // This block intercepts all requests for /battle and routes them
@@ -263,6 +247,32 @@ if ($request_uri === '/dashboard' || $request_uri === '/dashboard.php') {
     exit; 
 }
 
+
+// ─────────────────────────────────────────────────────────────────────────────
+// 4.E) SPECIAL-CASE: ATTACK CONTROLLER (GET/POST)
+// ─────────────────────────────────────────────────────────────────────────────
+//
+// This block intercepts requests for /attack and routes them
+// to the new object-oriented AttackController.
+if ($request_uri === '/attack' || $request_uri === '/attack.php') {
+    
+    // 1. Include the new controller class
+    require_once __DIR__ . '/../src/Controllers/AttackController.php';
+
+    // 2. Instantiate the controller (pass the global $link)
+    $controller = new AttackController($link); 
+    
+    // 3. Route to the correct method
+    if ($_SERVER['REQUEST_METHOD'] === 'POST') {
+        $controller->handlePost();
+    } else {
+        $controller->show();
+    }
+    
+    // 4. Stop script execution.
+    // The controller is responsible for the *entire* response.
+    exit; 
+}
 // ─────────────────────────────────────────────────────────────────────────────
 // 5) ROUTE TABLE: PUBLIC & AUTHENTICATED VIEWS + ACTION ENDPOINTS
 // ─────────────────────────────────────────────────────────────────────────────
@@ -286,8 +296,8 @@ $routes = [
     '/index.php'            => '../template/pages/landing.php',
     //'/dashboard'            => '../template/pages/dashboard.php',
     //'/dashboard.php'        => '../template/pages/dashboard.php',
-    '/attack'               => '../template/pages/attack.php',
-    '/attack.php'           => '../template/pages/attack.php',
+    //'/attack'               => '../template/pages/attack.php',
+    //'/attack.php'           => '../template/pages/attack.php',
     //'/battle'               => '../template/pages/battle.php',
     //'/battle.php'           => '../template/pages/battle.php',
     '/spy'                  => '../template/pages/spy.php',
@@ -339,8 +349,8 @@ $routes = [
     '/war_leaderboard.php'      => '../template/pages/war_leaderboard.php',
     '/realm_war'                => '../template/pages/realm_war.php',
     '/realm_war.php'            => '../template/pages/realm_war.php',
-    '/alliance_war_history'     => '../template/pages/alliance_war_history.php', // NEW
-    '/alliance_war_history.php' => '../template/pages/alliance_war_history.php', // NEW
+    '/alliance_war_history'     => '../template/pages/alliance_war_history.php',
+    '/alliance_war_history.php' => '../template/pages/alliance_war_history.php',
     '/diplomacy'                => '../template/pages/diplomacy.php',
     '/diplomacy.php'            => '../template/pages/diplomacy.php',
     '/contact_dev.php'          => '../template/pages/contact_dev.php',
@@ -387,12 +397,12 @@ $routes = [
 
     // Action Handlers
     '/auth.php'                  => '../src/Controllers/AuthController.php',
-    '/auth'                      => '../src/Controllers/AuthController.php',       // ← ADDED (pretty URL)
-    '/AuthController.php'        => '../src/Controllers/AuthController.php',       // ← ADDED (catch direct hits)
+    '/auth'                      => '../src/Controllers/AuthController.php',       
+    '/AuthController.php'        => '../src/Controllers/AuthController.php',       
     //'/lib/train.php'             => '../src/Controllers/TrainingController.php',
     '/lib/untrain.php'           => '../src/Controllers/TrainingController.php',
     '/lib/recruitment_actions.php' => '../src/Controllers/RecruitmentController.php',
-    '/lib/process_attack.php'    => '../src/Controllers/AttackController.php',
+    //'/lib/process_attack.php'    => '../src/Controllers/AttackController.php',
     '/lib/perform_upgrade.php'   => '../src/Controllers/StructureController.php',
     '/lib/update_profile.php'    => '../src/Controllers/ProfileController.php',
     '/lib/update_settings.php'   => '../src/Controllers/SettingsController.php',
