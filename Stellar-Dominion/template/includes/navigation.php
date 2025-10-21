@@ -1,10 +1,6 @@
 <?php
 /**
- * navigation.php (updated & corrected)
- *
- * Adds third-level submenu for WAR under ALLIANCE and removes WAR from main nav.
- * CORRECTED: Renamed the loop variable from $link to $url to prevent collision
- * with the global database connection variable.
+ * /template/includes/navigation.php
  */
 
 $main_nav_links = [

@@ -1,6 +1,5 @@
 <?php
-
-//namespace App\Controllers;
+// src/Controllers/BaseController.php
 
 require_once __DIR__ . '/../../config/config.php';
 
@@ -8,9 +7,15 @@ class BaseController
 {
     protected $db;
 
-    public function __construct()
+    /**
+     * The constructor now accepts the database connection.
+     * This is the dependency injection pattern.
+     *
+     * @param mysqli $db_connection The database link
+     */
+    public function __construct($db_connection)
     {
-        global $link; // Access the global database connection
-        $this->db = $link;
+        // Don't use global, use the provided argument
+        $this->db = $db_connection;
     }
 }

@@ -1,68 +1,122 @@
 <?php
-/**
- * src/Controllers/TrainingController.php
- */
+// src/Controllers/TrainingController.php
 
+// 1. Include all dependencies needed for both GET and POST
 $ROOT = dirname(__DIR__, 2);
-
-require_once $ROOT . '/config/config.php';
+require_once $ROOT . '/config/config.php'; // For $link
 require_once $ROOT . '/src/Game/GameData.php';
 require_once $ROOT . '/src/Game/GameFunctions.php';
-require_once $ROOT . '/config/balance.php';
+require_once $ROOT . '/config/balance.php'; // For $unit_costs
+require_once $ROOT . '/src/Services/StateService.php'; // For repository
+require_once $ROOT . '/src/Repositories/TrainingRepository.php';
 require_once $ROOT . '/src/Services/TrainingService.php';
+require_once $ROOT . '/template/includes/advisor_hydration.php'; // For header
+require_once $ROOT . '/src/Controllers/BaseController.php';
 
-// --- CSRF TOKEN VALIDATION (CORRECTED) ---
-if ($_SERVER['REQUEST_METHOD'] === 'POST') {
-    $token  = $_POST['csrf_token'] ?? '';
-    $action = $_POST['csrf_action'] ?? 'default';
+class TrainingController extends BaseController
+{
+    private $root;
 
-    if (!validate_csrf_token($token, $action)) {
-        $_SESSION['spy_error'] = "A security error occurred (Invalid Token). Please try again.";
-        header("location: /battle.php");
+    public function __construct($db_connection)
+    {
+        parent::__construct($db_connection);
+        $this->root = dirname(__DIR__, 2);
+    }
+
+    /**
+     * Handles the GET request to display the battle/training page.
+     */
+    public function show()
+    {
+        $user_id = (int)$_SESSION['id'];
+
+        $current_tab = 'train';
+        if (isset($_GET['tab'])) {
+            $t = $_GET['tab'];
+            if ($t === 'disband') $current_tab = 'disband';
+            elseif ($t === 'recovery') $current_tab = 'recovery';
+        }
+
+        $repo = new TrainingRepository($this->db);
+        $page_data = $repo->getTrainingPageData($user_id);
+        
+        $csrf_token = generate_csrf_token();
+        
+        $page_title = 'Training & Fleet Management';
+        $active_page = 'battle.php'; // <-- This was defined...
+        
+        global $unit_costs, $unit_names, $unit_descriptions, $advisor_text, $advisor_img;
+
+        $view_data = array_merge($page_data, [
+            'current_tab'       => $current_tab,
+            'csrf_token'        => $csrf_token,
+            'ROOT'              => $this->root,
+            'unit_costs'        => $unit_costs,
+            'unit_names'        => $unit_names,
+            'unit_descriptions' => $unit_descriptions,
+            'advisor_text'      => $advisor_text,
+            'advisor_img'       => $advisor_img,
+            'active_page'       => $active_page,
+        ]);
+
+        include_once $this->root . '/template/includes/header.php';
+        $this->renderView($this->root . '/template/pages/battle_view.php', $view_data);
+        include_once $this->root . '/template/includes/footer.php';
+    }
+
+    /**
+     * Handles the POST request to train or disband units.
+     */
+    public function handlePost()
+    {
+        global $unit_costs;
+        $user_id = (int)$_SESSION['id'];
+
+        // --- FIX 2: Corrected CSRF Validation ---
+        $token  = $_POST['csrf_token'] ?? '';
+        $csrf_action = $_POST['csrf_action'] ?? 'default';
+
+        if (!validate_csrf_token($token, $csrf_action)) { 
+            $_SESSION['training_error'] = "A security error occurred (Invalid Token). Please try again."; // <-- CHANGED
+            header("location: /battle.php");
+            exit;
+        }
+        
+        // This is the *business logic* action, read *after* CSRF is validated.
+        $action = $_POST['action'] ?? '';
+
+        $trainingService = new TrainingService($this->db);
+
+        mysqli_begin_transaction($this->db);
+        $redirect_tab = '';
+
+        try {
+            $result = $trainingService->handleTrainingPost($_POST, $user_id, $unit_costs);
+
+            mysqli_commit($this->db);
+
+            if (!empty($result['message'])) {
+                $_SESSION['training_message'] = $result['message'];
+            }
+            $redirect_tab = $result['redirect_tab'];
+
+        } catch (Exception $e) {
+            mysqli_rollback($this->db);
+            $_SESSION['training_error'] = "Error: " . $e->getMessage();
+            $redirect_tab = ($action === 'disband') ? '?tab=disband' : '';
+        }
+
+        header("location: /battle.php" . $redirect_tab);
         exit;
     }
-}
-// --- END CSRF VALIDATION ---
 
-// --- SHARED DEFINITIONS ---
-$action = $_POST['action'] ?? '';
-
-// --- Instantiate your new service ---
-$trainingService = new TrainingService($link);
-
-// --- TRANSACTIONAL DATABASE UPDATE ---
-mysqli_begin_transaction($link);
-$redirect_tab = ''; // Default redirect tab
-
-try {
-    // --- Call the service to do all the work ---
-    // We pass it the data it needs: $_POST, the user ID, and the unit costs array
-    $result = $trainingService->handleTrainingPost($_POST, $_SESSION["id"], $unit_costs);
-
-    // If the service succeeds, commit the database changes
-    mysqli_commit($link);
-
-    // Set the success message from the service's response
-    if (!empty($result['message'])) {
-        $_SESSION['training_message'] = $result['message'];
+    /**
+     * A helper function to render a view with extracted data.
+     */
+    private function renderView(string $file_path, array $data)
+    {
+        extract($data, EXTR_SKIP);
+        include $file_path;
     }
-    
-    // Get the redirect tab from the service's response
-    $redirect_tab = $result['redirect_tab'];
-
-} catch (Exception $e) {
-    // If anything in the service threw an Exception, roll back the transaction
-    mysqli_rollback($link);
-    
-    // Set the error message
-    $_SESSION['training_error'] = "Error: " . $e->getMessage();
-    
-    // Manually set the redirect tab for the error case
-    $redirect_tab = ($action === 'disband') ? '?tab=disband' : '';
 }
-
-// --- FINAL REDIRECT ---
-// This one line handles all redirects, success or error.
-header("location: /battle.php" . $redirect_tab);
-exit;
 ?>

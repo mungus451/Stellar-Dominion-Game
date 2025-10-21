@@ -216,6 +216,54 @@ if (($_SERVER['REQUEST_METHOD'] === 'POST') &&
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
+// 4.B) SPECIAL-CASE: TRAINING CONTROLLER (GET/POST)
+// ─────────────────────────────────────────────────────────────────────────────
+//
+// This block intercepts all requests for /battle and routes them
+// to the object-oriented TrainingController, bypassing the main $routes array.
+if ($request_uri === '/battle' || $request_uri === '/battle.php') {
+    
+    // 1. Include the new controller class
+    require_once __DIR__ . '/../src/Controllers/TrainingController.php';
+
+    // 2. Instantiate the controller (pass the global $link)
+    $controller = new TrainingController($link); 
+    
+    // 3. Route to the correct method
+    if ($_SERVER['REQUEST_METHOD'] === 'POST') {
+        $controller->handlePost();
+    } else {
+        $controller->show();
+    }
+    
+    // 4. Stop script execution.
+    // The controller is responsible for the *entire* response.
+    exit; 
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// 4.D) SPECIAL-CASE: DASHBOARD CONTROLLER (GET)
+// ─────────────────────────────────────────────────────────────────────────────
+//
+// This block intercepts requests for /dashboard and routes them
+// to the new object-oriented DashboardController.
+if ($request_uri === '/dashboard' || $request_uri === '/dashboard.php') {
+    
+    // 1. Include the new controller class
+    require_once __DIR__ . '/../src/Controllers/DashboardController.php';
+
+    // 2. Instantiate the controller (pass the global $link)
+    $controller = new DashboardController($link); 
+    
+    // 3. Route to the show method (Dashboard is GET only)
+    $controller->show();
+    
+    // 4. Stop script execution.
+    // The controller is responsible for the *entire* response.
+    exit; 
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
 // 5) ROUTE TABLE: PUBLIC & AUTHENTICATED VIEWS + ACTION ENDPOINTS
 // ─────────────────────────────────────────────────────────────────────────────
 //
@@ -236,12 +284,12 @@ $routes = [
     // Page Views
     '/'                     => '../template/pages/landing.php',
     '/index.php'            => '../template/pages/landing.php',
-    '/dashboard'            => '../template/pages/dashboard.php',
-    '/dashboard.php'        => '../template/pages/dashboard.php',
+    //'/dashboard'            => '../template/pages/dashboard.php',
+    //'/dashboard.php'        => '../template/pages/dashboard.php',
     '/attack'               => '../template/pages/attack.php',
     '/attack.php'           => '../template/pages/attack.php',
-    '/battle'               => '../template/pages/battle.php',
-    '/battle.php'           => '../template/pages/battle.php',
+    //'/battle'               => '../template/pages/battle.php',
+    //'/battle.php'           => '../template/pages/battle.php',
     '/spy'                  => '../template/pages/spy.php',
     '/spy.php'              => '../template/pages/spy.php',
     '/armory'               => '../template/pages/armory.php',
@@ -341,7 +389,7 @@ $routes = [
     '/auth.php'                  => '../src/Controllers/AuthController.php',
     '/auth'                      => '../src/Controllers/AuthController.php',       // ← ADDED (pretty URL)
     '/AuthController.php'        => '../src/Controllers/AuthController.php',       // ← ADDED (catch direct hits)
-    '/lib/train.php'             => '../src/Controllers/TrainingController.php',
+    //'/lib/train.php'             => '../src/Controllers/TrainingController.php',
     '/lib/untrain.php'           => '../src/Controllers/TrainingController.php',
     '/lib/recruitment_actions.php' => '../src/Controllers/RecruitmentController.php',
     '/lib/process_attack.php'    => '../src/Controllers/AttackController.php',
