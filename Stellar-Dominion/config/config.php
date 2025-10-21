@@ -8,10 +8,6 @@ error_reporting(E_ALL);
 if (session_status() == PHP_SESSION_NONE) {
     session_start();
 }
-if (!isset($_SESSION["loggedin"]) || $_SESSION["loggedin"] !== true) {
-    header("location: /index.php");
-    exit;
-}
 
 // --- Database Credentials ---
 define('DB_SERVER', 'localhost');

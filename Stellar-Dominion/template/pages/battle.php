@@ -20,13 +20,20 @@ require_once $ROOT . '/config/balance.php';
 require_once $ROOT . '/template/includes/advisor_hydration.php';
 require_once $ROOT . '/src/Game/GameData.php';
 
-// --- Post Handler ---
-require_once $ROOT . '/template/includes/training/post_handler.php';
-
 // --- Data Hydration ---
-require_once $ROOT . '/template/includes/training/training_hydration.php'; 
+require_once $ROOT . '/src/Repositories/TrainingRepository.php'; 
+$repo = new TrainingRepository($link); 
+$page_data = $repo->getTrainingPageData($user_id);
+extract($page_data);
 
-// --- INCLUDE UNIVERSAL HEADER ---
+// --- FORM SUBMISSION HANDLING & CSRF TOKEN---
+if ($_SERVER['REQUEST_METHOD'] === 'POST') {
+    require_once $ROOT . '/src/Controllers/TrainingController.php';
+    exit;
+}
+$csrf_token = generate_csrf_token();
+
+// --- INCLUDE UNIVERSAL HEADER---
 include_once $ROOT . '/template/includes/header.php';
 ?>
 
