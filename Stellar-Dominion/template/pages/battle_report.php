@@ -1,21 +1,17 @@
 <?php
 /*
- * battle_report.php 
+ * /template/includes/pages/battle_report.php 
  */
-
-if (session_status() === PHP_SESSION_NONE) {
-    session_start();
-}
-if (!isset($_SESSION['loggedin']) || $_SESSION['loggedin'] !== true) {
-    header('Location: /index.php');
-    exit;
-}
-
-require_once __DIR__ . '/../../config/config.php';
-
+// --- PAGE CONFIGURATION ---
 $page_title  = 'Battle Report';
 $active_page = 'battle_report.php';
+$ROOT = dirname(__DIR__, 2);
 
+// --- CORE WIRING ---
+require_once $ROOT . '/config/config.php';
+
+
+// --- PAGE VARIABLES ---
 $battle_id     = isset($_GET['id']) ? (int)$_GET['id'] : 0;
 $log           = null;
 $error_message = '';
@@ -111,33 +107,10 @@ if (!$log) {
         }
         mysqli_stmt_close($stmt_b);
     }
-
-    // Fallback: some rows may reference the battle only in JSON metadata
-    if (!$credits_burned_found) {
-        $sql_burn_fallback = "SELECT burned_amount 
-                              FROM economic_log 
-                              WHERE user_id = ? 
-                                AND event_type = 'battle_reward' 
-                                AND metadata LIKE ? 
-                              ORDER BY id DESC 
-                              LIMIT 1";
-        if ($stmt_b2 = mysqli_prepare($link, $sql_burn_fallback)) {
-            $needle = '%"battle_log_id":' . $battle_id . '%';
-            mysqli_stmt_bind_param($stmt_b2, 'is', $_SESSION['id'], $needle);
-            mysqli_stmt_execute($stmt_b2);
-            $res_b2 = mysqli_stmt_get_result($stmt_b2);
-            if ($row_b2 = mysqli_fetch_assoc($res_b2)) {
-                $credits_burned_found = true;
-                $burn_val = (int)$row_b2['burned_amount'];
-                $credits_burned_display = $burn_val > 0 ? ('-' . number_format($burn_val)) : '0';
-            }
-            mysqli_stmt_close($stmt_b2);
-        }
-    }
 }
 
 // ---- HEADER / NAVBAR ----
-include_once __DIR__ . '/../includes/header.php';
+include_once $ROOT . '/template/includes/header.php';
 ?>
 
 
@@ -195,7 +168,7 @@ include_once __DIR__ . '/../includes/header.php';
                                 <li class="flex justify-between"><span>Credits Plundered:</span> <span class="font-semibold text-green-400">+<?php echo number_format((int)$log['credits_stolen']); ?></span></li>
                             <?php endif; ?>
 
-                            <!-- NEW: Credits Burned (from economic_log) -->
+                            <!-- Credits Burned (from economic_log) -->
                             <li class="flex justify-between">
                                 <span>Credits Burned:</span>
                                 <span class="font-semibold <?php echo $credits_burned_found ? 'text-red-300' : 'text-gray-400'; ?>">
@@ -232,4 +205,4 @@ include_once __DIR__ . '/../includes/header.php';
     <?php endif; ?>
 </main>
 
-<?php include_once __DIR__ . '/../includes/footer.php'; ?>
+<?php include_once $ROOT . '/template/includes/footer.php'; ?>

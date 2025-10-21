@@ -3,18 +3,12 @@
  * src/Controllers/TrainingController.php
  */
 
-if (session_status() == PHP_SESSION_NONE) {
-    session_start();
-}
-if (!isset($_SESSION["loggedin"]) || $_SESSION["loggedin"] !== true) {
-    header("location: index.html");
-    exit;
-}
+$ROOT = dirname(__DIR__, 2);
 
-require_once __DIR__ . '/../../config/config.php';
-require_once __DIR__ . '/../Game/GameData.php';
-require_once __DIR__ . '/../Game/GameFunctions.php';
-require_once __DIR__ . '/../../config/balance.php';
+require_once $ROOT . '/config/config.php';
+require_once $ROOT . '/src/Game/GameData.php';
+require_once $ROOT . '/src/Game/GameFunctions.php';
+require_once $ROOT . '/config/balance.php';
 
 // --- CSRF TOKEN VALIDATION (CORRECTED) ---
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
@@ -29,7 +23,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 }
 // --- END CSRF VALIDATION ---
 
-date_default_timezone_set('UTC');
 
 // --- SHARED DEFINITIONS ---
 
