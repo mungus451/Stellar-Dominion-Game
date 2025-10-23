@@ -726,12 +726,4 @@ if (!function_exists('format_big_number')) {
 }
 
 
-//-------------------------------------------------------------------
-// Returns total additive citizens from alliance membership (+2) + all owned alliance structures.
-if (!function_exists('sd_alliance_population_bonus')) {
-    function sd_alliance_population_bonus(mysqli $link, int $alliance_id): int {
-        if ($alliance_id <= 0) return 0;
-        $b = sd_compute_alliance_bonuses($link, ['alliance_id' => $alliance_id]);
-        return (int)($b['citizens'] ?? 0);
-    }
-}
+
