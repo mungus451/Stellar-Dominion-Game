@@ -8,7 +8,7 @@
         <!-- Attack -->
         <div>
             <h3 class="text-sm text-gray-300 mb-2">Direct Assault</h3>
-            <form method="POST" action="/view_profile.php"
+            <form method="POST" action="/attack.php"
                   onsubmit="return !this.querySelector('[name=attack_turns]').disabled;">
                 <input type="hidden" name="csrf_token" value="<?php echo htmlspecialchars($attack_csrf, ENT_QUOTES, 'UTF-8'); ?>">
                 <input type="hidden" name="csrf_action" value="attack">
