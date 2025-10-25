@@ -356,7 +356,7 @@ final class BlackMarketService
         } catch (\Throwable $e) { $pdo->rollBack(); throw $e; }
     }
 
-    /* ============================ COSMIC ROLL (fixed & safe) ============================ */
+    //* ============================ COSMIC ROLL (fixed & safe) ============================ */
 
     /**
      * Debits bet → credits House with bet → spin 3 reels → payout = bet * mult(symbol) * matches(0..3)
@@ -378,9 +378,13 @@ final class BlackMarketService
             $u = $pdo->prepare("SELECT id, gemstones FROM users WHERE id=? FOR UPDATE");
             $u->execute([$userId]);
             $user = $u->fetch(PDO::FETCH_ASSOC);
-            if (!$user) throw new RuntimeException('user not found');
+            if (!$user) {
+                throw new RuntimeException('user not found');
+            }
             $beforeGems = (int)$user['gemstones'];
-            if ($beforeGems < $betGemstones) throw new RuntimeException('insufficient gemstones');
+            if ($beforeGems < $betGemstones) {
+                throw new RuntimeException('insufficient gemstones');
+            }
 
             // 2) Debit bet
             $afterGems = $beforeGems - $betGemstones;
@@ -401,22 +405,50 @@ final class BlackMarketService
             if ($reel3 === $selectedSymbol) $matches++;
 
             $baseMult = (int) self::COSMIC_ROLL_SYMBOLS[$selectedSymbol]['payout_mult'];
-            $payout = ($matches > 0) ? (int)floor($betGemstones * $baseMult * $matches) : 0;
-            $result = ($matches > 0) ? 'win' : 'loss';
+            $payout   = ($matches > 0) ? (int) floor($betGemstones * $baseMult * $matches) : 0;
+            $result   = ($matches > 0) ? 'win' : 'loss';
 
             // 5) Pay out from House (logged safely via bumpHouse)
             if ($payout > 0) {
                 $afterGems += $payout;
                 $pdo->prepare("UPDATE users SET gemstones = ? WHERE id=?")
                     ->execute([$afterGems, $userId]);
-                // this will increment gemstones_paid_out if present; otherwise subtract
+                // This will increment gemstones_paid_out if present; otherwise subtract from collected
                 $this->bumpHouse($pdo, 'gemstones_collected', -$payout);
+            }
+
+            // 6) Per-spin ledger (only if table exists)
+            $houseNet = $betGemstones - $payout; // positive => house net gain
+            if (method_exists($this, 'tableExists') && $this->tableExists($pdo, 'black_market_cosmic_rolls')) {
+                $st = $pdo->prepare("
+                    INSERT INTO black_market_cosmic_rolls
+                      (user_id, selected_symbol, bet_gemstones, pot_gemstones, result,
+                       reel1, reel2, reel3, matches, house_gems_delta,
+                       user_gems_before, user_gems_after)
+                    VALUES
+                      (:uid, :sym, :bet, :pot, :res,
+                       :r1, :r2, :r3, :matches, :house,
+                       :before, :after)
+                ");
+                $st->execute([
+                    ':uid'    => $userId,
+                    ':sym'    => $selectedSymbol,
+                    ':bet'    => $betGemstones,
+                    ':pot'    => $betGemstones,            // pot for this spin (tracked as the wagered amount)
+                    ':res'    => $result,
+                    ':r1'     => $reel1,
+                    ':r2'     => $reel2,
+                    ':r3'     => $reel3,
+                    ':matches'=> $matches,
+                    ':house'  => $houseNet,
+                    ':before' => $beforeGems,
+                    ':after'  => $afterGems,
+                ]);
             }
 
             $pdo->commit();
 
             // Net changes for UI
-            $houseNet = $betGemstones - $payout;
             return [
                 'ok'                    => true,
                 'result'                => $result,
