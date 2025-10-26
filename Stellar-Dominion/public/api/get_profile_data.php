@@ -20,8 +20,8 @@ if ($profile_id <= 0) {
     exit;
 }
 
-// Fetch profile data
-$sql = "SELECT character_name, race, class, level, avatar_path, biography, soldiers, guards, sentries, spies, workers FROM users WHERE id = ?";
+// Fetch profile data - CHANGED to only select non-sensitive public data.
+$sql = "SELECT character_name, race, class, level, avatar_path, biography FROM users WHERE id = ?";
 if ($stmt = mysqli_prepare($link, $sql)) {
     mysqli_stmt_bind_param($stmt, "i", $profile_id);
     mysqli_stmt_execute($stmt);
@@ -30,8 +30,7 @@ if ($stmt = mysqli_prepare($link, $sql)) {
     mysqli_stmt_close($stmt);
 
     if ($profile) {
-        // Calculate derived stats
-        $profile['army_size'] = $profile['soldiers'] + $profile['guards'] + $profile['sentries'] + $profile['spies'];
+        // REMOVED sensitive calculations
         
         // Optionally include earned badges (pass ?include_badges=1)
         if (isset($_GET['include_badges']) && $_GET['include_badges'] === '1') {
