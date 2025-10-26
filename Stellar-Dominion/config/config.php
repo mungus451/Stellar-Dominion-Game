@@ -9,16 +9,34 @@ if (session_status() == PHP_SESSION_NONE) {
     session_start();
 }
 
-// --- Database Credentials ---
-define('DB_SERVER', 'localhost');
-define('DB_USERNAME', 'admin');
-define('DB_PASSWORD', 'password');
-define('DB_NAME', 'users');
-
 // Define the project root directory based on the location of this config file.
 if (!defined('PROJECT_ROOT')) {
     define('PROJECT_ROOT', dirname(__DIR__));
 }
+
+// --- NEW: Load Environment Variables ---
+// This securely loads credentials from a .env file in the project root.
+$envFile = PROJECT_ROOT . '/.env';
+if (file_exists($envFile)) {
+    $lines = file($envFile, FILE_IGNORE_NEW_LINES | FILE_SKIP_EMPTY_LINES);
+    foreach ($lines as $line) {
+        if (strpos(trim($line), '#') === 0) continue; // Skip comments
+        if (strpos($line, '=') !== false) {
+            list($name, $value) = explode('=', $line, 2);
+            $name = trim($name);
+            $value = trim($value, '"'); // Trim quotes
+            putenv(sprintf('%s=%s', $name, $value));
+            $_ENV[$name] = $value;
+            $_SERVER[$name] = $value;
+        }
+    }
+}
+
+// --- Database Credentials (from .env) ---
+define('DB_SERVER', 'localhost');
+define('DB_USERNAME', getenv('DB_USERNAME'));
+define('DB_PASSWORD', getenv('DB_PASSWORD'));
+define('DB_NAME', 'users');
 
 // Include the new, secure CSRF Protection system.
 // We no longer need the old config/security.php file.
@@ -77,12 +95,12 @@ try {
 
 define('APP_BASE_URL', 'https://starlightdominion.com');  // or http://starlightdominion.com if no cert yet
 
-// --- NEW: SMTP Email Configuration ---
+// --- NEW: SMTP Email Configuration (from .env) ---
 // Replace these with your actual email service provider's details.
 // For Gmail, use smtp.gmail.com, port 587, and generate an "App Password".
 define('SMTP_HOST', 'smtp.gmail.com');
 define('SMTP_USERNAME', 'starlightdominiongame@gmail.com');
-define('SMTP_PASSWORD', 'luup rkzt sazl sznv');
+define('SMTP_PASSWORD', getenv('SMTP_PASSWORD'));
 define('SMTP_PORT', 587);
 define('SMTP_SECURE', 'tls'); // Use 'ssl' for port 465
 

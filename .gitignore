@@ -18,3 +18,4 @@ ads.txt
 vendor/*
 *.avif
 *.png
+reset_players.php
