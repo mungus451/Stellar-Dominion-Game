@@ -1,11 +1,12 @@
 <script>
 document.addEventListener('DOMContentLoaded', () => {
+    // 1. UPDATED: SYMBOLS object now reflects the new 90% RTP multipliers
     const SYMBOLS = {
-        'Star':     { icon: '★', payout: 2, weight: 42 },
-        'Planet':   { icon: '🪐', payout: 3, weight: 30 },
-        'Comet':    { icon: '☄️', payout: 5, weight: 15 },
-        'Galaxy':   { icon: '🌌', payout: 10, weight: 9 },
-        'Artifact': { icon: '💎', payout: 25, weight: 4 }
+        'Star':     { icon: '★', payout: 0.6, weight: 50 },
+        'Planet':   { icon: '🪐', payout: 1.2, weight: 25 },
+        'Comet':    { icon: '☄️', payout: 2.0, weight: 15 },
+        'Galaxy':   { icon: '🌌', payout: 3.75, weight: 8 },
+        'Artifact': { icon: '💎', payout: 15.0, weight: 2 }
     };
     const ROLL_DURATION = 900;
     const CELEBRATION_DURATION = 2500;
@@ -48,12 +49,18 @@ document.addEventListener('DOMContentLoaded', () => {
         const val = getGlobalGemstones();
         return val >= 0 ? val : 500;
     })();
+
+    // 2. ADDED: Variables for progressive max bet
     let playerGemstones = STARTING_GEMSTONES;
+    let currentMaxBet = 1000000; // Default, will be updated by first API call
+    // ---
+
     let currentBetSymbol = null;
     let currentBetAmount = 0;
     let isRolling = false;
 
     const gemstonesAmountEl = document.getElementById('credits-amount');
+    const maxBetAmountEl = document.getElementById('max-bet-amount'); // Selector for new element
     const symbolButtons = document.querySelectorAll('.symbol-btn');
     const betButtons = document.querySelectorAll('.bet-btn');
     const customBetInput = document.getElementById('custom-bet-input');
@@ -67,10 +74,14 @@ document.addEventListener('DOMContentLoaded', () => {
     const celebrationMessage = celebrationOverlay.querySelector('.celebration-message');
 
     function updateDisplay() {
-        gemstonesAmountEl.textContent = playerGemstones;
-        customBetInput.max = playerGemstones;
+        // 3. UPDATED: Update gemstone and max bet display
+        gemstonesAmountEl.textContent = playerGemstones.toLocaleString();
+        maxBetAmountEl.textContent = currentMaxBet.toLocaleString() + ' 💎';
+        customBetInput.max = currentMaxBet; // Set max on the input field
+        // ---
+
         if (currentBetSymbol && currentBetAmount > 0) {
-            currentBetDisplayEl.innerHTML = `Betting <span>${currentBetAmount} 💎</span> on <span style="color: var(--accent-color);">${SYMBOLS[currentBetSymbol].icon} ${currentBetSymbol}</span>`;
+            currentBetDisplayEl.innerHTML = `Betting <span>${currentBetAmount.toLocaleString()} 💎</span> on <span style="color: var(--accent-color);">${SYMBOLS[currentBetSymbol].icon} ${currentBetSymbol}</span>`;
             rollButton.disabled = isRolling;
         } else {
             currentBetDisplayEl.innerHTML = `<span>Select a Symbol & Bet</span>`;
@@ -85,17 +96,21 @@ document.addEventListener('DOMContentLoaded', () => {
     }
     function setBet(amount) {
         if (isRolling) return;
-        const betValue = Math.min(parseInt(amount, 10), 100000000);
+        // 4. UPDATED: Respect player's currentMaxBet
+        const betValue = Math.min(parseInt(amount, 10), currentMaxBet);
         if (isNaN(betValue) || betValue <= 0) return;
-        currentBetAmount = Math.min(betValue, playerGemstones);
+        currentBetAmount = Math.min(betValue, playerGemstones, currentMaxBet);
+        // ---
         customBetInput.value = '';
         updateDisplay();
     }
     function setCustomBet() {
         if (isRolling) return;
-        let value = parseInt(customBetInput.value);
+        let value = parseInt(customBetInput.value.replace(/,/g, '')); // Allow commas in input
         if (!isNaN(value) && value > 0) {
-            value = Math.min(value, playerGemstones, 100000000);
+            // 5. UPDATED: Respect player's currentMaxBet
+            value = Math.min(value, playerGemstones, currentMaxBet);
+            // ---
             currentBetAmount = value;
             customBetInput.value = value;
             updateDisplay();
@@ -179,25 +194,30 @@ document.addEventListener('DOMContentLoaded', () => {
             diceEls[1].textContent = icons[1];
             diceEls[2].textContent = icons[2];
 
-            // **** Authoritative wallet update (fixes double-deduct) ****
-            // Use server 'user_gems_after' and compute delta from the CURRENT #gems text.
+            // 6. UPDATED: Authoritative wallet AND max bet update
             const beforeGlobal = getGlobalGemstones();
             if (typeof r.user_gems_after === 'number') {
                 playerGemstones = r.user_gems_after;
                 const delta = r.user_gems_after - beforeGlobal;
                 if (delta !== 0) safeUpd(delta);
             } else if (typeof r.gemstones_delta === 'number') {
-                // Fallback if server omitted 'user_gems_after'
+                // Fallback
                 playerGemstones = Math.max(0, beforeGlobal + r.gemstones_delta);
                 if (r.gemstones_delta !== 0) safeUpd(r.gemstones_delta);
             }
+            // --- This is the new part ---
+            if (typeof r.calculated_max_bet === 'number') {
+                currentMaxBet = r.calculated_max_bet;
+            }
+            // ---
             updateDisplay();
+            // ---
 
             if (r.result === 'win') {
-                triggerCelebration('jackpot', { amount: `+${r.payout} 💎!` });
+                triggerCelebration('jackpot', { amount: `+${r.payout.toLocaleString()} 💎!` });
             } else {
                 const taunt = LOSS_TAUNTS[Math.floor(Math.random() * LOSS_TAUNTS.length)];
-                triggerCelebration('loss', { taunt: taunt, amount: currentBetAmount });
+                triggerCelebration('loss', { taunt: taunt, amount: currentBetAmount.toLocaleString() });
             }
 
             setTimeout(() => {
@@ -243,6 +263,12 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 
     function handleBailout() { alert('BAILOUT is disabled.'); }
+    
+    playerGemstones = getGlobalGemstones();
+    // We'll call updateDisplay() to set the initial gemstone count.
+    // The max bet will show "..." until the first API call returns the real value.
+    updateDisplay();
+
 
     symbolButtons.forEach(btn => btn.addEventListener('click', selectSymbol));
     betButtons.forEach(btn => btn.addEventListener('click', () => setBet(btn.dataset.amount)));
@@ -250,6 +276,5 @@ document.addEventListener('DOMContentLoaded', () => {
     rollButton.addEventListener('click', handleRoll);
     bailoutButton.addEventListener('click', handleBailout);
 
-    updateDisplay();
 });
 </script>

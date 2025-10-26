@@ -15,15 +15,19 @@ final class BlackMarketService
     private const GEM_BUYIN = 50;
 
     // -------- Cosmic Roll config (UI-aligned payouts) --------
+// -------- Cosmic Roll config (Targeting 90% RTP / 10% House Edge) --------
     private const COSMIC_ROLL_MIN_BET = 1;
-    private const COSMIC_ROLL_MAX_BET = 100000000;
+    private const COSMIC_ROLL_BASE_MAX_BET = 1000000;  // Max bet for a level 1 player
+    private const COSMIC_ROLL_MAX_BET_PER_LEVEL = 500000; // Extra max bet allowed per level
     private const COSMIC_ROLL_SYMBOLS = [
-        'Star'     => ['icon' => '★', 'weight' => 42, 'payout_mult' => 2],
-        'Planet'   => ['icon' => '🪐', 'weight' => 30, 'payout_mult' => 3],
-        'Comet'    => ['icon' => '☄️', 'weight' => 15, 'payout_mult' => 5],
-        'Galaxy'   => ['icon' => '🌌', 'weight' => 9,  'payout_mult' => 10],
-        'Artifact' => ['icon' => '💎', 'weight' => 4,  'payout_mult' => 25],
+        // Symbol:   Weight (P)   Multiplier (M)   RTP = M * 3 * P
+        'Star'     => ['icon' => '★', 'weight' => 50, 'payout_mult' => 0.6],  // RTP = 0.6 * 3 * 0.50 = 0.90 (90%)
+        'Planet'   => ['icon' => '🪐', 'weight' => 25, 'payout_mult' => 1.2],  // RTP = 1.2 * 3 * 0.25 = 0.90 (90%)
+        'Comet'    => ['icon' => '☄️', 'weight' => 15, 'payout_mult' => 2.0],  // RTP = 2.0 * 3 * 0.15 = 0.90 (90%)
+        'Galaxy'   => ['icon' => '🌌', 'weight' => 8,  'payout_mult' => 3.75], // RTP = 3.75 * 3 * 0.08 = 0.90 (90%)
+        'Artifact' => ['icon' => '💎', 'weight' => 2,  'payout_mult' => 15.0], // RTP = 15.0 * 3 * 0.02 = 0.90 (90%)
     ];
+    // Total Weight = 50 + 25 + 15 + 8 + 2 = 100
 
     /* --------------------------- UTILITIES --------------------------- */
 
@@ -365,36 +369,49 @@ final class BlackMarketService
     public function cosmicRollPlay(PDO $pdo, int $userId, int $betGemstones, string $selectedSymbol): array
     {
         $betGemstones = (int)$betGemstones;
-        if ($betGemstones < self::COSMIC_ROLL_MIN_BET || $betGemstones > self::COSMIC_ROLL_MAX_BET) {
-            throw new InvalidArgumentException('invalid bet amount');
-        }
-        if (!isset(self::COSMIC_ROLL_SYMBOLS[$selectedSymbol])) {
-            throw new InvalidArgumentException('invalid symbol');
-        }
 
+        // ---- START MODIFICATION ----
+        // Moved transaction start to the top
         $pdo->beginTransaction();
         try {
-            // 1) Lock and check balance
-            $u = $pdo->prepare("SELECT id, gemstones FROM users WHERE id=? FOR UPDATE");
+            // 1) Lock, check balance, AND get level
+            $u = $pdo->prepare("SELECT id, gemstones, level FROM users WHERE id=? FOR UPDATE"); // Added 'level'
             $u->execute([$userId]);
             $user = $u->fetch(PDO::FETCH_ASSOC);
             if (!$user) {
                 throw new RuntimeException('user not found');
             }
+
+            // 2) Calculate dynamic max bet
+            $playerLevel = (int)($user['level'] ?? 1);
+            $calculatedMaxBet = self::COSMIC_ROLL_BASE_MAX_BET + ($playerLevel * self::COSMIC_ROLL_MAX_BET_PER_LEVEL);
+
+            // 3) Validate bet against new dynamic max bet
+            if ($betGemstones < self::COSMIC_ROLL_MIN_BET || $betGemstones > $calculatedMaxBet) {
+                throw new InvalidArgumentException("invalid bet amount (Max: {$calculatedMaxBet})");
+            }
+            // ---- END MODIFICATION ----
+
+            if (!isset(self::COSMIC_ROLL_SYMBOLS[$selectedSymbol])) {
+                throw new InvalidArgumentException('invalid symbol');
+            }
+
+            // (Original code continues, but transaction/try block is already open)
+
             $beforeGems = (int)$user['gemstones'];
             if ($beforeGems < $betGemstones) {
                 throw new RuntimeException('insufficient gemstones');
             }
 
-            // 2) Debit bet
+            // 2) Debit bet (now step 4)
             $afterGems = $beforeGems - $betGemstones;
             $pdo->prepare("UPDATE users SET gemstones = ? WHERE id=?")
                 ->execute([$afterGems, $userId]);
 
-            // 3) Immediately record House receiving the bet (prevents unsigned underflow)
+            // 3) Immediately record House receiving the bet (now step 5)
             $this->bumpHouse($pdo, 'gemstones_collected', $betGemstones);
 
-            // 4) Spin 3 reels (weighted)
+            // 4) Spin 3 reels (weighted) (now step 6)
             $reel1 = $this->weightedPick(self::COSMIC_ROLL_SYMBOLS);
             $reel2 = $this->weightedPick(self::COSMIC_ROLL_SYMBOLS);
             $reel3 = $this->weightedPick(self::COSMIC_ROLL_SYMBOLS);
@@ -404,11 +421,13 @@ final class BlackMarketService
             if ($reel2 === $selectedSymbol) $matches++;
             if ($reel3 === $selectedSymbol) $matches++;
 
-            $baseMult = (int) self::COSMIC_ROLL_SYMBOLS[$selectedSymbol]['payout_mult'];
+            // NOTE: You should change 'payout_mult' to a float/double in your constant definition
+            // e.g., 'payout_mult' => 2.0 instead of 2
+            $baseMult = (float) self::COSMIC_ROLL_SYMBOLS[$selectedSymbol]['payout_mult'];
             $payout   = ($matches > 0) ? (int) floor($betGemstones * $baseMult * $matches) : 0;
             $result   = ($matches > 0) ? 'win' : 'loss';
 
-            // 5) Pay out from House (logged safely via bumpHouse)
+            // 5) Pay out from House (logged safely via bumpHouse) (now step 7)
             if ($payout > 0) {
                 $afterGems += $payout;
                 $pdo->prepare("UPDATE users SET gemstones = ? WHERE id=?")
@@ -417,7 +436,7 @@ final class BlackMarketService
                 $this->bumpHouse($pdo, 'gemstones_collected', -$payout);
             }
 
-            // 6) Per-spin ledger (only if table exists)
+            // 6) Per-spin ledger (only if table exists) (now step 8)
             $houseNet = $betGemstones - $payout; // positive => house net gain
             if (method_exists($this, 'tableExists') && $this->tableExists($pdo, 'black_market_cosmic_rolls')) {
                 $st = $pdo->prepare("
@@ -460,6 +479,7 @@ final class BlackMarketService
                 'gemstones_delta'       => (-$betGemstones + $payout),
                 'house_gemstones_delta' => $houseNet,
                 'user_gems_after'       => $afterGems,
+                'calculated_max_bet'    => $calculatedMaxBet, // Optional: send new max bet to client
             ];
         } catch (\Throwable $e) {
             $pdo->rollBack();

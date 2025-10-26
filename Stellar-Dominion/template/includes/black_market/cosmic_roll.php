@@ -4,26 +4,48 @@
 
 <?php include_once __DIR__ . '/cosmic_roll_style.php'; ?>
 
+<!-- Added style for new grid display -->
+<style>
+    .credits-display-grid {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 10px;
+        margin-bottom: 20px;
+    }
+    #max-bet-amount {
+        color: #f39c12; /* Accent color for max bet */
+    }
+</style>
+
 <div class="game-container">
     <header>
         <h1>COSMIC ROLL</h1>
         <p>Bet your Gemstones on the outcome of the Quantum Dice and cash in big!<br><strong>High Rollers get tiered rewards!</strong></p>
     </header>
 
-    <div class="credits-display">
-        <span style="font-size: 1em; color: #aaa;">GEMSTONES</span>
-        <div id="credits-amount">500</div>
+    <!-- Updated to a grid to show Gemstones AND Max Bet -->
+    <div class="credits-display-grid">
+        <div class="credits-display">
+            <span style="font-size: 1em; color: #aaa;">GEMSTONES</span>
+            <div id="credits-amount">...</div>
+        </div>
+        <div class="credits-display">
+            <span style="font-size: 1em; color: #aaa;">YOUR MAX BET</span>
+            <!-- This will be updated by JS -->
+            <div id="max-bet-amount">...</div>
+        </div>
     </div>
 
     <div class="game-area">
         <div class="betting-area">
             <h3>1. CHOOSE YOUR SYMBOL</h3>
             <div class="symbol-selection">
-                <button class="symbol-btn" data-symbol="Star">★<span class="payout">2x Payout</span></button>
-                <button class="symbol-btn" data-symbol="Planet">🪐<span class="payout">3x Payout</span></button>
-                <button class="symbol-btn" data-symbol="Comet">☄️<span class="payout">5x Payout</span></button>
-                <button class="symbol-btn" data-symbol="Galaxy">🌌<span class="payout">10x Payout</span></button>
-                <button class="symbol-btn" data-symbol="Artifact">💎<span class="payout">25x Payout</span></button>
+                <!-- Updated Payouts to match balanced 90% RTP odds -->
+                <button class="symbol-btn" data-symbol="Star">★<span class="payout">0.6x Payout</span></button>
+                <button class="symbol-btn" data-symbol="Planet">🪐<span class="payout">1.2x Payout</span></button>
+                <button class="symbol-btn" data-symbol="Comet">☄️<span class="payout">2.0x Payout</span></button>
+                <button class="symbol-btn" data-symbol="Galaxy">🌌<span class="payout">3.75x Payout</span></button>
+                <button class="symbol-btn" data-symbol="Artifact">💎<span class="payout">15x Payout</span></button>
             </div>
 
             <h3>2. SELECT YOUR BET</h3>
