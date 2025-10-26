@@ -1,17 +1,45 @@
 <?php
-// Enable full error reporting
-ini_set('display_errors', 1);
-ini_set('display_startup_errors', 1);
-error_reporting(E_ALL);
+// --- NEW: Production Error Handling ---
+// We log errors to a file and show a generic message to the user.
+ini_set('display_errors', 0); // Do NOT display errors to the user
+ini_set('log_errors', 1); // Log errors
+ini_set('display_startup_errors', 0);
+error_reporting(E_ALL); // Report all errors
+
+// We define this early so the error log path can be set
+if (!defined('PROJECT_ROOT')) {
+    define('PROJECT_ROOT', dirname(__DIR__));
+}
+// Ensure a logs directory exists (or create it)
+$log_dir = PROJECT_ROOT . '/logs';
+if (!is_dir($log_dir)) {
+    @mkdir($log_dir, 0755, true); // Create the logs directory if it doesn't exist
+}
+ini_set('error_log', $log_dir . '/php_errors.log'); // Set log file path
+
+// This function will run at the end of the script, checking for fatal errors
+register_shutdown_function(function() {
+    $error = error_get_last();
+    // Check for fatal error types
+    if ($error !== null && in_array($error['type'], [E_ERROR, E_CORE_ERROR, E_COMPILE_ERROR, E_USER_ERROR, E_PARSE])) {
+        // Clear any previous partial output
+        if (ob_get_length()) {
+            ob_end_clean();
+        }
+        
+        // Display your requested generic error banner
+        http_response_code(500); // Set a server error status
+        echo '<div style="border: 2px solid #b00; background: #fff8f8; color: #b00; text-align: center; padding: 20px; font-family: sans-serif; font-size: 18px; margin: 40px auto; width: 80%;">';
+        echo 'An application error occurred. Please check the server log for details.';
+        echo '</div>';
+    }
+});
+// --- End Error Handling ---
+
 
 // Start the session if it's not already started. This is crucial for CSRF protection. If user is not logged in, redirect to front controller.
 if (session_status() == PHP_SESSION_NONE) {
     session_start();
-}
-
-// Define the project root directory based on the location of this config file.
-if (!defined('PROJECT_ROOT')) {
-    define('PROJECT_ROOT', dirname(__DIR__));
 }
 
 // --- NEW: Load Environment Variables ---
@@ -83,13 +111,13 @@ try {
     mysqli_query($link, "SET time_zone = '+00:00'");
 
 } catch (Throwable $e) {
-    // If any error (including connection error) was caught, display it and stop the script.
-    // This is more likely to display an error than the previous methods.
+    // If any error (including connection error) was caught, log it
+    error_log("Database Connection Failed: " . $e->getMessage());
+
+    // Stop the script. The shutdown function will display the generic error.
     http_response_code(500); // Set a server error status
-    echo "<h1>Database Connection Failed</h1>";
-    echo "<p>The application could not connect to the database. Please check your configuration.</p>";
-    echo "<hr>";
-    echo "<p><b>Error Details:</b> " . $e->getMessage() . "</p>";
+    // We explicitly trigger a fatal error so our shutdown handler will catch it and display the banner.
+    trigger_error('Database Connection Failed. Check logs.', E_USER_ERROR);
     exit; // Stop the script from running further
 }
 
