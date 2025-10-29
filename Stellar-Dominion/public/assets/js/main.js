@@ -449,8 +449,11 @@ if (armoryFormEl) {
                 const { new_credits, new_experience, new_level, updated_armory, new_csrf_token } = result.data;
                 
                 // --- THIS IS THE FIX ---
-                // Update the CSRF token in the form for the next submission
-                if (new_csrf_token && tokenInput) {
+                // Call the new global master function if it exists
+                if (new_csrf_token && typeof setCsrf === 'function') {
+                    setCsrf(new_csrf_token);
+                } else if (new_csrf_token && tokenInput) {
+                    // Fallback just in case setCsrf isn't on this page
                     tokenInput.value = new_csrf_token;
                 }
                 // --- END FIX ---
@@ -538,8 +541,8 @@ if (armoryFormEl) {
                         <div class="flex flex-col md:flex-row items-center gap-4">
                              <img src="${data.avatar_path || 'https://via.placeholder.com/100'}" alt="Avatar" class="w-24 h-24 rounded-full border-2 border-gray-600 object-cover flex-shrink-0">
                              <div class="text-center md:text-left">
-                                <h2 class="font-title text-3xl text-white">${data.character_name}</h2>
-                                <p class="text-lg text-cyan-300">Level ${data.level} ${data.race} ${data.class}</p>
+                                 <h2 class="font-title text-3xl text-white">${data.character_name}</h2>
+                                 <p class="text-lg text-cyan-300">Level ${data.level} ${data.race} ${data.class}</p>
                              </div>
                         </div>
                         <div class="mt-4 border-t border-gray-700 pt-4 grid grid-cols-2 gap-4 text-sm">

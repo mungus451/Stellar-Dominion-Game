@@ -333,7 +333,7 @@ $__now_et_epoch = $__now_et->getTimestamp();
     // -----------------------------------------------
     // 10s POLL: STATS ONLY (does not touch countdown)
     // -----------------------------------------------
-    async function pollAdvisor(){
+    /* async function pollAdvisor(){
         try {
             const res = await fetch('/api/advisor_poll.php', {
                 credentials: 'same-origin',
@@ -361,7 +361,7 @@ $__now_et_epoch = $__now_et->getTimestamp();
         } catch (_) { /* silent */ }
     }
 
-    pollAdvisor();
-    setInterval(pollAdvisor, 10000);
+    /*pollAdvisor(); */
+    /*setInterval(pollAdvisor, 10000); */
 })();
 </script>

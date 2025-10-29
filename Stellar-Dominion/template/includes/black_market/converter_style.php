@@ -1,54 +1,216 @@
+<?php // /template/includes/black_market/converter_style.php ?>
 <style>
-/* Converter facelift — glass, glow, gradients; scoped to first .content-box only */
-main .content-box:first-of-type{position:relative;overflow:hidden;}
-main .content-box:first-of-type{backdrop-filter:blur(6px);}
-main .content-box:first-of-type::before{
-  content:"";position:absolute;inset:-1px;pointer-events:none;
-  background:
-    radial-gradient(120% 80% at 10% 0%, rgba(59,130,246,.30), transparent 42%),
-    radial-gradient(120% 80% at 90% 0%, rgba(250,204,21,.25), transparent 42%),
-    linear-gradient(90deg, rgba(168,85,247,.22), rgba(6,182,212,.22));
-}
-main .content-box:first-of-type h2{
-  text-shadow:0 2px 16px rgba(6,182,212,.6),0 0 2px rgba(255,255,255,.3);
-}
-/* subtle tagline under the heading without changing markup */
-main .content-box:first-of-type > h2::after{
-  content:"Swap with style. Fuel your next bet.";
-  display:block;font-size:.875rem;margin-top:.25rem;
-  color:#a78bfa;text-shadow:0 0 12px rgba(168,85,247,.45);
-}
-/* inner cards — animated rainbow glow edge + glass */
-main .content-box:first-of-type .grid > div{position:relative;background:rgba(17,24,39,.55);border-color:rgba(148,163,184,.35);}
-main .content-box:first-of-type .grid > div::before{
-  content:"";position:absolute;inset:-1px;border-radius:.5rem;z-index:0;opacity:.35;filter:blur(10px);
-  background:linear-gradient(135deg, rgba(59,130,246,.45), rgba(168,85,247,.45), rgba(34,197,94,.45), rgba(6,182,212,.45));
-  background-size:300% 300%;animation:bmGlow 8s ease infinite;
-}
-main .content-box:first-of-type .grid > div > *{position:relative;z-index:1;}
-@keyframes bmGlow{0%{background-position:0% 50%}50%{background-position:100% 50%}100%{background-position:0% 50%}}
+    /* * Sci-Fi Facelift for Currency Converter 
+     * Assumes global CSS variables like --glow-cyan, --glow-green, etc.
+     * (as seen in quantum_roulette_logic.php)
+     */
+    :root {
+        /* Fallbacks in case root variables aren't set */
+        --glow-cyan: #00ffff;
+        --glow-green: #00ff7f;
+        --glow-red: #ff003c;
+        --border-color-dim: #0f3a46;
+        --bg-dark-transparent: rgba(0, 15, 25, 0.8);
+        --bg-dark-input: #000c12;
+    }
 
-/* inputs + buttons — neon focus */
-main .content-box:first-of-type input[type="number"]{box-shadow:inset 0 0 0 1px rgba(148,163,184,.35);}
-main .content-box:first-of-type input[type="number"]:focus{outline:0;box-shadow:0 0 0 2px rgba(6,182,212,.6),0 0 20px rgba(59,130,246,.35);}
+    #currency-converter {
+        background: var(--bg-dark-transparent);
+        border: 1px solid var(--border-color-dim);
+        box-shadow: 0 0 15px rgba(0, 255, 255, 0.1);
+        padding: 20px;
+        border-radius: 8px;
+    }
 
-main .content-box:first-of-type .btn{position:relative;}
-main .content-box:first-of-type .btn::after{
-  content:"";position:absolute;inset:-2px;border-radius:.5rem;z-index:-1;transition:opacity .2s ease;
-  background:linear-gradient(45deg, rgba(99,102,241,.7), rgba(20,184,166,.7));opacity:.5;filter:blur(8px);
-}
-main .content-box:first-of-type .btn:hover::after{opacity:.9;}
+    #currency-converter .header-content {
+        text-align: center;
+        border-bottom: 1px solid var(--border-color-dim);
+        padding-bottom: 15px;
+        margin-bottom: 20px;
+    }
+    #currency-converter .header-content h2 {
+        margin-top: 0;
+        color: #fff;
+        font-weight: 600;
+    }
+    #currency-converter .header-content h2 .fa-solid {
+        color: var(--glow-cyan);
+        margin-right: 8px;
+        animation: pulse-glow 2s infinite ease-in-out;
+    }
+    #currency-converter .header-content p {
+        margin-bottom: 0;
+        color: #ccc;
+        font-size: 0.95rem;
+    }
 
-/* High-contrast rate pill (addresses the contrast issue) */
-#c2g form + .text-sm.mt-1,
-#g2c form + .text-sm.mt-1{
-  display:inline-block;margin-top:.5rem;padding:.25rem .5rem;border-radius:9999px;
-  background:rgba(2,6,23,.85);border:1px solid rgba(148,163,184,.5);
-  color:#e5e7eb;font-weight:600;text-shadow:0 1px 8px rgba(0,240,255,.35);
-}
+    /* Main Grid Layout */
+    .exchange-grid {
+        display: grid;
+        grid-template-columns: 1fr auto 1fr;
+        gap: 15px;
+        align-items: center;
+    }
 
-/* Result messages */
-#c2g-res,#g2c-res{margin-top:.5rem;font-weight:700;color:#e2e8f0;text-shadow:0 1px 8px rgba(59,130,246,.6);}
-#c2g-res.error,#g2c-res.error{color:#fecaca;text-shadow:0 1px 8px rgba(239,68,68,.6);}
+    .exchange-panel {
+        display: flex;
+        flex-direction: column;
+        gap: 15px;
+        padding: 15px;
+        background: rgba(0, 0, 0, 0.2);
+        border-radius: 6px;
+    }
 
+    .exchange-panel h4 {
+        margin: 0;
+        color: var(--glow-cyan);
+        font-size: 1.1rem;
+        font-weight: 500;
+        text-align: center;
+        border-bottom: 1px solid var(--border-color-dim);
+        padding-bottom: 10px;
+    }
+
+    .balance-display {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        background: var(--bg-dark-input);
+        padding: 10px 15px;
+        border-radius: 4px;
+        border: 1px solid var(--border-color-dim);
+    }
+    .balance-display span {
+        font-size: 0.9rem;
+        color: #bbb;
+    }
+    .balance-display strong {
+        font-size: 1.1rem;
+        color: #fff;
+        font-weight: 600;
+    }
+
+    .convert-form {
+        display: flex;
+        gap: 10px;
+    }
+
+    .converter-input {
+        flex-grow: 1;
+        background: var(--bg-dark-input);
+        border: 1px solid var(--border-color-dim);
+        color: #fff;
+        padding: 10px 12px;
+        font-size: 1rem;
+        border-radius: 4px;
+        transition: border-color 0.3s, box-shadow 0.3s;
+    }
+    .converter-input:focus {
+        outline: none;
+        border-color: var(--glow-cyan);
+        box-shadow: 0 0 10px rgba(0, 255, 255, 0.5);
+    }
+
+    /* Remove number input spinners */
+    .converter-input::-webkit-outer-spin-button,
+    .converter-input::-webkit-inner-spin-button {
+        -webkit-appearance: none;
+        margin: 0;
+    }
+    .converter-input[type=number] {
+        -moz-appearance: textfield;
+    }
+
+    .converter-button {
+        padding: 10px 15px;
+        font-size: 0.9rem;
+        font-weight: 700;
+        text-transform: uppercase;
+        border-radius: 4px;
+        cursor: pointer;
+        transition: all 0.3s;
+        border: 1px solid;
+    }
+
+    .btn-glow-green {
+        background: transparent;
+        color: var(--glow-green);
+        border-color: var(--glow-green);
+    }
+    .btn-glow-green:hover {
+        background: var(--glow-green);
+        color: #000;
+        box-shadow: 0 0 15px var(--glow-green);
+    }
+    
+    .btn-glow-cyan {
+        background: transparent;
+        color: var(--glow-cyan);
+        border-color: var(--glow-cyan);
+    }
+    .btn-glow-cyan:hover {
+        background: var(--glow-cyan);
+        color: #000;
+        box-shadow: 0 0 15px var(--glow-cyan);
+    }
+
+    .rate-info {
+        font-size: 0.85rem;
+        color: #aaa;
+        text-align: center;
+        background: var(--bg-dark-input);
+        padding: 8px;
+        border-radius: 4px;
+    }
+    .rate-info strong {
+        color: #ddd;
+    }
+
+    .exchange-divider {
+        display: flex;
+        align-items: center;
+        justify-content: center;
+    }
+    .exchange-divider svg {
+        width: 30px;
+        height: 30px;
+        color: var(--border-color-dim);
+    }
+
+    /* Message Area (shared style from roulette) */
+    #converter-message {
+        margin-top: 20px;
+        padding: 12px;
+        text-align: center;
+        border-radius: 4px;
+        font-size: 0.95rem;
+        font-weight: 500;
+        color: var(--glow-cyan);
+        background: var(--bg-dark-input);
+        border: 1px solid var(--border-color-dim);
+        text-shadow: 0 0 5px var(--glow-cyan);
+        transition: all 0.3s;
+    }
+
+    /* Responsive adjustments */
+    @media (max-width: 768px) {
+        .exchange-grid {
+            grid-template-columns: 1fr; /* Stack panels */
+            gap: 20px;
+        }
+        .exchange-divider {
+            transform: rotate(90deg); /* Rotate the arrow */
+        }
+        .convert-form {
+            flex-direction: column;
+        }
+        .converter-button {
+            padding: 12px;
+        }
+    }
+    
+    @keyframes pulse-glow {
+        0%, 100% { text-shadow: 0 0 5px var(--glow-cyan); }
+        50% { text-shadow: 0 0 15px var(--glow-cyan); }
+    }
 </style>

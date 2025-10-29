@@ -3,19 +3,12 @@ declare(strict_types=1);
 
 final class BlackMarketService
 {
-    // ---- Conversion rates ----
-    private const CREDITS_TO_GEMS_NUM = 93;     // 100 credits -> 93 gems (7% fee)
-    private const CREDITS_TO_GEMS_DEN = 100;
-
-    // per 100 gems
-    private const GEMS_TO_CREDITS_PER_100 = 98; // 100 gems -> 98 credits (2 credits fee per 100 gems)
 
     // Data Dice config (unchanged)
     private const DICE_PER_SIDE_START = 5;
     private const GEM_BUYIN = 50;
 
-    // -------- Cosmic Roll config (UI-aligned payouts) --------
-// -------- Cosmic Roll config (Targeting 90% RTP / 10% House Edge) --------
+    // -------- Cosmic Roll config (Targeting 90% RTP / 10% House Edge) --------
     private const COSMIC_ROLL_MIN_BET = 1;
     private const COSMIC_ROLL_BASE_MAX_BET = 1000000;  // Max bet for a level 1 player
     private const COSMIC_ROLL_MAX_BET_PER_LEVEL = 500000; // Extra max bet allowed per level
@@ -28,6 +21,12 @@ final class BlackMarketService
         'Artifact' => ['icon' => '💎', 'weight' => 2,  'payout_mult' => 15.0], // RTP = 15.0 * 3 * 0.02 = 0.90 (90%)
     ];
     // Total Weight = 50 + 25 + 15 + 8 + 2 = 100
+
+    // ---- START MODIFICATION: Quantum Roulette Config ----
+    private const ROULETTE_RED_NUMBERS = [1, 3, 5, 7, 9, 12, 14, 16, 18, 19, 21, 23, 25, 27, 30, 32, 34, 36];
+    private const ROULETTE_BLACK_NUMBERS = [2, 4, 6, 8, 10, 11, 13, 15, 17, 20, 22, 24, 26, 28, 29, 31, 33, 35];
+    // ---- END MODIFICATION ----
+
 
     /* --------------------------- UTILITIES --------------------------- */
 
@@ -71,8 +70,8 @@ final class BlackMarketService
      * House ledger updater.
      * - Default: UPDATE … SET {$column} = {$column} + :delta
      * - If we’re trying to subtract from unsigned gemstones_collected and
-     *   a `gemstones_paid_out` column exists, we increment **gemstones_paid_out**
-     *   by the absolute amount instead (avoids unsigned underflow).
+     * a `gemstones_paid_out` column exists, we increment **gemstones_paid_out**
+     * by the absolute amount instead (avoids unsigned underflow).
      */
     private function bumpHouse(PDO $pdo, string $column, int $delta): void
     {
@@ -100,7 +99,10 @@ final class BlackMarketService
 
     private function creditsToGemsFloor(int $credits): int
     {
-        return intdiv($credits * self::CREDITS_TO_GEMS_NUM, self::CREDITS_TO_GEMS_DEN);
+        return intdiv(
+            $credits * BLACK_MARKET_SETTINGS['CREDITS_TO_GEMS']['NUMERATOR'],
+            BLACK_MARKET_SETTINGS['CREDITS_TO_GEMS']['DENOMINATOR']
+        );
     }
 
     /* ======================================================================
@@ -120,7 +122,14 @@ final class BlackMarketService
             if ((int)$user['credits'] < $creditsInput) throw new RuntimeException('insufficient credits');
 
             $playerGems = $this->creditsToGemsFloor($creditsInput);
-            $feeCredits = intdiv($creditsInput * 7, 100);
+            
+            // Calculate fee based on the config
+            $feeNumerator = BLACK_MARKET_SETTINGS['CREDITS_TO_GEMS']['DENOMINATOR'] - BLACK_MARKET_SETTINGS['CREDITS_TO_GEMS']['NUMERATOR'];
+            $feeCredits = intdiv(
+                $creditsInput * $feeNumerator,
+                BLACK_MARKET_SETTINGS['CREDITS_TO_GEMS']['DENOMINATOR']
+            );
+            
             $houseGems  = $this->creditsToGemsFloor($feeCredits);
 
             $pdo->prepare("UPDATE users SET credits = credits - ?, gemstones = gemstones + ? WHERE id=?")
@@ -160,8 +169,12 @@ final class BlackMarketService
             if (!$user) throw new RuntimeException('user not found');
             if ((int)$user['gemstones'] < $gemsInput) throw new RuntimeException('insufficient gemstones');
 
-            $creditsOut = intdiv($gemsInput * self::GEMS_TO_CREDITS_PER_100, 100);
-            $feeCredits = intdiv($gemsInput * (100 - self::GEMS_TO_CREDITS_PER_100), 100);
+            $creditsOut = intdiv($gemsInput * BLACK_MARKET_SETTINGS['GEMS_TO_CREDITS']['PER_100'], 100);
+            
+            // Calculate fee based on the config
+            $feePer100 = 100 - BLACK_MARKET_SETTINGS['GEMS_TO_CREDITS']['PER_100'];
+            $feeCredits = intdiv($gemsInput * $feePer100, 100);
+            
             $houseGems  = $this->creditsToGemsFloor($feeCredits);
 
             $pdo->prepare("UPDATE users SET gemstones = gemstones - ?, credits = credits + ? WHERE id=?")
@@ -486,8 +499,134 @@ final class BlackMarketService
             throw $e;
         }
     }
+    
+    // ======================================================================
+    //   QUANTUM ROULETTE
+    // ======================================================================
+    public function playRoulette(PDO $pdo, int $userId, array $bets): array
+        {
+            if (empty($bets)) {
+                throw new InvalidArgumentException('No bets placed.');
+            }
 
-    /* ------------------------ Internals (unchanged) ------------------------ */
+            $pdo->beginTransaction();
+            try {
+                // 1. Lock user row and get current gemstones AND LEVEL
+                $u = $pdo->prepare("SELECT id, gemstones, level FROM users WHERE id=? FOR UPDATE");
+                $u->execute([$userId]);
+                $user = $u->fetch(PDO::FETCH_ASSOC);
+                if (!$user) {
+                    throw new RuntimeException('User not found.');
+                }
+
+                $userGemstones = (int)$user['gemstones'];
+                $playerLevel = (int)($user['level'] ?? 1);
+
+                // 2. Calculate dynamic max bet (using same constants as Cosmic Roll)
+                $calculatedMaxBet = self::COSMIC_ROLL_BASE_MAX_BET + ($playerLevel * self::COSMIC_ROLL_MAX_BET_PER_LEVEL);
+                
+                // 3. Validate bets and calculate total
+                $totalBetAmount = 0;
+                foreach ($bets as $betType => $betAmount) {
+                    $betAmount = (int)$betAmount;
+                    if ($betAmount <= 0) {
+                        throw new InvalidArgumentException("Invalid bet amount for {$betType}.");
+                    }
+                    $totalBetAmount += $betAmount;
+                }
+
+                if ($totalBetAmount <= 0) {
+                    throw new InvalidArgumentException('Total bet must be positive.');
+                }
+                if ($userGemstones < $totalBetAmount) {
+                    throw new RuntimeException('Insufficient gemstones.');
+                }
+                
+                // 4. Validate against MAX BET
+                if ($totalBetAmount > $calculatedMaxBet) {
+                    throw new InvalidArgumentException("Total bet exceeds the max bet of " . number_format($calculatedMaxBet) . ".");
+                }
+
+                // 5. Deduct total bet from gemstones
+                $pdo->prepare("UPDATE users SET gemstones = gemstones - ? WHERE id = ?")
+                    ->execute([$totalBetAmount, $userId]);
+                
+                // 5b. Add bet to house collection
+                $this->bumpHouse($pdo, 'gemstones_collected', $totalBetAmount);
+
+                // 6. Generate winning number (0-36)
+                $winningNumber = random_int(0, 36);
+
+                // 7. Calculate winnings
+                // ---- START FIX: This function was missing ----
+                $totalWinnings = $this->calculateRouletteWinnings($winningNumber, $bets);
+                // ---- END FIX ----
+
+                // 8. Add winnings (if any)
+                if ($totalWinnings > 0) {
+                    $pdo->prepare("UPDATE users SET gemstones = gemstones + ? WHERE id = ?")
+                        ->execute([$totalWinnings, $userId]);
+                    
+                    // 8b. Pay out from house
+                    $this->bumpHouse($pdo, 'gemstones_collected', -$totalWinnings);
+                }
+
+                // 9. Calculate net result and final gemstone balance
+                $netResult = $totalWinnings - $totalBetAmount;
+                $newGemstones = $userGemstones + $netResult;
+
+                // 10. LOG THE SPIN
+                // ---- START FIX: Make logging robust to missing table ----
+                if (method_exists($this, 'tableExists') && $this->tableExists($pdo, 'black_market_roulette_logs')) {
+                    $betsJson = json_encode($bets, JSON_THROW_ON_ERROR);
+                    $st = $pdo->prepare(
+                        "INSERT INTO black_market_roulette_logs 
+                            (user_id, bets_placed, total_bet, winning_number, total_winnings, net_result, user_gemstones_after)
+                         VALUES (?, ?, ?, ?, ?, ?, ?)"
+                    );
+                    $st->execute([
+                        $userId,
+                        $betsJson,
+                        $totalBetAmount,
+                        $winningNumber,
+                        $totalWinnings,
+                        $netResult,
+                        $newGemstones
+                    ]);
+                }
+                // ---- END FIX ----
+
+                // 11. Commit transaction
+                $pdo->commit();
+
+                // 12. Create response message
+                $message = "The number is {$winningNumber}. ";
+                if ($netResult > 0) {
+                    $message .= "You won " . number_format($netResult) . " gemstones!";
+                } elseif ($netResult < 0) {
+                    $message .= "You lost " . number_format(abs($netResult)) . " gemstones.";
+                } else {
+                    $message .= "You broke even.";
+                }
+
+                return [
+                    'winning_number'        => $winningNumber,
+                    'total_bet'             => $totalBetAmount,
+                    'total_winnings'        => $totalWinnings,
+                    'net_result'            => $netResult,
+                    'new_gemstones'         => $newGemstones,
+                    'message'               => $message,
+                    'calculated_max_bet'    => $calculatedMaxBet, // Send new max bet to client
+                ];
+
+            } catch (\Throwable $e) {
+                $pdo->rollBack();
+                throw $e; // Re-throw the exception to be caught by the API router
+            }
+        }
+
+
+    /* ------------------------ Internals (Data Dice - unchanged) ------------------------ */
 
     private function rollDice(int $count): array { $o=[]; for($i=0;$i<$count;$i++) $o[]=random_int(1,6); return $o; }
 
@@ -585,6 +724,53 @@ final class BlackMarketService
     }
 
     /* --------------------------- Helpers --------------------------- */
+    
+    // ---- START: ADDED MISSING ROULETTE HELPER ----
+    private function calculateRouletteWinnings(int $winningNumber, array $bets): int
+    {
+        $totalWinnings = 0;
+        $redNumbers = self::ROULETTE_RED_NUMBERS;
+        $blackNumbers = self::ROULETTE_BLACK_NUMBERS;
+
+        foreach ($bets as $betType => $betAmount) {
+            $betAmount = (int)$betAmount;
+            if ($betAmount <= 0) continue;
+
+            if (strpos($betType, 'num_') === 0 && (int)substr($betType, 4) === $winningNumber) {
+                // Straight up number
+                $totalWinnings += $betAmount * 36;
+            } elseif ($betType === 'red' && in_array($winningNumber, $redNumbers, true)) {
+                // Red
+                $totalWinnings += $betAmount * 2;
+            } elseif ($betType === 'black' && in_array($winningNumber, $blackNumbers, true)) {
+                // Black
+                $totalWinnings += $betAmount * 2;
+            } elseif ($betType === 'even' && $winningNumber !== 0 && $winningNumber % 2 === 0) {
+                // Even
+                $totalWinnings += $betAmount * 2;
+            } elseif ($betType === 'odd' && $winningNumber !== 0 && $winningNumber % 2 !== 0) {
+                // Odd
+                $totalWinnings += $betAmount * 2;
+            } elseif ($betType === 'low' && $winningNumber >= 1 && $winningNumber <= 18) {
+                // 1-18
+                $totalWinnings += $betAmount * 2;
+            } elseif ($betType === 'high' && $winningNumber >= 19 && $winningNumber <= 36) {
+                // 19-36
+                $totalWinnings += $betAmount * 2;
+            } elseif ($betType === 'dozen_1' && $winningNumber >= 1 && $winningNumber <= 12) {
+                // 1st Dozen
+                $totalWinnings += $betAmount * 3;
+            } elseif ($betType === 'dozen_2' && $winningNumber >= 13 && $winningNumber <= 24) {
+                // 2nd Dozen
+                $totalWinnings += $betAmount * 3;
+            } elseif ($betType === 'dozen_3' && $winningNumber >= 25 && $winningNumber <= 36) {
+                // 3rd Dozen
+                $totalWinnings += $betAmount * 3;
+            }
+        }
+        return $totalWinnings;
+    }
+    // ---- END: ADDED MISSING ROULETTE HELPER ----
 
     private function weightedPick(array $symbolConfig): string
     {

@@ -4,11 +4,11 @@
 // provided by the DashboardController.
 ?>
 
-<div class="lg:col-span-4">
+<!-- <div class="lg:col-span-4">
     <div class="rounded-xl border border-yellow-500/50 bg-yellow-900/60 p-3 md:p-4 shadow text-yellow-200 text-sm md:text-base text-center">
         ATTENTION! Hard Reset Performed! 10-15-2025. All alliances have been deleted, all records wiped. We now have Vaults. They limit your on-hand credit capacity. Each vault grants 3 billion in on hand capacity, and each vault after the initial will cost 1 billion+ and 10 million/ turn in maintenance. Any credits produced that ovcerflows beyond your cap is burned. There is no cap on the balance for your bank.  This is unfortunately an unavoidable part of development and will be done as little as possible to maintain playability! Thankyou for your support, feel free to contact the Dev on discord!
     </div>
-</div>
+</div> -->
 
 <?php include $ROOT . '/template/includes/dashboard/profile_card.php'; ?>
 

@@ -68,11 +68,13 @@ class BlackMarketController
         $response = [];
         try {
             $action = $_POST['action'] ?? '';
+            // FIX: Use the 'csrf_action' from the POST, or default to the 'action'
             $csrf_action = $_POST['csrf_action'] ?? $action;
 
             // This is the secret handshake to make sure you're a real player.
+            // FIX: We validate against the 'csrf_action' sent from the script
             if (!validate_csrf_token($_POST['csrf_token'] ?? '', $csrf_action)) {
-                throw new Exception("Security error. Please refresh the page and try again.");
+                throw new Exception("Security error. Please refresh the page and try again. (Invalid CSRF)");
             }
 
             // Let's see what you want to do...
@@ -83,8 +85,13 @@ class BlackMarketController
                 case 'buy_data_dice':
                     $response = $this->handleDataDicePurchase();
                     break;
-                case 'convert_currency':
-                    $response = $this->handleCurrencyConversion();
+                // RENAMED for clarity
+                case 'convert_gems': 
+                    $response = $this->handleGemsToCreditsConversion();
+                    break;
+                // ADDED: The missing logic
+                case 'convert_credits': 
+                    $response = $this->handleCreditsToGemsConversion();
                     break;
                 default:
                     throw new Exception("Invalid action requested.");
@@ -190,8 +197,9 @@ class BlackMarketController
 
     /**
      * This helper lets you trade shiny gems for credits.
+     * (Formerly handleCurrencyConversion)
      */
-    private function handleCurrencyConversion(): array
+    private function handleGemsToCreditsConversion(): array
     {
         $gems_to_convert = (int)($_POST['gems_amount'] ?? 0);
         if ($gems_to_convert <= 0) {
@@ -204,7 +212,8 @@ class BlackMarketController
         $balances_before = $this->getCurrentBalances($user);
 
         // The Black Market expert does the conversion math.
-        $result = $this->blackMarketService->processConversion($this->userId, $user, $gems_to_convert);
+        // FIX: Use the 'gems_to_credits' specific function
+        $result = $this->blackMarketService->processGemsToCredits($this->userId, $user, $gems_to_convert);
         $credits_gained = $result['credits_gained'];
 
         // Time for the piggy bank (vault) rules again!
@@ -233,9 +242,60 @@ class BlackMarketController
 
         return [
             'success' => true,
-            'message' => "Successfully converted {$gems_to_convert} gems into " . number_format($credits_gained) . " credits." . ($burned_amount > 0 ? " (" . number_format($burned_amount) . " burned due to vault capacity)." : ""),
+            'message' => "Successfully converted " . num($gems_to_convert) . " gems into " . num($credits_gained) . " credits." . ($burned_amount > 0 ? " (" . num($burned_amount) . " burned due to vault capacity)." : ""),
             'new_credits' => $new_on_hand_credits,
             'new_gems' => $new_gems,
+            // ADDED: Deltas for the UI updater
+            'credits_delta' => $applied_gain,
+            'gemstones_delta' => -$gems_to_convert
+        ];
+    }
+
+    /**
+     * ADDED: This helper lets you trade credits for shiny gems.
+     */
+    private function handleCreditsToGemsConversion(): array
+    {
+        $credits_to_convert = (int)($_POST['credits_amount'] ?? 0);
+        if ($credits_to_convert <= 0) {
+            throw new Exception("Please enter a valid amount of credits to convert.");
+        }
+
+        $this->db->begin_transaction();
+
+        $user = $this->getUserForUpdate($this->userId);
+        $balances_before = $this->getCurrentBalances($user);
+
+        // The Black Market expert does the conversion math.
+        $result = $this->blackMarketService->processCreditsToGems($this->userId, $user, $credits_to_convert);
+        $gems_gained = $result['gems_gained'];
+
+        // Update your credits and gems in the database.
+        $new_on_hand_credits = $balances_before['on_hand'] - $credits_to_convert;
+        $new_gems = $balances_before['gems'] + $gems_gained;
+
+        $stmt = $this->db->prepare("UPDATE users SET credits = ?, gems = ? WHERE id = ?");
+        $stmt->bind_param("iii", $new_on_hand_credits, $new_gems, $this->userId);
+        $stmt->execute();
+        $stmt->close();
+        
+        $balances_after_credits = ['on_hand' => $new_on_hand_credits, 'banked' => $balances_before['banked'], 'gems' => $balances_before['gems']];
+        $balances_after_gems = $this->getCurrentBalances(['credits' => $new_on_hand_credits, 'gems' => $new_gems] + $user);
+
+        // Write both parts of the trade in our money diary.
+        $this->loggingService->log($this->userId, 'convert_credits_cost', -$credits_to_convert, $balances_before, $balances_after_credits);
+        $this.loggingService->log($this->userId, 'convert_credits_gain', $gems_gained, $balances_after_credits, $balances_after_gems, 0, null, [], 'gems');
+
+        $this->db->commit();
+
+        return [
+            'success' => true,
+            'message' => "Successfully converted " . num($credits_to_convert) . " credits into " . num($gems_gained) . " gems.",
+            'new_credits' => $new_on_hand_credits,
+            'new_gems' => $new_gems,
+            // ADDED: Deltas for the UI updater
+            'credits_delta' => -$credits_to_convert,
+            'gemstones_delta' => $gems_gained
         ];
     }
     

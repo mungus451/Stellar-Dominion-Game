@@ -8,7 +8,7 @@
  * - Offline turn processor
  * - 30m “assassination to untrained” release
  */
-
+require_once __DIR__ . '/../Services/VaultEconomyService.php';
 require_once __DIR__ . '/../Game/GameData.php';
 require_once __DIR__ . '/../../config/balance.php';
 
@@ -142,6 +142,7 @@ function sd_get_owned_items(mysqli $link, int $user_id): array {
  *   ]
  * ]
  */
+
 function sd_compute_alliance_bonuses(mysqli $link, array $user_stats): array {
     $bonuses = [
         'income'    => 0.0,
@@ -219,36 +220,64 @@ function sd_worker_armory_income_bonus(array $owned_items, int $worker_count): i
  * Full breakdown + totals (preferred).
  * Adds 'active_pills_economy' containing ONLY the buffs actually used.
  */
+/**
+ * Full breakdown + totals (preferred).
+ * Adds 'active_pills_economy' containing ONLY the buffs actually used.
+ * NOW INCLUDES VAULT MAINTENANCE in the final net income.
+ */
+/**
+ * Full breakdown + totals (preferred).
+ * Adds 'active_pills_economy' containing ONLY the buffs actually used.
+ * NOW INCLUDES VAULT MAINTENANCE in the final net income.
+ */
 function calculate_income_summary(mysqli $link, int $user_id, array $user_stats): array {
     // constants
     $BASE_INCOME_PER_TURN = 5000;
     $CREDITS_PER_WORKER   = 50;
     $CITIZENS_BASE        = 1;
 
+    // Make sure $upgrades is globally accessible
     global $upgrades;
+    if (!isset($upgrades) || !is_array($upgrades)) {
+       @include_once __DIR__ . '/../Game/GameData.php'; // Attempt to load if missing
+       if (!isset($upgrades) || !is_array($upgrades)) {
+           error_log("CRITICAL: \$upgrades data not available in calculate_income_summary for user {$user_id}. Using defaults.");
+           $upgrades = ['economy' => ['levels' => []], 'population' => ['levels' => []]]; // Minimal fallback
+       }
+    }
 
     $owned_items      = sd_get_owned_items($link, $user_id);
     $alliance_bonuses = sd_compute_alliance_bonuses($link, $user_stats);
 
     // upgrades (economy)
     $economy_pct = 0.0;
-    for ($i = 1, $n = (int)($user_stats['economy_upgrade_level'] ?? 0); $i <= $n; $i++) {
-        $economy_pct += (float)($upgrades['economy']['levels'][$i]['bonuses']['income'] ?? 0);
+    $economy_upgrade_level = (int)($user_stats['economy_upgrade_level'] ?? 0);
+    if (isset($upgrades['economy']['levels']) && is_array($upgrades['economy']['levels'])) {
+        for ($i = 1; $i <= $economy_upgrade_level; $i++) {
+            if (isset($upgrades['economy']['levels'][$i]['bonuses']['income'])) {
+                $economy_pct += (float)$upgrades['economy']['levels'][$i]['bonuses']['income'];
+            }
+        }
     }
 
-    // separate upgrade vs health multipliers (so we can expose a pre-structure "base")
+    // separate upgrade vs health multipliers
     $economy_mult_upgrades = 1.0 + ($economy_pct / 100.0);
     $economy_struct_mult   = function_exists('ss_structure_output_multiplier_by_key')
         ? ss_structure_output_multiplier_by_key($link, $user_id, 'economy')
         : 1.0;
     $economy_mult = $economy_mult_upgrades * $economy_struct_mult;
 
-    // population upgrades -> citizens_per_turn (apply structure health before alliance add-ons)
+    // population upgrades -> citizens_per_turn
     $citizens_per_turn = $CITIZENS_BASE;
-    for ($i = 1, $n = (int)($user_stats['population_level'] ?? 0); $i <= $n; $i++) {
-        $citizens_per_turn += (int)($upgrades['population']['levels'][$i]['bonuses']['citizens'] ?? 0);
+    $population_level = (int)($user_stats['population_level'] ?? 0);
+    if (isset($upgrades['population']['levels']) && is_array($upgrades['population']['levels'])) {
+        for ($i = 1; $i <= $population_level; $i++) {
+            if (isset($upgrades['population']['levels'][$i]['bonuses']['citizens'])) {
+                $citizens_per_turn += (int)$upgrades['population']['levels'][$i]['bonuses']['citizens'];
+            }
+        }
     }
-    $citizens_per_turn_base = (int)$citizens_per_turn; // pre-structure, pre-alliance
+    $citizens_per_turn_base = (int)$citizens_per_turn;
     $population_struct_mult = function_exists('ss_structure_output_multiplier_by_key')
         ? ss_structure_output_multiplier_by_key($link, $user_id, 'population')
         : 1.0;
@@ -263,339 +292,111 @@ function calculate_income_summary(mysqli $link, int $user_id, array $user_stats)
     $worker_armory_bonus = sd_worker_armory_income_bonus($owned_items, $workers);
     $worker_income = ($workers * $CREDITS_PER_WORKER) + $worker_armory_bonus;
 
-    // alliance multipliers (already collapsed to "one per category")
-    $alli_income_mult   = 1.0 + ((float)$alliance_bonuses['income']    / 100.0);
-    $alli_resource_mult = 1.0 + ((float)$alliance_bonuses['resources'] / 100.0);
+    // alliance multipliers
+    $alli_income_mult   = 1.0 + ((float)($alliance_bonuses['income']    / 100.0));
+    $alli_resource_mult = 1.0 + ((float)($alliance_bonuses['resources'] / 100.0));
 
     // income before structure & maintenance
     $base_income = $BASE_INCOME_PER_TURN + $worker_income;
 
-    // pre-structure "base" (all other multipliers included), used for analytics/UI
+    // pre-structure "base"
     $income_per_turn_base = (int)floor(
         $base_income * $wealth_mult * $economy_mult_upgrades * $alli_income_mult * $alli_resource_mult
         + (int)$alliance_bonuses['credits']
     );
 
-    // apply structure to the multiplicative part only
+    // apply structure
     $income_pre_maintenance = (int)floor(
         $base_income * $wealth_mult * $economy_mult * $alli_income_mult * $alli_resource_mult
         + (int)$alliance_bonuses['credits']
     );
 
-    // --- per-turn unit maintenance (tuneable via config/balance.php or ENV) ---
-    // Not affected by structure health.
-    $m = function_exists('sd_unit_maintenance') ? sd_unit_maintenance() : [
-        'soldiers' => defined('SD_MAINT_SOLDIER') ? SD_MAINT_SOLDIER : 10,
-        'sentries' => defined('SD_MAINT_SENTRY')  ? SD_MAINT_SENTRY  : 5,
-        'guards'   => defined('SD_MAINT_GUARD')   ? SD_MAINT_GUARD   : 5,
-        'spies'    => defined('SD_MAINT_SPY')     ? SD_MAINT_SPY     : 15,
-    ];
+    // --- TROOP Maintenance ---
+    $m = function_exists('sd_unit_maintenance') ? sd_unit_maintenance() : [];
     $soldiers = (int)($user_stats['soldiers'] ?? 0);
     $guards   = (int)($user_stats['guards']   ?? 0);
     $sentries = (int)($user_stats['sentries'] ?? 0);
     $spies    = (int)($user_stats['spies']    ?? 0);
+    $maintenance_troops_per_turn =
+          ($soldiers * (int)($m['soldiers'] ?? 10))  // Added defaults
+        + ($sentries * (int)($m['sentries'] ?? 5))
+        + ($guards   * (int)($m['guards']   ?? 5))
+        + ($spies    * (int)($m['spies']    ?? 15));
 
-    $maintenance_per_turn =
-          ($soldiers * (int)$m['soldiers'])
-        + ($sentries * (int)$m['sentries'])
-        + ($guards   * (int)$m['guards'])
-        + ($spies    * (int)$m['spies']);
+    // --- VAULT Maintenance ---
+    $maintenance_vault_per_turn = 0; // Default
+    if (class_exists('VaultEconomyService') && method_exists('VaultEconomyService', 'getVaultMaintenancePerTurn')) {
+        $vault_maint_val = VaultEconomyService::getVaultMaintenancePerTurn($link, $user_id);
+        if (is_int($vault_maint_val) && $vault_maint_val >= 0) {
+             $maintenance_vault_per_turn = $vault_maint_val;
+        } else { $maintenance_vault_per_turn = -1; } // Indicate failure
+    } else { $maintenance_vault_per_turn = -1; } // Indicate service unavailable
 
-    $income_per_turn = $income_pre_maintenance - $maintenance_per_turn;
+    // --- TOTAL Maintenance and NET Income ---
+    $valid_vault_maint = max(0, $maintenance_vault_per_turn); // Ensure non-negative
+    $maintenance_total_per_turn = $maintenance_troops_per_turn + $valid_vault_maint;
+    $income_per_turn = $income_pre_maintenance - $maintenance_total_per_turn; // FINAL NET INCOME
 
-    // ---------------- UI helpers: ONLY the buffs used (for pills) ----------------
+    // --- UI Helpers: Active Pills ---
     $active_pills_economy = [];
+    if ((int)$alliance_bonuses['credits'] > 0) { $active_pills_economy[] = ['type'=>'flat','category'=>'alliance','label'=>'+'.number_format((int)$alliance_bonuses['credits']).' alliance (flat)','value'=>(int)$alliance_bonuses['credits']]; }
+    if ($worker_armory_bonus > 0) { $active_pills_economy[] = ['type'=>'flat','category'=>'armory','label'=>'+'.number_format($worker_armory_bonus).' armory (flat)','value'=>(int)$worker_armory_bonus]; }
+    if (!empty($alliance_bonuses['__sources']['income']) && ($alliance_bonuses['__sources']['income']['value'] ?? 0) > 0) { $src = $alliance_bonuses['__sources']['income']; $active_pills_economy[] = ['type'=>'pct','category'=>'alliance_income','label'=>'+'.number_format((float)$src['value'],0).'% '.($src['name']??'Alliance Income'),'value'=>(float)$src['value'],'key'=>$src['key']??null]; }
+    if (!empty($alliance_bonuses['__sources']['resources']) && ($alliance_bonuses['__sources']['resources']['value'] ?? 0) > 0) { $src = $alliance_bonuses['__sources']['resources']; $active_pills_economy[] = ['type'=>'pct','category'=>'alliance_resources','label'=>'+'.number_format((float)$src['value'],0).'% '.($src['name']??'Alliance Resources'),'value'=>(float)$src['value'],'key'=>$src['key']??null]; }
+    if ($economy_pct > 0) { $active_pills_economy[] = ['type'=>'pct','category'=>'upgrades','label'=>'+'.number_format($economy_pct,0).'% upgrades','value'=>(float)$economy_pct]; }
+    $wealth_points = (float)($user_stats['wealth_points'] ?? 0.0); if ($wealth_points >= 1) { $active_pills_economy[] = ['type'=>'pct','category'=>'wealth','label'=>'+'.number_format($wealth_points,0).'% Wealth','value'=>$wealth_points]; }
+    if ($economy_struct_mult < 1.0) { $integrity_penalty_pct = (1.0 - $economy_struct_mult) * 100.0; if ($integrity_penalty_pct >= 1) { $active_pills_economy[] = ['type'=>'pct','category'=>'integrity','label'=>'-'.number_format($integrity_penalty_pct,0).'% Integrity','value'=>-$integrity_penalty_pct]; } }
 
-    // alliance flat (credits)
-    if ((int)$alliance_bonuses['credits'] > 0) {
-        $active_pills_economy[] = [
-            'type'     => 'flat',
-            'category' => 'alliance',
-            'label'    => '+' . number_format((int)$alliance_bonuses['credits']) . ' alliance (flat)',
-            'value'    => (int)$alliance_bonuses['credits'],
-        ];
-    }
-
-    // armory flat (workers)
-    if ($worker_armory_bonus > 0) {
-        $active_pills_economy[] = [
-            'type'     => 'flat',
-            'category' => 'armory',
-            'label'    => '+' . number_format($worker_armory_bonus) . ' armory (flat)',
-            'value'    => (int)$worker_armory_bonus,
-        ];
-    }
-
-    // highest alliance income %
-    if (!empty($alliance_bonuses['__sources']['income']) && $alliance_bonuses['__sources']['income']['value'] > 0) {
-        $src = $alliance_bonuses['__sources']['income'];
-        $active_pills_economy[] = [
-            'type'     => 'pct',
-            'category' => 'alliance_income',
-            'label'    => '+' . (int)$src['value'] . '% ' . $src['name'],
-            'value'    => (float)$src['value'],
-            'key'      => $src['key'],
-        ];
-    }
-
-    // highest alliance resources %
-    if (!empty($alliance_bonuses['__sources']['resources']) && $alliance_bonuses['__sources']['resources']['value'] > 0) {
-        $src = $alliance_bonuses['__sources']['resources'];
-        $active_pills_economy[] = [
-            'type'     => 'pct',
-            'category' => 'alliance_resources',
-            'label'    => '+' . (int)$src['value'] . '% ' . $src['name'],
-            'value'    => (float)$src['value'],
-            'key'      => $src['key'],
-        ];
-    }
-
-    // economy upgrades % (total)
-    if ($economy_pct > 0) {
-        $active_pills_economy[] = [
-            'type'     => 'pct',
-            'category' => 'upgrades',
-            'label'    => '+' . (int)$economy_pct . '% upgrades',
-            'value'    => (float)$economy_pct,
-        ];
-    }
-
+    // --- RETURN Array ---
     return [
-        'income_per_turn'           => (int)$income_per_turn,         // includes structure + maintenance
-        'citizens_per_turn'         => (int)$citizens_per_turn,       // includes structure
+        'income_per_turn'           => (int)$income_per_turn,         // FINAL NET INCOME
+        'citizens_per_turn'         => (int)$citizens_per_turn,
         'includes_struct_scaling'   => true,
-        'income_per_turn_base'      => (int)$income_per_turn_base,    // pre-structure, pre-maintenance
+        'income_per_turn_base'      => (int)$income_per_turn_base,    // Pre-structure, pre-maint
         'citizens_per_turn_base'    => (int)$citizens_per_turn_base,
-        'maintenance_per_turn'      => (int)$maintenance_per_turn,
+        'maintenance_troops_per_turn' => (int)$maintenance_troops_per_turn,
+        'maintenance_vault_per_turn'  => (int)$maintenance_vault_per_turn, // Can be -1
+        'maintenance_total_per_turn'  => (int)$maintenance_total_per_turn, // Troop + Valid Vault
+        'maintenance_per_turn'      => (int)$maintenance_total_per_turn, // Legacy key
         'base_income_per_turn'      => (int)$BASE_INCOME_PER_TURN,
         'worker_income'             => (int)$worker_income,
         'worker_armory_bonus'       => (int)$worker_armory_bonus,
-        'base_income_subtotal'      => (int)$base_income,            // base + workers (pre-mult)
+        'base_income_subtotal'      => (int)$base_income,
         'workers'                   => (int)$workers,
         'credits_per_worker'        => (int)$CREDITS_PER_WORKER,
         'economy_mult_upgrades'     => $economy_mult_upgrades,
         'economy_struct_mult'       => $economy_struct_mult,
-        'mult' => [
-            'wealth'             => $wealth_mult,
-            'economy'            => $economy_mult,
-            'alliance_income'    => $alli_income_mult,
-            'alliance_resources' => $alli_resource_mult,
-        ],
+        'mult' => [ 'wealth' => $wealth_mult, 'economy' => $economy_mult, 'alliance_income' => $alli_income_mult, 'alliance_resources' => $alli_resource_mult ],
         'alliance_additive_credits' => (int)$alliance_bonuses['credits'],
-
-        // NEW: explicitly expose the alliance sources chosen for percent categories
-        'alliance_sources' => [
-            'income'    => $alliance_bonuses['__sources']['income']    ?? null,
-            'resources' => $alliance_bonuses['__sources']['resources'] ?? null,
-            'offense'   => $alliance_bonuses['__sources']['offense']   ?? null,
-            'defense'   => $alliance_bonuses['__sources']['defense']   ?? null,
-        ],
-
-        // NEW: pills you can render directly on the Economic Overview card
+        'alliance_sources' => [ 'income' => $alliance_bonuses['__sources']['income']??null, 'resources' => $alliance_bonuses['__sources']['resources']??null, 'offense' => $alliance_bonuses['__sources']['offense']??null, 'defense' => $alliance_bonuses['__sources']['defense']??null ],
         'active_pills_economy' => $active_pills_economy,
     ];
 }
 
-/**
- * Int-only helper for legacy callers.
- */
+// Helper function uses the updated canonical function
 function calculate_income_per_turn(mysqli $link, int $user_id, array $user_stats): int {
     $s = calculate_income_summary($link, $user_id, $user_stats);
-    return (int)$s['income_per_turn'];
+    return (int)$s['income_per_turn']; // This now includes vault maint
 }
 
 /* ────────────────────────────────────────────────────────────────────────────
- * OFFLINE TURN PROCESSOR (page load) — now vault-cap aware with burn + logging
+ * OFFLINE "CATCH-UP" (page load)
+ *
+ * This function now ONLY handles immediate user-facing actions on page load,
+ * such as releasing units from the 30-minute assassination lock.
+ *
+ * All resource generation (credits, citizens, turns) and maintenance/fatigue
+ * is now handled *exclusively* by the TurnProcessor.php cron job to
+ * prevent dual-calculation bugs and race conditions.
  * ──────────────────────────────────────────────────────────────────────────*/
 function process_offline_turns(mysqli $link, int $user_id): void {
     // release any completed 30m conversions
     release_untrained_units($link, $user_id);
 
-    // Pull balances we need for logging too (banked + gems)
-    $sql_check = "SELECT id, last_updated, credits, banked_credits, gemstones,
-                         workers, wealth_points, economy_upgrade_level, population_level, alliance_id,
-                         soldiers, guards, sentries, spies
-                    FROM users WHERE id = ?";
-    if ($stmt_check = mysqli_prepare($link, $sql_check)) {
-        mysqli_stmt_bind_param($stmt_check, "i", $user_id);
-        mysqli_stmt_execute($stmt_check);
-        $user = mysqli_fetch_assoc(mysqli_stmt_get_result($stmt_check));
-        mysqli_stmt_close($stmt_check);
-
-        if (!$user) return;
-
-        $turn_interval_minutes = 10;
-        // `last_updated` in DB is UTC; make a UTC DateTime for "now"
-        $last_updated = new DateTime($user['last_updated']);
-        $now = new DateTime('now', new DateTimeZone('UTC'));
-        $minutes_since = ($now->getTimestamp() - $last_updated->getTimestamp()) / 60;
-        $turns_to_process = (int)floor($minutes_since / $turn_interval_minutes);
-
-        if ($turns_to_process <= 0) return;
-
-        // unified calculator
-        $summary = calculate_income_summary($link, $user_id, $user);
-        $income_per_turn   = (int)$summary['income_per_turn'];
-        $citizens_per_turn = (int)$summary['citizens_per_turn'];
-
-        $gained_credits      = $income_per_turn   * $turns_to_process; // non-negative
-        $gained_citizens     = $citizens_per_turn * $turns_to_process;
-        $gained_attack_turns = $turns_to_process * 2;
-
-        // ── vault-cap computation (read active_vaults; constant from VaultService if present)
-        $active_vaults = 1;
-        if ($stmt_v = mysqli_prepare($link, "SELECT active_vaults FROM user_vaults WHERE user_id = ?")) {
-            mysqli_stmt_bind_param($stmt_v, "i", $user_id);
-            mysqli_stmt_execute($stmt_v);
-            $row_v = mysqli_fetch_assoc(mysqli_stmt_get_result($stmt_v));
-            mysqli_stmt_close($stmt_v);
-            if ($row_v && isset($row_v['active_vaults'])) {
-                $active_vaults = max(1, (int)$row_v['active_vaults']);
-            }
-        }
-
-        // Try to read VaultService capacity, else fallback
-        $cap_per_vault = 3000000000; // fallback: 3B credits per vault
-        $vaultServicePath = __DIR__ . '/../Services/VaultService.php';
-        if (!class_exists('\\StellarDominion\\Services\\VaultService') && file_exists($vaultServicePath)) {
-            require_once $vaultServicePath;
-        }
-        if (class_exists('\\StellarDominion\\Services\\VaultService') &&
-            defined('\\StellarDominion\\Services\\VaultService::BASE_VAULT_CAPACITY')) {
-            /** @noinspection PhpUndefinedClassConstantInspection */
-            $cap_per_vault = (int)\StellarDominion\Services\VaultService::BASE_VAULT_CAPACITY;
-        }
-
-        $vault_cap       = (int)$cap_per_vault * max(1, $active_vaults);
-        $on_hand_before  = (int)$user['credits'];
-        $banked_before   = (int)$user['banked_credits'];
-        $gems_before     = (int)$user['gemstones'];
-        $headroom        = max(0, $vault_cap - $on_hand_before);
-
-        // Cap-aware grant + burn
-        $granted_credits = (int)min($gained_credits, $headroom);
-        $burned_over_cap = (int)max(0, $gained_credits - $granted_credits);
-
-        $utc_now = gmdate('Y-m-d H:i:s');
-        // UPDATE: we add only the *granted* amount (not full gained_credits)
-        $sql_upd = "UPDATE users
-               SET attack_turns = attack_turns + ?,
-                   untrained_citizens = untrained_citizens + ?,
-                   credits = credits + ?,
-                   last_updated = ?
-             WHERE id = ?";
-        if ($stmt_upd = mysqli_prepare($link, $sql_upd)) {
-            // Compute maintenance/fatigue math (unchanged)
-            $summary = calculate_income_summary($link, (int)$user['id'], $user);
-            $income_per_turn    = (int)($summary['income_per_turn']    ?? 0);
-            $maintenance_per_turn = (int)($summary['maintenance_per_turn'] ?? 0);
-            $income_pre_maint   = $income_per_turn + $maintenance_per_turn;
-            $T                  = (int)$turns_to_process;
-
-            $credits_before   = (int)$user['credits'];
-            $maint_total      = max(0, $maintenance_per_turn * $T);
-            $funds_available  = $credits_before + ($income_pre_maint * $T);
-
-            // 1) apply capped credits/citizens/turns update
-            mysqli_stmt_bind_param($stmt_upd, "iiisi",
-                $gained_attack_turns, $gained_citizens, $granted_credits, $utc_now, $user_id
-            );
-            mysqli_stmt_execute($stmt_upd);
-            mysqli_stmt_close($stmt_upd);
-
-            // 1b) log the idle income + any burn (one compact row)
-            // on_hand_after = before + granted_credits
-            $on_hand_after = $on_hand_before + $granted_credits;
-            $banked_after  = $banked_before; // unchanged here
-            $gems_after    = $gems_before;   // unchanged here
-
-            if ($gained_credits > 0) {
-                $metadata = json_encode([
-                    'turns_processed'   => $T,
-                    'income_per_turn'   => $income_per_turn,
-                    'active_vaults'     => $active_vaults,
-                    'cap_per_vault'     => $cap_per_vault,
-                    'vault_cap_total'   => $vault_cap,
-                    'headroom_before'   => $headroom,
-                    'gross_gain'        => $gained_credits,
-                    'granted'           => $granted_credits,
-                    'burned'            => $burned_over_cap,
-                    'burn_reason'       => 'vault_cap'
-                ], JSON_UNESCAPED_SLASHES);
-
-                $stmt_econ = mysqli_prepare(
-                    $link,
-                    "INSERT INTO economic_log
-                        (user_id, event_type, amount, burned_amount, on_hand_before, on_hand_after, banked_before, banked_after, gems_before, gems_after, reference_id, metadata)
-                     VALUES (?, 'idle_income', ?, ?, ?, ?, ?, ?, ?, ?, NULL, ?)"
-                );
-                // 9 ints + 1 string => "iiiiiiiiis"
-                mysqli_stmt_bind_param(
-                    $stmt_econ,
-                    "iiiiiiiiis",
-                    $user_id,
-                    $granted_credits,
-                    $burned_over_cap,
-                    $on_hand_before,
-                    $on_hand_after,
-                    $banked_before,
-                    $banked_after,
-                    $gems_before,
-                    $gems_after,
-                    $metadata
-                );
-                mysqli_stmt_execute($stmt_econ);
-                mysqli_stmt_close($stmt_econ);
-            }
-
-            // 2) fatigue purge if unpaid maintenance remains (unchanged logic)
-            if ($maint_total > 0 && $funds_available < $maint_total) {
-                $unpaid_ratio = ($maint_total - $funds_available) / $maint_total; // 0..1
-                if ($unpaid_ratio > 0) {
-                    $purge_ratio = min(1.0, $unpaid_ratio) * (defined('SD_FATIGUE_PURGE_PCT') ? SD_FATIGUE_PURGE_PCT : 0.01);
-                    $soldiers = (int)($user['soldiers'] ?? 0);
-                    $guards   = (int)($user['guards']   ?? 0);
-                    $sentries = (int)($user['sentries'] ?? 0);
-                    $spies    = (int)($user['spies']    ?? 0);
-                    $total_troops = $soldiers + $guards + $sentries + $spies;
-
-                    $purge_soldiers = (int)floor($soldiers * $purge_ratio);
-                    $purge_guards   = (int)floor($guards   * $purge_ratio);
-                    $purge_sentries = (int)floor($sentries * $purge_ratio);
-                    $purge_spies    = (int)floor($spies    * $purge_ratio);
-
-                    if (($purge_soldiers + $purge_guards + $purge_sentries + $purge_spies) === 0 && $total_troops > 0) {
-                        $maxType = 'soldiers'; $maxVal = $soldiers;
-                        if ($guards   > $maxVal) { $maxType = 'guards';   $maxVal = $guards; }
-                        if ($sentries > $maxVal) { $maxType = 'sentries'; $maxVal = $sentries; }
-                        if ($spies    > $maxVal) { $maxType = 'spies';    $maxVal = $spies; }
-                        switch ($maxType) {
-                            case 'guards':   $purge_guards   = min(1, $guards);   break;
-                            case 'sentries': $purge_sentries = min(1, $sentries); break;
-                            case 'spies':    $purge_spies    = min(1, $spies);    break;
-                            default:         $purge_soldiers = min(1, $soldiers);  break;
-                        }
-                    }
-
-                    if ($purge_soldiers + $purge_guards + $purge_sentries + $purge_spies > 0) {
-                        $sql_purge = "UPDATE users
-                                         SET soldiers = GREATEST(0, soldiers - ?),
-                                             guards   = GREATEST(0, guards   - ?),
-                                             sentries = GREATEST(0, sentries - ?),
-                                             spies    = GREATEST(0, spies    - ?)
-                                       WHERE id = ?";
-                        if ($stmt_purge = mysqli_prepare($link, $sql_purge)) {
-                            mysqli_stmt_bind_param($stmt_purge, "iiiii",
-                                $purge_soldiers, $purge_guards, $purge_sentries, $purge_spies, $user_id
-                            );
-                            mysqli_stmt_execute($stmt_purge);
-                            mysqli_stmt_close($stmt_purge);
-                        }
-                    }
-               }
-            }
-        }
-    }
+    // All other logic (credit/citizen/turn granting, maintenance,
+    // fatigue, and vault-cap logging) has been removed.
+    // The main cron job (TurnProcessor.php) is now the single
+    // source of truth for all turn-based resource processing.
 }
 
 /* ────────────────────────────────────────────────────────────────────────────
@@ -724,6 +525,3 @@ if (!function_exists('format_big_number')) {
         return $formatted . $suffix;
     }
 }
-
-
-

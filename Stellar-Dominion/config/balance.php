@@ -99,3 +99,17 @@ if (!function_exists('sd_charisma_discount_multiplier')) {
 if (!defined('ALLIANCE_BASE_COMBAT_BONUS')) {
     define('ALLIANCE_BASE_COMBAT_BONUS', 0.10); // 10%
 }
+
+// --- BLACK MARKET ---
+// Defines the conversion rates for the currency exchange
+define('BLACK_MARKET_SETTINGS', [
+    // 100 Credits -> 90 Gemstones (10% fee)
+    'CREDITS_TO_GEMS' => [
+        'NUMERATOR'   => 90,
+        'DENOMINATOR' => 100,
+    ],
+    // 100 Gemstones -> 85 Credits (15% fee)
+    'GEMS_TO_CREDITS' => [
+        'PER_100' => 85,
+    ],
+]);
