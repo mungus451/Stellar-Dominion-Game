@@ -114,7 +114,11 @@ final class CosmicRollService
                     VALUES
                       (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 ");
-                $stmt->bind_param("isiisssiiiis", 
+                
+                // ---- START FIX ----
+                // The 12th parameter ($user_gems_after) must be an integer 'i', not a string 's'.
+                $stmt->bind_param("isiisssiiiii", 
+                // ---- END FIX ----
                     $userId, $selectedSymbol, $betGemstones, $betGemstones, $result,
                     $reel1, $reel2, $reel3, $matches, $houseNet,
                     $beforeGems, $afterGems
