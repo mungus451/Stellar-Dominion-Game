@@ -21,7 +21,7 @@
     const spinButton = gameScope.querySelector('#spin-button');
     const clearButton = gameScope.querySelector('#clear-button');
 
-    // Game State from PHP
+    // Game State from PHP (provided by quantum_roulette_view.php)
     let gemstones = <?php echo (int)($me['gemstones'] ?? 0); ?>;
     let playerLevel = <?php echo (int)($me['level'] ?? 1); ?>;
 
@@ -145,11 +145,11 @@
         showMessage('Particle is in superposition... No more bets!', 'var(--glow-cyan)');
 
         try {
-            const response = await fetch('/api/black_market.php', {
+            const response = await fetch('/quantum_roulette.php', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
-                    op: 'roulette_spin',
+                    op: 'quantum_roulette_spin', // This 'op' is used as the CSRF action
                     bets: bets,
                     // --- CSRF TOKEN SENT ---
                     csrf_token: current_csrf_token
@@ -178,15 +178,18 @@
             // --- END CSRF TOKEN BLOCK ---
 
 
-            if (!data.ok || !data.result) {
+            // ---- START FIX: Check for 'data.ok' and use 'data' as the result ----
+            if (!data.ok) {
                 // Handle 'invalid_csrf' error specifically
-                if (data.error === 'invalid_csrf') {
+                if (data.error === 'invalid_csrf' || (data.error && data.error.includes('Invalid security token'))) {
                      throw new Error('Security token mismatch. Please spin again.');
                 }
                 throw new Error(data.error || 'Invalid server response.');
             }
 
-            const result = data.result;
+            // The 'result' is the 'data' object itself, not data.result
+            const result = data; 
+            // ---- END FIX ----
 
             // Update max bet from server response
             if (result.calculated_max_bet) {
@@ -222,8 +225,12 @@
         } catch (error) {
             console.error('Spin error:', error);
             showMessage(`Error: ${error.message}. Bets refunded.`, 'var(--glow-red)');
-            // Refund the bet to the UI (server didn't process it)
-            gemstones += calculateTotalBet();
+            
+            // ---- START FIX: Remove redundant refund ----
+            // The clearBets() function already handles the refund.
+            // gemstones += calculateTotalBet(); // This was refunding twice
+            // ---- END FIX ----
+            
             isSpinning = false;
             // Clear bets after refunding
             clearBets(); 
@@ -244,6 +251,19 @@
         if (mainGems) {
             mainGems.textContent = new Intl.NumberFormat().format(gemstones);
         }
+        
+        // --- START FIX ---
+        // Also update the header gemstone displays
+        const headerGems = document.getElementById('header-gemstones-display');
+        if (headerGems) {
+            headerGems.textContent = new Intl.NumberFormat().format(gemstones);
+        }
+        const headerGemsMobile = document.getElementById('header-gemstones-display-mobile');
+        if (headerGemsMobile) {
+            headerGemsMobile.textContent = new Intl.NumberFormat().format(gemstones);
+        }
+        // --- END FIX ---
+
 
         bets = {};
         gameScope.querySelectorAll('.chip').forEach(chip => chip.remove());

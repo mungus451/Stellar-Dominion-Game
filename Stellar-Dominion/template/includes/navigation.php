@@ -75,7 +75,8 @@ $sub_nav_links = [
     'STRUCTURES' => [
         // 'Black Market' => '/black_market.php', // <-- REMOVED
         'Currency Converter' => '/converter.php',
-        'COSMIC ROLL' => '/cosmic_roll.php'
+        'COSMIC ROLL' => '/cosmic_roll.php',
+        'QUANTUM ROULETTE' => '/quantum_roulette.php' // <-- ADDED
     ],
     'COMMUNITY' => [
         'News' => '/community.php',
@@ -111,7 +112,7 @@ if (in_array($active_page, ['battle.php', 'attack.php', 'war_history.php', 'spy_
     'war_declaration.php', 'view_alliances.php', 'view_alliance.php', 'realm_war.php', 'alliance_war_history.php'
 ])) {
     $active_main_category = 'ALLIANCE';
-} elseif (in_array($active_page, ['structures.php', 'cosmic_roll.php'])) { // <-- MODIFIED
+} elseif (in_array($active_page, ['structures.php', 'cosmic_roll.php', 'quantum_roulette.php'])) { // <-- MODIFIED
     $active_main_category = 'STRUCTURES';
 } elseif (in_array($active_page, ['community.php', 'stats.php', 'war_leaderboard.php'])) {
     $active_main_category = 'COMMUNITY';

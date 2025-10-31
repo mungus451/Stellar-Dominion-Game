@@ -346,6 +346,26 @@ if ($request_uri === '/cosmic_roll' || $request_uri === '/cosmic_roll.php') {
     exit; 
 }
 
+// -----------------------------------------------------------------------------
+// 4.I) NEW: SPECIAL-CASE: QUANTUM ROULETTE CONTROLLER (GET/POST)
+// -----------------------------------------------------------------------------
+if ($request_uri === '/quantum_roulette' || $request_uri === '/quantum_roulette.php') {
+    
+    // 1. Include the new controller and its dependencies
+    require_once __DIR__ . '/../src/Controllers/QuantumRouletteController.php';
+    require_once __DIR__ . '/../src/Services/QuantumRouletteService.php';
+    require_once __DIR__ . '/../src/Security/CSRFProtection.php';
+
+    // 2. Instantiate the controller (pass the global $link)
+    $controller = new QuantumRouletteController($link); 
+    
+    // 3. Route to the correct method (controller handles GET/POST and auth itself)
+    $controller->handleRequest();
+    
+    // 4. Stop script execution.
+    exit; 
+}
+
 // ─────────────────────────────────────────────────────────────────────────────
 // 5) ROUTE TABLE: PUBLIC & AUTHENTICATED VIEWS + ACTION ENDPOINTS
 // ─────────────────────────────────────────────────────────────────────────────
@@ -503,7 +523,8 @@ $authenticated_routes = [
     '/realm_war', '/realm_war.php',
     '/war_leaderboard', '/war_leaderboard.php',
     '/alliance_war_history', '/alliance_war_history.php',
-    '/diplomacy', '/diplomacy.php', '/view_alliance', '/view_alliance.php'
+    '/diplomacy', '/diplomacy.php', '/view_alliance', '/view_alliance.php',
+    '/quantum_roulette', '/quantum_roulette.php'
 ];
 
 // ─────────────────────────────────────────────────────────────────────────────
