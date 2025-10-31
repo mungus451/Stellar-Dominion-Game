@@ -74,6 +74,7 @@ $sub_nav_links = [
     ],
     'STRUCTURES' => [
         // 'Black Market' => '/black_market.php', // <-- REMOVED
+        'Currency Converter' => '/converter.php',
         'COSMIC ROLL' => '/cosmic_roll.php'
     ],
     'COMMUNITY' => [
