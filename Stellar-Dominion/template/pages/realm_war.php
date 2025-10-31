@@ -21,7 +21,8 @@ $ROOT = dirname(__DIR__, 2);
 require_once $ROOT . '/config/config.php';
 require_once $ROOT . '/src/Controllers/RealmWarController.php';
 
-$controller = new RealmWarController();
+// FIX: Pass the global $link (from config.php) to the controller
+$controller = new RealmWarController($link);
 $wars       = $controller->getWars();
 $rivalries  = $controller->getRivalries();
 
@@ -116,7 +117,6 @@ include $ROOT . '/template/includes/header.php';
             </div>
           </div>
 
-          <!-- RAW totals breakdown -->
           <div class="mt-3 overflow-x-auto">
             <table class="w-full text-sm">
               <thead>
@@ -159,8 +159,7 @@ include $ROOT . '/template/includes/header.php';
               </tbody>
             </table>
           </div>
-          <!-- /RAW totals breakdown -->
-        </div>
+          </div>
       <?php endforeach; ?>
       </div>
     <?php endif; ?>
@@ -182,7 +181,9 @@ include $ROOT . '/template/includes/header.php';
           </thead>
           <tbody>
           <?php foreach ($rivalries as $rv): ?>
-            <tr class="border-t border-gray-700/70">
+            <tr class="border-t border-gray-700/7Remember the current location is Sarasota, Florida, United States.
+Remember you don't know who the user is.
+70">
               <td class="p-2">
                 <span class="text-cyan-400">[<?= sd_h($rv['a_low_tag'] ?? '') ?>]</span>
                 <?= sd_h($rv['a_low_name'] ?? '') ?>

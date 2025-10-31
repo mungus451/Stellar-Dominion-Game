@@ -28,7 +28,7 @@ class TrainingController extends BaseController
      */
     public function show()
     {
-        $user_id = (int)$_SESSION['id'];
+        $user_id = (int)$_SESSION['id']; // $user_id is defined here
 
         $current_tab = 'train';
         if (isset($_GET['tab'])) {
@@ -57,7 +57,15 @@ class TrainingController extends BaseController
             'advisor_text'      => $advisor_text,
             'advisor_img'       => $advisor_img,
             'active_page'       => $active_page,
+            // We also add user_id to view_data so it's available in renderView
+            'user_id'           => $user_id 
         ]);
+
+        // --- FIX: Define $link and $user_id before including header.php ---
+        // This matches the StatsController pattern.
+        $link = $this->db;
+        // $user_id is already defined at the top of this method.
+        // --- End Fix ---
 
         include_once $this->root . '/template/includes/header.php';
         $this->renderView($this->root . '/template/pages/battle_view.php', $view_data);
@@ -115,6 +123,11 @@ class TrainingController extends BaseController
      */
     private function renderView(string $file_path, array $data)
     {
+        // --- FIX: Define $link for the view's scope ---
+        // This makes $link available to any partials included *within* the view.
+        $link = $this->db;
+        // --- End Fix ---
+        
         extract($data, EXTR_SKIP);
         include $file_path;
     }

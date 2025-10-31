@@ -2,6 +2,50 @@
 if (session_status() == PHP_SESSION_NONE) {
     session_start();
 }
+
+global $link;
+
+$user_id = (int)($_SESSION['id'] ?? 0);
+
+// --- FIX: Check if connection is missing, invalid, OR closed ---
+// We suppress the error on mysqli_ping() with @
+// This handles the case where $link is a mysqli object that is already closed.
+if (!$link || !($link instanceof \mysqli) || !@mysqli_ping($link)) {
+    // If $link is bad or closed, we must reconnect.
+    // We use the constants defined in config/config.php
+    $link = mysqli_connect(DB_SERVER, DB_USERNAME, DB_PASSWORD, DB_NAME);
+
+    // Check if the reconnect failed
+    if ($link === false) {
+        // We can't proceed.
+        die("Critical Error: Database connection was closed and could not be re-established.");
+    }
+    
+    // We must set the timezone, just like config.php does
+    mysqli_query($link, "SET time_zone = '+00:00'");
+}
+// --- End Fix ---
+
+
+if ($user_id <= 0) {
+    // This prevents errors for logged-out users if this header is
+    // accidentally included on a public page that doesn't require login.
+    // We'll die here to prevent the fatal error from ss_process_and_get_user_state.
+    die('Critical Error: User ID not found in session for header.php.');
+}
+
+//--- DATA FETCHING ---
+$needed_fields = [
+    'credits','level','experience',
+    'soldiers','guards','sentries','spies','workers',
+    'armory_level','charisma_points',
+    'last_updated','attack_turns','untrained_citizens',
+    'strength_points', 'constitution_points', 'wealth_points', 'dexterity_points',
+    'fortification_level', 'offense_upgrade_level', 'defense_upgrade_level',
+    'economy_upgrade_level', 'population_level'
+];
+// This line is now safe, as $link is guaranteed to be a live connection.
+$user_stats = ss_process_and_get_user_state($link, $user_id, $needed_fields);
 ?>
 <!DOCTYPE html>
 <html lang="en" x-data="{ panels: { eco:true, mil:true, pop:true, fleet:true, sec:true, esp:true, structure: true, deposit: true, withdraw: true, transfer: true, history: true } }">

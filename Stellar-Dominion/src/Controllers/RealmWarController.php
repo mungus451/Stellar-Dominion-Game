@@ -17,20 +17,26 @@ class RealmWarController extends BaseController
     private const BADGE_WAR_PARTICIPANT = 'War Participant (Realm)';
     private const COMPOSITE_POINTS_PER_CATEGORY = 100; // kept for score, but UI shows raw totals
 
-    public function __construct()
+    /**
+     * FIX: The constructor must accept the database connection
+     * and pass it to the parent (BaseController).
+     *
+     * @param \mysqli $db_connection The database link
+     */
+    public function __construct($db_connection)
     {
-        parent::__construct();
+        parent::__construct($db_connection);
     }
 
     /**
      * Returns ALL active wars (AvA + PvP), enriched with:
-     *  - composite scores (0..300) for internal win logic
-     *  - RAW totals used by the page:
-     *      dec_credits / aga_credits
-     *      dec_units   / aga_units
-     *      dec_structure_battle / aga_structure_battle
-     *      dec_structure_spy    / aga_structure_spy
-     *      dec_structure        / aga_structure           (battle+spy, for completeness)
+     * - composite scores (0..300) for internal win logic
+     * - RAW totals used by the page:
+     * dec_credits / aga_credits
+     * dec_units   / aga_units
+     * dec_structure_battle / aga_structure_battle
+     * dec_structure_spy    / aga_structure_spy
+     * dec_structure        / aga_structure           (battle+spy, for completeness)
      */
     public function getWars(): array
     {
@@ -457,6 +463,8 @@ class RealmWarController extends BaseController
         return $b + $s;
     }
 
+
+
     private function sumStructureDamageUsers(int $attUser, int $defUser, string $since): int
     {
         return $this->sumStructureDamageBattleUsers($attUser, $defUser, $since)
@@ -475,7 +483,7 @@ class RealmWarController extends BaseController
         if (!$battle) return 0;
         $battle->bind_param('sii', $since, $attUser, $defUser);
         $battle->execute();
-        $b = (int)$battle->get_result()->fetch_assoc()['total'] ?? 0;
+        $b = (int)($battle->get_result()->fetch_assoc()['total'] ?? 0);
         $battle->close();
         return $b;
     }

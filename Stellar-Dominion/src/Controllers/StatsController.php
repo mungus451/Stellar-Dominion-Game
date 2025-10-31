@@ -4,7 +4,9 @@
  * Class StatsController
  *
  * Handles the logic for displaying the leaderboards (stats) page.
- * This follows the pattern of other new controllers like DashboardController.
+ * This controller renders the full page, including headers and footers,
+ * and selects the correct view (logged-in vs. public) based on session state.
+ * This follows the pattern of the DashboardController.
  */
 class StatsController
 {
@@ -27,20 +29,24 @@ class StatsController
      * Show the stats/leaderboards page.
      *
      * This method fetches all data, prepares it for the view,
-     * and then includes the view file to render the HTML.
+     * and then renders the entire page, including the correct
+     * header, view_fragment, and footer.
      */
     public function show()
     {
         // 1. Include necessary dependencies
-        // This script populates $user_stats, which is used by the advisor and view.
-        require_once __DIR__ . '/../../template/includes/advisor_hydration.php';
+        
+        // REMOVED: require_once advisor_hydration.php
+        // Your new header.php now handles this data fetching.
+        
         // Include the new repository to fetch data
         require_once __DIR__ . '/../Repositories/StatsRepository.php';
 
         // 2. Set up variables for the view
         $is_logged_in = isset($_SESSION["loggedin"]) && $_SESSION["loggedin"] === true;
         
-        // Get $user_stats from the included hydration script
+        // Get $user_stats from the session, which will be populated by header.php
+        // We set it to null here so the variable exists.
         $user_stats = $user_stats ?? null;
 
         // --- SEO and Page Config ---
@@ -50,12 +56,10 @@ class StatsController
         $active_page      = 'stats.php'; // Kept for navigation active state
 
         // 3. Fetch data from the Model (Repository)
-        // We must use the fully-qualified namespace
         $repository = new \StellarDominion\Repositories\StatsRepository($this->mysqli);
         $leaderboards = $repository->getAllLeaderboards();
 
         // 4. Prepare data for the View (splitting into columns)
-        // This presentation logic belongs in the controller.
         $lb_titles = array_keys($leaderboards);
         $lb_left  = [];
         $lb_right = [];
@@ -64,9 +68,38 @@ class StatsController
             else              { $lb_right[$title] = $leaderboards[$title]; }
         }
 
-        // 5. Render the View
-        // All variables defined above ($is_logged_in, $user_stats, $page_title,
-        // $lb_left, $lb_right, etc.) will be available in the view.
-        require_once __DIR__ . '/../../template/pages/stats_view.php';
+        // 5. Render the Full Page
+        // All variables defined above will be available in the included files.
+        
+        if ($is_logged_in) {
+            // Render the Logged-In Page
+            
+            // --- FIX: Define $link and $user_id before including header.php ---
+            $link = $this->mysqli;
+            $user_id = (int)($_SESSION['id'] ?? 0);
+            // --- End Fix ---
+
+            // Includes <html>, <head>, <body>, and navigation
+            // This file will now correctly receive $link and $user_id
+            require_once __DIR__ . '/../../template/includes/header.php'; 
+            
+            // This is the view file for logged-in users
+            require_once __DIR__ . '/../../template/pages/stats_view.php'; 
+            
+            // Includes </html>, </body>, and scripts
+            require_once __DIR__ . '/../../template/includes/footer.php'; 
+        
+        } else {
+            // Render the Public (Guest) Page
+            
+            // Includes <html>, <head>, <body>, and public navigation
+            require_once __DIR__ . '/../../template/includes/public_header.php';
+            
+            // This is the view file for guest users
+            require_once __DIR__ . '/../../template/pages/stats_view_public.php'; 
+            
+            // Includes </html>, </body>, and scripts
+            require_once __DIR__ . '/../../template/includes/public_footer.php';
+        }
     }
 }

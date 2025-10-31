@@ -31,5 +31,5 @@ mysqli_stmt_bind_param($stmt_threads, "i", $alliance_id);
 mysqli_stmt_execute($stmt_threads);
 $threads_result = mysqli_stmt_get_result($stmt_threads);
 
-mysqli_close($link);
+//mysqli_close($link);
 ?>
