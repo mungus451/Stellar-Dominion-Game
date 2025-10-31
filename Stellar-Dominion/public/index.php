@@ -133,6 +133,7 @@ if (($_SERVER['REQUEST_METHOD'] === 'POST') &&
 // ─────────────────────────────────────────────────────────────────────────────
 // 4.B) Black Market POST API (JSON)
 // ─────────────────────────────────────────────────────────────────────────────
+/*
 if (($_SERVER['REQUEST_METHOD'] === 'POST') &&
    ($request_uri === '/structures/black-market/convert/credits-to-gems' ||
     $request_uri === '/structures/black-market/convert/gems-to-credits' ||
@@ -150,7 +151,7 @@ if (($_SERVER['REQUEST_METHOD'] === 'POST') &&
     if (!isset($_SESSION["loggedin"]) || $_SESSION["loggedin"] !== true) {
         http_response_code(401);
         echo json_encode(['ok'=>false,'error'=>'unauthenticated']); exit;
-    }
+     }
 
     // CSRF (your implementation)
     $token  = $_POST['csrf_token']  ?? '';
@@ -197,7 +198,8 @@ if (($_SERVER['REQUEST_METHOD'] === 'POST') &&
         echo json_encode(['ok'=>false,'error'=>$e->getMessage()]);
     }
     exit;
-}
+} 
+*/
 
 // ─────────────────────────────────────────────────────────────────────────────
 // 4.C) SPECIAL-CASE: TRAINING CONTROLLER (GET/POST)
@@ -295,6 +297,55 @@ if ($request_uri === '/stats' || $request_uri === '/stats.php') {
     exit; 
 }
 
+// -----------------------------------------------------------------------------
+// 4.G) SPECIAL-CASE: CURRENCY CONVERTER
+// -----------------------------------------------------------------------------
+
+// FIX: Use $request_uri (defined in step 3) not $request_url
+// FIX: Use '/converter.php' as well to match your other routes
+if ($request_uri === '/converter' || $request_uri === '/converter.php') {
+
+    // 1. Include the new controller
+    require_once __DIR__ . '/../src/Controllers/ConverterController.php';
+    
+    // 2. Auth check (must be logged in to use this)
+    if (!isset($_SESSION["loggedin"]) || $_SESSION["loggedin"] !== true) {
+        header("location: /"); // Not logged in, redirect to landing
+        exit;
+    }
+    
+    // 3. Instantiate it
+    // FIX: $user_id is not defined here. We must use $_SESSION['id'].
+    $controller = new \StellarDominion\Controllers\ConverterController($link, (int)($_SESSION['id'] ?? 0));
+    
+    // 4. Run the controller's main method
+    // The controller itself will check if it's a GET or POST
+    $controller->handleRequest();
+    
+    // 5. Stop the script
+    exit;
+}
+
+// -----------------------------------------------------------------------------
+// 4.H) NEW: SPECIAL-CASE: COSMIC ROLL CONTROLLER (GET/POST)
+// -----------------------------------------------------------------------------
+if ($request_uri === '/cosmic_roll' || $request_uri === '/cosmic_roll.php') {
+    
+    // 1. Include the new controller and its dependencies
+    require_once __DIR__ . '/../src/Controllers/CosmicRollController.php';
+    require_once __DIR__ . '/../src/Services/CosmicRollService.php';
+    require_once __DIR__ . '/../src/Security/CSRFProtection.php';
+
+    // 2. Instantiate the controller (pass the global $link)
+    $controller = new CosmicRollController($link); 
+    
+    // 3. Route to the correct method (controller handles GET/POST and auth itself)
+    $controller->handleRequest();
+    
+    // 4. Stop script execution.
+    exit; 
+}
+
 // ─────────────────────────────────────────────────────────────────────────────
 // 5) ROUTE TABLE: PUBLIC & AUTHENTICATED VIEWS + ACTION ENDPOINTS
 // ─────────────────────────────────────────────────────────────────────────────
@@ -347,8 +398,6 @@ $routes = [
     '/gameplay.php'         => '../template/pages/gameplay.php',
     '/community'            => '../template/pages/community.php',
     '/community.php'        => '../template/pages/community.php',
-    //'/stats'                => '../template/pages/stats.php',
-    //'/stats.php'            => '../template/pages/stats.php',
     '/inspiration'          => '../template/pages/inspiration.php',
     '/inspiration.php'      => '../template/pages/inspiration.php',
     '/tutorial'             => '../template/pages/tutorial.php',
