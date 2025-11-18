@@ -1,3 +1,5 @@
+# repository for active development has moved to github.com/mungus451/starlight_v2 
+
 # Stellar Dominion
 
 **Live Site:** [www.stellar-dominion.com](https://www.stellar-dominion.com)
